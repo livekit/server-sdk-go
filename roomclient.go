@@ -96,7 +96,11 @@ func (c *RoomServiceClient) withAuth(ctx context.Context, grant auth.VideoGrant)
 		return nil, err
 	}
 
+	return twirp.WithHTTPRequestHeaders(ctx, newHeaderWithToken(token))
+}
+
+func newHeaderWithToken(token string) http.Header {
 	header := make(http.Header)
 	header.Set("Authorization", "Bearer "+token)
-	return twirp.WithHTTPRequestHeaders(ctx, header)
+	return header
 }
