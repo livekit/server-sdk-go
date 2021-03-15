@@ -1,7 +1,6 @@
 package sdk
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -101,6 +100,30 @@ func (c *SignalClient) JoinWithToken(urlPrefix string, token string) (*livekit.J
 	return join, nil
 }
 
+func (c *SignalClient) SendICECandidate(candidate webrtc.ICECandidateInit, target livekit.SignalTarget) error {
+	return c.SendRequest(&livekit.SignalRequest{
+		Message: &livekit.SignalRequest_Trickle{
+			Trickle: ToProtoTrickle(candidate, target),
+		},
+	})
+}
+
+func (c *SignalClient) SendOffer(sd webrtc.SessionDescription) error {
+	return c.SendRequest(&livekit.SignalRequest{
+		Message: &livekit.SignalRequest_Offer{
+			Offer: ToProtoSessionDescription(sd),
+		},
+	})
+}
+
+func (c *SignalClient) SendAnswer(sd webrtc.SessionDescription) error {
+	return c.SendRequest(&livekit.SignalRequest{
+		Message: &livekit.SignalRequest_Answer{
+			Answer: ToProtoSessionDescription(sd),
+		},
+	})
+}
+
 func (c *SignalClient) SendRequest(req *livekit.SignalRequest) error {
 	if c.conn == nil {
 		return errors.New("client is not connected")
@@ -185,42 +208,4 @@ func (c *SignalClient) readWorker() {
 		conn = c.conn
 		c.lock.Unlock()
 	}
-}
-
-func ToProtoSessionDescription(sd webrtc.SessionDescription) *livekit.SessionDescription {
-	return &livekit.SessionDescription{
-		Type: sd.Type.String(),
-		Sdp:  sd.SDP,
-	}
-}
-
-func FromProtoSessionDescription(sd *livekit.SessionDescription) webrtc.SessionDescription {
-	var sdType webrtc.SDPType
-	switch sd.Type {
-	case webrtc.SDPTypeOffer.String():
-		sdType = webrtc.SDPTypeOffer
-	case webrtc.SDPTypeAnswer.String():
-		sdType = webrtc.SDPTypeAnswer
-	case webrtc.SDPTypePranswer.String():
-		sdType = webrtc.SDPTypePranswer
-	case webrtc.SDPTypeRollback.String():
-		sdType = webrtc.SDPTypeRollback
-	}
-	return webrtc.SessionDescription{
-		Type: sdType,
-		SDP:  sd.Sdp,
-	}
-}
-
-func ToProtoTrickle(candidateInit webrtc.ICECandidateInit) *livekit.TrickleRequest {
-	data, _ := json.Marshal(candidateInit)
-	return &livekit.TrickleRequest{
-		CandidateInit: string(data),
-	}
-}
-
-func FromProtoTrickle(trickle *livekit.TrickleRequest) webrtc.ICECandidateInit {
-	ci := webrtc.ICECandidateInit{}
-	json.Unmarshal([]byte(trickle.CandidateInit), &ci)
-	return ci
 }

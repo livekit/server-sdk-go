@@ -54,6 +54,10 @@ func (t *PCTransport) PeerConnection() *webrtc.PeerConnection {
 	return t.pc
 }
 
+func (t *PCTransport) IsConnected() bool {
+	return t.pc.ICEConnectionState() == webrtc.ICEConnectionStateConnected
+}
+
 func (t *PCTransport) Close() {
 	t.pc.Close()
 }
