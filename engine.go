@@ -34,8 +34,8 @@ func NewRTCEngine() *RTCEngine {
 	}
 }
 
-func (e *RTCEngine) Join(url string, info ConnectInfo) (*livekit.JoinResponse, error) {
-	res, err := e.client.Join(url, info)
+func (e *RTCEngine) Join(url string, token string) (*livekit.JoinResponse, error) {
+	res, err := e.client.Join(url, token)
 	if err := e.configure(res); err != nil {
 		return nil, err
 	}
@@ -46,16 +46,15 @@ func (e *RTCEngine) Join(url string, info ConnectInfo) (*livekit.JoinResponse, e
 	return res, err
 }
 
-func (e *RTCEngine) JoinWithToken(url string, token string) (*livekit.JoinResponse, error) {
-	res, err := e.client.JoinWithToken(url, token)
-	if err := e.configure(res); err != nil {
-		return nil, err
+func (e *RTCEngine) Close() {
+	if e.publisher != nil {
+		e.publisher.Close()
+	}
+	if e.subscriber != nil {
+		e.subscriber.Close()
 	}
 
-	if err := e.waitUntilConnected(); err != nil {
-		return nil, err
-	}
-	return res, err
+	e.client.Close()
 }
 
 func (e *RTCEngine) IsConnected() bool {

@@ -8,7 +8,6 @@ import (
 	"sync/atomic"
 
 	"github.com/gorilla/websocket"
-	"github.com/livekit/protocol/auth"
 	"github.com/pion/webrtc/v3"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -44,26 +43,7 @@ func NewSignalClient() *SignalClient {
 	return c
 }
 
-func (c *SignalClient) Join(url string, info ConnectInfo) (*livekit.JoinResponse, error) {
-	// generate token
-	at := auth.NewAccessToken(info.APIKey, info.APISecret)
-	grant := &auth.VideoGrant{
-		RoomJoin: true,
-		Room:     info.RoomName,
-	}
-	at.AddGrant(grant).
-		SetIdentity(info.ParticipantIdentity).
-		SetMetadata(info.ParticipantMetadata)
-
-	token, err := at.ToJWT()
-	if err != nil {
-		return nil, err
-	}
-
-	return c.JoinWithToken(url, token)
-}
-
-func (c *SignalClient) JoinWithToken(urlPrefix string, token string) (*livekit.JoinResponse, error) {
+func (c *SignalClient) Join(urlPrefix string, token string) (*livekit.JoinResponse, error) {
 	u, err := url.Parse(urlPrefix + "/rtc")
 	if err != nil {
 		return nil, err
@@ -98,6 +78,12 @@ func (c *SignalClient) JoinWithToken(urlPrefix string, token string) (*livekit.J
 	go c.readWorker()
 
 	return join, nil
+}
+
+func (c *SignalClient) Close() {
+	if c.conn != nil {
+		c.conn.Close()
+	}
 }
 
 func (c *SignalClient) SendICECandidate(candidate webrtc.ICECandidateInit, target livekit.SignalTarget) error {
