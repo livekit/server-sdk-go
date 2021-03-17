@@ -12,10 +12,11 @@ import (
 
 // regenerate protobuf
 func Proto() error {
-	updated, err := target.Path("/proto/model.pb.go",
-		"../livekit-server/proto/model.proto",
-		"../livekit-server/proto/room.proto",
-		"../livekit-server/proto/rtc.proto",
+	protoDir := "../protocol"
+	updated, err := target.Path("proto/model.pb.go",
+		protoDir+"/model.proto",
+		protoDir+"/room.proto",
+		protoDir+"/rtc.proto",
 	)
 	if err != nil {
 		return err
@@ -36,8 +37,8 @@ func Proto() error {
 		"--twirp_out", target,
 		"--go_opt=paths=source_relative",
 		"--twirp_opt=paths=source_relative",
-		"-I=../livekit-server/proto",
-		"../livekit-server/proto/room.proto",
+		"-I="+protoDir,
+		protoDir+"/room.proto",
 	)
 	connectStd(cmd)
 	if err := cmd.Run(); err != nil {
@@ -48,9 +49,9 @@ func Proto() error {
 	cmd = exec.Command("protoc",
 		"--go_out", target,
 		"--go_opt=paths=source_relative",
-		"-I=../livekit-server/proto",
-		"../livekit-server/proto/rtc.proto",
-		"../livekit-server/proto/model.proto",
+		"-I="+protoDir,
+		protoDir+"/rtc.proto",
+		protoDir+"/model.proto",
 	)
 	connectStd(cmd)
 	if err := cmd.Run(); err != nil {

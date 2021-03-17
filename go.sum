@@ -51,6 +51,10 @@ github.com/livekit/protocol v0.1.0 h1:BBJFcnuXI0Q2yrLC40U92f7lIrjUEVriewmlNzPSfc
 github.com/livekit/protocol v0.1.0/go.mod h1:dB4MovJpCr9muBQAJUOhzgVqsrkHKf3/C0O6v/M08+I=
 github.com/livekit/protocol v0.1.1 h1:usRLnWYFsPK7GDii6bI7E/z510LMKAHkyaasOHKR/Z0=
 github.com/livekit/protocol v0.1.1/go.mod h1:CP+5gHoKelqXgYLSVUGB8QFYUKIqB26EXKbb/89Wofg=
+github.com/livekit/protocol v0.2.1 h1:kWZlkMxkuEfvrZa8NFqOCulybEL3eJr2lrq8OfrTLPg=
+github.com/livekit/protocol v0.2.1/go.mod h1:wo3CGfYB7XMF8GoVJAfTARrYSP/ombi+sbLl6AYdKP0=
+github.com/livekit/protocol v0.2.2 h1:XRcbreNYi8ReAICSsJ3QXzGKSNOz0LxnimAwz5hVSHQ=
+github.com/livekit/protocol v0.2.2/go.mod h1:wo3CGfYB7XMF8GoVJAfTARrYSP/ombi+sbLl6AYdKP0=
 github.com/lytics/base62 v0.0.0-20180808010106-0ee4de5a5d6d h1:HONlVR8gkr5QibYNVFtj8ajfqRAKt21DmdzeZXZl6VQ=
 github.com/lytics/base62 v0.0.0-20180808010106-0ee4de5a5d6d/go.mod h1:nFZ1y9JiUDciefRL0X6OTobqQGgFCR+lbnn1lWsoQk0=
 github.com/magefile/mage v1.11.0 h1:C/55Ywp9BpgVVclD3lRnSYCwXTYxmSppIgLeDYlNuls=

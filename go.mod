@@ -7,7 +7,7 @@ require (
 	github.com/go-logr/logr v0.4.0 // indirect
 	github.com/golang/protobuf v1.4.3
 	github.com/gorilla/websocket v1.4.2
-	github.com/livekit/protocol v0.1.1
+	github.com/livekit/protocol v0.2.2
 	github.com/lytics/base62 v0.0.0-20180808010106-0ee4de5a5d6d // indirect
 	github.com/magefile/mage v1.11.0
 	github.com/pion/transport v0.12.3 // indirect

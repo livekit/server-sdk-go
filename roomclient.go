@@ -88,6 +88,14 @@ func (c *RoomServiceClient) MutePublishedTrack(ctx context.Context, req *livekit
 	return c.RoomService.MutePublishedTrack(ctx, req)
 }
 
+func (c *RoomServiceClient) UpdateParticipantMetadata(ctx context.Context, req *livekit.UpdateParticipantMetadataRequest) (*livekit.ParticipantInfo, error) {
+	ctx, err := c.withAuth(ctx, auth.VideoGrant{RoomAdmin: true, Room: req.Target.Room})
+	if err != nil {
+		return nil, err
+	}
+	return c.RoomService.UpdateParticipantMetadata(ctx, req)
+}
+
 func (c *RoomServiceClient) withAuth(ctx context.Context, grant auth.VideoGrant) (context.Context, error) {
 	at := auth.NewAccessToken(c.apiKey, c.secretKey)
 	at.AddGrant(&grant)
