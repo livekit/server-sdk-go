@@ -1,4 +1,4 @@
-package sdk
+package lksdk
 
 import (
 	"github.com/go-logr/logr"

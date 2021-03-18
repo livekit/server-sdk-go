@@ -1,4 +1,4 @@
-package sdk
+package lksdk
 
 type TrackPublication struct {
 	Kind  TrackKind

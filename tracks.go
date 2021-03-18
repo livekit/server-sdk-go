@@ -1,4 +1,4 @@
-package sdk
+package lksdk
 
 import (
 	"github.com/pion/webrtc/v3"

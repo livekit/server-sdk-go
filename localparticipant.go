@@ -1,4 +1,4 @@
-package sdk
+package lksdk
 
 type LocalParticipant struct {
 	baseParticipant
