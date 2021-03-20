@@ -13,7 +13,7 @@ import (
 type RoomServiceClient struct {
 	livekit.RoomService
 	apiKey    string
-	secretKey string
+	apiSecret string
 }
 
 func NewRoomServiceClient(url string, apiKey string, secretKey string) *RoomServiceClient {
@@ -21,7 +21,7 @@ func NewRoomServiceClient(url string, apiKey string, secretKey string) *RoomServ
 	return &RoomServiceClient{
 		RoomService: client,
 		apiKey:      apiKey,
-		secretKey:   secretKey,
+		apiSecret:   secretKey,
 	}
 }
 
@@ -96,8 +96,12 @@ func (c *RoomServiceClient) UpdateParticipantMetadata(ctx context.Context, req *
 	return c.RoomService.UpdateParticipantMetadata(ctx, req)
 }
 
+func (c *RoomServiceClient) CreateToken() *auth.AccessToken {
+	return auth.NewAccessToken(c.apiKey, c.apiSecret)
+}
+
 func (c *RoomServiceClient) withAuth(ctx context.Context, grant auth.VideoGrant) (context.Context, error) {
-	at := auth.NewAccessToken(c.apiKey, c.secretKey)
+	at := auth.NewAccessToken(c.apiKey, c.apiSecret)
 	at.AddGrant(&grant)
 	token, err := at.ToJWT()
 	if err != nil {
