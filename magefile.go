@@ -13,7 +13,7 @@ import (
 // regenerate protobuf
 func Proto() error {
 	protoDir := "../protocol"
-	updated, err := target.Path("proto/model.pb.go",
+	updated, err := target.Path("proto/livekit_models.pb.go",
 		protoDir+"/livekit_models.proto",
 		protoDir+"/livekit_room.proto",
 		protoDir+"/livekit_rtc.proto",
