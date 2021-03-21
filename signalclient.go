@@ -29,14 +29,6 @@ type SignalClient struct {
 	OnActiveSpeakersChanged func([]*livekit.SpeakerInfo)
 }
 
-type ConnectInfo struct {
-	APIKey              string
-	APISecret           string
-	RoomName            string
-	ParticipantIdentity string
-	ParticipantMetadata map[string]interface{}
-}
-
 func NewSignalClient() *SignalClient {
 	c := &SignalClient{}
 	c.isConnected.Store(false)

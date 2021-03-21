@@ -12,6 +12,14 @@ import (
 type TrackPubCallback func(track Track, pub *TrackPublication, participant *RemoteParticipant)
 type PubCallback func(pub *TrackPublication, participant *RemoteParticipant)
 
+type ConnectInfo struct {
+	APIKey              string
+	APISecret           string
+	RoomName            string
+	ParticipantIdentity string
+	ParticipantMetadata string
+}
+
 type Room struct {
 	engine           *RTCEngine
 	lock             sync.Mutex
