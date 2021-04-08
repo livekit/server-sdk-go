@@ -17,6 +17,7 @@ require (
 	github.com/twitchtv/twirp v7.1.1+incompatible
 	golang.org/x/crypto v0.0.0-20210317152858-513c2a44f670 // indirect
 	golang.org/x/sys v0.0.0-20210320140829-1e4c9ba3b0c4 // indirect
+	golang.org/x/tools v0.1.0 // indirect
 	google.golang.org/protobuf v1.25.0
 	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b // indirect
 )
