@@ -1,6 +1,7 @@
 package lksdk
 
 import (
+	"strings"
 	"sync"
 
 	"github.com/livekit/protocol/auth"
@@ -9,8 +10,8 @@ import (
 	livekit "github.com/livekit/livekit-sdk-go/proto"
 )
 
-type TrackPubCallback func(track Track, pub *TrackPublication, participant *RemoteParticipant)
-type PubCallback func(pub *TrackPublication, participant *RemoteParticipant)
+type TrackPubCallback func(track Track, pub TrackPublication, participant *RemoteParticipant)
+type PubCallback func(pub TrackPublication, participant *RemoteParticipant)
 
 type ConnectInfo struct {
 	APIKey              string
@@ -73,7 +74,7 @@ func ConnectToRoomWithToken(url, token string) (*Room, error) {
 		LocalParticipant: newLocalParticipant(engine),
 		Participants:     make(map[string]*RemoteParticipant),
 	}
-	r.LocalParticipant.updateMetadata(joinRes.Participant)
+	r.LocalParticipant.updateInfo(joinRes.Participant)
 
 	for _, pi := range joinRes.OtherParticipants {
 		r.addRemoteParticipant(pi)
@@ -81,7 +82,6 @@ func ConnectToRoomWithToken(url, token string) (*Room, error) {
 
 	// callbacks from engine
 	engine.OnMediaTrack = r.handleMediaTrack
-	engine.OnDataChannel = r.handleDataChannel
 	engine.OnDisconnected = r.handleDisconnect
 	engine.OnParticipantUpdate = r.handleParticipantUpdate
 	engine.OnActiveSpeakersChanged = r.handleActiveSpeakerChange
@@ -94,7 +94,7 @@ func (r *Room) Disconnect() {
 }
 
 func (r *Room) GetParticipant(sid string) *RemoteParticipant {
-	r.lock.Unlock()
+	r.lock.Lock()
 	defer r.lock.Unlock()
 	return r.Participants[sid]
 }
@@ -110,40 +110,40 @@ func (r *Room) addRemoteParticipant(pi *livekit.ParticipantInfo) *RemoteParticip
 		r.Participants[pi.Sid] = p
 
 		// event listeners
-		p.onTrackPublished = func(publication *TrackPublication) {
+		p.onTrackPublished = func(publication TrackPublication, rp *RemoteParticipant) {
 			if r.OnTrackPublished != nil {
 				r.OnTrackPublished(publication, p)
 			}
 		}
-		p.onTrackSubscribed = func(track Track, pub *TrackPublication) {
+		p.onTrackSubscribed = func(track *webrtc.TrackRemote, pub TrackPublication, rp *RemoteParticipant) {
 			if r.OnTrackSubscribed != nil {
 				r.OnTrackSubscribed(track, pub, p)
 			}
 		}
-		p.onTrackUnpublished = func(pub *TrackPublication) {
+		p.onTrackUnpublished = func(pub TrackPublication, rp *RemoteParticipant) {
 			if r.OnTrackUnpublished != nil {
 				r.OnTrackUnpublished(pub, p)
 			}
 		}
-		p.onTrackUnsubscribed = func(track Track, pub *TrackPublication) {
+		p.onTrackUnsubscribed = func(track *webrtc.TrackRemote, pub TrackPublication, rp *RemoteParticipant) {
 			if r.OnTrackUnsubscribed != nil {
 				r.OnTrackUnsubscribed(track, pub, p)
 			}
 		}
-		p.onTrackMuted = func(track Track, pub *TrackPublication) {
+		p.onTrackMuted = func(track Track, pub TrackPublication) {
 			if r.OnTrackMuted != nil {
 				r.OnTrackMuted(track, pub, p)
 			}
 		}
-		p.onTrackUnmuted = func(track Track, pub *TrackPublication) {
+		p.onTrackUnmuted = func(track Track, pub TrackPublication) {
 			if r.OnTrackUnmuted != nil {
 				r.OnTrackUnmuted(track, pub, p)
 			}
 		}
-		p.onTrackMessage = func(msg webrtc.DataChannelMessage) {
+		p.onTrackMessage = func(msg webrtc.DataChannelMessage, rp *RemoteParticipant) {
 			// TODO
 		}
-		p.onTrackSubscriptionFailed = func(sid string) {
+		p.onTrackSubscriptionFailed = func(sid string, rp *RemoteParticipant) {
 			// TODO
 		}
 	}
@@ -151,11 +151,19 @@ func (r *Room) addRemoteParticipant(pi *livekit.ParticipantInfo) *RemoteParticip
 }
 
 func (r *Room) handleMediaTrack(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
+	// ensure we have the participant
+	participantID, trackID := unpackStreamID(track.StreamID())
+	if trackID == "" {
+		trackID = track.ID()
+	}
 
-}
-
-func (r *Room) handleDataChannel(channel *webrtc.DataChannel) {
-
+	p := r.GetParticipant(participantID)
+	if p == nil {
+		p = r.addRemoteParticipant(&livekit.ParticipantInfo{
+			Sid: participantID,
+		})
+	}
+	p.addSubscribedMediaTrack(track, trackID, receiver)
 }
 
 func (r *Room) handleDisconnect() {
@@ -180,7 +188,7 @@ func (r *Room) handleParticipantUpdate(participants []*livekit.ParticipantInfo) 
 				r.OnParticipantConnected(p)
 			}
 		} else {
-			p.updateMetadata(pi)
+			p.updateInfo(pi)
 		}
 	}
 }
@@ -189,7 +197,7 @@ func (r *Room) handleParticipantDisconnect(p *RemoteParticipant) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 	delete(r.Participants, p.SID())
-	p.unpublishTracks()
+	p.unpublishAllTracks()
 	if r.OnParticipantConnected != nil {
 		r.OnParticipantConnected(p)
 	}
@@ -229,4 +237,12 @@ func (r *Room) handleActiveSpeakerChange(speakers []*livekit.SpeakerInfo) {
 	if r.OnActiveSpeakersChanged != nil {
 		r.OnActiveSpeakersChanged(activeSpeakers)
 	}
+}
+
+func unpackStreamID(packed string) (participantId string, trackId string) {
+	parts := strings.Split(packed, "|")
+	if len(parts) > 1 {
+		return parts[0], packed[len(parts[0])+1:]
+	}
+	return packed, ""
 }

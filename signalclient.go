@@ -15,6 +15,8 @@ import (
 	livekit "github.com/livekit/livekit-sdk-go/proto"
 )
 
+const PROTOCOL = 2
+
 type SignalClient struct {
 	conn        *websocket.Conn
 	isConnected atomic.Value
@@ -27,6 +29,7 @@ type SignalClient struct {
 	OnParticipantUpdate     func([]*livekit.ParticipantInfo)
 	OnLocalTrackPublished   func(response *livekit.TrackPublishedResponse)
 	OnActiveSpeakersChanged func([]*livekit.SpeakerInfo)
+	OnLeave                 func()
 }
 
 func NewSignalClient() *SignalClient {
@@ -36,7 +39,7 @@ func NewSignalClient() *SignalClient {
 }
 
 func (c *SignalClient) Join(urlPrefix string, token string) (*livekit.JoinResponse, error) {
-	u, err := url.Parse(urlPrefix + "/rtc")
+	u, err := url.Parse(fmt.Sprintf("%s/rtc?protocol=%d", urlPrefix, PROTOCOL))
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +77,7 @@ func (c *SignalClient) Join(urlPrefix string, token string) (*livekit.JoinRespon
 
 func (c *SignalClient) Close() {
 	if c.conn != nil {
-		c.conn.Close()
+		_ = c.conn.Close()
 	}
 }
 
@@ -169,6 +172,10 @@ func (c *SignalClient) handleResponse(res *livekit.SignalResponse) {
 	case *livekit.SignalResponse_TrackPublished:
 		if c.OnLocalTrackPublished != nil {
 			c.OnLocalTrackPublished(msg.TrackPublished)
+		}
+	case *livekit.SignalResponse_Leave:
+		if c.OnLeave != nil {
+			c.OnLeave()
 		}
 	}
 }

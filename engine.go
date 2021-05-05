@@ -1,6 +1,7 @@
 package lksdk
 
 import (
+	"sync"
 	"time"
 
 	"github.com/pion/webrtc/v3"
@@ -8,22 +9,24 @@ import (
 	livekit "github.com/livekit/livekit-sdk-go/proto"
 )
 
-const privateDataChanName = "_private"
+const reliableDataChannelName = "_reliable"
+const lossyDataChannelName = "_lossy"
 
 type RTCEngine struct {
 	publisher  *PCTransport
 	subscriber *PCTransport
 	client     *SignalClient
-	privateDC  *webrtc.DataChannel
+	reliableDC *webrtc.DataChannel
+	lossyDC    *webrtc.DataChannel
+	lock       sync.Mutex
 
 	JoinTimeout time.Duration
 
 	// callbacks
-	OnDisconnected          func()
-	OnMediaTrack            func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver)
-	OnDataChannel           func(channel *webrtc.DataChannel)
+	OnDisconnected func()
+	OnMediaTrack   func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver)
+	//OnDataChannel           func(channel *webrtc.DataChannel)
 	OnParticipantUpdate     func([]*livekit.ParticipantInfo)
-	OnLocalTrackPublished   func(response *livekit.TrackPublishedResponse)
 	OnActiveSpeakersChanged func([]*livekit.SpeakerInfo)
 }
 
@@ -106,13 +109,18 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 		}
 	})
 
-	e.subscriber.pc.OnDataChannel(func(channel *webrtc.DataChannel) {
-		if e.OnDataChannel != nil {
-			e.OnDataChannel(channel)
-		}
+	trueVal := true
+	maxRetries := uint16(1)
+	e.lossyDC, err = e.publisher.PeerConnection().CreateDataChannel(lossyDataChannelName, &webrtc.DataChannelInit{
+		Ordered:        &trueVal,
+		MaxRetransmits: &maxRetries,
 	})
-
-	e.privateDC, err = e.publisher.pc.CreateDataChannel(privateDataChanName, nil)
+	if err != nil {
+		return err
+	}
+	e.reliableDC, err = e.publisher.PeerConnection().CreateDataChannel(reliableDataChannelName, &webrtc.DataChannelInit{
+		Ordered: &trueVal,
+	})
 	if err != nil {
 		return err
 	}
@@ -153,7 +161,8 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 	}
 	e.client.OnParticipantUpdate = e.OnParticipantUpdate
 	e.client.OnActiveSpeakersChanged = e.OnActiveSpeakersChanged
-	e.client.OnLocalTrackPublished = e.OnLocalTrackPublished
+	e.client.OnLocalTrackPublished = e.handleLocalTrackPublished
+	e.client.OnLeave = e.OnDisconnected
 	e.client.OnClose = func() {
 		// TODO: implement reconnection logic
 		logger.Info("signal connection disconnected")
@@ -173,6 +182,10 @@ func (e *RTCEngine) waitUntilConnected() error {
 			}
 		}
 	}
+}
+
+func (e *RTCEngine) handleLocalTrackPublished(res *livekit.TrackPublishedResponse) {
+
 }
 
 func (e *RTCEngine) negotiate() {
