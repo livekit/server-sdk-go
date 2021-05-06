@@ -58,8 +58,8 @@ func (t *PCTransport) IsConnected() bool {
 	return t.pc.ICEConnectionState() == webrtc.ICEConnectionStateConnected
 }
 
-func (t *PCTransport) Close() {
-	t.pc.Close()
+func (t *PCTransport) Close() error {
+	return t.pc.Close()
 }
 
 func (t *PCTransport) SetRemoteDescription(sd webrtc.SessionDescription) error {
@@ -68,13 +68,13 @@ func (t *PCTransport) SetRemoteDescription(sd webrtc.SessionDescription) error {
 	}
 
 	t.lock.Lock()
+	defer t.lock.Unlock()
 	for _, c := range t.pendingCandidates {
 		if err := t.pc.AddICECandidate(c); err != nil {
 			return err
 		}
 	}
 	t.pendingCandidates = nil
-	t.lock.Unlock()
 
 	return nil
 }

@@ -20,8 +20,9 @@ func main() {
 		Version: lksdk.Version,
 	}
 
-	app.Commands = append(app.Commands, RoomCommands...)
 	app.Commands = append(app.Commands, TokenCommands...)
+	app.Commands = append(app.Commands, RoomCommands...)
+	app.Commands = append(app.Commands, JoinCommands...)
 
 	if err := app.Run(os.Args); err != nil {
 		fmt.Println(err)

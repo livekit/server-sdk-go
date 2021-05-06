@@ -80,6 +80,7 @@ func ConnectToRoomWithToken(url, token string) (*Room, error) {
 }
 
 func (r *Room) Disconnect() {
+	_ = r.engine.client.SendLeave()
 	r.engine.Close()
 }
 

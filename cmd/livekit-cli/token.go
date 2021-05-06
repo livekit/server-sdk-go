@@ -12,7 +12,7 @@ var (
 	TokenCommands = []*cli.Command{
 		{
 			Name:   "create-token",
-			Usage:  "create token for Room APIs",
+			Usage:  "creates an access token",
 			Action: createToken,
 			Flags: []cli.Flag{
 				apiKeyFlag,

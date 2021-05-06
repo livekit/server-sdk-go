@@ -39,11 +39,20 @@ func NewRTCEngine() *RTCEngine {
 
 func (e *RTCEngine) Join(url string, token string) (*livekit.JoinResponse, error) {
 	res, err := e.client.Join(url, token)
-	if err := e.configure(res); err != nil {
+	if err != nil {
 		return nil, err
 	}
 
-	if err := e.waitUntilConnected(); err != nil {
+	if err = e.configure(res); err != nil {
+		return nil, err
+	}
+
+	// send offer
+	if err = e.negotiate(); err != nil {
+		return nil, err
+	}
+
+	if err = e.waitUntilConnected(); err != nil {
 		return nil, err
 	}
 	return res, err
@@ -78,17 +87,31 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 	}
 
 	e.publisher.pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
-		e.client.SendICECandidate(candidate.ToJSON(), livekit.SignalTarget_PUBLISHER)
+		if candidate == nil {
+			// done
+			return
+		}
+		if err := e.client.SendICECandidate(candidate.ToJSON(), livekit.SignalTarget_PUBLISHER); err != nil {
+			logger.Error(err, "could not send ICE candidates for publisher")
+		}
 	})
 	e.subscriber.pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
-		e.client.SendICECandidate(candidate.ToJSON(), livekit.SignalTarget_SUBSCRIBER)
+		if candidate == nil {
+			// done
+			return
+		}
+		if err := e.client.SendICECandidate(candidate.ToJSON(), livekit.SignalTarget_SUBSCRIBER); err != nil {
+			logger.Error(err, "could not send ICE candidates for subscriber")
+		}
 	})
 
 	e.publisher.OnNegotiationNeeded(func() {
 		if e.publisher.pc.RemoteDescription() == nil {
 			return
 		}
-		e.negotiate()
+		if err := e.negotiate(); err != nil {
+			logger.Error(err, "failed to negotiate")
+		}
 	})
 
 	e.publisher.pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
@@ -129,6 +152,8 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 	e.client.OnAnswer = func(sd webrtc.SessionDescription) {
 		if err := e.publisher.SetRemoteDescription(sd); err != nil {
 			logger.Error(err, "could not set remote description")
+		} else {
+			logger.Info("successfully set publisher answer")
 		}
 	}
 	e.client.OnTrickle = func(init webrtc.ICECandidateInit, target livekit.SignalTarget) {
@@ -157,7 +182,9 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 			logger.Error(err, "could not set subscriber localdescription")
 			return
 		}
-		e.client.SendAnswer(answer)
+		if err := e.client.SendAnswer(answer); err != nil {
+			logger.Error(err, "could not send answer for subscriber")
+		}
 	}
 	e.client.OnParticipantUpdate = e.OnParticipantUpdate
 	e.client.OnActiveSpeakersChanged = e.OnActiveSpeakersChanged
@@ -188,19 +215,18 @@ func (e *RTCEngine) handleLocalTrackPublished(res *livekit.TrackPublishedRespons
 
 }
 
-func (e *RTCEngine) negotiate() {
+func (e *RTCEngine) negotiate() error {
 	logger.Info("starting to negotiate")
 	offer, err := e.publisher.pc.CreateOffer(nil)
 	if err != nil {
-		logger.Error(err, "failed to negotiate")
-		return
+		return err
 	}
 	if err := e.publisher.pc.SetLocalDescription(offer); err != nil {
-		logger.Error(err, "could not set local description")
-		return
+		return err
 	}
 	if err := e.client.SendOffer(offer); err != nil {
-		logger.Error(err, "could not send offer")
-		return
+		return err
 	}
+
+	return nil
 }

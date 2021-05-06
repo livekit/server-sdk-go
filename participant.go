@@ -56,7 +56,11 @@ func (p *baseParticipant) Identity() string {
 }
 
 func (p *baseParticipant) IsSpeaking() bool {
-	return p.isSpeaking.Load().(bool)
+	val := p.isSpeaking.Load()
+	if speaking, ok := val.(bool); ok {
+		return speaking
+	}
+	return false
 }
 
 func (p *baseParticipant) AudioLevel() float32 {

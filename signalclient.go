@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -39,6 +40,9 @@ func NewSignalClient() *SignalClient {
 }
 
 func (c *SignalClient) Join(urlPrefix string, token string) (*livekit.JoinResponse, error) {
+	if strings.HasPrefix(urlPrefix, "http") {
+		urlPrefix = strings.Replace(urlPrefix, "http", "ws", 1)
+	}
 	u, err := url.Parse(fmt.Sprintf("%s/rtc?protocol=%d", urlPrefix, PROTOCOL))
 	if err != nil {
 		return nil, err
@@ -116,11 +120,19 @@ func (c *SignalClient) SendMuteTrack(sid string, muted bool) error {
 	})
 }
 
+func (c *SignalClient) SendLeave() error {
+	return c.SendRequest(&livekit.SignalRequest{
+		Message: &livekit.SignalRequest_Leave{
+			Leave: &livekit.LeaveRequest{},
+		},
+	})
+}
+
 func (c *SignalClient) SendRequest(req *livekit.SignalRequest) error {
 	if c.conn == nil {
 		return errors.New("client is not connected")
 	}
-	payload, err := protojson.Marshal(req)
+	payload, err := proto.Marshal(req)
 	if err != nil {
 		return err
 	}
@@ -193,7 +205,7 @@ func (c *SignalClient) handleResponse(res *livekit.SignalResponse) {
 
 func (c *SignalClient) readWorker() {
 	conn := c.conn
-	for conn != nil && c.IsConnected() {
+	for conn != nil {
 		res, err := c.ReadResponse()
 		if err != nil {
 			return
