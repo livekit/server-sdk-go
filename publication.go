@@ -95,3 +95,12 @@ func (p *LocalTrackPublication) TrackLocal() webrtc.TrackLocal {
 	}
 	return nil
 }
+
+func (p *LocalTrackPublication) SetMuted(muted bool) {
+	if p.isMuted == muted {
+		return
+	}
+	p.isMuted = muted
+
+	_ = p.client.SendMuteTrack(p.sid, muted)
+}

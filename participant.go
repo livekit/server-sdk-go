@@ -13,6 +13,7 @@ type Participant interface {
 	IsSpeaking() bool
 	AudioLevel() float32
 	setAudioLevel(level float32)
+	setIsSpeaking(speaking bool)
 }
 
 type baseParticipant struct {
@@ -20,27 +21,29 @@ type baseParticipant struct {
 	identity   string
 	audioLevel atomic.Value
 	metadata   string
-	isSpeaking bool
+	isSpeaking atomic.Value
 	info       *livekit.ParticipantInfo
 	lock       sync.Mutex
 
-	onTrackMuted      func(track Track, pub TrackPublication)
-	onTrackUnmuted    func(track Track, pub TrackPublication)
-	onMetadataChanged func(oldMetadata string, p Participant)
+	Callback     *ParticipantCallback
+	roomCallback *RoomCallback
 
 	audioTracks map[string]TrackPublication
 	videoTracks map[string]TrackPublication
 	tracks      map[string]TrackPublication
 }
 
-func newBaseParticipant() *baseParticipant {
+func newBaseParticipant(roomCallback *RoomCallback) *baseParticipant {
 	p := &baseParticipant{
-		audioTracks: newTrackMap(),
-		videoTracks: newTrackMap(),
-		tracks:      newTrackMap(),
+		audioTracks:  newTrackMap(),
+		videoTracks:  newTrackMap(),
+		tracks:       newTrackMap(),
+		roomCallback: roomCallback,
+		Callback:     NewParticipantCallback(),
 	}
 	// need to initialize
 	p.setAudioLevel(0)
+	p.setIsSpeaking(false)
 	return p
 }
 
@@ -53,7 +56,7 @@ func (p *baseParticipant) Identity() string {
 }
 
 func (p *baseParticipant) IsSpeaking() bool {
-	return p.isSpeaking
+	return p.isSpeaking.Load().(bool)
 }
 
 func (p *baseParticipant) AudioLevel() float32 {
@@ -62,6 +65,16 @@ func (p *baseParticipant) AudioLevel() float32 {
 
 func (p *baseParticipant) setAudioLevel(level float32) {
 	p.audioLevel.Store(level)
+}
+
+func (p *baseParticipant) setIsSpeaking(speaking bool) {
+	lastSpeaking := p.IsSpeaking()
+	if speaking != lastSpeaking {
+		return
+	}
+	p.isSpeaking.Store(speaking)
+	p.Callback.OnIsSpeakingChanged(p)
+	p.roomCallback.OnIsSpeakingChanged(p)
 }
 
 func (p *baseParticipant) updateInfo(pi *livekit.ParticipantInfo, participant Participant) {
@@ -74,9 +87,8 @@ func (p *baseParticipant) updateInfo(pi *livekit.ParticipantInfo, participant Pa
 	p.lock.Unlock()
 
 	if oldMetadata != p.metadata {
-		if p.onMetadataChanged != nil {
-			p.onMetadataChanged(oldMetadata, participant)
-		}
+		p.Callback.OnMetadataChanged(oldMetadata, participant)
+		p.roomCallback.OnMetadataChanged(oldMetadata, participant)
 	}
 }
 

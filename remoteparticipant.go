@@ -10,18 +10,11 @@ import (
 
 type RemoteParticipant struct {
 	baseParticipant
-
-	onTrackSubscribed         func(track *webrtc.TrackRemote, publication TrackPublication, rp *RemoteParticipant)
-	onTrackUnsubscribed       func(track *webrtc.TrackRemote, publication TrackPublication, rp *RemoteParticipant)
-	onTrackSubscriptionFailed func(sid string, rp *RemoteParticipant)
-	onTrackPublished          func(publication TrackPublication, rp *RemoteParticipant)
-	onTrackUnpublished        func(publication TrackPublication, rp *RemoteParticipant)
-	onTrackMessage            func(msg webrtc.DataChannelMessage, rp *RemoteParticipant)
 }
 
-func newRemoteParticipant(pi *livekit.ParticipantInfo) *RemoteParticipant {
+func newRemoteParticipant(pi *livekit.ParticipantInfo, roomCallback *RoomCallback) *RemoteParticipant {
 	p := &RemoteParticipant{
-		baseParticipant: *newBaseParticipant(),
+		baseParticipant: *newBaseParticipant(roomCallback),
 	}
 	p.updateInfo(pi)
 	return p
@@ -44,15 +37,26 @@ func (p *RemoteParticipant) updateInfo(pi *livekit.ParticipantInfo) {
 			newPubs[ti.Sid] = remotePub
 			pub = remotePub
 		} else {
+			wasMuted := pub.IsMuted()
 			pub.updateInfo(ti)
+			if ti.Muted != wasMuted {
+				if ti.Muted {
+					p.Callback.OnTrackMuted(pub, p)
+					p.roomCallback.OnTrackMuted(pub, p)
+				} else {
+					p.Callback.OnTrackUnmuted(pub, p)
+					p.roomCallback.OnTrackUnmuted(pub, p)
+				}
+			}
 		}
 		validPubs[ti.Sid] = pub
 	}
 
-	if hadInfo && p.onTrackPublished != nil {
+	if hadInfo {
 		// send events for new publications
 		for _, pub := range newPubs {
-			p.onTrackPublished(pub, p)
+			p.Callback.OnTrackPublished(pub, p)
+			p.roomCallback.OnTrackPublished(pub, p)
 		}
 	}
 
@@ -87,9 +91,8 @@ func (p *RemoteParticipant) addSubscribedMediaTrack(track *webrtc.TrackRemote, t
 				time.Sleep(500 * time.Millisecond)
 			}
 			if !foundPub {
-				if p.onTrackSubscriptionFailed != nil {
-					p.onTrackSubscriptionFailed(trackSID, p)
-				}
+				p.Callback.OnTrackSubscriptionFailed(trackSID, p)
+				p.roomCallback.OnTrackSubscriptionFailed(trackSID, p)
 			}
 		}()
 		return
@@ -98,9 +101,8 @@ func (p *RemoteParticipant) addSubscribedMediaTrack(track *webrtc.TrackRemote, t
 	pub.track = track
 	pub.receiver = receiver
 
-	if p.onTrackSubscribed != nil {
-		p.onTrackSubscribed(track, pub, p)
-	}
+	p.Callback.OnTrackSubscribed(track, pub, p)
+	p.roomCallback.OnTrackSubscribed(track, pub, p)
 }
 
 func (p *RemoteParticipant) getPublication(trackSID string) *RemoteTrackPublication {
@@ -126,11 +128,13 @@ func (p *RemoteParticipant) unpublishTrack(sid string, sendUnpublish bool) {
 	}
 
 	track := pub.TrackRemote()
-	if track != nil && p.onTrackUnsubscribed != nil {
-		p.onTrackUnsubscribed(track, pub, p)
+	if track != nil {
+		p.Callback.OnTrackUnsubscribed(track, pub, p)
+		p.roomCallback.OnTrackUnsubscribed(track, pub, p)
 	}
-	if sendUnpublish && p.onTrackUnpublished != nil {
-		p.onTrackUnpublished(pub, p)
+	if sendUnpublish {
+		p.Callback.OnTrackUnpublished(pub, p)
+		p.roomCallback.OnTrackUnpublished(pub, p)
 	}
 }
 
@@ -141,8 +145,9 @@ func (p *RemoteParticipant) unpublishAllTracks() {
 	for _, pub := range p.tracks {
 		// subscribed tracks, send unsubscribe events
 		if remoteTrack, ok := pub.Track().(*webrtc.TrackRemote); ok {
-			if pub.Track() != nil && p.onTrackUnsubscribed != nil {
-				p.onTrackUnsubscribed(remoteTrack, pub, p)
+			if pub.Track() != nil {
+				p.Callback.OnTrackUnsubscribed(remoteTrack, pub, p)
+				p.roomCallback.OnTrackUnsubscribed(remoteTrack, pub, p)
 			}
 		}
 	}

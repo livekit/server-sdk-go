@@ -105,6 +105,17 @@ func (c *SignalClient) SendAnswer(sd webrtc.SessionDescription) error {
 	})
 }
 
+func (c *SignalClient) SendMuteTrack(sid string, muted bool) error {
+	return c.SendRequest(&livekit.SignalRequest{
+		Message: &livekit.SignalRequest_Mute{
+			Mute: &livekit.MuteTrackRequest{
+				Sid:   sid,
+				Muted: muted,
+			},
+		},
+	})
+}
+
 func (c *SignalClient) SendRequest(req *livekit.SignalRequest) error {
 	if c.conn == nil {
 		return errors.New("client is not connected")
