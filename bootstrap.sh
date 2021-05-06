@@ -23,4 +23,3 @@ go mod download
 go install \
 	"google.golang.org/protobuf/cmd/protoc-gen-go" \
 	"github.com/twitchtv/twirp/protoc-gen-twirp"
-

@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"time"
 
+	"github.com/magefile/mage/mg"
 	"github.com/magefile/mage/target"
 )
 
@@ -19,6 +20,24 @@ type modInfo struct {
 	Dir       string
 	GoMod     string
 	GoVersion string
+}
+
+var Default = Build
+
+func Build() error {
+	mg.Deps(Proto)
+
+	fmt.Println("building...")
+	if err := os.MkdirAll("bin", 0755); err != nil {
+		return err
+	}
+	cmd := exec.Command("go", "build", "-o", "../../bin/livekit-cli")
+	cmd.Dir = "cmd/livekit-cli"
+	connectStd(cmd)
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+	return nil
 }
 
 // regenerate protobuf

@@ -4,6 +4,7 @@ go 1.16
 
 require (
 	github.com/bep/debounce v1.2.0
+	github.com/ggwhite/go-masker v1.0.4 // indirect
 	github.com/go-logr/logr v0.4.0 // indirect
 	github.com/golang/protobuf v1.4.3
 	github.com/gorilla/websocket v1.4.2
