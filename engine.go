@@ -179,7 +179,7 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 			return
 		}
 		if err := e.subscriber.pc.SetLocalDescription(answer); err != nil {
-			logger.Error(err, "could not set subscriber localdescription")
+			logger.Error(err, "could not set subscriber local description")
 			return
 		}
 		if err := e.client.SendAnswer(answer); err != nil {
