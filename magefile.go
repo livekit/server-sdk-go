@@ -28,11 +28,7 @@ func Build() error {
 	mg.Deps(Proto)
 
 	fmt.Println("building...")
-	if err := os.MkdirAll("bin", 0755); err != nil {
-		return err
-	}
-	cmd := exec.Command("go", "build", "-o", "../../bin/livekit-cli")
-	cmd.Dir = "cmd/livekit-cli"
+	cmd := exec.Command("go", "build", ".")
 	connectStd(cmd)
 	if err := cmd.Run(); err != nil {
 		return err
