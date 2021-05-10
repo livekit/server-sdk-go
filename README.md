@@ -1,10 +1,9 @@
 # LiveKit Go SDK
 
-This is an SDK to [LiveKit](https://docs.livekit.io). It gives you the following capabilities:
+This is the official Golang SDK to [LiveKit](https://docs.livekit.io). You would integrate this on your app's backend in order to
 
-- API access to LiveKit RoomService
 - Create access tokens
-- Command line utility: `livekit-cli`
+- Access LiveKit server-side APIs, giving you moderation capabilities
 - Client SDK to interact as participant, publish & record room streams
 
 ## Token creation
@@ -83,34 +82,6 @@ func main() {
 		Muted:    true,
 	})
 }
-```
-
-## CLI
-
-CLI serves as a convenient way of accessing RoomService capabilities.
-
-```shell
-% ./bin/livekit-cli --help
-NAME:
-   livekit-cli - CLI client to LiveKit
-
-USAGE:
-   livekit-cli [global options] command [command options] [arguments...]
-
-VERSION:
-   0.5.0
-
-COMMANDS:
-   create-token        creates an access token
-   create-room
-   list-rooms
-   delete-room
-   list-participants
-   get-participant
-   remove-participant
-   mute-track
-   join-room           joins a room as a client
-   help, h             Shows a list of commands or help for one command
 ```
 
 ## Interacting as a participant
