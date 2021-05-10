@@ -12,5 +12,4 @@
 *.out
 
 docs/
-proto/
 bin/
