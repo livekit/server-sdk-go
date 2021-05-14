@@ -1,7 +1,10 @@
 package lksdk
 
 import (
+	"time"
+
 	livekit "github.com/livekit/livekit-sdk-go/proto"
+	"github.com/pion/webrtc/v3"
 )
 
 type LocalParticipant struct {
@@ -14,6 +17,55 @@ func newLocalParticipant(engine *RTCEngine, roomcallback *RoomCallback) *LocalPa
 		baseParticipant: *newBaseParticipant(roomcallback),
 		engine:          engine,
 	}
+}
+
+func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, name string) (*LocalTrackPublication, error) {
+	kind := KindFromRTPType(track.Kind())
+	pub := LocalTrackPublication{
+		trackPublicationBase: trackPublicationBase{
+			kind:    kind,
+			track:   track,
+			name:    name,
+			isMuted: false,
+			client:  p.engine.client,
+		},
+	}
+	err := p.engine.client.SendRequest(&livekit.SignalRequest{
+		Message: &livekit.SignalRequest_AddTrack{
+			AddTrack: &livekit.AddTrackRequest{
+				Cid:  track.ID(),
+				Name: name,
+				Type: kind.ProtoType(),
+			},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	pubChan := p.engine.TrackPublishedChan()
+	var pubRes *livekit.TrackPublishedResponse
+
+	select {
+	case pubRes = <-pubChan:
+		break
+	case <-time.After(5 * time.Second):
+		return nil, ErrTrackPublishTimeout
+	}
+
+	// add transceivers
+	pub.transceiver, err = p.engine.publisher.PeerConnection().AddTransceiverFromTrack(track, webrtc.RTPTransceiverInit{
+		Direction: webrtc.RTPTransceiverDirectionSendonly,
+	})
+	if err != nil {
+		return nil, err
+	}
+	pub.sid = pubRes.Track.Sid
+	p.addPublication(&pub)
+
+	logger.Info("published track", "track", name)
+
+	return &pub, nil
 }
 
 func (p *LocalParticipant) updateInfo(info *livekit.ParticipantInfo) {

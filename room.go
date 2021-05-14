@@ -53,28 +53,28 @@ func ConnectToRoom(url string, info ConnectInfo) (*Room, error) {
 
 func ConnectToRoomWithToken(url, token string) (*Room, error) {
 	engine := NewRTCEngine()
-	joinRes, err := engine.Join(url, token)
-	if err != nil {
-		return nil, err
-	}
-
 	r := &Room{
 		engine:       engine,
 		Participants: make(map[string]*RemoteParticipant),
 		Callback:     NewRoomCallback(),
 	}
 	r.LocalParticipant = newLocalParticipant(engine, r.Callback)
-	r.LocalParticipant.updateInfo(joinRes.Participant)
-
-	for _, pi := range joinRes.OtherParticipants {
-		r.addRemoteParticipant(pi)
-	}
 
 	// callbacks from engine
 	engine.OnMediaTrack = r.handleMediaTrack
 	engine.OnDisconnected = r.handleDisconnect
 	engine.OnParticipantUpdate = r.handleParticipantUpdate
 	engine.OnActiveSpeakersChanged = r.handleActiveSpeakerChange
+
+	joinRes, err := engine.Join(url, token)
+	if err != nil {
+		return nil, err
+	}
+	r.LocalParticipant.updateInfo(joinRes.Participant)
+
+	for _, pi := range joinRes.OtherParticipants {
+		r.addRemoteParticipant(pi)
+	}
 
 	return r, nil
 }

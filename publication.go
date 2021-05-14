@@ -5,13 +5,6 @@ import (
 	"github.com/pion/webrtc/v3"
 )
 
-type TrackKind string
-
-const (
-	TrackKindVideo TrackKind = "video"
-	TrackKindAudio TrackKind = "audio"
-)
-
 type TrackPublication interface {
 	Name() string
 	SID() string
@@ -28,9 +21,6 @@ type trackPublicationBase struct {
 	sid     string
 	name    string
 	isMuted bool
-
-	// only for Remote publications
-	receiver *webrtc.RTPReceiver
 
 	client *SignalClient
 }
@@ -72,6 +62,7 @@ func (p *trackPublicationBase) updateInfo(info *livekit.TrackInfo) {
 
 type RemoteTrackPublication struct {
 	trackPublicationBase
+	receiver *webrtc.RTPReceiver
 }
 
 func (p *RemoteTrackPublication) TrackRemote() *webrtc.TrackRemote {
@@ -87,6 +78,7 @@ func (p *RemoteTrackPublication) Receiver() *webrtc.RTPReceiver {
 
 type LocalTrackPublication struct {
 	trackPublicationBase
+	transceiver *webrtc.RTPTransceiver
 }
 
 func (p *LocalTrackPublication) TrackLocal() webrtc.TrackLocal {
@@ -103,4 +95,8 @@ func (p *LocalTrackPublication) SetMuted(muted bool) {
 	p.isMuted = muted
 
 	_ = p.client.SendMuteTrack(p.sid, muted)
+}
+
+type TrackPublicationOptions struct {
+	Name string
 }

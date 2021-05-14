@@ -13,27 +13,28 @@ const reliableDataChannelName = "_reliable"
 const lossyDataChannelName = "_lossy"
 
 type RTCEngine struct {
-	publisher  *PCTransport
-	subscriber *PCTransport
-	client     *SignalClient
-	reliableDC *webrtc.DataChannel
-	lossyDC    *webrtc.DataChannel
-	lock       sync.Mutex
+	publisher          *PCTransport
+	subscriber         *PCTransport
+	client             *SignalClient
+	reliableDC         *webrtc.DataChannel
+	lossyDC            *webrtc.DataChannel
+	lock               sync.Mutex
+	trackPublishedChan chan *livekit.TrackPublishedResponse
 
 	JoinTimeout time.Duration
 
 	// callbacks
-	OnDisconnected func()
-	OnMediaTrack   func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver)
-	//OnDataChannel           func(channel *webrtc.DataChannel)
+	OnDisconnected          func()
+	OnMediaTrack            func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver)
 	OnParticipantUpdate     func([]*livekit.ParticipantInfo)
 	OnActiveSpeakersChanged func([]*livekit.SpeakerInfo)
 }
 
 func NewRTCEngine() *RTCEngine {
 	return &RTCEngine{
-		client:      NewSignalClient(),
-		JoinTimeout: 5 * time.Second,
+		client:             NewSignalClient(),
+		trackPublishedChan: make(chan *livekit.TrackPublishedResponse, 1),
+		JoinTimeout:        5 * time.Second,
 	}
 }
 
@@ -60,10 +61,10 @@ func (e *RTCEngine) Join(url string, token string) (*livekit.JoinResponse, error
 
 func (e *RTCEngine) Close() {
 	if e.publisher != nil {
-		e.publisher.Close()
+		_ = e.publisher.Close()
 	}
 	if e.subscriber != nil {
-		e.subscriber.Close()
+		_ = e.subscriber.Close()
 	}
 
 	e.client.Close()
@@ -74,6 +75,10 @@ func (e *RTCEngine) IsConnected() bool {
 		return false
 	}
 	return e.publisher.IsConnected()
+}
+
+func (e *RTCEngine) TrackPublishedChan() <-chan *livekit.TrackPublishedResponse {
+	return e.trackPublishedChan
 }
 
 func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
@@ -212,7 +217,7 @@ func (e *RTCEngine) waitUntilConnected() error {
 }
 
 func (e *RTCEngine) handleLocalTrackPublished(res *livekit.TrackPublishedResponse) {
-
+	e.trackPublishedChan <- res
 }
 
 func (e *RTCEngine) negotiate() error {
