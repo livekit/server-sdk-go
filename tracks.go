@@ -97,7 +97,11 @@ func (s *LocalSampleTrack) writeWorker() {
 			return
 		}
 		nextSampleTime = nextSampleTime.Add(sample.Duration)
-		ticker.Reset(nextSampleTime.Sub(time.Now()))
+		sleepDuration := nextSampleTime.Sub(time.Now())
+		if sleepDuration < 0 {
+			continue
+		}
+		ticker.Reset(sleepDuration)
 
 		select {
 		case <-ticker.C:
