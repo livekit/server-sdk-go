@@ -136,6 +136,9 @@ func (c *SignalClient) SendRequest(req *livekit.SignalRequest) error {
 	if err != nil {
 		return err
 	}
+
+	c.lock.Lock()
+	defer c.lock.Unlock()
 	return c.conn.WriteMessage(websocket.BinaryMessage, payload)
 }
 

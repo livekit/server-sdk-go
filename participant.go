@@ -14,6 +14,7 @@ type Participant interface {
 	AudioLevel() float32
 	setAudioLevel(level float32)
 	setIsSpeaking(speaking bool)
+	Tracks() []TrackPublication
 }
 
 type baseParticipant struct {
@@ -65,6 +66,16 @@ func (p *baseParticipant) IsSpeaking() bool {
 
 func (p *baseParticipant) AudioLevel() float32 {
 	return p.audioLevel.Load().(float32)
+}
+
+func (p *baseParticipant) Tracks() []TrackPublication {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	tracks := make([]TrackPublication, 0, len(p.tracks))
+	for _, t := range p.tracks {
+		tracks = append(tracks, t)
+	}
+	return tracks
 }
 
 func (p *baseParticipant) setAudioLevel(level float32) {
