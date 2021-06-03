@@ -23,7 +23,7 @@ type ConnectInfo struct {
 
 type Room struct {
 	engine           *RTCEngine
-	lock             sync.Mutex
+	lock             sync.RWMutex
 	SID              string
 	Name             string
 	LocalParticipant *LocalParticipant
@@ -85,9 +85,19 @@ func (r *Room) Disconnect() {
 }
 
 func (r *Room) GetParticipant(sid string) *RemoteParticipant {
-	r.lock.Lock()
-	defer r.lock.Unlock()
+	r.lock.RLock()
+	defer r.lock.RUnlock()
 	return r.Participants[sid]
+}
+
+func (r *Room) GetParticipants() []*RemoteParticipant {
+	var participants []*RemoteParticipant
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+	for _, p := range r.Participants {
+		participants = append(participants, p)
+	}
+	return participants
 }
 
 func (r *Room) addRemoteParticipant(pi *livekit.ParticipantInfo) *RemoteParticipant {
@@ -174,7 +184,7 @@ func (r *Room) handleActiveSpeakerChange(speakers []*livekit.SpeakerInfo) {
 	if !seenSids[r.LocalParticipant.sid] {
 		r.LocalParticipant.setAudioLevel(0)
 	}
-	r.lock.Lock()
+	r.lock.RLock()
 	for _, p := range r.Participants {
 		if !seenSids[p.sid] {
 			p.setAudioLevel(0)
@@ -182,7 +192,7 @@ func (r *Room) handleActiveSpeakerChange(speakers []*livekit.SpeakerInfo) {
 		}
 	}
 	r.ActiveSpeakers = activeSpeakers
-	r.lock.Unlock()
+	r.lock.RUnlock()
 
 	r.Callback.OnActiveSpeakersChanged(activeSpeakers)
 }
