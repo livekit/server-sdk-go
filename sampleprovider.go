@@ -1,6 +1,8 @@
 package lksdk
 
 import (
+	"encoding/binary"
+	"errors"
 	"time"
 
 	"github.com/pion/webrtc/v3/pkg/media"
@@ -30,33 +32,41 @@ func (p *NullSampleProvider) NextSample() (media.Sample, error) {
 	}, nil
 }
 
-type CountingSampleProvider struct {
+type LoadTestProvider struct {
 	BytesPerSample uint32
 	SampleDuration time.Duration
-	lastSent       []byte
+	count          byte
 }
 
-func NewCountingSampleProvider(bitrate uint32) *CountingSampleProvider {
+func NewLoadTestProvider(bitrate uint32) (*LoadTestProvider, error) {
 	bps := bitrate / 8 / 30
-	return &CountingSampleProvider{
+
+	// needs at least 9 bytes
+	if bps < 9 {
+		return nil, errors.New("minimum bitrate 2160")
+	}
+
+	return &LoadTestProvider{
 		SampleDuration: time.Second / 30,
 		BytesPerSample: bps,
-		lastSent:       make([]byte, bps),
-	}
+		count:          byte(0),
+	}, nil
 }
 
-func (p *CountingSampleProvider) NextSample() (media.Sample, error) {
-	next := make([]byte, len(p.lastSent))
-	copy(next, p.lastSent)
-	for i := len(next) - 1; i >= 0; i-- {
-		next[i] += byte(1)
-		if next[i] != byte(0) {
-			break
-		}
-	}
-	p.lastSent = next
+func (p *LoadTestProvider) NextSample() (media.Sample, error) {
+	packet := make([]byte, p.BytesPerSample)
+	binary.LittleEndian.PutUint64(packet, uint64(time.Now().UnixNano()))
+	packet[len(packet)-1] = p.count
+	p.count += byte(1)
+
 	return media.Sample{
-		Data:     next,
+		Data:     packet,
 		Duration: p.SampleDuration,
 	}, nil
+}
+
+func DecodeLoadTestPacket(packet []byte) (time.Time, int) {
+	count := int(packet[len(packet)-1])
+	unixNano := int64(binary.LittleEndian.Uint64(packet[:8]))
+	return time.Unix(0, unixNano), count
 }
