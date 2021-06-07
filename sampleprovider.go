@@ -65,8 +65,8 @@ func (p *LoadTestProvider) NextSample() (media.Sample, error) {
 	}, nil
 }
 
-func DecodeLoadTestPacket(packet []byte) (time.Time, int) {
+func DecodeLoadTestPacket(packet []byte) (int64, int) {
 	count := int(packet[len(packet)-1])
 	unixNano := int64(binary.LittleEndian.Uint64(packet[:8]))
-	return time.Unix(0, unixNano), count
+	return unixNano, count
 }
