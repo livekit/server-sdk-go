@@ -35,29 +35,24 @@ func (p *NullSampleProvider) NextSample() (media.Sample, error) {
 type LoadTestProvider struct {
 	BytesPerSample uint32
 	SampleDuration time.Duration
-	count          byte
 }
 
 func NewLoadTestProvider(bitrate uint32) (*LoadTestProvider, error) {
 	bps := bitrate / 8 / 30
-
-	// needs at least 9 bytes
-	if bps < 9 {
-		return nil, errors.New("minimum bitrate 2160")
+	if bps < 8 {
+		return nil, errors.New("bitrate lower than minimum of 1920")
 	}
 
 	return &LoadTestProvider{
 		SampleDuration: time.Second / 30,
 		BytesPerSample: bps,
-		count:          byte(0),
 	}, nil
 }
 
 func (p *LoadTestProvider) NextSample() (media.Sample, error) {
-	packet := make([]byte, p.BytesPerSample)
-	binary.LittleEndian.PutUint64(packet, uint64(time.Now().UnixNano()))
-	packet[len(packet)-1] = p.count
-	p.count += byte(1)
+	ts := make([]byte, 8)
+	binary.LittleEndian.PutUint64(ts, uint64(time.Now().UnixNano()))
+	packet := append(make([]byte, p.BytesPerSample-8), ts...)
 
 	return media.Sample{
 		Data:     packet,
