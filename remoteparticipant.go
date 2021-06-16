@@ -80,20 +80,17 @@ func (p *RemoteParticipant) addSubscribedMediaTrack(track *webrtc.TrackRemote, t
 	if pub == nil {
 		// wait for metadata to arrive
 		go func() {
-			foundPub := false
 			start := time.Now()
 			for time.Now().Sub(start) < 5*time.Second {
 				pub := p.getPublication(trackSID)
 				if pub != nil {
-					foundPub = true
-					break
+					p.addSubscribedMediaTrack(track, trackSID, receiver)
+					return
 				}
 				time.Sleep(500 * time.Millisecond)
 			}
-			if !foundPub {
-				p.Callback.OnTrackSubscriptionFailed(trackSID, p)
-				p.roomCallback.OnTrackSubscriptionFailed(trackSID, p)
-			}
+			p.Callback.OnTrackSubscriptionFailed(trackSID, p)
+			p.roomCallback.OnTrackSubscriptionFailed(trackSID, p)
 		}()
 		return
 	}
