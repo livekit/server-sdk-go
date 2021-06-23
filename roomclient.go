@@ -96,6 +96,14 @@ func (c *RoomServiceClient) UpdateParticipant(ctx context.Context, req *livekit.
 	return c.RoomService.UpdateParticipant(ctx, req)
 }
 
+func (c *RoomServiceClient) UpdateSubscriptions(ctx context.Context, req *livekit.UpdateSubscriptionsRequest) (*livekit.UpdateSubscriptionsResponse, error) {
+	ctx, err := c.withAuth(ctx, auth.VideoGrant{RoomAdmin: true, Room: req.Room})
+	if err != nil {
+		return nil, err
+	}
+	return c.RoomService.UpdateSubscriptions(ctx, req)
+}
+
 func (c *RoomServiceClient) CreateToken() *auth.AccessToken {
 	return auth.NewAccessToken(c.apiKey, c.apiSecret)
 }

@@ -8,7 +8,7 @@ require (
 	github.com/go-logr/stdr v0.4.0
 	github.com/golang/protobuf v1.4.3
 	github.com/gorilla/websocket v1.4.2
-	github.com/livekit/protocol v0.5.0
+	github.com/livekit/protocol v0.5.4
 	github.com/magefile/mage v1.11.0
 	github.com/pion/udp v0.1.1 // indirect
 	github.com/pion/webrtc/v3 v3.0.17
