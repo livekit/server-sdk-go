@@ -7,7 +7,7 @@ import (
 	"github.com/livekit/protocol/auth"
 	"github.com/pion/webrtc/v3"
 
-	livekit "github.com/livekit/livekit-sdk-go/proto"
+	livekit "github.com/livekit/server-sdk-go/proto"
 )
 
 type TrackPubCallback func(track Track, pub TrackPublication, participant *RemoteParticipant)

@@ -1,7 +1,7 @@
 package lksdk
 
 import (
-	livekit "github.com/livekit/livekit-sdk-go/proto"
+	livekit "github.com/livekit/server-sdk-go/proto"
 	"github.com/pion/webrtc/v3"
 )
 

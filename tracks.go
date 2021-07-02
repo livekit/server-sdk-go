@@ -3,8 +3,8 @@ package lksdk
 import (
 	"time"
 
-	livekit "github.com/livekit/livekit-sdk-go/proto"
 	"github.com/livekit/protocol/utils"
+	livekit "github.com/livekit/server-sdk-go/proto"
 	"github.com/pion/webrtc/v3"
 )
 

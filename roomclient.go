@@ -7,7 +7,7 @@ import (
 	"github.com/livekit/protocol/auth"
 	"github.com/twitchtv/twirp"
 
-	livekit "github.com/livekit/livekit-sdk-go/proto"
+	livekit "github.com/livekit/server-sdk-go/proto"
 )
 
 type RoomServiceClient struct {

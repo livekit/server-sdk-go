@@ -1,4 +1,4 @@
-module github.com/livekit/livekit-sdk-go
+module github.com/livekit/server-sdk-go
 
 go 1.16
 

@@ -12,7 +12,7 @@ This is the official Golang SDK to [LiveKit](https://docs.livekit.io). You would
 import (
 	"time"
 
-	lksdk "github.com/livekit/livekit-sdk-go"
+	lksdk "github.com/livekit/server-sdk-go"
 	"github.com/livekit/protocol/auth"
 )
 
@@ -36,8 +36,8 @@ RoomService gives you complete control over rooms and participants within them. 
 
 ```go
 import (
-	lksdk "github.com/livekit/livekit-sdk-go"
-	livekit "github.com/livekit/livekit-sdk-go/proto"
+	lksdk "github.com/livekit/server-sdk-go"
+	livekit "github.com/livekit/server-sdk-go/proto"
 )
 
 func main() {
@@ -90,7 +90,7 @@ The Participant SDK gives you access programmatic access as a client enabling yo
 
 ```go
 import (
-  lksdk "github.com/livekit/livekit-sdk-go"
+  lksdk "github.com/livekit/server-sdk-go"
 )
 
 func main() {
