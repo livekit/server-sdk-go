@@ -41,29 +41,33 @@ const _ = twirp.TwirpPackageIsVersion7
 // Room service that can be performed on any node
 // they are Twirp-based HTTP req/responses
 type RoomService interface {
-	// should be accessible to only internal servers, not external
+	// Creates a room with settings. Requires `roomCreate` permission.
+	// This method is optional; rooms are automatically created when clients connect to them for the first time.
 	CreateRoom(context.Context, *CreateRoomRequest) (*Room, error)
 
+	// List rooms that are active on the server. Requires `roomList` permission.
 	ListRooms(context.Context, *ListRoomsRequest) (*ListRoomsResponse, error)
 
+	// Deletes an existing room by name or id. Requires `roomCreate` permission.
+	// DeleteRoom will disconnect all participants that are currently in the room.
 	DeleteRoom(context.Context, *DeleteRoomRequest) (*DeleteRoomResponse, error)
 
-	// lists participants in a room, requires RoomAdmin
+	// Lists participants in a room, Requires `roomAdmin`
 	ListParticipants(context.Context, *ListParticipantsRequest) (*ListParticipantsResponse, error)
 
-	// get information on a specific participant, requires RoomAdmin
+	// Get information on a specific participant, Requires `roomAdmin`
 	GetParticipant(context.Context, *RoomParticipantIdentity) (*ParticipantInfo, error)
 
-	// removes a participant from room, requires RoomAdmin
+	// Removes a participant from room. Requires `roomAdmin`
 	RemoveParticipant(context.Context, *RoomParticipantIdentity) (*RemoveParticipantResponse, error)
 
-	// mute/unmute a participant, requires RoomAdmin
+	// Mute/unmute a participant's track, Requires `roomAdmin`
 	MutePublishedTrack(context.Context, *MuteRoomTrackRequest) (*MuteRoomTrackResponse, error)
 
-	// update participant metadata
+	// Update participant metadata, will cause updates to be broadcasted to everyone in the room. Requires `roomAdmin`
 	UpdateParticipant(context.Context, *UpdateParticipantRequest) (*ParticipantInfo, error)
 
-	// selective subscriptions
+	// Subscribes or unsubscribe a participant from tracks. Requires `roomAdmin`
 	UpdateSubscriptions(context.Context, *UpdateSubscriptionsRequest) (*UpdateSubscriptionsResponse, error)
 }
 
