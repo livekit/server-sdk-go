@@ -6,7 +6,7 @@ require (
 	github.com/bep/debounce v1.2.0
 	github.com/go-logr/logr v0.4.0
 	github.com/go-logr/stdr v0.4.0
-	github.com/golang/protobuf v1.4.3
+	github.com/golang/protobuf v1.4.3 // indirect
 	github.com/gorilla/websocket v1.4.2
 	github.com/livekit/protocol v0.5.4
 	github.com/magefile/mage v1.11.0
