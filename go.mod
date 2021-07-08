@@ -7,7 +7,7 @@ require (
 	github.com/go-logr/logr v0.4.0
 	github.com/go-logr/stdr v0.4.0
 	github.com/gorilla/websocket v1.4.2
-	github.com/livekit/protocol v0.5.5
+	github.com/livekit/protocol v0.5.7
 	github.com/magefile/mage v1.11.0
 	github.com/pion/webrtc/v3 v3.0.30
 	github.com/thoas/go-funk v0.8.0
