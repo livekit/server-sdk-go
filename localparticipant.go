@@ -5,6 +5,7 @@ import (
 
 	livekit "github.com/livekit/server-sdk-go/proto"
 	"github.com/pion/webrtc/v3"
+	"google.golang.org/protobuf/proto"
 )
 
 type LocalParticipant struct {
@@ -66,6 +67,34 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, name string) (*
 	logger.Info("published track", "track", name)
 
 	return &pub, nil
+}
+
+func (p *LocalParticipant) PublishData(data []byte, kind livekit.DataPacket_Kind, destinationSids []string) error {
+	packet := &livekit.DataPacket{
+		Kind: kind,
+		Value: &livekit.DataPacket_User{
+			User: &livekit.UserPacket{
+				// this is enforced on the server side, setting for completeness
+				ParticipantSid: p.sid,
+				Payload: data,
+				DestinationSids: destinationSids,
+			},
+		},
+	}
+
+	// encode packet
+	encoded, err := proto.Marshal(packet)
+	if err != nil {
+		return err
+	}
+
+	if kind == livekit.DataPacket_RELIABLE {
+		return p.engine.reliableDC.Send(encoded)
+	} else if kind == livekit.DataPacket_LOSSY {
+		return p.engine.lossyDC.Send(encoded)
+	}
+
+	return nil
 }
 
 func (p *LocalParticipant) updateInfo(info *livekit.ParticipantInfo) {
