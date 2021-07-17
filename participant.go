@@ -56,6 +56,10 @@ func (p *baseParticipant) Identity() string {
 	return p.identity
 }
 
+func (p *baseParticipant) Metadata() string {
+	return p.metadata
+}
+
 func (p *baseParticipant) IsSpeaking() bool {
 	val := p.isSpeaking.Load()
 	if speaking, ok := val.(bool); ok {
