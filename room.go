@@ -158,7 +158,7 @@ func (r *Room) handleParticipantDisconnect(p *RemoteParticipant) {
 	defer r.lock.Unlock()
 	delete(r.Participants, p.SID())
 	p.unpublishAllTracks()
-	r.Callback.OnParticipantConnected(p)
+	r.Callback.OnParticipantDisconnected(p)
 }
 
 func (r *Room) handleActiveSpeakerChange(speakers []*livekit.SpeakerInfo) {
