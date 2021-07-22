@@ -15,6 +15,7 @@ type Participant interface {
 	setAudioLevel(level float32)
 	setIsSpeaking(speaking bool)
 	Tracks() []TrackPublication
+	Metadata() string
 }
 
 type baseParticipant struct {
