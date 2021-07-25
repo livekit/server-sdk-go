@@ -89,7 +89,7 @@ func (p *baseParticipant) setAudioLevel(level float32) {
 
 func (p *baseParticipant) setIsSpeaking(speaking bool) {
 	lastSpeaking := p.IsSpeaking()
-	if speaking != lastSpeaking {
+	if speaking == lastSpeaking {
 		return
 	}
 	p.isSpeaking.Store(speaking)

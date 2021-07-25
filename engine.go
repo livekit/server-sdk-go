@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/pion/webrtc/v3"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 
 	livekit "github.com/livekit/server-sdk-go/proto"
 )
@@ -28,6 +30,7 @@ type RTCEngine struct {
 	OnMediaTrack            func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver)
 	OnParticipantUpdate     func([]*livekit.ParticipantInfo)
 	OnActiveSpeakersChanged func([]*livekit.SpeakerInfo)
+	OnDataReceived          func(userPacket *livekit.UserPacket)
 }
 
 func NewRTCEngine() *RTCEngine {
@@ -146,12 +149,14 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 	if err != nil {
 		return err
 	}
+	e.lossyDC.OnMessage(e.handleDataPacket)
 	e.reliableDC, err = e.publisher.PeerConnection().CreateDataChannel(reliableDataChannelName, &webrtc.DataChannelInit{
 		Ordered: &trueVal,
 	})
 	if err != nil {
 		return err
 	}
+	e.reliableDC.OnMessage(e.handleDataPacket)
 
 	// configure client
 	e.client.OnAnswer = func(sd webrtc.SessionDescription) {
@@ -218,6 +223,33 @@ func (e *RTCEngine) waitUntilConnected() error {
 
 func (e *RTCEngine) handleLocalTrackPublished(res *livekit.TrackPublishedResponse) {
 	e.trackPublishedChan <- res
+}
+
+func (e *RTCEngine) handleDataPacket(msg webrtc.DataChannelMessage) {
+	packet, err := e.readDataPacket(msg)
+	if err != nil {
+		return
+	}
+	switch msg := packet.Value.(type) {
+	case *livekit.DataPacket_Speaker:
+		if e.OnActiveSpeakersChanged != nil {
+			e.OnActiveSpeakersChanged(msg.Speaker.Speakers)
+		}
+	case *livekit.DataPacket_User:
+		if e.OnDataReceived != nil {
+			e.OnDataReceived(msg.User)
+		}
+	}
+}
+
+func (e *RTCEngine) readDataPacket(msg webrtc.DataChannelMessage) (*livekit.DataPacket, error) {
+	dataPacket := &livekit.DataPacket{}
+	if msg.IsString {
+		err := protojson.Unmarshal(msg.Data, dataPacket)
+		return dataPacket, err
+	}
+	err := proto.Unmarshal(msg.Data, dataPacket)
+	return dataPacket, err
 }
 
 func (e *RTCEngine) negotiate() error {
