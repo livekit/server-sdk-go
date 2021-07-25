@@ -65,6 +65,7 @@ func ConnectToRoomWithToken(url, token string) (*Room, error) {
 	engine.OnDisconnected = r.handleDisconnect
 	engine.OnParticipantUpdate = r.handleParticipantUpdate
 	engine.OnActiveSpeakersChanged = r.handleActiveSpeakerChange
+	engine.OnDataReceived = r.handleDataReceived
 
 	joinRes, err := engine.Join(url, token)
 	if err != nil {
@@ -132,6 +133,18 @@ func (r *Room) handleMediaTrack(track *webrtc.TrackRemote, receiver *webrtc.RTPR
 func (r *Room) handleDisconnect() {
 	r.Callback.OnDisconnected()
 	r.engine.Close()
+}
+
+func (r *Room) handleDataReceived(userPacket *livekit.UserPacket) {
+	if userPacket.ParticipantSid == r.LocalParticipant.sid {
+		// if sent by itself, do not handle data
+		return
+	}
+	p := r.GetParticipant(userPacket.ParticipantSid)
+	if p == nil {
+		return
+	}
+	r.Callback.OnDataReceived(userPacket.Payload, p)
 }
 
 func (r *Room) handleParticipantUpdate(participants []*livekit.ParticipantInfo) {

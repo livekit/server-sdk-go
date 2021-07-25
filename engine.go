@@ -30,6 +30,7 @@ type RTCEngine struct {
 	OnMediaTrack            func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver)
 	OnParticipantUpdate     func([]*livekit.ParticipantInfo)
 	OnActiveSpeakersChanged func([]*livekit.SpeakerInfo)
+	OnDataReceived          func(userPacket *livekit.UserPacket)
 }
 
 func NewRTCEngine() *RTCEngine {
@@ -148,13 +149,14 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 	if err != nil {
 		return err
 	}
-	e.lossyDC.OnMessage(e.handleLossyDataPacket)
+	e.lossyDC.OnMessage(e.handleDataPacket)
 	e.reliableDC, err = e.publisher.PeerConnection().CreateDataChannel(reliableDataChannelName, &webrtc.DataChannelInit{
 		Ordered: &trueVal,
 	})
 	if err != nil {
 		return err
 	}
+	e.reliableDC.OnMessage(e.handleDataPacket)
 
 	// configure client
 	e.client.OnAnswer = func(sd webrtc.SessionDescription) {
@@ -223,8 +225,8 @@ func (e *RTCEngine) handleLocalTrackPublished(res *livekit.TrackPublishedRespons
 	e.trackPublishedChan <- res
 }
 
-func (e *RTCEngine) handleLossyDataPacket(msg webrtc.DataChannelMessage) {
-	packet, err := e.ReadDataPacket(msg)
+func (e *RTCEngine) handleDataPacket(msg webrtc.DataChannelMessage) {
+	packet, err := e.readDataPacket(msg)
 	if err != nil {
 		return
 	}
@@ -233,10 +235,14 @@ func (e *RTCEngine) handleLossyDataPacket(msg webrtc.DataChannelMessage) {
 		if e.OnActiveSpeakersChanged != nil {
 			e.OnActiveSpeakersChanged(msg.Speaker.Speakers)
 		}
+	case *livekit.DataPacket_User:
+		if e.OnDataReceived != nil {
+			e.OnDataReceived(msg.User)
+		}
 	}
 }
 
-func (e *RTCEngine) ReadDataPacket(msg webrtc.DataChannelMessage) (*livekit.DataPacket, error) {
+func (e *RTCEngine) readDataPacket(msg webrtc.DataChannelMessage) (*livekit.DataPacket, error) {
 	dataPacket := &livekit.DataPacket{}
 	if msg.IsString {
 		err := protojson.Unmarshal(msg.Data, dataPacket)
