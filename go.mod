@@ -11,6 +11,6 @@ require (
 	github.com/magefile/mage v1.11.0
 	github.com/pion/webrtc/v3 v3.0.30
 	github.com/thoas/go-funk v0.8.0
-	github.com/twitchtv/twirp v7.1.1+incompatible
+	github.com/twitchtv/twirp v8.1.0+incompatible
 	google.golang.org/protobuf v1.25.0
 )
