@@ -179,15 +179,15 @@ func (r *Room) handleActiveSpeakerChange(speakers []*livekit.SpeakerInfo) {
 	seenSids := make(map[string]bool)
 	for _, s := range speakers {
 		seenSids[s.Sid] = true
-		var p Participant
-
 		if s.Sid == r.LocalParticipant.sid {
-			p = r.LocalParticipant
+			r.LocalParticipant.setAudioLevel(s.Level)
+			r.LocalParticipant.setIsSpeaking(true)
+			activeSpeakers = append(activeSpeakers, r.LocalParticipant)
 		} else {
-			p = r.GetParticipant(s.Sid)
-		}
-
-		if p != nil {
+			p := r.GetParticipant(s.Sid)
+			if p == nil {
+				continue
+			}
 			p.setAudioLevel(s.Level)
 			p.setIsSpeaking(true)
 			activeSpeakers = append(activeSpeakers, p)
