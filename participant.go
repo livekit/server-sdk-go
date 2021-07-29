@@ -18,7 +18,6 @@ type Participant interface {
 	Metadata() string
 }
 
-// map[string]TrackPublication
 type baseParticipant struct {
 	sid        string
 	identity   string
