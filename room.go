@@ -23,11 +23,10 @@ type ConnectInfo struct {
 
 type Room struct {
 	engine           *RTCEngine
-	lock             sync.RWMutex
 	SID              string
 	Name             string
 	LocalParticipant *LocalParticipant
-	Participants     map[string]*RemoteParticipant
+	participants     *sync.Map
 	ActiveSpeakers   []Participant
 	Callback         *RoomCallback
 }
@@ -55,7 +54,7 @@ func ConnectToRoomWithToken(url, token string) (*Room, error) {
 	engine := NewRTCEngine()
 	r := &Room{
 		engine:       engine,
-		Participants: make(map[string]*RemoteParticipant),
+		participants: &sync.Map{},
 		Callback:     NewRoomCallback(),
 	}
 	r.LocalParticipant = newLocalParticipant(engine, r.Callback)
@@ -86,31 +85,30 @@ func (r *Room) Disconnect() {
 }
 
 func (r *Room) GetParticipant(sid string) *RemoteParticipant {
-	r.lock.RLock()
-	defer r.lock.RUnlock()
-	return r.Participants[sid]
+	partRaw, ok := r.participants.Load(sid)
+	if !ok {
+		return nil
+	}
+	return partRaw.(*RemoteParticipant)
 }
 
 func (r *Room) GetParticipants() []*RemoteParticipant {
 	var participants []*RemoteParticipant
-	r.lock.RLock()
-	defer r.lock.RUnlock()
-	for _, p := range r.Participants {
-		participants = append(participants, p)
-	}
+	r.participants.Range(func(_, value interface{}) bool {
+		participants = append(participants, value.(*RemoteParticipant))
+		return true
+	})
 	return participants
 }
 
 func (r *Room) addRemoteParticipant(pi *livekit.ParticipantInfo) *RemoteParticipant {
-	r.lock.Lock()
-	defer r.lock.Unlock()
 
-	p := r.Participants[pi.Sid]
-
-	if p == nil {
-		p = newRemoteParticipant(pi, r.Callback)
-		r.Participants[pi.Sid] = p
+	pRaw, ok := r.participants.Load(pi.Sid)
+	if ok {
+		return pRaw.(*RemoteParticipant)
 	}
+	p := newRemoteParticipant(pi, r.Callback)
+	r.participants.Store(pi.Sid, p)
 	return p
 }
 
@@ -167,9 +165,7 @@ func (r *Room) handleParticipantUpdate(participants []*livekit.ParticipantInfo) 
 }
 
 func (r *Room) handleParticipantDisconnect(p *RemoteParticipant) {
-	r.lock.Lock()
-	defer r.lock.Unlock()
-	delete(r.Participants, p.SID())
+	r.participants.Delete(p.SID())
 	p.unpublishAllTracks()
 	r.Callback.OnParticipantDisconnected(p)
 }
@@ -197,15 +193,15 @@ func (r *Room) handleActiveSpeakerChange(speakers []*livekit.SpeakerInfo) {
 	if !seenSids[r.LocalParticipant.sid] {
 		r.LocalParticipant.setAudioLevel(0)
 	}
-	r.lock.RLock()
-	for _, p := range r.Participants {
+	r.participants.Range(func(_, value interface{}) bool {
+		p := value.(*RemoteParticipant)
 		if !seenSids[p.sid] {
 			p.setAudioLevel(0)
 			p.setIsSpeaking(false)
 		}
-	}
+		return true
+	})
 	r.ActiveSpeakers = activeSpeakers
-	r.lock.RUnlock()
 
 	r.Callback.OnActiveSpeakersChanged(activeSpeakers)
 }

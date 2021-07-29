@@ -18,6 +18,7 @@ type Participant interface {
 	Metadata() string
 }
 
+// map[string]TrackPublication
 type baseParticipant struct {
 	sid        string
 	identity   string
@@ -30,16 +31,16 @@ type baseParticipant struct {
 	Callback     *ParticipantCallback
 	roomCallback *RoomCallback
 
-	audioTracks map[string]TrackPublication
-	videoTracks map[string]TrackPublication
-	tracks      map[string]TrackPublication
+	audioTracks *sync.Map
+	videoTracks *sync.Map
+	tracks      *sync.Map
 }
 
 func newBaseParticipant(roomCallback *RoomCallback) *baseParticipant {
 	p := &baseParticipant{
-		audioTracks:  newTrackMap(),
-		videoTracks:  newTrackMap(),
-		tracks:       newTrackMap(),
+		audioTracks:  &sync.Map{},
+		videoTracks:  &sync.Map{},
+		tracks:       &sync.Map{},
 		roomCallback: roomCallback,
 		Callback:     NewParticipantCallback(),
 	}
@@ -74,12 +75,12 @@ func (p *baseParticipant) AudioLevel() float32 {
 }
 
 func (p *baseParticipant) Tracks() []TrackPublication {
-	p.lock.Lock()
-	defer p.lock.Unlock()
-	tracks := make([]TrackPublication, 0, len(p.tracks))
-	for _, t := range p.tracks {
-		tracks = append(tracks, t)
-	}
+	tracks := make([]TrackPublication, 0)
+	p.tracks.Range(func(_, value interface{}) bool {
+		track := value.(TrackPublication)
+		tracks = append(tracks, track)
+		return true
+	})
 	return tracks
 }
 
@@ -113,25 +114,24 @@ func (p *baseParticipant) updateInfo(pi *livekit.ParticipantInfo, participant Pa
 }
 
 func (p *baseParticipant) addPublication(publication TrackPublication) {
-	p.lock.Lock()
-	defer p.lock.Unlock()
 
 	sid := publication.SID()
-	p.tracks[sid] = publication
+	p.tracks.Store(sid, publication)
 	switch publication.Kind() {
 	case TrackKindAudio:
-		p.audioTracks[sid] = publication
+		p.audioTracks.Store(sid, publication)
 	case TrackKindVideo:
-		p.videoTracks[sid] = publication
+		p.videoTracks.Store(sid, publication)
 	}
 }
 
 func (p *baseParticipant) getPublication(sid string) TrackPublication {
 	p.lock.Lock()
 	defer p.lock.Unlock()
-	return p.tracks[sid]
-}
 
-func newTrackMap() map[string]TrackPublication {
-	return make(map[string]TrackPublication)
+	track, ok := p.tracks.Load(sid)
+	if !ok {
+		return nil
+	}
+	return track.(TrackPublication)
 }

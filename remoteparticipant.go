@@ -1,6 +1,7 @@
 package lksdk
 
 import (
+	"sync"
 	"time"
 
 	"github.com/pion/webrtc/v3"
@@ -24,7 +25,11 @@ func (p *RemoteParticipant) updateInfo(pi *livekit.ParticipantInfo) {
 	hadInfo := p.info != nil
 	p.baseParticipant.updateInfo(pi, p)
 	// update tracks
-	validPubs := make(map[string]TrackPublication, len(p.tracks))
+	validPubs := make(map[string]TrackPublication)
+	p.tracks.Range(func(key, value interface{}) bool {
+		validPubs[key.(string)] = value.(TrackPublication)
+		return true
+	})
 	newPubs := make(map[string]TrackPublication)
 
 	for _, ti := range pi.Tracks {
@@ -59,16 +64,14 @@ func (p *RemoteParticipant) updateInfo(pi *livekit.ParticipantInfo) {
 			p.roomCallback.OnTrackPublished(pub, p)
 		}
 	}
-
-	p.lock.Lock()
 	var toUnpublish []string
-	for sid := range p.tracks {
+	p.tracks.Range(func(key, value interface{}) bool {
+		sid := key.(string)
 		if validPubs[sid] == nil {
 			toUnpublish = append(toUnpublish, sid)
 		}
-	}
-	p.lock.Unlock()
-
+		return true
+	})
 	for _, sid := range toUnpublish {
 		p.unpublishTrack(sid, true)
 	}
@@ -122,9 +125,9 @@ func (p *RemoteParticipant) unpublishTrack(sid string, sendUnpublish bool) {
 	defer p.lock.Unlock()
 	switch pub.Kind() {
 	case TrackKindAudio:
-		delete(p.audioTracks, sid)
+		p.audioTracks.Delete(sid)
 	case TrackKindVideo:
-		delete(p.videoTracks, sid)
+		p.videoTracks.Delete(sid)
 	}
 
 	track := pub.TrackRemote()
@@ -139,19 +142,25 @@ func (p *RemoteParticipant) unpublishTrack(sid string, sendUnpublish bool) {
 }
 
 func (p *RemoteParticipant) unpublishAllTracks() {
-	p.lock.Lock()
-	defer p.lock.Unlock()
 
-	for _, pub := range p.tracks {
-		// subscribed tracks, send unsubscribe events
+	p.tracks.Range(func(_, value interface{}) bool {
+		pub := value.(TrackPublication)
 		if remoteTrack, ok := pub.Track().(*webrtc.TrackRemote); ok {
 			if pub.Track() != nil {
 				p.Callback.OnTrackUnsubscribed(remoteTrack, pub, p)
 				p.roomCallback.OnTrackUnsubscribed(remoteTrack, pub, p)
 			}
 		}
-	}
-	p.tracks = newTrackMap()
-	p.audioTracks = newTrackMap()
-	p.videoTracks = newTrackMap()
+		return true
+	})
+	eraseSyncMap(p.tracks)
+	eraseSyncMap(p.audioTracks)
+	eraseSyncMap(p.videoTracks)
+}
+
+func eraseSyncMap(m *sync.Map) {
+	m.Range(func(key interface{}, value interface{}) bool {
+		m.Delete(key)
+		return true
+	})
 }
