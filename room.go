@@ -144,6 +144,7 @@ func (r *Room) handleDataReceived(userPacket *livekit.UserPacket) {
 	if p == nil {
 		return
 	}
+	p.Callback.OnDataReceived(userPacket.Payload, p)
 	r.Callback.OnDataReceived(userPacket.Payload, p)
 }
 
