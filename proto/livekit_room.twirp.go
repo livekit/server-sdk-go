@@ -63,6 +63,12 @@ type RoomService interface {
 
 	// Subscribes or unsubscribe a participant from tracks. Requires `roomAdmin`
 	UpdateSubscriptions(context.Context, *UpdateSubscriptionsRequest) (*UpdateSubscriptionsResponse, error)
+
+	// Begins recording a room
+	RecordRoom(context.Context, *RecordRoomRequest) (*RecordingResponse, error)
+
+	// Ends a room recording
+	EndRoomRecording(context.Context, *EndRecordingRequest) (*RecordingResponse, error)
 }
 
 // ===========================
@@ -71,7 +77,7 @@ type RoomService interface {
 
 type roomServiceProtobufClient struct {
 	client      HTTPClient
-	urls        [9]string
+	urls        [11]string
 	interceptor twirp.Interceptor
 	opts        twirp.ClientOptions
 }
@@ -99,7 +105,7 @@ func NewRoomServiceProtobufClient(baseURL string, client HTTPClient, opts ...twi
 	// Build method URLs: <baseURL>[<prefix>]/<package>.<Service>/<Method>
 	serviceURL := sanitizeBaseURL(baseURL)
 	serviceURL += baseServicePath(pathPrefix, "livekit", "RoomService")
-	urls := [9]string{
+	urls := [11]string{
 		serviceURL + "CreateRoom",
 		serviceURL + "ListRooms",
 		serviceURL + "DeleteRoom",
@@ -109,6 +115,8 @@ func NewRoomServiceProtobufClient(baseURL string, client HTTPClient, opts ...twi
 		serviceURL + "MutePublishedTrack",
 		serviceURL + "UpdateParticipant",
 		serviceURL + "UpdateSubscriptions",
+		serviceURL + "RecordRoom",
+		serviceURL + "EndRoomRecording",
 	}
 
 	return &roomServiceProtobufClient{
@@ -533,13 +541,105 @@ func (c *roomServiceProtobufClient) callUpdateSubscriptions(ctx context.Context,
 	return out, nil
 }
 
+func (c *roomServiceProtobufClient) RecordRoom(ctx context.Context, in *RecordRoomRequest) (*RecordingResponse, error) {
+	ctx = ctxsetters.WithPackageName(ctx, "livekit")
+	ctx = ctxsetters.WithServiceName(ctx, "RoomService")
+	ctx = ctxsetters.WithMethodName(ctx, "RecordRoom")
+	caller := c.callRecordRoom
+	if c.interceptor != nil {
+		caller = func(ctx context.Context, req *RecordRoomRequest) (*RecordingResponse, error) {
+			resp, err := c.interceptor(
+				func(ctx context.Context, req interface{}) (interface{}, error) {
+					typedReq, ok := req.(*RecordRoomRequest)
+					if !ok {
+						return nil, twirp.InternalError("failed type assertion req.(*RecordRoomRequest) when calling interceptor")
+					}
+					return c.callRecordRoom(ctx, typedReq)
+				},
+			)(ctx, req)
+			if resp != nil {
+				typedResp, ok := resp.(*RecordingResponse)
+				if !ok {
+					return nil, twirp.InternalError("failed type assertion resp.(*RecordingResponse) when calling interceptor")
+				}
+				return typedResp, err
+			}
+			return nil, err
+		}
+	}
+	return caller(ctx, in)
+}
+
+func (c *roomServiceProtobufClient) callRecordRoom(ctx context.Context, in *RecordRoomRequest) (*RecordingResponse, error) {
+	out := new(RecordingResponse)
+	ctx, err := doProtobufRequest(ctx, c.client, c.opts.Hooks, c.urls[9], in, out)
+	if err != nil {
+		twerr, ok := err.(twirp.Error)
+		if !ok {
+			twerr = twirp.InternalErrorWith(err)
+		}
+		callClientError(ctx, c.opts.Hooks, twerr)
+		return nil, err
+	}
+
+	callClientResponseReceived(ctx, c.opts.Hooks)
+
+	return out, nil
+}
+
+func (c *roomServiceProtobufClient) EndRoomRecording(ctx context.Context, in *EndRecordingRequest) (*RecordingResponse, error) {
+	ctx = ctxsetters.WithPackageName(ctx, "livekit")
+	ctx = ctxsetters.WithServiceName(ctx, "RoomService")
+	ctx = ctxsetters.WithMethodName(ctx, "EndRoomRecording")
+	caller := c.callEndRoomRecording
+	if c.interceptor != nil {
+		caller = func(ctx context.Context, req *EndRecordingRequest) (*RecordingResponse, error) {
+			resp, err := c.interceptor(
+				func(ctx context.Context, req interface{}) (interface{}, error) {
+					typedReq, ok := req.(*EndRecordingRequest)
+					if !ok {
+						return nil, twirp.InternalError("failed type assertion req.(*EndRecordingRequest) when calling interceptor")
+					}
+					return c.callEndRoomRecording(ctx, typedReq)
+				},
+			)(ctx, req)
+			if resp != nil {
+				typedResp, ok := resp.(*RecordingResponse)
+				if !ok {
+					return nil, twirp.InternalError("failed type assertion resp.(*RecordingResponse) when calling interceptor")
+				}
+				return typedResp, err
+			}
+			return nil, err
+		}
+	}
+	return caller(ctx, in)
+}
+
+func (c *roomServiceProtobufClient) callEndRoomRecording(ctx context.Context, in *EndRecordingRequest) (*RecordingResponse, error) {
+	out := new(RecordingResponse)
+	ctx, err := doProtobufRequest(ctx, c.client, c.opts.Hooks, c.urls[10], in, out)
+	if err != nil {
+		twerr, ok := err.(twirp.Error)
+		if !ok {
+			twerr = twirp.InternalErrorWith(err)
+		}
+		callClientError(ctx, c.opts.Hooks, twerr)
+		return nil, err
+	}
+
+	callClientResponseReceived(ctx, c.opts.Hooks)
+
+	return out, nil
+}
+
 // =======================
 // RoomService JSON Client
 // =======================
 
 type roomServiceJSONClient struct {
 	client      HTTPClient
-	urls        [9]string
+	urls        [11]string
 	interceptor twirp.Interceptor
 	opts        twirp.ClientOptions
 }
@@ -567,7 +667,7 @@ func NewRoomServiceJSONClient(baseURL string, client HTTPClient, opts ...twirp.C
 	// Build method URLs: <baseURL>[<prefix>]/<package>.<Service>/<Method>
 	serviceURL := sanitizeBaseURL(baseURL)
 	serviceURL += baseServicePath(pathPrefix, "livekit", "RoomService")
-	urls := [9]string{
+	urls := [11]string{
 		serviceURL + "CreateRoom",
 		serviceURL + "ListRooms",
 		serviceURL + "DeleteRoom",
@@ -577,6 +677,8 @@ func NewRoomServiceJSONClient(baseURL string, client HTTPClient, opts ...twirp.C
 		serviceURL + "MutePublishedTrack",
 		serviceURL + "UpdateParticipant",
 		serviceURL + "UpdateSubscriptions",
+		serviceURL + "RecordRoom",
+		serviceURL + "EndRoomRecording",
 	}
 
 	return &roomServiceJSONClient{
@@ -1001,6 +1103,98 @@ func (c *roomServiceJSONClient) callUpdateSubscriptions(ctx context.Context, in 
 	return out, nil
 }
 
+func (c *roomServiceJSONClient) RecordRoom(ctx context.Context, in *RecordRoomRequest) (*RecordingResponse, error) {
+	ctx = ctxsetters.WithPackageName(ctx, "livekit")
+	ctx = ctxsetters.WithServiceName(ctx, "RoomService")
+	ctx = ctxsetters.WithMethodName(ctx, "RecordRoom")
+	caller := c.callRecordRoom
+	if c.interceptor != nil {
+		caller = func(ctx context.Context, req *RecordRoomRequest) (*RecordingResponse, error) {
+			resp, err := c.interceptor(
+				func(ctx context.Context, req interface{}) (interface{}, error) {
+					typedReq, ok := req.(*RecordRoomRequest)
+					if !ok {
+						return nil, twirp.InternalError("failed type assertion req.(*RecordRoomRequest) when calling interceptor")
+					}
+					return c.callRecordRoom(ctx, typedReq)
+				},
+			)(ctx, req)
+			if resp != nil {
+				typedResp, ok := resp.(*RecordingResponse)
+				if !ok {
+					return nil, twirp.InternalError("failed type assertion resp.(*RecordingResponse) when calling interceptor")
+				}
+				return typedResp, err
+			}
+			return nil, err
+		}
+	}
+	return caller(ctx, in)
+}
+
+func (c *roomServiceJSONClient) callRecordRoom(ctx context.Context, in *RecordRoomRequest) (*RecordingResponse, error) {
+	out := new(RecordingResponse)
+	ctx, err := doJSONRequest(ctx, c.client, c.opts.Hooks, c.urls[9], in, out)
+	if err != nil {
+		twerr, ok := err.(twirp.Error)
+		if !ok {
+			twerr = twirp.InternalErrorWith(err)
+		}
+		callClientError(ctx, c.opts.Hooks, twerr)
+		return nil, err
+	}
+
+	callClientResponseReceived(ctx, c.opts.Hooks)
+
+	return out, nil
+}
+
+func (c *roomServiceJSONClient) EndRoomRecording(ctx context.Context, in *EndRecordingRequest) (*RecordingResponse, error) {
+	ctx = ctxsetters.WithPackageName(ctx, "livekit")
+	ctx = ctxsetters.WithServiceName(ctx, "RoomService")
+	ctx = ctxsetters.WithMethodName(ctx, "EndRoomRecording")
+	caller := c.callEndRoomRecording
+	if c.interceptor != nil {
+		caller = func(ctx context.Context, req *EndRecordingRequest) (*RecordingResponse, error) {
+			resp, err := c.interceptor(
+				func(ctx context.Context, req interface{}) (interface{}, error) {
+					typedReq, ok := req.(*EndRecordingRequest)
+					if !ok {
+						return nil, twirp.InternalError("failed type assertion req.(*EndRecordingRequest) when calling interceptor")
+					}
+					return c.callEndRoomRecording(ctx, typedReq)
+				},
+			)(ctx, req)
+			if resp != nil {
+				typedResp, ok := resp.(*RecordingResponse)
+				if !ok {
+					return nil, twirp.InternalError("failed type assertion resp.(*RecordingResponse) when calling interceptor")
+				}
+				return typedResp, err
+			}
+			return nil, err
+		}
+	}
+	return caller(ctx, in)
+}
+
+func (c *roomServiceJSONClient) callEndRoomRecording(ctx context.Context, in *EndRecordingRequest) (*RecordingResponse, error) {
+	out := new(RecordingResponse)
+	ctx, err := doJSONRequest(ctx, c.client, c.opts.Hooks, c.urls[10], in, out)
+	if err != nil {
+		twerr, ok := err.(twirp.Error)
+		if !ok {
+			twerr = twirp.InternalErrorWith(err)
+		}
+		callClientError(ctx, c.opts.Hooks, twerr)
+		return nil, err
+	}
+
+	callClientResponseReceived(ctx, c.opts.Hooks)
+
+	return out, nil
+}
+
 // ==========================
 // RoomService Server Handler
 // ==========================
@@ -1124,6 +1318,12 @@ func (s *roomServiceServer) ServeHTTP(resp http.ResponseWriter, req *http.Reques
 		return
 	case "UpdateSubscriptions":
 		s.serveUpdateSubscriptions(ctx, resp, req)
+		return
+	case "RecordRoom":
+		s.serveRecordRoom(ctx, resp, req)
+		return
+	case "EndRoomRecording":
+		s.serveEndRoomRecording(ctx, resp, req)
 		return
 	default:
 		msg := fmt.Sprintf("no handler for path %q", req.URL.Path)
@@ -2752,6 +2952,366 @@ func (s *roomServiceServer) serveUpdateSubscriptionsProtobuf(ctx context.Context
 	callResponseSent(ctx, s.hooks)
 }
 
+func (s *roomServiceServer) serveRecordRoom(ctx context.Context, resp http.ResponseWriter, req *http.Request) {
+	header := req.Header.Get("Content-Type")
+	i := strings.Index(header, ";")
+	if i == -1 {
+		i = len(header)
+	}
+	switch strings.TrimSpace(strings.ToLower(header[:i])) {
+	case "application/json":
+		s.serveRecordRoomJSON(ctx, resp, req)
+	case "application/protobuf":
+		s.serveRecordRoomProtobuf(ctx, resp, req)
+	default:
+		msg := fmt.Sprintf("unexpected Content-Type: %q", req.Header.Get("Content-Type"))
+		twerr := badRouteError(msg, req.Method, req.URL.Path)
+		s.writeError(ctx, resp, twerr)
+	}
+}
+
+func (s *roomServiceServer) serveRecordRoomJSON(ctx context.Context, resp http.ResponseWriter, req *http.Request) {
+	var err error
+	ctx = ctxsetters.WithMethodName(ctx, "RecordRoom")
+	ctx, err = callRequestRouted(ctx, s.hooks)
+	if err != nil {
+		s.writeError(ctx, resp, err)
+		return
+	}
+
+	d := json.NewDecoder(req.Body)
+	rawReqBody := json.RawMessage{}
+	if err := d.Decode(&rawReqBody); err != nil {
+		s.handleRequestBodyError(ctx, resp, "the json request could not be decoded", err)
+		return
+	}
+	reqContent := new(RecordRoomRequest)
+	unmarshaler := protojson.UnmarshalOptions{DiscardUnknown: true}
+	if err = unmarshaler.Unmarshal(rawReqBody, reqContent); err != nil {
+		s.handleRequestBodyError(ctx, resp, "the json request could not be decoded", err)
+		return
+	}
+
+	handler := s.RoomService.RecordRoom
+	if s.interceptor != nil {
+		handler = func(ctx context.Context, req *RecordRoomRequest) (*RecordingResponse, error) {
+			resp, err := s.interceptor(
+				func(ctx context.Context, req interface{}) (interface{}, error) {
+					typedReq, ok := req.(*RecordRoomRequest)
+					if !ok {
+						return nil, twirp.InternalError("failed type assertion req.(*RecordRoomRequest) when calling interceptor")
+					}
+					return s.RoomService.RecordRoom(ctx, typedReq)
+				},
+			)(ctx, req)
+			if resp != nil {
+				typedResp, ok := resp.(*RecordingResponse)
+				if !ok {
+					return nil, twirp.InternalError("failed type assertion resp.(*RecordingResponse) when calling interceptor")
+				}
+				return typedResp, err
+			}
+			return nil, err
+		}
+	}
+
+	// Call service method
+	var respContent *RecordingResponse
+	func() {
+		defer ensurePanicResponses(ctx, resp, s.hooks)
+		respContent, err = handler(ctx, reqContent)
+	}()
+
+	if err != nil {
+		s.writeError(ctx, resp, err)
+		return
+	}
+	if respContent == nil {
+		s.writeError(ctx, resp, twirp.InternalError("received a nil *RecordingResponse and nil error while calling RecordRoom. nil responses are not supported"))
+		return
+	}
+
+	ctx = callResponsePrepared(ctx, s.hooks)
+
+	marshaler := &protojson.MarshalOptions{UseProtoNames: !s.jsonCamelCase, EmitUnpopulated: !s.jsonSkipDefaults}
+	respBytes, err := marshaler.Marshal(respContent)
+	if err != nil {
+		s.writeError(ctx, resp, wrapInternal(err, "failed to marshal json response"))
+		return
+	}
+
+	ctx = ctxsetters.WithStatusCode(ctx, http.StatusOK)
+	resp.Header().Set("Content-Type", "application/json")
+	resp.Header().Set("Content-Length", strconv.Itoa(len(respBytes)))
+	resp.WriteHeader(http.StatusOK)
+
+	if n, err := resp.Write(respBytes); err != nil {
+		msg := fmt.Sprintf("failed to write response, %d of %d bytes written: %s", n, len(respBytes), err.Error())
+		twerr := twirp.NewError(twirp.Unknown, msg)
+		ctx = callError(ctx, s.hooks, twerr)
+	}
+	callResponseSent(ctx, s.hooks)
+}
+
+func (s *roomServiceServer) serveRecordRoomProtobuf(ctx context.Context, resp http.ResponseWriter, req *http.Request) {
+	var err error
+	ctx = ctxsetters.WithMethodName(ctx, "RecordRoom")
+	ctx, err = callRequestRouted(ctx, s.hooks)
+	if err != nil {
+		s.writeError(ctx, resp, err)
+		return
+	}
+
+	buf, err := ioutil.ReadAll(req.Body)
+	if err != nil {
+		s.handleRequestBodyError(ctx, resp, "failed to read request body", err)
+		return
+	}
+	reqContent := new(RecordRoomRequest)
+	if err = proto.Unmarshal(buf, reqContent); err != nil {
+		s.writeError(ctx, resp, malformedRequestError("the protobuf request could not be decoded"))
+		return
+	}
+
+	handler := s.RoomService.RecordRoom
+	if s.interceptor != nil {
+		handler = func(ctx context.Context, req *RecordRoomRequest) (*RecordingResponse, error) {
+			resp, err := s.interceptor(
+				func(ctx context.Context, req interface{}) (interface{}, error) {
+					typedReq, ok := req.(*RecordRoomRequest)
+					if !ok {
+						return nil, twirp.InternalError("failed type assertion req.(*RecordRoomRequest) when calling interceptor")
+					}
+					return s.RoomService.RecordRoom(ctx, typedReq)
+				},
+			)(ctx, req)
+			if resp != nil {
+				typedResp, ok := resp.(*RecordingResponse)
+				if !ok {
+					return nil, twirp.InternalError("failed type assertion resp.(*RecordingResponse) when calling interceptor")
+				}
+				return typedResp, err
+			}
+			return nil, err
+		}
+	}
+
+	// Call service method
+	var respContent *RecordingResponse
+	func() {
+		defer ensurePanicResponses(ctx, resp, s.hooks)
+		respContent, err = handler(ctx, reqContent)
+	}()
+
+	if err != nil {
+		s.writeError(ctx, resp, err)
+		return
+	}
+	if respContent == nil {
+		s.writeError(ctx, resp, twirp.InternalError("received a nil *RecordingResponse and nil error while calling RecordRoom. nil responses are not supported"))
+		return
+	}
+
+	ctx = callResponsePrepared(ctx, s.hooks)
+
+	respBytes, err := proto.Marshal(respContent)
+	if err != nil {
+		s.writeError(ctx, resp, wrapInternal(err, "failed to marshal proto response"))
+		return
+	}
+
+	ctx = ctxsetters.WithStatusCode(ctx, http.StatusOK)
+	resp.Header().Set("Content-Type", "application/protobuf")
+	resp.Header().Set("Content-Length", strconv.Itoa(len(respBytes)))
+	resp.WriteHeader(http.StatusOK)
+	if n, err := resp.Write(respBytes); err != nil {
+		msg := fmt.Sprintf("failed to write response, %d of %d bytes written: %s", n, len(respBytes), err.Error())
+		twerr := twirp.NewError(twirp.Unknown, msg)
+		ctx = callError(ctx, s.hooks, twerr)
+	}
+	callResponseSent(ctx, s.hooks)
+}
+
+func (s *roomServiceServer) serveEndRoomRecording(ctx context.Context, resp http.ResponseWriter, req *http.Request) {
+	header := req.Header.Get("Content-Type")
+	i := strings.Index(header, ";")
+	if i == -1 {
+		i = len(header)
+	}
+	switch strings.TrimSpace(strings.ToLower(header[:i])) {
+	case "application/json":
+		s.serveEndRoomRecordingJSON(ctx, resp, req)
+	case "application/protobuf":
+		s.serveEndRoomRecordingProtobuf(ctx, resp, req)
+	default:
+		msg := fmt.Sprintf("unexpected Content-Type: %q", req.Header.Get("Content-Type"))
+		twerr := badRouteError(msg, req.Method, req.URL.Path)
+		s.writeError(ctx, resp, twerr)
+	}
+}
+
+func (s *roomServiceServer) serveEndRoomRecordingJSON(ctx context.Context, resp http.ResponseWriter, req *http.Request) {
+	var err error
+	ctx = ctxsetters.WithMethodName(ctx, "EndRoomRecording")
+	ctx, err = callRequestRouted(ctx, s.hooks)
+	if err != nil {
+		s.writeError(ctx, resp, err)
+		return
+	}
+
+	d := json.NewDecoder(req.Body)
+	rawReqBody := json.RawMessage{}
+	if err := d.Decode(&rawReqBody); err != nil {
+		s.handleRequestBodyError(ctx, resp, "the json request could not be decoded", err)
+		return
+	}
+	reqContent := new(EndRecordingRequest)
+	unmarshaler := protojson.UnmarshalOptions{DiscardUnknown: true}
+	if err = unmarshaler.Unmarshal(rawReqBody, reqContent); err != nil {
+		s.handleRequestBodyError(ctx, resp, "the json request could not be decoded", err)
+		return
+	}
+
+	handler := s.RoomService.EndRoomRecording
+	if s.interceptor != nil {
+		handler = func(ctx context.Context, req *EndRecordingRequest) (*RecordingResponse, error) {
+			resp, err := s.interceptor(
+				func(ctx context.Context, req interface{}) (interface{}, error) {
+					typedReq, ok := req.(*EndRecordingRequest)
+					if !ok {
+						return nil, twirp.InternalError("failed type assertion req.(*EndRecordingRequest) when calling interceptor")
+					}
+					return s.RoomService.EndRoomRecording(ctx, typedReq)
+				},
+			)(ctx, req)
+			if resp != nil {
+				typedResp, ok := resp.(*RecordingResponse)
+				if !ok {
+					return nil, twirp.InternalError("failed type assertion resp.(*RecordingResponse) when calling interceptor")
+				}
+				return typedResp, err
+			}
+			return nil, err
+		}
+	}
+
+	// Call service method
+	var respContent *RecordingResponse
+	func() {
+		defer ensurePanicResponses(ctx, resp, s.hooks)
+		respContent, err = handler(ctx, reqContent)
+	}()
+
+	if err != nil {
+		s.writeError(ctx, resp, err)
+		return
+	}
+	if respContent == nil {
+		s.writeError(ctx, resp, twirp.InternalError("received a nil *RecordingResponse and nil error while calling EndRoomRecording. nil responses are not supported"))
+		return
+	}
+
+	ctx = callResponsePrepared(ctx, s.hooks)
+
+	marshaler := &protojson.MarshalOptions{UseProtoNames: !s.jsonCamelCase, EmitUnpopulated: !s.jsonSkipDefaults}
+	respBytes, err := marshaler.Marshal(respContent)
+	if err != nil {
+		s.writeError(ctx, resp, wrapInternal(err, "failed to marshal json response"))
+		return
+	}
+
+	ctx = ctxsetters.WithStatusCode(ctx, http.StatusOK)
+	resp.Header().Set("Content-Type", "application/json")
+	resp.Header().Set("Content-Length", strconv.Itoa(len(respBytes)))
+	resp.WriteHeader(http.StatusOK)
+
+	if n, err := resp.Write(respBytes); err != nil {
+		msg := fmt.Sprintf("failed to write response, %d of %d bytes written: %s", n, len(respBytes), err.Error())
+		twerr := twirp.NewError(twirp.Unknown, msg)
+		ctx = callError(ctx, s.hooks, twerr)
+	}
+	callResponseSent(ctx, s.hooks)
+}
+
+func (s *roomServiceServer) serveEndRoomRecordingProtobuf(ctx context.Context, resp http.ResponseWriter, req *http.Request) {
+	var err error
+	ctx = ctxsetters.WithMethodName(ctx, "EndRoomRecording")
+	ctx, err = callRequestRouted(ctx, s.hooks)
+	if err != nil {
+		s.writeError(ctx, resp, err)
+		return
+	}
+
+	buf, err := ioutil.ReadAll(req.Body)
+	if err != nil {
+		s.handleRequestBodyError(ctx, resp, "failed to read request body", err)
+		return
+	}
+	reqContent := new(EndRecordingRequest)
+	if err = proto.Unmarshal(buf, reqContent); err != nil {
+		s.writeError(ctx, resp, malformedRequestError("the protobuf request could not be decoded"))
+		return
+	}
+
+	handler := s.RoomService.EndRoomRecording
+	if s.interceptor != nil {
+		handler = func(ctx context.Context, req *EndRecordingRequest) (*RecordingResponse, error) {
+			resp, err := s.interceptor(
+				func(ctx context.Context, req interface{}) (interface{}, error) {
+					typedReq, ok := req.(*EndRecordingRequest)
+					if !ok {
+						return nil, twirp.InternalError("failed type assertion req.(*EndRecordingRequest) when calling interceptor")
+					}
+					return s.RoomService.EndRoomRecording(ctx, typedReq)
+				},
+			)(ctx, req)
+			if resp != nil {
+				typedResp, ok := resp.(*RecordingResponse)
+				if !ok {
+					return nil, twirp.InternalError("failed type assertion resp.(*RecordingResponse) when calling interceptor")
+				}
+				return typedResp, err
+			}
+			return nil, err
+		}
+	}
+
+	// Call service method
+	var respContent *RecordingResponse
+	func() {
+		defer ensurePanicResponses(ctx, resp, s.hooks)
+		respContent, err = handler(ctx, reqContent)
+	}()
+
+	if err != nil {
+		s.writeError(ctx, resp, err)
+		return
+	}
+	if respContent == nil {
+		s.writeError(ctx, resp, twirp.InternalError("received a nil *RecordingResponse and nil error while calling EndRoomRecording. nil responses are not supported"))
+		return
+	}
+
+	ctx = callResponsePrepared(ctx, s.hooks)
+
+	respBytes, err := proto.Marshal(respContent)
+	if err != nil {
+		s.writeError(ctx, resp, wrapInternal(err, "failed to marshal proto response"))
+		return
+	}
+
+	ctx = ctxsetters.WithStatusCode(ctx, http.StatusOK)
+	resp.Header().Set("Content-Type", "application/protobuf")
+	resp.Header().Set("Content-Length", strconv.Itoa(len(respBytes)))
+	resp.WriteHeader(http.StatusOK)
+	if n, err := resp.Write(respBytes); err != nil {
+		msg := fmt.Sprintf("failed to write response, %d of %d bytes written: %s", n, len(respBytes), err.Error())
+		twerr := twirp.NewError(twirp.Unknown, msg)
+		ctx = callError(ctx, s.hooks, twerr)
+	}
+	callResponseSent(ctx, s.hooks)
+}
+
 func (s *roomServiceServer) ServiceDescriptor() ([]byte, int) {
 	return twirpFileDescriptor0, 0
 }
@@ -3336,51 +3896,59 @@ func callClientError(ctx context.Context, h *twirp.ClientHooks, err twirp.Error)
 }
 
 var twirpFileDescriptor0 = []byte{
-	// 729 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x9c, 0x55, 0xcd, 0x6e, 0x13, 0x31,
-	0x10, 0x56, 0x68, 0xd3, 0x66, 0x27, 0x2d, 0x34, 0x26, 0x55, 0xb7, 0x1b, 0x5a, 0x82, 0x8b, 0x44,
-	0x38, 0x34, 0x15, 0xe1, 0x00, 0x07, 0x84, 0x44, 0x01, 0xa1, 0x4a, 0x45, 0x8a, 0x36, 0x45, 0xfc,
-	0x48, 0x28, 0x38, 0xbb, 0x86, 0x5a, 0xcd, 0xae, 0x97, 0xb5, 0x13, 0xb5, 0x8f, 0xc0, 0x8d, 0xa7,
-	0xe0, 0xa9, 0x78, 0x18, 0x64, 0x7b, 0xff, 0xd2, 0x6c, 0x22, 0xd4, 0x53, 0xd6, 0x33, 0xe3, 0x99,
-	0x6f, 0xbe, 0xf1, 0x7c, 0x01, 0x34, 0x66, 0x53, 0x7a, 0xc1, 0xe4, 0x30, 0xe6, 0x3c, 0xe8, 0x46,
-	0x31, 0x97, 0x1c, 0xad, 0x27, 0x36, 0xa7, 0x99, 0x3a, 0x03, 0xee, 0xd3, 0xb1, 0x30, 0x6e, 0xfc,
-	0xbb, 0x02, 0x8d, 0xd7, 0x31, 0x25, 0x92, 0xba, 0x9c, 0x07, 0x2e, 0xfd, 0x39, 0xa1, 0x42, 0x22,
-	0x04, 0xab, 0x21, 0x09, 0xa8, 0x5d, 0x69, 0x57, 0x3a, 0x96, 0xab, 0xbf, 0xd1, 0x01, 0x6c, 0xd2,
-	0x20, 0x92, 0x57, 0x43, 0xc9, 0x02, 0xca, 0x27, 0xd2, 0xbe, 0xd5, 0xae, 0x74, 0x36, 0xdd, 0x0d,
-	0x6d, 0x3c, 0x33, 0x36, 0xf4, 0x18, 0xb6, 0x02, 0x72, 0x39, 0x8c, 0x48, 0x2c, 0x99, 0xc7, 0x22,
-	0x12, 0x4a, 0x61, 0xaf, 0xe8, 0xb8, 0x3b, 0x01, 0xb9, 0xec, 0x17, 0xcc, 0x68, 0x07, 0xd6, 0x43,
-	0xee, 0xd3, 0x21, 0xf3, 0xed, 0x55, 0x5d, 0x66, 0x4d, 0x1d, 0x4f, 0x7c, 0x8c, 0x60, 0xeb, 0x94,
-	0x09, 0xa9, 0xf0, 0x88, 0x04, 0x10, 0x7e, 0x0e, 0x8d, 0x82, 0x4d, 0x44, 0x3c, 0x14, 0x0a, 0x51,
-	0x55, 0x35, 0x2a, 0xec, 0x4a, 0x7b, 0xa5, 0x53, 0xef, 0x6d, 0x76, 0x93, 0x0e, 0xbb, 0xba, 0x15,
-	0xe3, 0xc3, 0x8f, 0xa0, 0xf1, 0x86, 0x8e, 0xe9, 0x5c, 0x7f, 0xca, 0x9b, 0xf6, 0xa7, 0xbe, 0x71,
-	0x13, 0x50, 0x31, 0xd0, 0xd4, 0xc0, 0x87, 0xb0, 0xa3, 0x0a, 0x17, 0x91, 0x2f, 0x4b, 0xf2, 0x09,
-	0xec, 0xf9, 0xf0, 0x04, 0xee, 0x0b, 0xd8, 0x98, 0xe1, 0xc5, 0xa0, 0xb6, 0x33, 0xd4, 0x85, 0x4b,
-	0x27, 0xe1, 0x77, 0xee, 0xce, 0x44, 0xe3, 0x13, 0xd8, 0x51, 0xc0, 0x8a, 0x41, 0x3e, 0x0d, 0x25,
-	0x93, 0x57, 0x65, 0x40, 0x90, 0x03, 0x35, 0x96, 0xf8, 0xf5, 0xa0, 0x2c, 0x37, 0x3b, 0xe3, 0x16,
-	0xec, 0xba, 0x34, 0xe0, 0x53, 0x5a, 0x48, 0x96, 0x35, 0x7c, 0x05, 0xcd, 0xf7, 0x13, 0x43, 0xc2,
-	0x59, 0x4c, 0xbc, 0x8b, 0x25, 0xdd, 0x2e, 0x2b, 0x82, 0x5a, 0x60, 0x49, 0x75, 0x7f, 0x28, 0x98,
-	0xaf, 0x9f, 0x80, 0xe5, 0xd6, 0xb4, 0x61, 0xc0, 0x7c, 0xd4, 0x84, 0x6a, 0x30, 0x91, 0xd4, 0x4c,
-	0xbe, 0xe6, 0x9a, 0x03, 0x7e, 0x05, 0xdb, 0xd7, 0x4a, 0x27, 0xcc, 0x75, 0xa0, 0xaa, 0xaf, 0xea,
-	0xe2, 0xf5, 0x1e, 0xca, 0x28, 0xd3, 0x61, 0x9a, 0x2c, 0x13, 0x80, 0xbf, 0xc2, 0x76, 0xa1, 0xa9,
-	0x3e, 0x8d, 0x03, 0x26, 0x04, 0xe3, 0xa1, 0x7a, 0xbd, 0x1e, 0x09, 0x87, 0x62, 0x32, 0x12, 0x5e,
-	0xcc, 0x46, 0xe6, 0x69, 0xd7, 0xdc, 0x0d, 0x8f, 0x84, 0x83, 0xd4, 0x86, 0xee, 0x43, 0x5d, 0x05,
-	0x45, 0x93, 0xd1, 0x98, 0x89, 0x73, 0xdd, 0x52, 0xcd, 0x05, 0x8f, 0x84, 0x7d, 0x63, 0xc1, 0x7f,
-	0x2a, 0x60, 0x7f, 0x88, 0x7c, 0x22, 0x67, 0xa9, 0xbb, 0x19, 0x43, 0x0e, 0xd4, 0x02, 0x2a, 0x89,
-	0x4f, 0x24, 0x49, 0x09, 0x4a, 0xcf, 0xe8, 0x25, 0x40, 0x94, 0x81, 0xd7, 0x2c, 0xd5, 0x7b, 0xfb,
-	0x65, 0x2f, 0x25, 0x6f, 0xd1, 0x2d, 0xdc, 0xc0, 0xbf, 0x2a, 0xe0, 0x18, 0xa0, 0x49, 0x77, 0x91,
-	0x64, 0x3c, 0x14, 0x37, 0x85, 0xba, 0x07, 0x90, 0x0d, 0x53, 0x2d, 0xf4, 0x4a, 0xc7, 0x72, 0xad,
-	0x74, 0x9a, 0x02, 0xdd, 0x03, 0x2b, 0x27, 0xd6, 0x8c, 0x34, 0x37, 0xe0, 0x3d, 0x68, 0x95, 0x42,
-	0x31, 0xc3, 0xed, 0xfd, 0xad, 0x42, 0x5d, 0x8d, 0x7c, 0x40, 0xe3, 0x29, 0xf3, 0x28, 0x7a, 0x06,
-	0x90, 0x0b, 0x12, 0x72, 0xb2, 0xa6, 0xe7, 0x54, 0xca, 0x99, 0x5d, 0x78, 0x74, 0x0c, 0x56, 0xa6,
-	0x11, 0x68, 0x37, 0xf3, 0x5d, 0xd7, 0x12, 0xc7, 0x29, 0x73, 0x25, 0x2f, 0xed, 0x2d, 0x40, 0x2e,
-	0x02, 0x85, 0xe2, 0x73, 0x12, 0xe2, 0xb4, 0x4a, 0x7d, 0x49, 0x9a, 0x8f, 0x46, 0xc2, 0x66, 0xf4,
-	0xae, 0x3d, 0x53, 0xb6, 0x44, 0x50, 0x9c, 0x07, 0x4b, 0x22, 0x92, 0xc4, 0xa7, 0x70, 0xfb, 0x1d,
-	0x2d, 0xba, 0x0a, 0x69, 0x17, 0xc8, 0x83, 0xb3, 0x50, 0x61, 0xd0, 0x67, 0x68, 0xcc, 0x09, 0xc1,
-	0x7f, 0x24, 0xc4, 0x79, 0xc4, 0x22, 0x19, 0x41, 0x03, 0x40, 0x6a, 0x97, 0x93, 0xc5, 0xa1, 0xbe,
-	0xde, 0x54, 0xb4, 0x97, 0xdd, 0x2c, 0xd3, 0x18, 0x67, 0x7f, 0x91, 0x3b, 0x49, 0xda, 0x87, 0xc6,
-	0xdc, 0xf6, 0xa1, 0x9c, 0xb5, 0x45, 0x9b, 0xb9, 0x84, 0x81, 0x6f, 0x70, 0xb7, 0xe4, 0x6d, 0xa2,
-	0x83, 0x6b, 0x39, 0xcb, 0x96, 0xc8, 0x79, 0xb8, 0x3c, 0xc8, 0x60, 0x3e, 0x7e, 0xf2, 0xe5, 0xe8,
-	0x07, 0x93, 0xe7, 0x93, 0x51, 0xd7, 0xe3, 0xc1, 0x51, 0x72, 0x23, 0xfd, 0x3d, 0x14, 0x34, 0x9e,
-	0xd2, 0xf8, 0x48, 0xff, 0x17, 0xa7, 0xc6, 0xd1, 0x9a, 0x3e, 0x3e, 0xfd, 0x17, 0x00, 0x00, 0xff,
-	0xff, 0xf0, 0x43, 0xe5, 0x6b, 0xcf, 0x07, 0x00, 0x00,
+	// 863 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x9c, 0x56, 0xdd, 0x6e, 0xdb, 0x36,
+	0x18, 0x85, 0x96, 0x3a, 0xb5, 0x3e, 0x27, 0x5b, 0xcc, 0xa6, 0x88, 0xaa, 0x34, 0x9d, 0xcb, 0x0e,
+	0x98, 0x77, 0x91, 0x64, 0xf3, 0x80, 0x2d, 0x17, 0xc3, 0x80, 0x75, 0x2d, 0x06, 0x03, 0x1d, 0x16,
+	0xd0, 0x1d, 0xf6, 0x03, 0x0c, 0x9e, 0x2c, 0x71, 0x29, 0x51, 0x4b, 0xd4, 0x44, 0xca, 0x68, 0x1e,
+	0x61, 0x2f, 0xb2, 0x87, 0xd9, 0xd3, 0xec, 0x11, 0x06, 0xfe, 0x48, 0xa2, 0x6d, 0x59, 0x2b, 0x7a,
+	0x15, 0xf3, 0x3b, 0x87, 0xdf, 0xcf, 0x21, 0x79, 0x14, 0x40, 0x4b, 0xb6, 0xa2, 0xaf, 0x99, 0x9c,
+	0x17, 0x9c, 0xa7, 0x17, 0x79, 0xc1, 0x25, 0x47, 0x77, 0x6d, 0x2c, 0x3c, 0xae, 0xc0, 0x94, 0x27,
+	0x74, 0x29, 0x0c, 0x8c, 0xff, 0xf1, 0x60, 0xf8, 0x6d, 0x41, 0x23, 0x49, 0x09, 0xe7, 0x29, 0xa1,
+	0x7f, 0x96, 0x54, 0x48, 0x84, 0xe0, 0x4e, 0x16, 0xa5, 0x34, 0xf0, 0x46, 0xde, 0xd8, 0x27, 0xfa,
+	0x37, 0x7a, 0x02, 0x87, 0x34, 0xcd, 0xe5, 0xed, 0x5c, 0xb2, 0x94, 0xf2, 0x52, 0x06, 0xef, 0x8d,
+	0xbc, 0xf1, 0x21, 0x39, 0xd0, 0xc1, 0x97, 0x26, 0x86, 0x3e, 0x81, 0xa3, 0x34, 0x7a, 0x33, 0xcf,
+	0xa3, 0x42, 0xb2, 0x98, 0xe5, 0x51, 0x26, 0x45, 0xb0, 0xa7, 0x79, 0x1f, 0xa4, 0xd1, 0x9b, 0x6b,
+	0x27, 0x8c, 0x4e, 0xe0, 0x6e, 0xc6, 0x13, 0x3a, 0x67, 0x49, 0x70, 0x47, 0x97, 0xd9, 0x57, 0xcb,
+	0x69, 0x82, 0xae, 0xc0, 0x2f, 0x68, 0xcc, 0x8b, 0x84, 0x65, 0x37, 0x41, 0x6f, 0xe4, 0x8d, 0x07,
+	0x93, 0xf0, 0xc2, 0x36, 0x7f, 0x41, 0x34, 0xe2, 0xf4, 0x4a, 0x1a, 0x32, 0x46, 0x70, 0xf4, 0x82,
+	0x09, 0xa9, 0x50, 0x61, 0x61, 0x7c, 0x05, 0x43, 0x27, 0x26, 0x72, 0x9e, 0x09, 0x35, 0x4b, 0x4f,
+	0x49, 0x24, 0x02, 0x6f, 0xb4, 0x37, 0x1e, 0x4c, 0x0e, 0x9b, 0xf4, 0x2a, 0xb1, 0xc1, 0xf0, 0xc7,
+	0x30, 0x7c, 0x46, 0x97, 0x74, 0x4b, 0x19, 0x85, 0x56, 0xca, 0xa8, 0xdf, 0xf8, 0x18, 0x90, 0x4b,
+	0x34, 0x35, 0xf0, 0x39, 0x9c, 0xa8, 0xc2, 0xee, 0xcc, 0x5d, 0x49, 0x7e, 0x86, 0x60, 0x9b, 0x6e,
+	0xdb, 0xfd, 0x0a, 0x0e, 0xd6, 0x14, 0x35, 0x5d, 0x07, 0x75, 0xd7, 0xce, 0xa6, 0x69, 0xf6, 0x07,
+	0x27, 0x6b, 0x6c, 0x3c, 0x85, 0x13, 0xd5, 0x98, 0x4b, 0x4a, 0x68, 0x26, 0x99, 0xbc, 0x6d, 0x6b,
+	0x04, 0x85, 0xd0, 0x67, 0x16, 0xd7, 0x47, 0xec, 0x93, 0x7a, 0x8d, 0x4f, 0xe1, 0x01, 0xa1, 0x29,
+	0x5f, 0x51, 0x27, 0x59, 0x3d, 0xf0, 0x2d, 0x1c, 0x7f, 0x5f, 0x1a, 0x11, 0x5e, 0x16, 0x51, 0xfc,
+	0xba, 0x63, 0xda, 0xae, 0x22, 0xe8, 0x14, 0x7c, 0xa9, 0xf6, 0xcf, 0x05, 0x4b, 0xf4, 0xe5, 0xf1,
+	0x49, 0x5f, 0x07, 0x66, 0x2c, 0x41, 0xc7, 0xd0, 0x4b, 0x4b, 0x49, 0xcd, 0x9d, 0xe9, 0x13, 0xb3,
+	0xc0, 0xdf, 0xc0, 0xfd, 0x8d, 0xd2, 0x56, 0xb9, 0x31, 0xf4, 0xf4, 0x56, 0x5d, 0x7c, 0x30, 0x41,
+	0xb5, 0x64, 0x9a, 0xa6, 0xc5, 0x32, 0x04, 0xfc, 0x1b, 0xdc, 0x77, 0x86, 0xba, 0xa6, 0x45, 0xca,
+	0x84, 0x60, 0x3c, 0x53, 0xf7, 0x3e, 0x8e, 0xb2, 0xb9, 0x28, 0x17, 0x22, 0x2e, 0xd8, 0xc2, 0x3c,
+	0x8a, 0x3e, 0x39, 0x88, 0xa3, 0x6c, 0x56, 0xc5, 0xd0, 0x87, 0x30, 0x50, 0xa4, 0xbc, 0x5c, 0x2c,
+	0x99, 0x78, 0xa5, 0x47, 0xea, 0x13, 0x88, 0xa3, 0xec, 0xda, 0x44, 0xf0, 0xdf, 0x1e, 0x04, 0x3f,
+	0xe6, 0x49, 0x24, 0xd7, 0xa5, 0x7b, 0x37, 0x85, 0x42, 0xe8, 0xa7, 0x54, 0x46, 0x49, 0x24, 0xa3,
+	0x4a, 0xa0, 0x6a, 0x8d, 0xbe, 0x06, 0xc8, 0xeb, 0xe6, 0xb5, 0x4a, 0x83, 0xc9, 0xa3, 0xb6, 0x9b,
+	0xd2, 0x8c, 0x48, 0x9c, 0x1d, 0xf8, 0x2f, 0x0f, 0x42, 0xd3, 0xa8, 0x9d, 0x2e, 0x97, 0x8c, 0x67,
+	0xe2, 0x5d, 0x5b, 0x3d, 0x03, 0xa8, 0x0f, 0x53, 0x59, 0xc1, 0xde, 0xd8, 0x27, 0x7e, 0x75, 0x9a,
+	0x02, 0x3d, 0x04, 0xbf, 0x11, 0xd6, 0x1c, 0x69, 0x13, 0xc0, 0x67, 0x70, 0xda, 0xda, 0x8a, 0xbd,
+	0x70, 0x12, 0x86, 0x5b, 0x76, 0x80, 0xce, 0xa1, 0xc7, 0xb2, 0xbc, 0x94, 0xf6, 0xc4, 0x4f, 0x36,
+	0x9c, 0x83, 0x65, 0x37, 0x53, 0x05, 0x13, 0xc3, 0x42, 0x9f, 0xc2, 0x3e, 0x2f, 0x65, 0x6e, 0xed,
+	0xcc, 0x7d, 0x54, 0x35, 0xff, 0x07, 0x8d, 0x13, 0xcb, 0xc3, 0x57, 0x70, 0xef, 0x79, 0x96, 0xd4,
+	0x68, 0x55, 0xf7, 0x31, 0x1c, 0xd4, 0x46, 0xa4, 0x3c, 0xcd, 0x08, 0x34, 0xa8, 0x63, 0xd3, 0x04,
+	0x7f, 0x51, 0xf5, 0xab, 0xb7, 0xd9, 0x1b, 0xfa, 0xff, 0xfb, 0x26, 0xff, 0xee, 0xc3, 0x40, 0x8d,
+	0x38, 0xa3, 0xc5, 0x8a, 0xc5, 0x14, 0x7d, 0x09, 0xd0, 0x58, 0x36, 0x6a, 0xbc, 0x71, 0xcb, 0xc7,
+	0xc3, 0x75, 0x63, 0x43, 0x4f, 0xc1, 0xaf, 0xbd, 0x10, 0x3d, 0xa8, 0xb1, 0x4d, 0xcf, 0x0c, 0xc3,
+	0x36, 0xc8, 0xf6, 0xfb, 0x1c, 0xa0, 0x31, 0x3b, 0xa7, 0xf8, 0x96, 0x55, 0x86, 0xa7, 0xad, 0x98,
+	0x4d, 0xf3, 0x93, 0xb1, 0xea, 0xb5, 0x2f, 0xc2, 0x68, 0xad, 0x6c, 0x8b, 0x71, 0x86, 0x8f, 0x3b,
+	0x18, 0x36, 0xf1, 0x0b, 0x78, 0xff, 0x3b, 0xea, 0x42, 0x4e, 0xda, 0x1d, 0x36, 0x18, 0xee, 0x74,
+	0x52, 0xf4, 0x8b, 0x3a, 0xb2, 0x0d, 0xc3, 0x7b, 0x8b, 0x84, 0xd8, 0xb9, 0x45, 0x3b, 0xec, 0x12,
+	0xcd, 0x00, 0x29, 0xcf, 0xb2, 0x06, 0x41, 0x13, 0xed, 0x48, 0xe8, 0xac, 0xde, 0xd9, 0xe6, 0xa5,
+	0xe1, 0xa3, 0x5d, 0xb0, 0x4d, 0x7a, 0x0d, 0xc3, 0x2d, 0x97, 0x41, 0x8d, 0x6a, 0xbb, 0x1c, 0xa8,
+	0x43, 0x81, 0xdf, 0xe1, 0x5e, 0xcb, 0x1b, 0x44, 0x4f, 0x36, 0x72, 0xb6, 0x99, 0x45, 0xf8, 0x51,
+	0x37, 0xc9, 0xf6, 0xfc, 0x0c, 0xa0, 0x79, 0xc6, 0xa8, 0xe3, 0x53, 0x1f, 0x86, 0xdb, 0x8f, 0xd3,
+	0x39, 0xf7, 0x23, 0xf5, 0x2c, 0x35, 0xdb, 0x62, 0xe8, 0x61, 0xcd, 0x6f, 0x79, 0xb1, 0x5d, 0xd9,
+	0x9e, 0x7e, 0xf6, 0xeb, 0xe5, 0x0d, 0x93, 0xaf, 0xca, 0xc5, 0x45, 0xcc, 0xd3, 0x4b, 0xcb, 0xab,
+	0xfe, 0x9e, 0x0b, 0x5a, 0xac, 0x68, 0x71, 0xa9, 0xff, 0x83, 0xaa, 0x82, 0x8b, 0x7d, 0xbd, 0xfc,
+	0xfc, 0xbf, 0x00, 0x00, 0x00, 0xff, 0xff, 0x36, 0x60, 0xf4, 0x21, 0x85, 0x09, 0x00, 0x00,
 }
