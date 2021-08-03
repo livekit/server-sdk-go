@@ -108,14 +108,6 @@ func (c *RoomServiceClient) CreateToken() *auth.AccessToken {
 	return auth.NewAccessToken(c.apiKey, c.apiSecret)
 }
 
-func (c *RoomServiceClient) StartRecording(ctx context.Context, req *livekit.RecordRoomRequest) (*livekit.RecordingResponse, error) {
-	return c.RoomService.RecordRoom(ctx, req)
-}
-
-func (c *RoomServiceClient) EndRecording(ctx context.Context, req *livekit.EndRecordingRequest) (*livekit.RecordingResponse, error) {
-	return c.RoomService.EndRoomRecording(ctx, req)
-}
-
 func (c *RoomServiceClient) withAuth(ctx context.Context, grant auth.VideoGrant) (context.Context, error) {
 	at := auth.NewAccessToken(c.apiKey, c.apiSecret)
 	at.AddGrant(&grant)
