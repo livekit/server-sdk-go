@@ -14,3 +14,5 @@ require (
 	github.com/twitchtv/twirp v8.1.0+incompatible
 	google.golang.org/protobuf v1.25.0
 )
+
+replace github.com/livekit/protocol => ../protocol

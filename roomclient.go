@@ -104,6 +104,22 @@ func (c *RoomServiceClient) UpdateSubscriptions(ctx context.Context, req *liveki
 	return c.RoomService.UpdateSubscriptions(ctx, req)
 }
 
+func (c *RoomServiceClient) StartRecording(ctx context.Context, req *livekit.RecordRoomRequest) (*livekit.RecordingResponse, error) {
+	ctx, err := c.withAuth(ctx, auth.VideoGrant{RoomAdmin: true})
+	if err != nil {
+		return nil, err
+	}
+	return c.RoomService.StartRecording(ctx, req)
+}
+
+func (c *RoomServiceClient) EndRecording(ctx context.Context, req *livekit.EndRecordingRequest) (*livekit.RecordingResponse, error) {
+	ctx, err := c.withAuth(ctx, auth.VideoGrant{RoomAdmin: true})
+	if err != nil {
+		return nil, err
+	}
+	return c.RoomService.EndRecording(ctx, req)
+}
+
 func (c *RoomServiceClient) CreateToken() *auth.AccessToken {
 	return auth.NewAccessToken(c.apiKey, c.apiSecret)
 }
