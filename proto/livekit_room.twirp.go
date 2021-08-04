@@ -16,12 +16,6 @@ import proto "google.golang.org/protobuf/proto"
 import twirp "github.com/twitchtv/twirp"
 import ctxsetters "github.com/twitchtv/twirp/ctxsetters"
 
-import bytes "bytes"
-import errors "errors"
-import io "io"
-import path "path"
-import url "net/url"
-
 // Version compatibility assertion.
 // If the constant is not defined in the package, that likely means
 // the package needs to be updated to work with this generated code.
@@ -63,12 +57,6 @@ type RoomService interface {
 
 	// Subscribes or unsubscribe a participant from tracks. Requires `roomAdmin`
 	UpdateSubscriptions(context.Context, *UpdateSubscriptionsRequest) (*UpdateSubscriptionsResponse, error)
-
-	// Starts recording a room
-	StartRecording(context.Context, *RecordRoomRequest) (*RecordingResponse, error)
-
-	// Ends a recording
-	EndRecording(context.Context, *EndRecordingRequest) (*RecordingResponse, error)
 }
 
 // ===========================
@@ -77,7 +65,7 @@ type RoomService interface {
 
 type roomServiceProtobufClient struct {
 	client      HTTPClient
-	urls        [11]string
+	urls        [9]string
 	interceptor twirp.Interceptor
 	opts        twirp.ClientOptions
 }
@@ -105,7 +93,7 @@ func NewRoomServiceProtobufClient(baseURL string, client HTTPClient, opts ...twi
 	// Build method URLs: <baseURL>[<prefix>]/<package>.<Service>/<Method>
 	serviceURL := sanitizeBaseURL(baseURL)
 	serviceURL += baseServicePath(pathPrefix, "livekit", "RoomService")
-	urls := [11]string{
+	urls := [9]string{
 		serviceURL + "CreateRoom",
 		serviceURL + "ListRooms",
 		serviceURL + "DeleteRoom",
@@ -115,8 +103,6 @@ func NewRoomServiceProtobufClient(baseURL string, client HTTPClient, opts ...twi
 		serviceURL + "MutePublishedTrack",
 		serviceURL + "UpdateParticipant",
 		serviceURL + "UpdateSubscriptions",
-		serviceURL + "StartRecording",
-		serviceURL + "EndRecording",
 	}
 
 	return &roomServiceProtobufClient{
@@ -541,105 +527,13 @@ func (c *roomServiceProtobufClient) callUpdateSubscriptions(ctx context.Context,
 	return out, nil
 }
 
-func (c *roomServiceProtobufClient) StartRecording(ctx context.Context, in *RecordRoomRequest) (*RecordingResponse, error) {
-	ctx = ctxsetters.WithPackageName(ctx, "livekit")
-	ctx = ctxsetters.WithServiceName(ctx, "RoomService")
-	ctx = ctxsetters.WithMethodName(ctx, "StartRecording")
-	caller := c.callStartRecording
-	if c.interceptor != nil {
-		caller = func(ctx context.Context, req *RecordRoomRequest) (*RecordingResponse, error) {
-			resp, err := c.interceptor(
-				func(ctx context.Context, req interface{}) (interface{}, error) {
-					typedReq, ok := req.(*RecordRoomRequest)
-					if !ok {
-						return nil, twirp.InternalError("failed type assertion req.(*RecordRoomRequest) when calling interceptor")
-					}
-					return c.callStartRecording(ctx, typedReq)
-				},
-			)(ctx, req)
-			if resp != nil {
-				typedResp, ok := resp.(*RecordingResponse)
-				if !ok {
-					return nil, twirp.InternalError("failed type assertion resp.(*RecordingResponse) when calling interceptor")
-				}
-				return typedResp, err
-			}
-			return nil, err
-		}
-	}
-	return caller(ctx, in)
-}
-
-func (c *roomServiceProtobufClient) callStartRecording(ctx context.Context, in *RecordRoomRequest) (*RecordingResponse, error) {
-	out := new(RecordingResponse)
-	ctx, err := doProtobufRequest(ctx, c.client, c.opts.Hooks, c.urls[9], in, out)
-	if err != nil {
-		twerr, ok := err.(twirp.Error)
-		if !ok {
-			twerr = twirp.InternalErrorWith(err)
-		}
-		callClientError(ctx, c.opts.Hooks, twerr)
-		return nil, err
-	}
-
-	callClientResponseReceived(ctx, c.opts.Hooks)
-
-	return out, nil
-}
-
-func (c *roomServiceProtobufClient) EndRecording(ctx context.Context, in *EndRecordingRequest) (*RecordingResponse, error) {
-	ctx = ctxsetters.WithPackageName(ctx, "livekit")
-	ctx = ctxsetters.WithServiceName(ctx, "RoomService")
-	ctx = ctxsetters.WithMethodName(ctx, "EndRecording")
-	caller := c.callEndRecording
-	if c.interceptor != nil {
-		caller = func(ctx context.Context, req *EndRecordingRequest) (*RecordingResponse, error) {
-			resp, err := c.interceptor(
-				func(ctx context.Context, req interface{}) (interface{}, error) {
-					typedReq, ok := req.(*EndRecordingRequest)
-					if !ok {
-						return nil, twirp.InternalError("failed type assertion req.(*EndRecordingRequest) when calling interceptor")
-					}
-					return c.callEndRecording(ctx, typedReq)
-				},
-			)(ctx, req)
-			if resp != nil {
-				typedResp, ok := resp.(*RecordingResponse)
-				if !ok {
-					return nil, twirp.InternalError("failed type assertion resp.(*RecordingResponse) when calling interceptor")
-				}
-				return typedResp, err
-			}
-			return nil, err
-		}
-	}
-	return caller(ctx, in)
-}
-
-func (c *roomServiceProtobufClient) callEndRecording(ctx context.Context, in *EndRecordingRequest) (*RecordingResponse, error) {
-	out := new(RecordingResponse)
-	ctx, err := doProtobufRequest(ctx, c.client, c.opts.Hooks, c.urls[10], in, out)
-	if err != nil {
-		twerr, ok := err.(twirp.Error)
-		if !ok {
-			twerr = twirp.InternalErrorWith(err)
-		}
-		callClientError(ctx, c.opts.Hooks, twerr)
-		return nil, err
-	}
-
-	callClientResponseReceived(ctx, c.opts.Hooks)
-
-	return out, nil
-}
-
 // =======================
 // RoomService JSON Client
 // =======================
 
 type roomServiceJSONClient struct {
 	client      HTTPClient
-	urls        [11]string
+	urls        [9]string
 	interceptor twirp.Interceptor
 	opts        twirp.ClientOptions
 }
@@ -667,7 +561,7 @@ func NewRoomServiceJSONClient(baseURL string, client HTTPClient, opts ...twirp.C
 	// Build method URLs: <baseURL>[<prefix>]/<package>.<Service>/<Method>
 	serviceURL := sanitizeBaseURL(baseURL)
 	serviceURL += baseServicePath(pathPrefix, "livekit", "RoomService")
-	urls := [11]string{
+	urls := [9]string{
 		serviceURL + "CreateRoom",
 		serviceURL + "ListRooms",
 		serviceURL + "DeleteRoom",
@@ -677,8 +571,6 @@ func NewRoomServiceJSONClient(baseURL string, client HTTPClient, opts ...twirp.C
 		serviceURL + "MutePublishedTrack",
 		serviceURL + "UpdateParticipant",
 		serviceURL + "UpdateSubscriptions",
-		serviceURL + "StartRecording",
-		serviceURL + "EndRecording",
 	}
 
 	return &roomServiceJSONClient{
@@ -1103,98 +995,6 @@ func (c *roomServiceJSONClient) callUpdateSubscriptions(ctx context.Context, in 
 	return out, nil
 }
 
-func (c *roomServiceJSONClient) StartRecording(ctx context.Context, in *RecordRoomRequest) (*RecordingResponse, error) {
-	ctx = ctxsetters.WithPackageName(ctx, "livekit")
-	ctx = ctxsetters.WithServiceName(ctx, "RoomService")
-	ctx = ctxsetters.WithMethodName(ctx, "StartRecording")
-	caller := c.callStartRecording
-	if c.interceptor != nil {
-		caller = func(ctx context.Context, req *RecordRoomRequest) (*RecordingResponse, error) {
-			resp, err := c.interceptor(
-				func(ctx context.Context, req interface{}) (interface{}, error) {
-					typedReq, ok := req.(*RecordRoomRequest)
-					if !ok {
-						return nil, twirp.InternalError("failed type assertion req.(*RecordRoomRequest) when calling interceptor")
-					}
-					return c.callStartRecording(ctx, typedReq)
-				},
-			)(ctx, req)
-			if resp != nil {
-				typedResp, ok := resp.(*RecordingResponse)
-				if !ok {
-					return nil, twirp.InternalError("failed type assertion resp.(*RecordingResponse) when calling interceptor")
-				}
-				return typedResp, err
-			}
-			return nil, err
-		}
-	}
-	return caller(ctx, in)
-}
-
-func (c *roomServiceJSONClient) callStartRecording(ctx context.Context, in *RecordRoomRequest) (*RecordingResponse, error) {
-	out := new(RecordingResponse)
-	ctx, err := doJSONRequest(ctx, c.client, c.opts.Hooks, c.urls[9], in, out)
-	if err != nil {
-		twerr, ok := err.(twirp.Error)
-		if !ok {
-			twerr = twirp.InternalErrorWith(err)
-		}
-		callClientError(ctx, c.opts.Hooks, twerr)
-		return nil, err
-	}
-
-	callClientResponseReceived(ctx, c.opts.Hooks)
-
-	return out, nil
-}
-
-func (c *roomServiceJSONClient) EndRecording(ctx context.Context, in *EndRecordingRequest) (*RecordingResponse, error) {
-	ctx = ctxsetters.WithPackageName(ctx, "livekit")
-	ctx = ctxsetters.WithServiceName(ctx, "RoomService")
-	ctx = ctxsetters.WithMethodName(ctx, "EndRecording")
-	caller := c.callEndRecording
-	if c.interceptor != nil {
-		caller = func(ctx context.Context, req *EndRecordingRequest) (*RecordingResponse, error) {
-			resp, err := c.interceptor(
-				func(ctx context.Context, req interface{}) (interface{}, error) {
-					typedReq, ok := req.(*EndRecordingRequest)
-					if !ok {
-						return nil, twirp.InternalError("failed type assertion req.(*EndRecordingRequest) when calling interceptor")
-					}
-					return c.callEndRecording(ctx, typedReq)
-				},
-			)(ctx, req)
-			if resp != nil {
-				typedResp, ok := resp.(*RecordingResponse)
-				if !ok {
-					return nil, twirp.InternalError("failed type assertion resp.(*RecordingResponse) when calling interceptor")
-				}
-				return typedResp, err
-			}
-			return nil, err
-		}
-	}
-	return caller(ctx, in)
-}
-
-func (c *roomServiceJSONClient) callEndRecording(ctx context.Context, in *EndRecordingRequest) (*RecordingResponse, error) {
-	out := new(RecordingResponse)
-	ctx, err := doJSONRequest(ctx, c.client, c.opts.Hooks, c.urls[10], in, out)
-	if err != nil {
-		twerr, ok := err.(twirp.Error)
-		if !ok {
-			twerr = twirp.InternalErrorWith(err)
-		}
-		callClientError(ctx, c.opts.Hooks, twerr)
-		return nil, err
-	}
-
-	callClientResponseReceived(ctx, c.opts.Hooks)
-
-	return out, nil
-}
-
 // ==========================
 // RoomService Server Handler
 // ==========================
@@ -1318,12 +1118,6 @@ func (s *roomServiceServer) ServeHTTP(resp http.ResponseWriter, req *http.Reques
 		return
 	case "UpdateSubscriptions":
 		s.serveUpdateSubscriptions(ctx, resp, req)
-		return
-	case "StartRecording":
-		s.serveStartRecording(ctx, resp, req)
-		return
-	case "EndRecording":
-		s.serveEndRecording(ctx, resp, req)
 		return
 	default:
 		msg := fmt.Sprintf("no handler for path %q", req.URL.Path)
@@ -2952,368 +2746,8 @@ func (s *roomServiceServer) serveUpdateSubscriptionsProtobuf(ctx context.Context
 	callResponseSent(ctx, s.hooks)
 }
 
-func (s *roomServiceServer) serveStartRecording(ctx context.Context, resp http.ResponseWriter, req *http.Request) {
-	header := req.Header.Get("Content-Type")
-	i := strings.Index(header, ";")
-	if i == -1 {
-		i = len(header)
-	}
-	switch strings.TrimSpace(strings.ToLower(header[:i])) {
-	case "application/json":
-		s.serveStartRecordingJSON(ctx, resp, req)
-	case "application/protobuf":
-		s.serveStartRecordingProtobuf(ctx, resp, req)
-	default:
-		msg := fmt.Sprintf("unexpected Content-Type: %q", req.Header.Get("Content-Type"))
-		twerr := badRouteError(msg, req.Method, req.URL.Path)
-		s.writeError(ctx, resp, twerr)
-	}
-}
-
-func (s *roomServiceServer) serveStartRecordingJSON(ctx context.Context, resp http.ResponseWriter, req *http.Request) {
-	var err error
-	ctx = ctxsetters.WithMethodName(ctx, "StartRecording")
-	ctx, err = callRequestRouted(ctx, s.hooks)
-	if err != nil {
-		s.writeError(ctx, resp, err)
-		return
-	}
-
-	d := json.NewDecoder(req.Body)
-	rawReqBody := json.RawMessage{}
-	if err := d.Decode(&rawReqBody); err != nil {
-		s.handleRequestBodyError(ctx, resp, "the json request could not be decoded", err)
-		return
-	}
-	reqContent := new(RecordRoomRequest)
-	unmarshaler := protojson.UnmarshalOptions{DiscardUnknown: true}
-	if err = unmarshaler.Unmarshal(rawReqBody, reqContent); err != nil {
-		s.handleRequestBodyError(ctx, resp, "the json request could not be decoded", err)
-		return
-	}
-
-	handler := s.RoomService.StartRecording
-	if s.interceptor != nil {
-		handler = func(ctx context.Context, req *RecordRoomRequest) (*RecordingResponse, error) {
-			resp, err := s.interceptor(
-				func(ctx context.Context, req interface{}) (interface{}, error) {
-					typedReq, ok := req.(*RecordRoomRequest)
-					if !ok {
-						return nil, twirp.InternalError("failed type assertion req.(*RecordRoomRequest) when calling interceptor")
-					}
-					return s.RoomService.StartRecording(ctx, typedReq)
-				},
-			)(ctx, req)
-			if resp != nil {
-				typedResp, ok := resp.(*RecordingResponse)
-				if !ok {
-					return nil, twirp.InternalError("failed type assertion resp.(*RecordingResponse) when calling interceptor")
-				}
-				return typedResp, err
-			}
-			return nil, err
-		}
-	}
-
-	// Call service method
-	var respContent *RecordingResponse
-	func() {
-		defer ensurePanicResponses(ctx, resp, s.hooks)
-		respContent, err = handler(ctx, reqContent)
-	}()
-
-	if err != nil {
-		s.writeError(ctx, resp, err)
-		return
-	}
-	if respContent == nil {
-		s.writeError(ctx, resp, twirp.InternalError("received a nil *RecordingResponse and nil error while calling StartRecording. nil responses are not supported"))
-		return
-	}
-
-	ctx = callResponsePrepared(ctx, s.hooks)
-
-	marshaler := &protojson.MarshalOptions{UseProtoNames: !s.jsonCamelCase, EmitUnpopulated: !s.jsonSkipDefaults}
-	respBytes, err := marshaler.Marshal(respContent)
-	if err != nil {
-		s.writeError(ctx, resp, wrapInternal(err, "failed to marshal json response"))
-		return
-	}
-
-	ctx = ctxsetters.WithStatusCode(ctx, http.StatusOK)
-	resp.Header().Set("Content-Type", "application/json")
-	resp.Header().Set("Content-Length", strconv.Itoa(len(respBytes)))
-	resp.WriteHeader(http.StatusOK)
-
-	if n, err := resp.Write(respBytes); err != nil {
-		msg := fmt.Sprintf("failed to write response, %d of %d bytes written: %s", n, len(respBytes), err.Error())
-		twerr := twirp.NewError(twirp.Unknown, msg)
-		ctx = callError(ctx, s.hooks, twerr)
-	}
-	callResponseSent(ctx, s.hooks)
-}
-
-func (s *roomServiceServer) serveStartRecordingProtobuf(ctx context.Context, resp http.ResponseWriter, req *http.Request) {
-	var err error
-	ctx = ctxsetters.WithMethodName(ctx, "StartRecording")
-	ctx, err = callRequestRouted(ctx, s.hooks)
-	if err != nil {
-		s.writeError(ctx, resp, err)
-		return
-	}
-
-	buf, err := ioutil.ReadAll(req.Body)
-	if err != nil {
-		s.handleRequestBodyError(ctx, resp, "failed to read request body", err)
-		return
-	}
-	reqContent := new(RecordRoomRequest)
-	if err = proto.Unmarshal(buf, reqContent); err != nil {
-		s.writeError(ctx, resp, malformedRequestError("the protobuf request could not be decoded"))
-		return
-	}
-
-	handler := s.RoomService.StartRecording
-	if s.interceptor != nil {
-		handler = func(ctx context.Context, req *RecordRoomRequest) (*RecordingResponse, error) {
-			resp, err := s.interceptor(
-				func(ctx context.Context, req interface{}) (interface{}, error) {
-					typedReq, ok := req.(*RecordRoomRequest)
-					if !ok {
-						return nil, twirp.InternalError("failed type assertion req.(*RecordRoomRequest) when calling interceptor")
-					}
-					return s.RoomService.StartRecording(ctx, typedReq)
-				},
-			)(ctx, req)
-			if resp != nil {
-				typedResp, ok := resp.(*RecordingResponse)
-				if !ok {
-					return nil, twirp.InternalError("failed type assertion resp.(*RecordingResponse) when calling interceptor")
-				}
-				return typedResp, err
-			}
-			return nil, err
-		}
-	}
-
-	// Call service method
-	var respContent *RecordingResponse
-	func() {
-		defer ensurePanicResponses(ctx, resp, s.hooks)
-		respContent, err = handler(ctx, reqContent)
-	}()
-
-	if err != nil {
-		s.writeError(ctx, resp, err)
-		return
-	}
-	if respContent == nil {
-		s.writeError(ctx, resp, twirp.InternalError("received a nil *RecordingResponse and nil error while calling StartRecording. nil responses are not supported"))
-		return
-	}
-
-	ctx = callResponsePrepared(ctx, s.hooks)
-
-	respBytes, err := proto.Marshal(respContent)
-	if err != nil {
-		s.writeError(ctx, resp, wrapInternal(err, "failed to marshal proto response"))
-		return
-	}
-
-	ctx = ctxsetters.WithStatusCode(ctx, http.StatusOK)
-	resp.Header().Set("Content-Type", "application/protobuf")
-	resp.Header().Set("Content-Length", strconv.Itoa(len(respBytes)))
-	resp.WriteHeader(http.StatusOK)
-	if n, err := resp.Write(respBytes); err != nil {
-		msg := fmt.Sprintf("failed to write response, %d of %d bytes written: %s", n, len(respBytes), err.Error())
-		twerr := twirp.NewError(twirp.Unknown, msg)
-		ctx = callError(ctx, s.hooks, twerr)
-	}
-	callResponseSent(ctx, s.hooks)
-}
-
-func (s *roomServiceServer) serveEndRecording(ctx context.Context, resp http.ResponseWriter, req *http.Request) {
-	header := req.Header.Get("Content-Type")
-	i := strings.Index(header, ";")
-	if i == -1 {
-		i = len(header)
-	}
-	switch strings.TrimSpace(strings.ToLower(header[:i])) {
-	case "application/json":
-		s.serveEndRecordingJSON(ctx, resp, req)
-	case "application/protobuf":
-		s.serveEndRecordingProtobuf(ctx, resp, req)
-	default:
-		msg := fmt.Sprintf("unexpected Content-Type: %q", req.Header.Get("Content-Type"))
-		twerr := badRouteError(msg, req.Method, req.URL.Path)
-		s.writeError(ctx, resp, twerr)
-	}
-}
-
-func (s *roomServiceServer) serveEndRecordingJSON(ctx context.Context, resp http.ResponseWriter, req *http.Request) {
-	var err error
-	ctx = ctxsetters.WithMethodName(ctx, "EndRecording")
-	ctx, err = callRequestRouted(ctx, s.hooks)
-	if err != nil {
-		s.writeError(ctx, resp, err)
-		return
-	}
-
-	d := json.NewDecoder(req.Body)
-	rawReqBody := json.RawMessage{}
-	if err := d.Decode(&rawReqBody); err != nil {
-		s.handleRequestBodyError(ctx, resp, "the json request could not be decoded", err)
-		return
-	}
-	reqContent := new(EndRecordingRequest)
-	unmarshaler := protojson.UnmarshalOptions{DiscardUnknown: true}
-	if err = unmarshaler.Unmarshal(rawReqBody, reqContent); err != nil {
-		s.handleRequestBodyError(ctx, resp, "the json request could not be decoded", err)
-		return
-	}
-
-	handler := s.RoomService.EndRecording
-	if s.interceptor != nil {
-		handler = func(ctx context.Context, req *EndRecordingRequest) (*RecordingResponse, error) {
-			resp, err := s.interceptor(
-				func(ctx context.Context, req interface{}) (interface{}, error) {
-					typedReq, ok := req.(*EndRecordingRequest)
-					if !ok {
-						return nil, twirp.InternalError("failed type assertion req.(*EndRecordingRequest) when calling interceptor")
-					}
-					return s.RoomService.EndRecording(ctx, typedReq)
-				},
-			)(ctx, req)
-			if resp != nil {
-				typedResp, ok := resp.(*RecordingResponse)
-				if !ok {
-					return nil, twirp.InternalError("failed type assertion resp.(*RecordingResponse) when calling interceptor")
-				}
-				return typedResp, err
-			}
-			return nil, err
-		}
-	}
-
-	// Call service method
-	var respContent *RecordingResponse
-	func() {
-		defer ensurePanicResponses(ctx, resp, s.hooks)
-		respContent, err = handler(ctx, reqContent)
-	}()
-
-	if err != nil {
-		s.writeError(ctx, resp, err)
-		return
-	}
-	if respContent == nil {
-		s.writeError(ctx, resp, twirp.InternalError("received a nil *RecordingResponse and nil error while calling EndRecording. nil responses are not supported"))
-		return
-	}
-
-	ctx = callResponsePrepared(ctx, s.hooks)
-
-	marshaler := &protojson.MarshalOptions{UseProtoNames: !s.jsonCamelCase, EmitUnpopulated: !s.jsonSkipDefaults}
-	respBytes, err := marshaler.Marshal(respContent)
-	if err != nil {
-		s.writeError(ctx, resp, wrapInternal(err, "failed to marshal json response"))
-		return
-	}
-
-	ctx = ctxsetters.WithStatusCode(ctx, http.StatusOK)
-	resp.Header().Set("Content-Type", "application/json")
-	resp.Header().Set("Content-Length", strconv.Itoa(len(respBytes)))
-	resp.WriteHeader(http.StatusOK)
-
-	if n, err := resp.Write(respBytes); err != nil {
-		msg := fmt.Sprintf("failed to write response, %d of %d bytes written: %s", n, len(respBytes), err.Error())
-		twerr := twirp.NewError(twirp.Unknown, msg)
-		ctx = callError(ctx, s.hooks, twerr)
-	}
-	callResponseSent(ctx, s.hooks)
-}
-
-func (s *roomServiceServer) serveEndRecordingProtobuf(ctx context.Context, resp http.ResponseWriter, req *http.Request) {
-	var err error
-	ctx = ctxsetters.WithMethodName(ctx, "EndRecording")
-	ctx, err = callRequestRouted(ctx, s.hooks)
-	if err != nil {
-		s.writeError(ctx, resp, err)
-		return
-	}
-
-	buf, err := ioutil.ReadAll(req.Body)
-	if err != nil {
-		s.handleRequestBodyError(ctx, resp, "failed to read request body", err)
-		return
-	}
-	reqContent := new(EndRecordingRequest)
-	if err = proto.Unmarshal(buf, reqContent); err != nil {
-		s.writeError(ctx, resp, malformedRequestError("the protobuf request could not be decoded"))
-		return
-	}
-
-	handler := s.RoomService.EndRecording
-	if s.interceptor != nil {
-		handler = func(ctx context.Context, req *EndRecordingRequest) (*RecordingResponse, error) {
-			resp, err := s.interceptor(
-				func(ctx context.Context, req interface{}) (interface{}, error) {
-					typedReq, ok := req.(*EndRecordingRequest)
-					if !ok {
-						return nil, twirp.InternalError("failed type assertion req.(*EndRecordingRequest) when calling interceptor")
-					}
-					return s.RoomService.EndRecording(ctx, typedReq)
-				},
-			)(ctx, req)
-			if resp != nil {
-				typedResp, ok := resp.(*RecordingResponse)
-				if !ok {
-					return nil, twirp.InternalError("failed type assertion resp.(*RecordingResponse) when calling interceptor")
-				}
-				return typedResp, err
-			}
-			return nil, err
-		}
-	}
-
-	// Call service method
-	var respContent *RecordingResponse
-	func() {
-		defer ensurePanicResponses(ctx, resp, s.hooks)
-		respContent, err = handler(ctx, reqContent)
-	}()
-
-	if err != nil {
-		s.writeError(ctx, resp, err)
-		return
-	}
-	if respContent == nil {
-		s.writeError(ctx, resp, twirp.InternalError("received a nil *RecordingResponse and nil error while calling EndRecording. nil responses are not supported"))
-		return
-	}
-
-	ctx = callResponsePrepared(ctx, s.hooks)
-
-	respBytes, err := proto.Marshal(respContent)
-	if err != nil {
-		s.writeError(ctx, resp, wrapInternal(err, "failed to marshal proto response"))
-		return
-	}
-
-	ctx = ctxsetters.WithStatusCode(ctx, http.StatusOK)
-	resp.Header().Set("Content-Type", "application/protobuf")
-	resp.Header().Set("Content-Length", strconv.Itoa(len(respBytes)))
-	resp.WriteHeader(http.StatusOK)
-	if n, err := resp.Write(respBytes); err != nil {
-		msg := fmt.Sprintf("failed to write response, %d of %d bytes written: %s", n, len(respBytes), err.Error())
-		twerr := twirp.NewError(twirp.Unknown, msg)
-		ctx = callError(ctx, s.hooks, twerr)
-	}
-	callResponseSent(ctx, s.hooks)
-}
-
 func (s *roomServiceServer) ServiceDescriptor() ([]byte, int) {
-	return twirpFileDescriptor0, 0
+	return twirpFileDescriptor1, 0
 }
 
 func (s *roomServiceServer) ProtocGenTwirpVersion() string {
@@ -3327,628 +2761,52 @@ func (s *roomServiceServer) PathPrefix() string {
 	return baseServicePath(s.pathPrefix, "livekit", "RoomService")
 }
 
-// =====
-// Utils
-// =====
-
-// HTTPClient is the interface used by generated clients to send HTTP requests.
-// It is fulfilled by *(net/http).Client, which is sufficient for most users.
-// Users can provide their own implementation for special retry policies.
-//
-// HTTPClient implementations should not follow redirects. Redirects are
-// automatically disabled if *(net/http).Client is passed to client
-// constructors. See the withoutRedirects function in this file for more
-// details.
-type HTTPClient interface {
-	Do(req *http.Request) (*http.Response, error)
-}
-
-// TwirpServer is the interface generated server structs will support: they're
-// HTTP handlers with additional methods for accessing metadata about the
-// service. Those accessors are a low-level API for building reflection tools.
-// Most people can think of TwirpServers as just http.Handlers.
-type TwirpServer interface {
-	http.Handler
-
-	// ServiceDescriptor returns gzipped bytes describing the .proto file that
-	// this service was generated from. Once unzipped, the bytes can be
-	// unmarshalled as a
-	// google.golang.org/protobuf/types/descriptorpb.FileDescriptorProto.
-	//
-	// The returned integer is the index of this particular service within that
-	// FileDescriptorProto's 'Service' slice of ServiceDescriptorProtos. This is a
-	// low-level field, expected to be used for reflection.
-	ServiceDescriptor() ([]byte, int)
-
-	// ProtocGenTwirpVersion is the semantic version string of the version of
-	// twirp used to generate this file.
-	ProtocGenTwirpVersion() string
-
-	// PathPrefix returns the HTTP URL path prefix for all methods handled by this
-	// service. This can be used with an HTTP mux to route Twirp requests.
-	// The path prefix is in the form: "/<prefix>/<package>.<Service>/"
-	// that is, everything in a Twirp route except for the <Method> at the end.
-	PathPrefix() string
-}
-
-func newServerOpts(opts []interface{}) *twirp.ServerOptions {
-	serverOpts := &twirp.ServerOptions{}
-	for _, opt := range opts {
-		switch o := opt.(type) {
-		case twirp.ServerOption:
-			o(serverOpts)
-		case *twirp.ServerHooks: // backwards compatibility, allow to specify hooks as an argument
-			twirp.WithServerHooks(o)(serverOpts)
-		case nil: // backwards compatibility, allow nil value for the argument
-			continue
-		default:
-			panic(fmt.Sprintf("Invalid option type %T, please use a twirp.ServerOption", o))
-		}
-	}
-	return serverOpts
-}
-
-// WriteError writes an HTTP response with a valid Twirp error format (code, msg, meta).
-// Useful outside of the Twirp server (e.g. http middleware), but does not trigger hooks.
-// If err is not a twirp.Error, it will get wrapped with twirp.InternalErrorWith(err)
-func WriteError(resp http.ResponseWriter, err error) {
-	writeError(context.Background(), resp, err, nil)
-}
-
-// writeError writes Twirp errors in the response and triggers hooks.
-func writeError(ctx context.Context, resp http.ResponseWriter, err error, hooks *twirp.ServerHooks) {
-	// Convert to a twirp.Error. Non-twirp errors are converted to internal errors.
-	var twerr twirp.Error
-	if !errors.As(err, &twerr) {
-		twerr = twirp.InternalErrorWith(err)
-	}
-
-	statusCode := twirp.ServerHTTPStatusFromErrorCode(twerr.Code())
-	ctx = ctxsetters.WithStatusCode(ctx, statusCode)
-	ctx = callError(ctx, hooks, twerr)
-
-	respBody := marshalErrorToJSON(twerr)
-
-	resp.Header().Set("Content-Type", "application/json") // Error responses are always JSON
-	resp.Header().Set("Content-Length", strconv.Itoa(len(respBody)))
-	resp.WriteHeader(statusCode) // set HTTP status code and send response
-
-	_, writeErr := resp.Write(respBody)
-	if writeErr != nil {
-		// We have three options here. We could log the error, call the Error
-		// hook, or just silently ignore the error.
-		//
-		// Logging is unacceptable because we don't have a user-controlled
-		// logger; writing out to stderr without permission is too rude.
-		//
-		// Calling the Error hook would confuse users: it would mean the Error
-		// hook got called twice for one request, which is likely to lead to
-		// duplicated log messages and metrics, no matter how well we document
-		// the behavior.
-		//
-		// Silently ignoring the error is our least-bad option. It's highly
-		// likely that the connection is broken and the original 'err' says
-		// so anyway.
-		_ = writeErr
-	}
-
-	callResponseSent(ctx, hooks)
-}
-
-// sanitizeBaseURL parses the the baseURL, and adds the "http" scheme if needed.
-// If the URL is unparsable, the baseURL is returned unchaged.
-func sanitizeBaseURL(baseURL string) string {
-	u, err := url.Parse(baseURL)
-	if err != nil {
-		return baseURL // invalid URL will fail later when making requests
-	}
-	if u.Scheme == "" {
-		u.Scheme = "http"
-	}
-	return u.String()
-}
-
-// baseServicePath composes the path prefix for the service (without <Method>).
-// e.g.: baseServicePath("/twirp", "my.pkg", "MyService")
-//       returns => "/twirp/my.pkg.MyService/"
-// e.g.: baseServicePath("", "", "MyService")
-//       returns => "/MyService/"
-func baseServicePath(prefix, pkg, service string) string {
-	fullServiceName := service
-	if pkg != "" {
-		fullServiceName = pkg + "." + service
-	}
-	return path.Join("/", prefix, fullServiceName) + "/"
-}
-
-// parseTwirpPath extracts path components form a valid Twirp route.
-// Expected format: "[<prefix>]/<package>.<Service>/<Method>"
-// e.g.: prefix, pkgService, method := parseTwirpPath("/twirp/pkg.Svc/MakeHat")
-func parseTwirpPath(path string) (string, string, string) {
-	parts := strings.Split(path, "/")
-	if len(parts) < 2 {
-		return "", "", ""
-	}
-	method := parts[len(parts)-1]
-	pkgService := parts[len(parts)-2]
-	prefix := strings.Join(parts[0:len(parts)-2], "/")
-	return prefix, pkgService, method
-}
-
-// getCustomHTTPReqHeaders retrieves a copy of any headers that are set in
-// a context through the twirp.WithHTTPRequestHeaders function.
-// If there are no headers set, or if they have the wrong type, nil is returned.
-func getCustomHTTPReqHeaders(ctx context.Context) http.Header {
-	header, ok := twirp.HTTPRequestHeaders(ctx)
-	if !ok || header == nil {
-		return nil
-	}
-	copied := make(http.Header)
-	for k, vv := range header {
-		if vv == nil {
-			copied[k] = nil
-			continue
-		}
-		copied[k] = make([]string, len(vv))
-		copy(copied[k], vv)
-	}
-	return copied
-}
-
-// newRequest makes an http.Request from a client, adding common headers.
-func newRequest(ctx context.Context, url string, reqBody io.Reader, contentType string) (*http.Request, error) {
-	req, err := http.NewRequest("POST", url, reqBody)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if customHeader := getCustomHTTPReqHeaders(ctx); customHeader != nil {
-		req.Header = customHeader
-	}
-	req.Header.Set("Accept", contentType)
-	req.Header.Set("Content-Type", contentType)
-	req.Header.Set("Twirp-Version", "v8.1.0")
-	return req, nil
-}
-
-// JSON serialization for errors
-type twerrJSON struct {
-	Code string            `json:"code"`
-	Msg  string            `json:"msg"`
-	Meta map[string]string `json:"meta,omitempty"`
-}
-
-// marshalErrorToJSON returns JSON from a twirp.Error, that can be used as HTTP error response body.
-// If serialization fails, it will use a descriptive Internal error instead.
-func marshalErrorToJSON(twerr twirp.Error) []byte {
-	// make sure that msg is not too large
-	msg := twerr.Msg()
-	if len(msg) > 1e6 {
-		msg = msg[:1e6]
-	}
-
-	tj := twerrJSON{
-		Code: string(twerr.Code()),
-		Msg:  msg,
-		Meta: twerr.MetaMap(),
-	}
-
-	buf, err := json.Marshal(&tj)
-	if err != nil {
-		buf = []byte("{\"type\": \"" + twirp.Internal + "\", \"msg\": \"There was an error but it could not be serialized into JSON\"}") // fallback
-	}
-
-	return buf
-}
-
-// errorFromResponse builds a twirp.Error from a non-200 HTTP response.
-// If the response has a valid serialized Twirp error, then it's returned.
-// If not, the response status code is used to generate a similar twirp
-// error. See twirpErrorFromIntermediary for more info on intermediary errors.
-func errorFromResponse(resp *http.Response) twirp.Error {
-	statusCode := resp.StatusCode
-	statusText := http.StatusText(statusCode)
-
-	if isHTTPRedirect(statusCode) {
-		// Unexpected redirect: it must be an error from an intermediary.
-		// Twirp clients don't follow redirects automatically, Twirp only handles
-		// POST requests, redirects should only happen on GET and HEAD requests.
-		location := resp.Header.Get("Location")
-		msg := fmt.Sprintf("unexpected HTTP status code %d %q received, Location=%q", statusCode, statusText, location)
-		return twirpErrorFromIntermediary(statusCode, msg, location)
-	}
-
-	respBodyBytes, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return wrapInternal(err, "failed to read server error response body")
-	}
-
-	var tj twerrJSON
-	dec := json.NewDecoder(bytes.NewReader(respBodyBytes))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&tj); err != nil || tj.Code == "" {
-		// Invalid JSON response; it must be an error from an intermediary.
-		msg := fmt.Sprintf("Error from intermediary with HTTP status code %d %q", statusCode, statusText)
-		return twirpErrorFromIntermediary(statusCode, msg, string(respBodyBytes))
-	}
-
-	errorCode := twirp.ErrorCode(tj.Code)
-	if !twirp.IsValidErrorCode(errorCode) {
-		msg := "invalid type returned from server error response: " + tj.Code
-		return twirp.InternalError(msg).WithMeta("body", string(respBodyBytes))
-	}
-
-	twerr := twirp.NewError(errorCode, tj.Msg)
-	for k, v := range tj.Meta {
-		twerr = twerr.WithMeta(k, v)
-	}
-	return twerr
-}
-
-// twirpErrorFromIntermediary maps HTTP errors from non-twirp sources to twirp errors.
-// The mapping is similar to gRPC: https://github.com/grpc/grpc/blob/master/doc/http-grpc-status-mapping.md.
-// Returned twirp Errors have some additional metadata for inspection.
-func twirpErrorFromIntermediary(status int, msg string, bodyOrLocation string) twirp.Error {
-	var code twirp.ErrorCode
-	if isHTTPRedirect(status) { // 3xx
-		code = twirp.Internal
-	} else {
-		switch status {
-		case 400: // Bad Request
-			code = twirp.Internal
-		case 401: // Unauthorized
-			code = twirp.Unauthenticated
-		case 403: // Forbidden
-			code = twirp.PermissionDenied
-		case 404: // Not Found
-			code = twirp.BadRoute
-		case 429: // Too Many Requests
-			code = twirp.ResourceExhausted
-		case 502, 503, 504: // Bad Gateway, Service Unavailable, Gateway Timeout
-			code = twirp.Unavailable
-		default: // All other codes
-			code = twirp.Unknown
-		}
-	}
-
-	twerr := twirp.NewError(code, msg)
-	twerr = twerr.WithMeta("http_error_from_intermediary", "true") // to easily know if this error was from intermediary
-	twerr = twerr.WithMeta("status_code", strconv.Itoa(status))
-	if isHTTPRedirect(status) {
-		twerr = twerr.WithMeta("location", bodyOrLocation)
-	} else {
-		twerr = twerr.WithMeta("body", bodyOrLocation)
-	}
-	return twerr
-}
-
-func isHTTPRedirect(status int) bool {
-	return status >= 300 && status <= 399
-}
-
-// wrapInternal wraps an error with a prefix as an Internal error.
-// The original error cause is accessible by github.com/pkg/errors.Cause.
-func wrapInternal(err error, prefix string) twirp.Error {
-	return twirp.InternalErrorWith(&wrappedError{prefix: prefix, cause: err})
-}
-
-type wrappedError struct {
-	prefix string
-	cause  error
-}
-
-func (e *wrappedError) Error() string { return e.prefix + ": " + e.cause.Error() }
-func (e *wrappedError) Unwrap() error { return e.cause } // for go1.13 + errors.Is/As
-func (e *wrappedError) Cause() error  { return e.cause } // for github.com/pkg/errors
-
-// ensurePanicResponses makes sure that rpc methods causing a panic still result in a Twirp Internal
-// error response (status 500), and error hooks are properly called with the panic wrapped as an error.
-// The panic is re-raised so it can be handled normally with middleware.
-func ensurePanicResponses(ctx context.Context, resp http.ResponseWriter, hooks *twirp.ServerHooks) {
-	if r := recover(); r != nil {
-		// Wrap the panic as an error so it can be passed to error hooks.
-		// The original error is accessible from error hooks, but not visible in the response.
-		err := errFromPanic(r)
-		twerr := &internalWithCause{msg: "Internal service panic", cause: err}
-		// Actually write the error
-		writeError(ctx, resp, twerr, hooks)
-		// If possible, flush the error to the wire.
-		f, ok := resp.(http.Flusher)
-		if ok {
-			f.Flush()
-		}
-
-		panic(r)
-	}
-}
-
-// errFromPanic returns the typed error if the recovered panic is an error, otherwise formats as error.
-func errFromPanic(p interface{}) error {
-	if err, ok := p.(error); ok {
-		return err
-	}
-	return fmt.Errorf("panic: %v", p)
-}
-
-// internalWithCause is a Twirp Internal error wrapping an original error cause,
-// but the original error message is not exposed on Msg(). The original error
-// can be checked with go1.13+ errors.Is/As, and also by (github.com/pkg/errors).Unwrap
-type internalWithCause struct {
-	msg   string
-	cause error
-}
-
-func (e *internalWithCause) Unwrap() error                               { return e.cause } // for go1.13 + errors.Is/As
-func (e *internalWithCause) Cause() error                                { return e.cause } // for github.com/pkg/errors
-func (e *internalWithCause) Error() string                               { return e.msg + ": " + e.cause.Error() }
-func (e *internalWithCause) Code() twirp.ErrorCode                       { return twirp.Internal }
-func (e *internalWithCause) Msg() string                                 { return e.msg }
-func (e *internalWithCause) Meta(key string) string                      { return "" }
-func (e *internalWithCause) MetaMap() map[string]string                  { return nil }
-func (e *internalWithCause) WithMeta(key string, val string) twirp.Error { return e }
-
-// malformedRequestError is used when the twirp server cannot unmarshal a request
-func malformedRequestError(msg string) twirp.Error {
-	return twirp.NewError(twirp.Malformed, msg)
-}
-
-// badRouteError is used when the twirp server cannot route a request
-func badRouteError(msg string, method, url string) twirp.Error {
-	err := twirp.NewError(twirp.BadRoute, msg)
-	err = err.WithMeta("twirp_invalid_route", method+" "+url)
-	return err
-}
-
-// withoutRedirects makes sure that the POST request can not be redirected.
-// The standard library will, by default, redirect requests (including POSTs) if it gets a 302 or
-// 303 response, and also 301s in go1.8. It redirects by making a second request, changing the
-// method to GET and removing the body. This produces very confusing error messages, so instead we
-// set a redirect policy that always errors. This stops Go from executing the redirect.
-//
-// We have to be a little careful in case the user-provided http.Client has its own CheckRedirect
-// policy - if so, we'll run through that policy first.
-//
-// Because this requires modifying the http.Client, we make a new copy of the client and return it.
-func withoutRedirects(in *http.Client) *http.Client {
-	copy := *in
-	copy.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if in.CheckRedirect != nil {
-			// Run the input's redirect if it exists, in case it has side effects, but ignore any error it
-			// returns, since we want to use ErrUseLastResponse.
-			err := in.CheckRedirect(req, via)
-			_ = err // Silly, but this makes sure generated code passes errcheck -blank, which some people use.
-		}
-		return http.ErrUseLastResponse
-	}
-	return &copy
-}
-
-// doProtobufRequest makes a Protobuf request to the remote Twirp service.
-func doProtobufRequest(ctx context.Context, client HTTPClient, hooks *twirp.ClientHooks, url string, in, out proto.Message) (_ context.Context, err error) {
-	reqBodyBytes, err := proto.Marshal(in)
-	if err != nil {
-		return ctx, wrapInternal(err, "failed to marshal proto request")
-	}
-	reqBody := bytes.NewBuffer(reqBodyBytes)
-	if err = ctx.Err(); err != nil {
-		return ctx, wrapInternal(err, "aborted because context was done")
-	}
-
-	req, err := newRequest(ctx, url, reqBody, "application/protobuf")
-	if err != nil {
-		return ctx, wrapInternal(err, "could not build request")
-	}
-	ctx, err = callClientRequestPrepared(ctx, hooks, req)
-	if err != nil {
-		return ctx, err
-	}
-
-	req = req.WithContext(ctx)
-	resp, err := client.Do(req)
-	if err != nil {
-		return ctx, wrapInternal(err, "failed to do request")
-	}
-
-	defer func() {
-		cerr := resp.Body.Close()
-		if err == nil && cerr != nil {
-			err = wrapInternal(cerr, "failed to close response body")
-		}
-	}()
-
-	if err = ctx.Err(); err != nil {
-		return ctx, wrapInternal(err, "aborted because context was done")
-	}
-
-	if resp.StatusCode != 200 {
-		return ctx, errorFromResponse(resp)
-	}
-
-	respBodyBytes, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return ctx, wrapInternal(err, "failed to read response body")
-	}
-	if err = ctx.Err(); err != nil {
-		return ctx, wrapInternal(err, "aborted because context was done")
-	}
-
-	if err = proto.Unmarshal(respBodyBytes, out); err != nil {
-		return ctx, wrapInternal(err, "failed to unmarshal proto response")
-	}
-	return ctx, nil
-}
-
-// doJSONRequest makes a JSON request to the remote Twirp service.
-func doJSONRequest(ctx context.Context, client HTTPClient, hooks *twirp.ClientHooks, url string, in, out proto.Message) (_ context.Context, err error) {
-	marshaler := &protojson.MarshalOptions{UseProtoNames: true}
-	reqBytes, err := marshaler.Marshal(in)
-	if err != nil {
-		return ctx, wrapInternal(err, "failed to marshal json request")
-	}
-	if err = ctx.Err(); err != nil {
-		return ctx, wrapInternal(err, "aborted because context was done")
-	}
-
-	req, err := newRequest(ctx, url, bytes.NewReader(reqBytes), "application/json")
-	if err != nil {
-		return ctx, wrapInternal(err, "could not build request")
-	}
-	ctx, err = callClientRequestPrepared(ctx, hooks, req)
-	if err != nil {
-		return ctx, err
-	}
-
-	req = req.WithContext(ctx)
-	resp, err := client.Do(req)
-	if err != nil {
-		return ctx, wrapInternal(err, "failed to do request")
-	}
-
-	defer func() {
-		cerr := resp.Body.Close()
-		if err == nil && cerr != nil {
-			err = wrapInternal(cerr, "failed to close response body")
-		}
-	}()
-
-	if err = ctx.Err(); err != nil {
-		return ctx, wrapInternal(err, "aborted because context was done")
-	}
-
-	if resp.StatusCode != 200 {
-		return ctx, errorFromResponse(resp)
-	}
-
-	d := json.NewDecoder(resp.Body)
-	rawRespBody := json.RawMessage{}
-	if err := d.Decode(&rawRespBody); err != nil {
-		return ctx, wrapInternal(err, "failed to unmarshal json response")
-	}
-	unmarshaler := protojson.UnmarshalOptions{DiscardUnknown: true}
-	if err = unmarshaler.Unmarshal(rawRespBody, out); err != nil {
-		return ctx, wrapInternal(err, "failed to unmarshal json response")
-	}
-	if err = ctx.Err(); err != nil {
-		return ctx, wrapInternal(err, "aborted because context was done")
-	}
-	return ctx, nil
-}
-
-// Call twirp.ServerHooks.RequestReceived if the hook is available
-func callRequestReceived(ctx context.Context, h *twirp.ServerHooks) (context.Context, error) {
-	if h == nil || h.RequestReceived == nil {
-		return ctx, nil
-	}
-	return h.RequestReceived(ctx)
-}
-
-// Call twirp.ServerHooks.RequestRouted if the hook is available
-func callRequestRouted(ctx context.Context, h *twirp.ServerHooks) (context.Context, error) {
-	if h == nil || h.RequestRouted == nil {
-		return ctx, nil
-	}
-	return h.RequestRouted(ctx)
-}
-
-// Call twirp.ServerHooks.ResponsePrepared if the hook is available
-func callResponsePrepared(ctx context.Context, h *twirp.ServerHooks) context.Context {
-	if h == nil || h.ResponsePrepared == nil {
-		return ctx
-	}
-	return h.ResponsePrepared(ctx)
-}
-
-// Call twirp.ServerHooks.ResponseSent if the hook is available
-func callResponseSent(ctx context.Context, h *twirp.ServerHooks) {
-	if h == nil || h.ResponseSent == nil {
-		return
-	}
-	h.ResponseSent(ctx)
-}
-
-// Call twirp.ServerHooks.Error if the hook is available
-func callError(ctx context.Context, h *twirp.ServerHooks, err twirp.Error) context.Context {
-	if h == nil || h.Error == nil {
-		return ctx
-	}
-	return h.Error(ctx, err)
-}
-
-func callClientResponseReceived(ctx context.Context, h *twirp.ClientHooks) {
-	if h == nil || h.ResponseReceived == nil {
-		return
-	}
-	h.ResponseReceived(ctx)
-}
-
-func callClientRequestPrepared(ctx context.Context, h *twirp.ClientHooks, req *http.Request) (context.Context, error) {
-	if h == nil || h.RequestPrepared == nil {
-		return ctx, nil
-	}
-	return h.RequestPrepared(ctx, req)
-}
-
-func callClientError(ctx context.Context, h *twirp.ClientHooks, err twirp.Error) {
-	if h == nil || h.Error == nil {
-		return
-	}
-	h.Error(ctx, err)
-}
-
-var twirpFileDescriptor0 = []byte{
-	// 864 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x9c, 0x56, 0x6f, 0x6f, 0xdb, 0x44,
-	0x1c, 0x96, 0xe9, 0xd2, 0xc5, 0xbf, 0xa4, 0x63, 0xb9, 0x75, 0xaa, 0xe7, 0xae, 0x23, 0xbb, 0x21,
-	0x11, 0x5e, 0xb4, 0x85, 0x20, 0x41, 0x5f, 0x20, 0x24, 0x06, 0x13, 0x44, 0x1a, 0xa2, 0xba, 0x0c,
-	0xf1, 0x47, 0x42, 0xc1, 0xb1, 0x8f, 0xee, 0xb4, 0xda, 0x67, 0x7c, 0xe7, 0x68, 0xfd, 0x08, 0x7c,
-	0x11, 0x3e, 0x0c, 0x9f, 0x86, 0x8f, 0x80, 0xee, 0x8f, 0xed, 0x4b, 0xe2, 0x18, 0xd4, 0x57, 0xcd,
-	0xfd, 0x9e, 0xe7, 0x7e, 0x7f, 0x9e, 0xbb, 0x7b, 0x5c, 0x40, 0xd7, 0x6c, 0x45, 0xdf, 0x30, 0xb9,
-	0x28, 0x38, 0x4f, 0xcf, 0xf2, 0x82, 0x4b, 0x8e, 0xee, 0xda, 0x58, 0x78, 0x58, 0x81, 0x29, 0x4f,
-	0xe8, 0xb5, 0x30, 0x30, 0xfe, 0xdb, 0x83, 0xd1, 0x57, 0x05, 0x8d, 0x24, 0x25, 0x9c, 0xa7, 0x84,
-	0xfe, 0x51, 0x52, 0x21, 0x11, 0x82, 0x3b, 0x59, 0x94, 0xd2, 0xc0, 0x1b, 0x7b, 0x13, 0x9f, 0xe8,
-	0xdf, 0xe8, 0x19, 0x1c, 0xd0, 0x34, 0x97, 0x37, 0x0b, 0xc9, 0x52, 0xca, 0x4b, 0x19, 0xbc, 0x33,
-	0xf6, 0x26, 0x07, 0x64, 0xa8, 0x83, 0xaf, 0x4c, 0x0c, 0x7d, 0x08, 0xf7, 0xd3, 0xe8, 0xed, 0x22,
-	0x8f, 0x0a, 0xc9, 0x62, 0x96, 0x47, 0x99, 0x14, 0xc1, 0x9e, 0xe6, 0xbd, 0x9b, 0x46, 0x6f, 0x2f,
-	0x9d, 0x30, 0x3a, 0x82, 0xbb, 0x19, 0x4f, 0xe8, 0x82, 0x25, 0xc1, 0x1d, 0x5d, 0x66, 0x5f, 0x2d,
-	0x67, 0x09, 0xba, 0x00, 0xbf, 0xa0, 0x31, 0x2f, 0x12, 0x96, 0x5d, 0x05, 0xbd, 0xb1, 0x37, 0x19,
-	0x4c, 0xc3, 0x33, 0xdb, 0xfc, 0x19, 0xd1, 0x88, 0xd3, 0x2b, 0x69, 0xc8, 0x18, 0xc1, 0xfd, 0x97,
-	0x4c, 0x48, 0x85, 0x0a, 0x0b, 0xe3, 0x0b, 0x18, 0x39, 0x31, 0x91, 0xf3, 0x4c, 0xa8, 0x59, 0x7a,
-	0x4a, 0x22, 0x11, 0x78, 0xe3, 0xbd, 0xc9, 0x60, 0x7a, 0xd0, 0xa4, 0x57, 0x89, 0x0d, 0x86, 0x3f,
-	0x80, 0xd1, 0xd7, 0xf4, 0x9a, 0x6e, 0x29, 0xa3, 0xd0, 0x4a, 0x19, 0xf5, 0x1b, 0x1f, 0x02, 0x72,
-	0x89, 0xa6, 0x06, 0x3e, 0x85, 0x23, 0x55, 0xd8, 0x9d, 0xb9, 0x2b, 0xc9, 0x4f, 0x10, 0x6c, 0xd3,
-	0x6d, 0xbb, 0x9f, 0xc3, 0x70, 0x4d, 0x51, 0xd3, 0x75, 0x50, 0x77, 0xed, 0x6c, 0x9a, 0x65, 0xbf,
-	0x73, 0xb2, 0xc6, 0xc6, 0x33, 0x38, 0x52, 0x8d, 0xb9, 0xa4, 0x84, 0x66, 0x92, 0xc9, 0x9b, 0xb6,
-	0x46, 0x50, 0x08, 0x7d, 0x66, 0x71, 0x7d, 0xc4, 0x3e, 0xa9, 0xd7, 0xf8, 0x18, 0x1e, 0x11, 0x9a,
-	0xf2, 0x15, 0x75, 0x92, 0xd5, 0x03, 0xdf, 0xc0, 0xe1, 0x77, 0xa5, 0x11, 0xe1, 0x55, 0x11, 0xc5,
-	0x6f, 0x3a, 0xa6, 0xed, 0x2a, 0x82, 0x8e, 0xc1, 0x97, 0x6a, 0xff, 0x42, 0xb0, 0x44, 0x5f, 0x1e,
-	0x9f, 0xf4, 0x75, 0x60, 0xce, 0x12, 0x74, 0x08, 0xbd, 0xb4, 0x94, 0xd4, 0xdc, 0x99, 0x3e, 0x31,
-	0x0b, 0xfc, 0x25, 0x3c, 0xdc, 0x28, 0x6d, 0x95, 0x9b, 0x40, 0x4f, 0x6f, 0xd5, 0xc5, 0x07, 0x53,
-	0x54, 0x4b, 0xa6, 0x69, 0x5a, 0x2c, 0x43, 0xc0, 0xbf, 0xc2, 0x43, 0x67, 0xa8, 0x4b, 0x5a, 0xa4,
-	0x4c, 0x08, 0xc6, 0x33, 0x75, 0xef, 0xe3, 0x28, 0x5b, 0x88, 0x72, 0x29, 0xe2, 0x82, 0x2d, 0xcd,
-	0xa3, 0xe8, 0x93, 0x61, 0x1c, 0x65, 0xf3, 0x2a, 0x86, 0xde, 0x83, 0x81, 0x22, 0xe5, 0xe5, 0xf2,
-	0x9a, 0x89, 0xd7, 0x7a, 0xa4, 0x3e, 0x81, 0x38, 0xca, 0x2e, 0x4d, 0x04, 0xff, 0xe5, 0x41, 0xf0,
-	0x43, 0x9e, 0x44, 0x72, 0x5d, 0xba, 0xdb, 0x29, 0x14, 0x42, 0x3f, 0xa5, 0x32, 0x4a, 0x22, 0x19,
-	0x55, 0x02, 0x55, 0x6b, 0xf4, 0x05, 0x40, 0x5e, 0x37, 0xaf, 0x55, 0x1a, 0x4c, 0x9f, 0xb4, 0xdd,
-	0x94, 0x66, 0x44, 0xe2, 0xec, 0xc0, 0x7f, 0x7a, 0x10, 0x9a, 0x46, 0xed, 0x74, 0xb9, 0x64, 0x3c,
-	0x13, 0xb7, 0x6d, 0xf5, 0x04, 0xa0, 0x3e, 0x4c, 0x65, 0x05, 0x7b, 0x13, 0x9f, 0xf8, 0xd5, 0x69,
-	0x0a, 0xf4, 0x18, 0xfc, 0x46, 0x58, 0x73, 0xa4, 0x4d, 0x00, 0x9f, 0xc0, 0x71, 0x6b, 0x2b, 0xf6,
-	0xc2, 0x49, 0x18, 0x6d, 0xd9, 0x01, 0x3a, 0x85, 0x1e, 0xcb, 0xf2, 0x52, 0xda, 0x13, 0x3f, 0xda,
-	0x70, 0x0e, 0x96, 0x5d, 0xcd, 0x14, 0x4c, 0x0c, 0x0b, 0x7d, 0x04, 0xfb, 0xbc, 0x94, 0xb9, 0xb5,
-	0x33, 0xf7, 0x51, 0xd5, 0xfc, 0xef, 0x35, 0x4e, 0x2c, 0x0f, 0x5f, 0xc0, 0x83, 0x17, 0x59, 0x52,
-	0xa3, 0x55, 0xdd, 0xa7, 0x30, 0xac, 0x8d, 0x48, 0x79, 0x9a, 0x11, 0x68, 0x50, 0xc7, 0x66, 0x09,
-	0xfe, 0xb4, 0xea, 0x57, 0x6f, 0xb3, 0x37, 0xf4, 0xbf, 0xf7, 0x4d, 0xff, 0xd9, 0x87, 0x81, 0x1a,
-	0x71, 0x4e, 0x8b, 0x15, 0x8b, 0x29, 0xfa, 0x0c, 0xa0, 0xb1, 0x6c, 0xd4, 0x78, 0xe3, 0x96, 0x8f,
-	0x87, 0xeb, 0xc6, 0x86, 0x9e, 0x83, 0x5f, 0x7b, 0x21, 0x7a, 0x54, 0x63, 0x9b, 0x9e, 0x19, 0x86,
-	0x6d, 0x90, 0xed, 0xf7, 0x05, 0x40, 0x63, 0x76, 0x4e, 0xf1, 0x2d, 0xab, 0x0c, 0x8f, 0x5b, 0x31,
-	0x9b, 0xe6, 0x47, 0x63, 0xd5, 0x6b, 0x5f, 0x84, 0xf1, 0x5a, 0xd9, 0x16, 0xe3, 0x0c, 0x9f, 0x76,
-	0x30, 0x6c, 0xe2, 0x97, 0x70, 0xef, 0x1b, 0xea, 0x42, 0x4e, 0xda, 0x1d, 0x36, 0x18, 0xee, 0x74,
-	0x52, 0xf4, 0xb3, 0x3a, 0xb2, 0x0d, 0xc3, 0xfb, 0x1f, 0x09, 0xb1, 0x73, 0x8b, 0x76, 0xd8, 0x25,
-	0x9a, 0x03, 0x52, 0x9e, 0x65, 0x0d, 0x82, 0x26, 0xda, 0x91, 0xd0, 0x49, 0xbd, 0xb3, 0xcd, 0x4b,
-	0xc3, 0x27, 0xbb, 0x60, 0x9b, 0xf4, 0x12, 0x46, 0x5b, 0x2e, 0x83, 0x1a, 0xd5, 0x76, 0x39, 0x50,
-	0x87, 0x02, 0xbf, 0xc1, 0x83, 0x96, 0x37, 0x88, 0x9e, 0x6d, 0xe4, 0x6c, 0x33, 0x8b, 0xf0, 0xfd,
-	0x6e, 0x92, 0xed, 0xf9, 0x5b, 0xb8, 0x37, 0x97, 0x51, 0x21, 0xeb, 0xb7, 0x81, 0x3a, 0x3e, 0xf7,
-	0x61, 0xb8, 0xfd, 0x40, 0x9d, 0x4c, 0x43, 0xf7, 0x69, 0xa2, 0xc7, 0x35, 0xb7, 0xe5, 0xc5, 0x76,
-	0x65, 0x7a, 0xfe, 0xf1, 0x2f, 0xe7, 0x57, 0x4c, 0xbe, 0x2e, 0x97, 0x67, 0x31, 0x4f, 0xcf, 0x2d,
-	0xaf, 0xfa, 0x7b, 0x2a, 0x68, 0xb1, 0xa2, 0xc5, 0xb9, 0xfe, 0x0f, 0xaa, 0x0a, 0x2e, 0xf7, 0xf5,
-	0xf2, 0x93, 0x7f, 0x03, 0x00, 0x00, 0xff, 0xff, 0xf7, 0x51, 0xd4, 0xb0, 0x85, 0x09, 0x00, 0x00,
+var twirpFileDescriptor1 = []byte{
+	// 729 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x9c, 0x55, 0xcd, 0x6e, 0x13, 0x31,
+	0x10, 0x56, 0x68, 0xd3, 0x66, 0x27, 0x2d, 0x34, 0x26, 0x55, 0xb7, 0x1b, 0x5a, 0x82, 0x8b, 0x44,
+	0x38, 0x34, 0x15, 0xe1, 0x00, 0x07, 0x84, 0x44, 0x01, 0xa1, 0x4a, 0x45, 0x8a, 0x36, 0x45, 0xfc,
+	0x48, 0x28, 0x38, 0xbb, 0x86, 0x5a, 0xcd, 0xae, 0x97, 0xb5, 0x13, 0xb5, 0x8f, 0xc0, 0x8d, 0xa7,
+	0xe0, 0xa9, 0x78, 0x18, 0x64, 0x7b, 0xff, 0xd2, 0x6c, 0x22, 0xd4, 0x53, 0xd6, 0x33, 0xe3, 0x99,
+	0x6f, 0xbe, 0xf1, 0x7c, 0x01, 0x34, 0x66, 0x53, 0x7a, 0xc1, 0xe4, 0x30, 0xe6, 0x3c, 0xe8, 0x46,
+	0x31, 0x97, 0x1c, 0xad, 0x27, 0x36, 0xa7, 0x99, 0x3a, 0x03, 0xee, 0xd3, 0xb1, 0x30, 0x6e, 0xfc,
+	0xbb, 0x02, 0x8d, 0xd7, 0x31, 0x25, 0x92, 0xba, 0x9c, 0x07, 0x2e, 0xfd, 0x39, 0xa1, 0x42, 0x22,
+	0x04, 0xab, 0x21, 0x09, 0xa8, 0x5d, 0x69, 0x57, 0x3a, 0x96, 0xab, 0xbf, 0xd1, 0x01, 0x6c, 0xd2,
+	0x20, 0x92, 0x57, 0x43, 0xc9, 0x02, 0xca, 0x27, 0xd2, 0xbe, 0xd5, 0xae, 0x74, 0x36, 0xdd, 0x0d,
+	0x6d, 0x3c, 0x33, 0x36, 0xf4, 0x18, 0xb6, 0x02, 0x72, 0x39, 0x8c, 0x48, 0x2c, 0x99, 0xc7, 0x22,
+	0x12, 0x4a, 0x61, 0xaf, 0xe8, 0xb8, 0x3b, 0x01, 0xb9, 0xec, 0x17, 0xcc, 0x68, 0x07, 0xd6, 0x43,
+	0xee, 0xd3, 0x21, 0xf3, 0xed, 0x55, 0x5d, 0x66, 0x4d, 0x1d, 0x4f, 0x7c, 0x8c, 0x60, 0xeb, 0x94,
+	0x09, 0xa9, 0xf0, 0x88, 0x04, 0x10, 0x7e, 0x0e, 0x8d, 0x82, 0x4d, 0x44, 0x3c, 0x14, 0x0a, 0x51,
+	0x55, 0x35, 0x2a, 0xec, 0x4a, 0x7b, 0xa5, 0x53, 0xef, 0x6d, 0x76, 0x93, 0x0e, 0xbb, 0xba, 0x15,
+	0xe3, 0xc3, 0x8f, 0xa0, 0xf1, 0x86, 0x8e, 0xe9, 0x5c, 0x7f, 0xca, 0x9b, 0xf6, 0xa7, 0xbe, 0x71,
+	0x13, 0x50, 0x31, 0xd0, 0xd4, 0xc0, 0x87, 0xb0, 0xa3, 0x0a, 0x17, 0x91, 0x2f, 0x4b, 0xf2, 0x09,
+	0xec, 0xf9, 0xf0, 0x04, 0xee, 0x0b, 0xd8, 0x98, 0xe1, 0xc5, 0xa0, 0xb6, 0x33, 0xd4, 0x85, 0x4b,
+	0x27, 0xe1, 0x77, 0xee, 0xce, 0x44, 0xe3, 0x13, 0xd8, 0x51, 0xc0, 0x8a, 0x41, 0x3e, 0x0d, 0x25,
+	0x93, 0x57, 0x65, 0x40, 0x90, 0x03, 0x35, 0x96, 0xf8, 0xf5, 0xa0, 0x2c, 0x37, 0x3b, 0xe3, 0x16,
+	0xec, 0xba, 0x34, 0xe0, 0x53, 0x5a, 0x48, 0x96, 0x35, 0x7c, 0x05, 0xcd, 0xf7, 0x13, 0x43, 0xc2,
+	0x59, 0x4c, 0xbc, 0x8b, 0x25, 0xdd, 0x2e, 0x2b, 0x82, 0x5a, 0x60, 0x49, 0x75, 0x7f, 0x28, 0x98,
+	0xaf, 0x9f, 0x80, 0xe5, 0xd6, 0xb4, 0x61, 0xc0, 0x7c, 0xd4, 0x84, 0x6a, 0x30, 0x91, 0xd4, 0x4c,
+	0xbe, 0xe6, 0x9a, 0x03, 0x7e, 0x05, 0xdb, 0xd7, 0x4a, 0x27, 0xcc, 0x75, 0xa0, 0xaa, 0xaf, 0xea,
+	0xe2, 0xf5, 0x1e, 0xca, 0x28, 0xd3, 0x61, 0x9a, 0x2c, 0x13, 0x80, 0xbf, 0xc2, 0x76, 0xa1, 0xa9,
+	0x3e, 0x8d, 0x03, 0x26, 0x04, 0xe3, 0xa1, 0x7a, 0xbd, 0x1e, 0x09, 0x87, 0x62, 0x32, 0x12, 0x5e,
+	0xcc, 0x46, 0xe6, 0x69, 0xd7, 0xdc, 0x0d, 0x8f, 0x84, 0x83, 0xd4, 0x86, 0xee, 0x43, 0x5d, 0x05,
+	0x45, 0x93, 0xd1, 0x98, 0x89, 0x73, 0xdd, 0x52, 0xcd, 0x05, 0x8f, 0x84, 0x7d, 0x63, 0xc1, 0x7f,
+	0x2a, 0x60, 0x7f, 0x88, 0x7c, 0x22, 0x67, 0xa9, 0xbb, 0x19, 0x43, 0x0e, 0xd4, 0x02, 0x2a, 0x89,
+	0x4f, 0x24, 0x49, 0x09, 0x4a, 0xcf, 0xe8, 0x25, 0x40, 0x94, 0x81, 0xd7, 0x2c, 0xd5, 0x7b, 0xfb,
+	0x65, 0x2f, 0x25, 0x6f, 0xd1, 0x2d, 0xdc, 0xc0, 0xbf, 0x2a, 0xe0, 0x18, 0xa0, 0x49, 0x77, 0x91,
+	0x64, 0x3c, 0x14, 0x37, 0x85, 0xba, 0x07, 0x90, 0x0d, 0x53, 0x2d, 0xf4, 0x4a, 0xc7, 0x72, 0xad,
+	0x74, 0x9a, 0x02, 0xdd, 0x03, 0x2b, 0x27, 0xd6, 0x8c, 0x34, 0x37, 0xe0, 0x3d, 0x68, 0x95, 0x42,
+	0x31, 0xc3, 0xed, 0xfd, 0xad, 0x42, 0x5d, 0x8d, 0x7c, 0x40, 0xe3, 0x29, 0xf3, 0x28, 0x7a, 0x06,
+	0x90, 0x0b, 0x12, 0x72, 0xb2, 0xa6, 0xe7, 0x54, 0xca, 0x99, 0x5d, 0x78, 0x74, 0x0c, 0x56, 0xa6,
+	0x11, 0x68, 0x37, 0xf3, 0x5d, 0xd7, 0x12, 0xc7, 0x29, 0x73, 0x25, 0x2f, 0xed, 0x2d, 0x40, 0x2e,
+	0x02, 0x85, 0xe2, 0x73, 0x12, 0xe2, 0xb4, 0x4a, 0x7d, 0x49, 0x9a, 0x8f, 0x46, 0xc2, 0x66, 0xf4,
+	0xae, 0x3d, 0x53, 0xb6, 0x44, 0x50, 0x9c, 0x07, 0x4b, 0x22, 0x92, 0xc4, 0xa7, 0x70, 0xfb, 0x1d,
+	0x2d, 0xba, 0x0a, 0x69, 0x17, 0xc8, 0x83, 0xb3, 0x50, 0x61, 0xd0, 0x67, 0x68, 0xcc, 0x09, 0xc1,
+	0x7f, 0x24, 0xc4, 0x79, 0xc4, 0x22, 0x19, 0x41, 0x03, 0x40, 0x6a, 0x97, 0x93, 0xc5, 0xa1, 0xbe,
+	0xde, 0x54, 0xb4, 0x97, 0xdd, 0x2c, 0xd3, 0x18, 0x67, 0x7f, 0x91, 0x3b, 0x49, 0xda, 0x87, 0xc6,
+	0xdc, 0xf6, 0xa1, 0x9c, 0xb5, 0x45, 0x9b, 0xb9, 0x84, 0x81, 0x6f, 0x70, 0xb7, 0xe4, 0x6d, 0xa2,
+	0x83, 0x6b, 0x39, 0xcb, 0x96, 0xc8, 0x79, 0xb8, 0x3c, 0xc8, 0x60, 0x3e, 0x7e, 0xf2, 0xe5, 0xe8,
+	0x07, 0x93, 0xe7, 0x93, 0x51, 0xd7, 0xe3, 0xc1, 0x51, 0x72, 0x23, 0xfd, 0x3d, 0x14, 0x34, 0x9e,
+	0xd2, 0xf8, 0x48, 0xff, 0x17, 0xa7, 0xc6, 0xd1, 0x9a, 0x3e, 0x3e, 0xfd, 0x17, 0x00, 0x00, 0xff,
+	0xff, 0xf0, 0x43, 0xe5, 0x6b, 0xcf, 0x07, 0x00, 0x00,
 }

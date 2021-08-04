@@ -50,6 +50,7 @@ func Proto() error {
 	protoDir := info.Dir
 	updated, err := target.Path("proto/livekit_models.pb.go",
 		protoDir+"/livekit_models.proto",
+		protoDir+"/livekit_recording.proto",
 		protoDir+"/livekit_room.proto",
 		protoDir+"/livekit_rtc.proto",
 	)
@@ -73,6 +74,7 @@ func Proto() error {
 		"--go_opt=paths=source_relative",
 		"--twirp_opt=paths=source_relative",
 		"-I="+protoDir,
+		protoDir+"/livekit_recording.proto",
 		protoDir+"/livekit_room.proto",
 	)
 	connectStd(cmd)
