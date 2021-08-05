@@ -12,16 +12,17 @@ import (
 
 type RecordingServiceClient struct {
 	livekit.RecordingService
-	apiKey    string
-	apiSecret string
+	authBase
 }
 
 func NewRecordingServiceClient(url string, apiKey string, secretKey string) *RecordingServiceClient {
 	client := livekit.NewRecordingServiceProtobufClient(url, &http.Client{})
 	return &RecordingServiceClient{
 		RecordingService: client,
-		apiKey:           apiKey,
-		apiSecret:        secretKey,
+		authBase: authBase{
+			apiKey:    apiKey,
+			apiSecret: secretKey,
+		},
 	}
 }
 

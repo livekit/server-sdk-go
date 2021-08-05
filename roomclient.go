@@ -5,23 +5,23 @@ import (
 	"net/http"
 
 	"github.com/livekit/protocol/auth"
-	"github.com/twitchtv/twirp"
 
 	livekit "github.com/livekit/server-sdk-go/proto"
 )
 
 type RoomServiceClient struct {
 	livekit.RoomService
-	apiKey    string
-	apiSecret string
+	authBase
 }
 
 func NewRoomServiceClient(url string, apiKey string, secretKey string) *RoomServiceClient {
 	client := livekit.NewRoomServiceProtobufClient(url, &http.Client{})
 	return &RoomServiceClient{
 		RoomService: client,
-		apiKey:      apiKey,
-		apiSecret:   secretKey,
+		authBase: authBase{
+			apiKey:    apiKey,
+			apiSecret: secretKey,
+		},
 	}
 }
 
@@ -106,21 +106,4 @@ func (c *RoomServiceClient) UpdateSubscriptions(ctx context.Context, req *liveki
 
 func (c *RoomServiceClient) CreateToken() *auth.AccessToken {
 	return auth.NewAccessToken(c.apiKey, c.apiSecret)
-}
-
-func (c *RoomServiceClient) withAuth(ctx context.Context, grant auth.VideoGrant) (context.Context, error) {
-	at := auth.NewAccessToken(c.apiKey, c.apiSecret)
-	at.AddGrant(&grant)
-	token, err := at.ToJWT()
-	if err != nil {
-		return nil, err
-	}
-
-	return twirp.WithHTTPRequestHeaders(ctx, newHeaderWithToken(token))
-}
-
-func newHeaderWithToken(token string) http.Header {
-	header := make(http.Header)
-	header.Set("Authorization", "Bearer "+token)
-	return header
 }
