@@ -7,12 +7,10 @@ require (
 	github.com/go-logr/logr v1.0.0
 	github.com/go-logr/stdr v1.0.0
 	github.com/gorilla/websocket v1.4.2
-	github.com/livekit/protocol v0.6.4
+	github.com/livekit/protocol v0.6.5
 	github.com/magefile/mage v1.11.0
 	github.com/pion/webrtc/v3 v3.0.30
 	github.com/thoas/go-funk v0.8.0
 	github.com/twitchtv/twirp v8.1.0+incompatible
 	google.golang.org/protobuf v1.25.0
 )
-
-replace github.com/livekit/protocol => ../protocol
