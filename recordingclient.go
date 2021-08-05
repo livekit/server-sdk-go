@@ -27,7 +27,7 @@ func NewRecordingServiceClient(url string, apiKey string, secretKey string) *Rec
 }
 
 func (c *RecordingServiceClient) StartRecording(ctx context.Context, req *livekit.StartRecordingRequest) (*livekit.RecordingResponse, error) {
-	ctx, err := c.withAuth(ctx, auth.VideoGrant{RoomAdmin: true})
+	ctx, err := c.withAuth(ctx, auth.VideoGrant{RoomRecord: true})
 	if err != nil {
 		return nil, err
 	}
@@ -35,7 +35,7 @@ func (c *RecordingServiceClient) StartRecording(ctx context.Context, req *liveki
 }
 
 func (c *RecordingServiceClient) EndRecording(ctx context.Context, req *livekit.EndRecordingRequest) (*livekit.RecordingResponse, error) {
-	ctx, err := c.withAuth(ctx, auth.VideoGrant{RoomAdmin: true})
+	ctx, err := c.withAuth(ctx, auth.VideoGrant{RoomRecord: true})
 	if err != nil {
 		return nil, err
 	}
