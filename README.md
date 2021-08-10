@@ -118,3 +118,32 @@ func trackSubscribed(track *webrtc.TrackRemote, publication lksdk.TrackPublicati
 
 }
 ```
+
+## Receiving webhooks
+
+The Go SDK helps you to verify and decode webhook callbacks to ensure their authenticity.
+See [webhooks guide](https://docs.livekit.io/guides/webhooks) for configuration.
+
+```go
+import (
+	livekit "github.com/livekit/protocol/proto"
+	"github.com/livekit/protocol/webhook"
+	"google.golang.org/protobuf/encoding/protojson"
+)
+
+func ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	data, err := webhook.Receive(r, s.provider)
+	if err != nil {
+		// could not validate, handle error
+		return
+	}
+
+	event := livekit.WebhookEvent{}
+	if err = protojson.Unmarshal(data, &event); err != nil {
+		// handle error
+		return
+	}
+
+	// consume WebhookEvent
+}
+```

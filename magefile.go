@@ -67,7 +67,7 @@ func Proto() error {
 		return err
 	}
 
-	// generate model and room
+	// generate Twirp protobufs
 	cmd = exec.Command("protoc",
 		"--go_out", target,
 		"--twirp_out", target,
@@ -82,13 +82,14 @@ func Proto() error {
 		return err
 	}
 
-	// generate rtc
+	// generate go protobufs
 	cmd = exec.Command("protoc",
 		"--go_out", target,
 		"--go_opt=paths=source_relative",
 		"-I="+protoDir,
 		protoDir+"/livekit_rtc.proto",
 		protoDir+"/livekit_models.proto",
+		protoDir+"/livekit_webhook.proto",
 	)
 	connectStd(cmd)
 	if err := cmd.Run(); err != nil {

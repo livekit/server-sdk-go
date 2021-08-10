@@ -1,6 +1,6 @@
 // +build tools
 
-package tools
+package lksdk
 
 import (
 	_ "github.com/twitchtv/twirp/protoc-gen-twirp"
