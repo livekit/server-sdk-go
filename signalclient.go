@@ -39,11 +39,20 @@ func NewSignalClient() *SignalClient {
 	return c
 }
 
-func (c *SignalClient) Join(urlPrefix string, token string) (*livekit.JoinResponse, error) {
+func (c *SignalClient) Join(urlPrefix string, token string, params *ConnectParams) (*livekit.JoinResponse, error) {
 	if strings.HasPrefix(urlPrefix, "http") {
 		urlPrefix = strings.Replace(urlPrefix, "http", "ws", 1)
 	}
-	u, err := url.Parse(fmt.Sprintf("%s/rtc?protocol=%d", urlPrefix, PROTOCOL))
+
+	urlSuffix := fmt.Sprintf("/rtc?protocol=%d", PROTOCOL)
+
+	if params.AutoSubscribe {
+		urlSuffix += "&auto_subscribe=1"
+	} else {
+		urlSuffix += "&auto_subscribe=0"
+	}
+
+	u, err := url.Parse(urlPrefix + urlSuffix)
 	if err != nil {
 		return nil, err
 	}

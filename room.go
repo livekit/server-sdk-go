@@ -21,6 +21,18 @@ type ConnectInfo struct {
 	ParticipantMetadata string
 }
 
+type ConnectParams struct {
+	AutoSubscribe bool
+}
+
+type ConnectOption func(*ConnectParams)
+
+func WithAutoSubscribe(val bool) ConnectOption {
+	return func(p *ConnectParams) {
+		p.AutoSubscribe = val
+	}
+}
+
 type Room struct {
 	engine           *RTCEngine
 	SID              string
@@ -31,7 +43,7 @@ type Room struct {
 	Callback         *RoomCallback
 }
 
-func ConnectToRoom(url string, info ConnectInfo) (*Room, error) {
+func ConnectToRoom(url string, info ConnectInfo, opts ...ConnectOption) (*Room, error) {
 	// generate token
 	at := auth.NewAccessToken(info.APIKey, info.APISecret)
 	grant := &auth.VideoGrant{
@@ -47,10 +59,15 @@ func ConnectToRoom(url string, info ConnectInfo) (*Room, error) {
 		return nil, err
 	}
 
-	return ConnectToRoomWithToken(url, token)
+	return ConnectToRoomWithToken(url, token, opts...)
 }
 
-func ConnectToRoomWithToken(url, token string) (*Room, error) {
+func ConnectToRoomWithToken(url, token string, opts ...ConnectOption) (*Room, error) {
+	params := &ConnectParams{}
+	for _, opt := range opts {
+		opt(params)
+	}
+
 	engine := NewRTCEngine()
 	r := &Room{
 		engine:       engine,
@@ -66,7 +83,7 @@ func ConnectToRoomWithToken(url, token string) (*Room, error) {
 	engine.OnActiveSpeakersChanged = r.handleActiveSpeakerChange
 	engine.OnDataReceived = r.handleDataReceived
 
-	joinRes, err := engine.Join(url, token)
+	joinRes, err := engine.Join(url, token, params)
 	if err != nil {
 		return nil, err
 	}

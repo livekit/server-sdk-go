@@ -41,8 +41,8 @@ func NewRTCEngine() *RTCEngine {
 	}
 }
 
-func (e *RTCEngine) Join(url string, token string) (*livekit.JoinResponse, error) {
-	res, err := e.client.Join(url, token)
+func (e *RTCEngine) Join(url string, token string, params *ConnectParams) (*livekit.JoinResponse, error) {
+	res, err := e.client.Join(url, token, params)
 	if err != nil {
 		return nil, err
 	}
