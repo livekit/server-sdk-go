@@ -63,7 +63,9 @@ func ConnectToRoom(url string, info ConnectInfo, opts ...ConnectOption) (*Room, 
 }
 
 func ConnectToRoomWithToken(url, token string, opts ...ConnectOption) (*Room, error) {
-	params := &ConnectParams{}
+	params := &ConnectParams{
+		AutoSubscribe: true,
+	}
 	for _, opt := range opts {
 		opt(params)
 	}
