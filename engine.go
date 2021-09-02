@@ -4,11 +4,10 @@ import (
 	"sync"
 	"time"
 
+	livekit "github.com/livekit/protocol/proto"
 	"github.com/pion/webrtc/v3"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
-
-	livekit "github.com/livekit/server-sdk-go/proto"
 )
 
 const reliableDataChannelName = "_reliable"

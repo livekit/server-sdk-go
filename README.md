@@ -37,7 +37,7 @@ RoomService gives you complete control over rooms and participants within them. 
 ```go
 import (
 	lksdk "github.com/livekit/server-sdk-go"
-	livekit "github.com/livekit/server-sdk-go/proto"
+	livekit "github.com/livekit/protocol/proto"
 )
 
 func main() {

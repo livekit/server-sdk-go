@@ -4,7 +4,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	livekit "github.com/livekit/server-sdk-go/proto"
+	livekit "github.com/livekit/protocol/proto"
 )
 
 type Participant interface {
