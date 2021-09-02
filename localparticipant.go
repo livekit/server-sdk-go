@@ -3,7 +3,7 @@ package lksdk
 import (
 	"time"
 
-	livekit "github.com/livekit/server-sdk-go/proto"
+	livekit "github.com/livekit/protocol/proto"
 	"github.com/pion/webrtc/v3"
 	"google.golang.org/protobuf/proto"
 )
@@ -75,8 +75,8 @@ func (p *LocalParticipant) PublishData(data []byte, kind livekit.DataPacket_Kind
 		Value: &livekit.DataPacket_User{
 			User: &livekit.UserPacket{
 				// this is enforced on the server side, setting for completeness
-				ParticipantSid: p.sid,
-				Payload: data,
+				ParticipantSid:  p.sid,
+				Payload:         data,
 				DestinationSids: destinationSids,
 			},
 		},

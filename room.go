@@ -5,9 +5,8 @@ import (
 	"sync"
 
 	"github.com/livekit/protocol/auth"
+	livekit "github.com/livekit/protocol/proto"
 	"github.com/pion/webrtc/v3"
-
-	livekit "github.com/livekit/server-sdk-go/proto"
 )
 
 type TrackPubCallback func(track Track, pub TrackPublication, participant *RemoteParticipant)

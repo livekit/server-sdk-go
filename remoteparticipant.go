@@ -4,9 +4,8 @@ import (
 	"sync"
 	"time"
 
+	livekit "github.com/livekit/protocol/proto"
 	"github.com/pion/webrtc/v3"
-
-	livekit "github.com/livekit/server-sdk-go/proto"
 )
 
 type RemoteParticipant struct {

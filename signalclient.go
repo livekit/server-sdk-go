@@ -9,11 +9,10 @@ import (
 	"sync/atomic"
 
 	"github.com/gorilla/websocket"
+	livekit "github.com/livekit/protocol/proto"
 	"github.com/pion/webrtc/v3"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
-
-	livekit "github.com/livekit/server-sdk-go/proto"
 )
 
 const PROTOCOL = 2

@@ -3,10 +3,9 @@ package lksdk
 import (
 	"encoding/json"
 
+	livekit "github.com/livekit/protocol/proto"
 	"github.com/pion/webrtc/v3"
 	"github.com/thoas/go-funk"
-
-	livekit "github.com/livekit/server-sdk-go/proto"
 )
 
 func ToProtoSessionDescription(sd webrtc.SessionDescription) *livekit.SessionDescription {

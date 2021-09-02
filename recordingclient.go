@@ -5,8 +5,7 @@ import (
 	"net/http"
 
 	"github.com/livekit/protocol/auth"
-
-	livekit "github.com/livekit/server-sdk-go/proto"
+	livekit "github.com/livekit/protocol/proto"
 )
 
 type RecordingServiceClient struct {
