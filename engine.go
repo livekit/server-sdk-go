@@ -19,8 +19,11 @@ type RTCEngine struct {
 	client             *SignalClient
 	reliableDC         *webrtc.DataChannel
 	lossyDC            *webrtc.DataChannel
+	reliableDCSub      *webrtc.DataChannel
+	lossyDCSub         *webrtc.DataChannel
 	lock               sync.Mutex
 	trackPublishedChan chan *livekit.TrackPublishedResponse
+	subscriberPrimary  bool
 
 	JoinTimeout time.Duration
 
@@ -29,6 +32,7 @@ type RTCEngine struct {
 	OnMediaTrack            func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver)
 	OnParticipantUpdate     func([]*livekit.ParticipantInfo)
 	OnActiveSpeakersChanged func([]*livekit.SpeakerInfo)
+	OnSpeakersChanged       func([]*livekit.SpeakerInfo)
 	OnDataReceived          func(userPacket *livekit.UserPacket)
 }
 
@@ -51,8 +55,8 @@ func (e *RTCEngine) Join(url string, token string, params *ConnectParams) (*live
 	}
 
 	// send offer
-	if err = e.negotiate(); err != nil {
-		return nil, err
+	if !res.SubscriberPrimary {
+		e.publisher.Negotiate()
 	}
 
 	if err = e.waitUntilConnected(); err != nil {
@@ -73,8 +77,11 @@ func (e *RTCEngine) Close() {
 }
 
 func (e *RTCEngine) IsConnected() bool {
-	if e.publisher == nil {
+	if e.publisher == nil || e.subscriber == nil {
 		return false
+	}
+	if e.subscriberPrimary {
+		return e.subscriber.IsConnected()
 	}
 	return e.publisher.IsConnected()
 }
@@ -92,6 +99,8 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 	if e.subscriber, err = NewPCTransport(iceServers); err != nil {
 		return err
 	}
+
+	e.subscriberPrimary = res.SubscriberPrimary
 
 	e.publisher.pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
 		if candidate == nil {
@@ -112,16 +121,11 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 		}
 	})
 
-	e.publisher.OnNegotiationNeeded(func() {
-		if e.publisher.pc.RemoteDescription() == nil {
-			return
-		}
-		if err := e.negotiate(); err != nil {
-			logger.Error(err, "failed to negotiate")
-		}
-	})
-
-	e.publisher.pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
+	primaryPC := e.publisher.pc
+	if res.SubscriberPrimary {
+		primaryPC = e.subscriber.pc
+	}
+	primaryPC.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
 		switch state {
 		case webrtc.ICEConnectionStateConnected:
 			logger.Info("ICE connected")
@@ -138,6 +142,23 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 			e.OnMediaTrack(remote, receiver)
 		}
 	})
+
+	e.subscriber.pc.OnDataChannel(func(c *webrtc.DataChannel) {
+		if c.Label() == reliableDataChannelName {
+			e.reliableDCSub = c
+		} else if c.Label() == lossyDataChannelName {
+			e.lossyDCSub = c
+		} else {
+			return
+		}
+		c.OnMessage(e.handleDataPacket)
+	})
+
+	e.publisher.OnOffer = func(offer webrtc.SessionDescription) {
+		if err := e.client.SendOffer(offer); err != nil {
+			logger.Error(err, "could not send offer")
+		}
+	}
 
 	trueVal := true
 	maxRetries := uint16(1)
@@ -196,7 +217,7 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 		}
 	}
 	e.client.OnParticipantUpdate = e.OnParticipantUpdate
-	e.client.OnActiveSpeakersChanged = e.OnActiveSpeakersChanged
+	e.client.OnSpeakersChanged = e.OnSpeakersChanged
 	e.client.OnLocalTrackPublished = e.handleLocalTrackPublished
 	e.client.OnLeave = e.OnDisconnected
 	e.client.OnClose = func() {
@@ -214,6 +235,30 @@ func (e *RTCEngine) waitUntilConnected() error {
 			return ErrConnectionTimeout
 		case <-time.After(10 * time.Millisecond):
 			if e.IsConnected() {
+				return nil
+			}
+		}
+	}
+}
+
+func (e *RTCEngine) ensurePublisherConnected() error {
+	if !e.subscriberPrimary {
+		return e.waitUntilConnected()
+	}
+
+	if e.publisher.IsConnected() {
+		return nil
+	}
+
+	e.publisher.Negotiate()
+
+	timeout := time.After(e.JoinTimeout)
+	for {
+		select {
+		case <-timeout:
+			return ErrConnectionTimeout
+		case <-time.After(10 * time.Millisecond):
+			if e.publisher.IsConnected() {
 				return nil
 			}
 		}
@@ -249,20 +294,4 @@ func (e *RTCEngine) readDataPacket(msg webrtc.DataChannelMessage) (*livekit.Data
 	}
 	err := proto.Unmarshal(msg.Data, dataPacket)
 	return dataPacket, err
-}
-
-func (e *RTCEngine) negotiate() error {
-	logger.Info("starting to negotiate")
-	offer, err := e.publisher.pc.CreateOffer(nil)
-	if err != nil {
-		return err
-	}
-	if err := e.publisher.pc.SetLocalDescription(offer); err != nil {
-		return err
-	}
-	if err := e.client.SendOffer(offer); err != nil {
-		return err
-	}
-
-	return nil
 }

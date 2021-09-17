@@ -20,7 +20,9 @@ type PCTransport struct {
 	lock               sync.Mutex
 	pendingCandidates  []webrtc.ICECandidateInit
 	debouncedNegotiate func(func())
-	onNegotiation      func()
+	renegotiate        bool
+
+	OnOffer func(description webrtc.SessionDescription)
 }
 
 func NewPCTransport(iceServers []webrtc.ICEServer) (*PCTransport, error) {
@@ -33,8 +35,6 @@ func NewPCTransport(iceServers []webrtc.ICEServer) (*PCTransport, error) {
 		pc:                 pc,
 		debouncedNegotiate: debounce.New(negotiationFrequency),
 	}
-
-	t.pc.OnNegotiationNeeded(t.negotiate)
 
 	return t, nil
 }
@@ -76,17 +76,42 @@ func (t *PCTransport) SetRemoteDescription(sd webrtc.SessionDescription) error {
 	}
 	t.pendingCandidates = nil
 
+	if t.renegotiate {
+		t.renegotiate = false
+		go t.createAndSendOffer(nil)
+	}
 	return nil
 }
 
-func (t *PCTransport) OnNegotiationNeeded(f func()) {
-	t.onNegotiation = f
+func (t *PCTransport) Negotiate() {
+	t.debouncedNegotiate(func() {
+		t.createAndSendOffer(nil)
+	})
 }
 
-func (t *PCTransport) negotiate() {
-	t.debouncedNegotiate(func() {
-		if t.onNegotiation != nil {
-			t.onNegotiation()
-		}
-	})
+func (t *PCTransport) createAndSendOffer(options *webrtc.OfferOptions) {
+	if t.OnOffer == nil {
+		return
+	}
+	t.lock.Lock()
+	defer t.lock.Unlock()
+
+	// TODO: does not support ice restart yet
+	//if options.ICERestart {
+	//	logger.V(1).Info("restarting ICE")
+	//}
+	if t.pc.SignalingState() == webrtc.SignalingStateHaveLocalOffer {
+		t.renegotiate = true
+		return
+	}
+
+	logger.V(1).Info("starting to negotiate")
+	offer, err := t.pc.CreateOffer(options)
+	if err != nil {
+		logger.Error(err, "could not negotiate")
+	}
+	if err := t.pc.SetLocalDescription(offer); err != nil {
+		logger.Error(err, "could not set local description")
+	}
+	t.OnOffer(offer)
 }

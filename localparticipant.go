@@ -64,6 +64,8 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, name string) (*
 	pub.sid = pubRes.Track.Sid
 	p.addPublication(&pub)
 
+	p.engine.publisher.Negotiate()
+
 	logger.Info("published track", "track", name)
 
 	return &pub, nil
@@ -82,6 +84,10 @@ func (p *LocalParticipant) PublishData(data []byte, kind livekit.DataPacket_Kind
 		},
 	}
 
+	if err := p.engine.ensurePublisherConnected(); err != nil {
+		return err
+	}
+
 	// encode packet
 	encoded, err := proto.Marshal(packet)
 	if err != nil {
@@ -95,6 +101,33 @@ func (p *LocalParticipant) PublishData(data []byte, kind livekit.DataPacket_Kind
 	}
 
 	return nil
+}
+
+func (p *LocalParticipant) UnpublishTrack(sid string) error {
+	obj, loaded := p.tracks.LoadAndDelete(sid)
+	if !loaded {
+		return nil
+	}
+	p.audioTracks.Delete(sid)
+	p.videoTracks.Delete(sid)
+
+	pub, ok := obj.(*LocalTrackPublication)
+	if !ok {
+		return nil
+	}
+
+	var err error
+	if localTrack, ok := pub.track.(webrtc.TrackLocal); ok {
+		for _, sender := range p.engine.publisher.pc.GetSenders() {
+			if sender.Track() == localTrack {
+				err = p.engine.publisher.pc.RemoveTrack(sender)
+				break
+			}
+		}
+		p.engine.publisher.Negotiate()
+	}
+
+	return err
 }
 
 func (p *LocalParticipant) updateInfo(info *livekit.ParticipantInfo) {

@@ -15,21 +15,21 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const PROTOCOL = 2
+const PROTOCOL = 3
 
 type SignalClient struct {
 	conn        *websocket.Conn
 	isConnected atomic.Value
 	lock        sync.Mutex
 
-	OnClose                 func()
-	OnAnswer                func(sd webrtc.SessionDescription)
-	OnOffer                 func(sd webrtc.SessionDescription)
-	OnTrickle               func(init webrtc.ICECandidateInit, target livekit.SignalTarget)
-	OnParticipantUpdate     func([]*livekit.ParticipantInfo)
-	OnLocalTrackPublished   func(response *livekit.TrackPublishedResponse)
-	OnActiveSpeakersChanged func([]*livekit.SpeakerInfo)
-	OnLeave                 func()
+	OnClose               func()
+	OnAnswer              func(sd webrtc.SessionDescription)
+	OnOffer               func(sd webrtc.SessionDescription)
+	OnTrickle             func(init webrtc.ICECandidateInit, target livekit.SignalTarget)
+	OnParticipantUpdate   func([]*livekit.ParticipantInfo)
+	OnLocalTrackPublished func(response *livekit.TrackPublishedResponse)
+	OnSpeakersChanged     func([]*livekit.SpeakerInfo)
+	OnLeave               func()
 }
 
 func NewSignalClient() *SignalClient {
@@ -43,7 +43,7 @@ func (c *SignalClient) Join(urlPrefix string, token string, params *ConnectParam
 		urlPrefix = strings.Replace(urlPrefix, "http", "ws", 1)
 	}
 
-	urlSuffix := fmt.Sprintf("/rtc?protocol=%d", PROTOCOL)
+	urlSuffix := fmt.Sprintf("/rtc?protocol=%d&sdk=go&version=%s", PROTOCOL, Version)
 
 	if params.AutoSubscribe {
 		urlSuffix += "&auto_subscribe=1"
@@ -199,9 +199,9 @@ func (c *SignalClient) handleResponse(res *livekit.SignalResponse) {
 		if c.OnParticipantUpdate != nil {
 			c.OnParticipantUpdate(msg.Update.Participants)
 		}
-	case *livekit.SignalResponse_Speaker:
-		if c.OnActiveSpeakersChanged != nil {
-			c.OnActiveSpeakersChanged(msg.Speaker.Speakers)
+	case *livekit.SignalResponse_SpeakersChanged:
+		if c.OnSpeakersChanged != nil {
+			c.OnSpeakersChanged(msg.SpeakersChanged.Speakers)
 		}
 	case *livekit.SignalResponse_TrackPublished:
 		if c.OnLocalTrackPublished != nil {
