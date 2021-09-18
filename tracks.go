@@ -1,6 +1,7 @@
 package lksdk
 
 import (
+	"io"
 	"time"
 
 	livekit "github.com/livekit/protocol/proto"
@@ -64,6 +65,9 @@ func NewLocalSampleTrack(c webrtc.RTPCodecCapability, sampleProvider SampleProvi
 func (s *LocalSampleTrack) Bind(t webrtc.TrackLocalContext) (webrtc.RTPCodecParameters, error) {
 	params, err := s.TrackLocalStaticSample.Bind(t)
 	if err == nil {
+		err = s.provider.OnBind()
+	}
+	if err == nil {
 		s.closed = make(chan struct{})
 		// start the writing process
 		go s.writeWorker()
@@ -75,7 +79,12 @@ func (s *LocalSampleTrack) Unbind(t webrtc.TrackLocalContext) error {
 	if s.closed != nil {
 		close(s.closed)
 	}
-	return s.TrackLocalStaticSample.Unbind(t)
+	err := s.provider.OnUnbind()
+	unbindErr := s.TrackLocalStaticSample.Unbind(t)
+	if unbindErr != nil {
+		return unbindErr
+	}
+	return err
 }
 
 func (s *LocalSampleTrack) writeWorker() {
@@ -83,6 +92,9 @@ func (s *LocalSampleTrack) writeWorker() {
 	ticker := time.NewTicker(10 * time.Millisecond)
 	for {
 		sample, err := s.provider.NextSample()
+		if err == io.EOF {
+			return
+		}
 		if err != nil {
 			logger.Error(err, "could not get sample from provider")
 			return

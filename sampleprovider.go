@@ -10,6 +10,8 @@ import (
 
 type SampleProvider interface {
 	NextSample() (media.Sample, error)
+	OnBind() error
+	OnUnbind() error
 }
 
 // NullSampleProvider is a media provider that provides null packets, it could meet a certain bitrate, if desired
@@ -32,6 +34,16 @@ func (p *NullSampleProvider) NextSample() (media.Sample, error) {
 	}, nil
 }
 
+func (p *NullSampleProvider) OnBind() error {
+	return nil
+}
+
+func (p *NullSampleProvider) OnUnbind() error {
+	return nil
+}
+
+// LoadTestProvider is designed to be used with the load tester.
+// It provides samples that are encoded with sequence and timing information, in order determine RTT and loss
 type LoadTestProvider struct {
 	BytesPerSample uint32
 	SampleDuration time.Duration
@@ -58,4 +70,12 @@ func (p *LoadTestProvider) NextSample() (media.Sample, error) {
 		Data:     packet,
 		Duration: p.SampleDuration,
 	}, nil
+}
+
+func (p *LoadTestProvider) OnBind() error {
+	return nil
+}
+
+func (p *LoadTestProvider) OnUnbind() error {
+	return nil
 }

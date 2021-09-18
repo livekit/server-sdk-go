@@ -11,6 +11,7 @@ type TrackPublication interface {
 	Kind() TrackKind
 	IsMuted() bool
 	IsSubscribed() bool
+	// Track is either a webrtc.TrackLocal or webrtc.TrackRemote
 	Track() Track
 	updateInfo(info *livekit.TrackInfo)
 }
