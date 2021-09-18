@@ -19,10 +19,11 @@ const (
 
 // FileSampleProvider allows LiveKit to publish a file into a room
 type FileSampleProvider struct {
-	Mime          string
-	FileName      string
-	FrameDuration time.Duration
-	file          *os.File
+	Mime            string
+	FileName        string
+	FrameDuration   time.Duration
+	OnWriteComplete func()
+	file            *os.File
 
 	// for vp8
 	ivfreader *ivfreader.IVFReader
@@ -37,15 +38,21 @@ type FileSampleProvider struct {
 
 type FileSampleProviderOption func(*FileSampleProvider)
 
-func FileWithMime(mime string) func(provider *FileSampleProvider) {
+func FileTrackWithMime(mime string) func(provider *FileSampleProvider) {
 	return func(provider *FileSampleProvider) {
 		provider.Mime = mime
 	}
 }
 
-func FileWithFrameDuration(duration time.Duration) func(provider *FileSampleProvider) {
+func FileTrackWithFrameDuration(duration time.Duration) func(provider *FileSampleProvider) {
 	return func(provider *FileSampleProvider) {
 		provider.FrameDuration = duration
+	}
+}
+
+func FileTrackWithOnWriteComplete(f func()) func(provider *FileSampleProvider) {
+	return func(provider *FileSampleProvider) {
+		provider.OnWriteComplete = f
 	}
 }
 
@@ -83,7 +90,17 @@ func NewLocalFileTrack(file string, options ...FileSampleProviderOption) (*Local
 		return nil, err
 	}
 
-	return NewLocalSampleTrack(webrtc.RTPCodecCapability{MimeType: provider.Mime}, provider)
+	track, err := NewLocalSampleTrack(webrtc.RTPCodecCapability{MimeType: provider.Mime})
+	if err != nil {
+		return nil, err
+	}
+
+	track.OnBind(func() {
+		if err := track.StartWrite(provider, provider.OnWriteComplete); err != nil {
+			logger.Error(err, "Could not start writing")
+		}
+	})
+	return track, nil
 }
 
 func (p *FileSampleProvider) OnBind() error {
@@ -114,7 +131,6 @@ func (p *FileSampleProvider) OnBind() error {
 }
 
 func (p *FileSampleProvider) OnUnbind() error {
-
 	return p.file.Close()
 }
 

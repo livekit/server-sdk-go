@@ -1,7 +1,10 @@
 package lksdk
 
 import (
+	"context"
 	"io"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	livekit "github.com/livekit/protocol/proto"
@@ -47,39 +50,76 @@ func KindFromRTPType(rt webrtc.RTPCodecType) TrackKind {
 // publishing tracks at the right frequency
 type LocalSampleTrack struct {
 	webrtc.TrackLocalStaticSample
-	provider SampleProvider
-	closed   chan struct{}
+	bound uint32
+	lock  sync.Mutex
+
+	cancelWrite func()
+	provider    SampleProvider
+	onBind      func()
+	onUnbind    func()
+	// notify when sample provider responds with EOF
+	onWriteComplete func()
 }
 
-func NewLocalSampleTrack(c webrtc.RTPCodecCapability, sampleProvider SampleProvider) (*LocalSampleTrack, error) {
+func NewLocalSampleTrack(c webrtc.RTPCodecCapability) (*LocalSampleTrack, error) {
 	sample, err := webrtc.NewTrackLocalStaticSample(c, utils.NewGuid("TR_"), utils.NewGuid("ST_"))
 	if err != nil {
 		return nil, err
 	}
 	return &LocalSampleTrack{
 		TrackLocalStaticSample: *sample,
-		provider:               sampleProvider,
 	}, nil
 }
 
+func (s *LocalSampleTrack) IsBound() bool {
+	return atomic.LoadUint32(&s.bound) == 1
+}
+
+// Bind is an interface for TrackLocal, not for external consumption
 func (s *LocalSampleTrack) Bind(t webrtc.TrackLocalContext) (webrtc.RTPCodecParameters, error) {
 	params, err := s.TrackLocalStaticSample.Bind(t)
-	if err == nil {
-		err = s.provider.OnBind()
+	if err != nil {
+		return params, err
 	}
-	if err == nil {
-		s.closed = make(chan struct{})
-		// start the writing process
-		go s.writeWorker()
+	s.lock.Lock()
+	onBind := s.onBind
+	provider := s.provider
+	onWriteComplete := s.onWriteComplete
+	atomic.StoreUint32(&s.bound, 1)
+	s.lock.Unlock()
+
+	if provider != nil {
+		err = provider.OnBind()
+		go s.writeWorker(provider, onWriteComplete)
+	}
+
+	// notify callbacks last
+	if onBind != nil {
+		go onBind()
 	}
 	return params, err
 }
 
+// Unbind is an interface for TrackLocal, not for external consumption
 func (s *LocalSampleTrack) Unbind(t webrtc.TrackLocalContext) error {
-	if s.closed != nil {
-		close(s.closed)
+	s.lock.Lock()
+	provider := s.provider
+	onUnbind := s.onUnbind
+	atomic.StoreUint32(&s.bound, 0)
+	cancel := s.cancelWrite
+	s.lock.Unlock()
+
+	var err error
+
+	if provider != nil {
+		err = provider.OnUnbind()
 	}
-	err := s.provider.OnUnbind()
+	if cancel != nil {
+		cancel()
+	}
+	if onUnbind != nil {
+		go onUnbind()
+	}
 	unbindErr := s.TrackLocalStaticSample.Unbind(t)
 	if unbindErr != nil {
 		return unbindErr
@@ -87,11 +127,62 @@ func (s *LocalSampleTrack) Unbind(t webrtc.TrackLocalContext) error {
 	return err
 }
 
-func (s *LocalSampleTrack) writeWorker() {
+func (s *LocalSampleTrack) StartWrite(provider SampleProvider, onComplete func()) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	if s.provider == provider {
+		return nil
+	}
+
+	// when bound and already writing, ignore
+	if s.IsBound() {
+		// unbind previous provider
+		if s.provider != nil {
+			if err := s.provider.OnUnbind(); err != nil {
+				return err
+			}
+		}
+		if err := provider.OnBind(); err != nil {
+			return err
+		}
+		// start new writer
+		go s.writeWorker(provider, onComplete)
+	}
+	s.provider = provider
+	s.onWriteComplete = onComplete
+	return nil
+}
+
+// OnBind sets a callback to be called when the track has been negotiated for publishing and bound to a peer connection
+func (s *LocalSampleTrack) OnBind(f func()) {
+	s.lock.Lock()
+	s.onBind = f
+	s.lock.Unlock()
+}
+
+// OnUnbind sets a callback to be called after the track is removed from a peer connection
+func (s *LocalSampleTrack) OnUnbind(f func()) {
+	s.lock.Lock()
+	s.onUnbind = f
+	s.lock.Unlock()
+}
+
+func (s *LocalSampleTrack) writeWorker(provider SampleProvider, onComplete func()) {
+	if s.cancelWrite != nil {
+		s.cancelWrite()
+	}
+	var ctx context.Context
+	s.lock.Lock()
+	ctx, s.cancelWrite = context.WithCancel(context.Background())
+	s.lock.Unlock()
+	if onComplete != nil {
+		defer onComplete()
+	}
+
 	nextSampleTime := time.Now()
 	ticker := time.NewTicker(10 * time.Millisecond)
 	for {
-		sample, err := s.provider.NextSample()
+		sample, err := provider.NextSample()
 		if err == io.EOF {
 			return
 		}
@@ -118,7 +209,7 @@ func (s *LocalSampleTrack) writeWorker() {
 		select {
 		case <-ticker.C:
 			continue
-		case <-s.closed:
+		case <-ctx.Done():
 			return
 		}
 	}
