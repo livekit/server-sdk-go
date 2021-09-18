@@ -1,12 +1,14 @@
 package lksdk
 
 import (
+	"sort"
 	"strings"
 	"sync"
 
 	"github.com/livekit/protocol/auth"
 	livekit "github.com/livekit/protocol/proto"
 	"github.com/pion/webrtc/v3"
+	"github.com/thoas/go-funk"
 )
 
 type TrackPubCallback func(track Track, pub TrackPublication, participant *RemoteParticipant)
@@ -82,6 +84,7 @@ func ConnectToRoomWithToken(url, token string, opts ...ConnectOption) (*Room, er
 	engine.OnDisconnected = r.handleDisconnect
 	engine.OnParticipantUpdate = r.handleParticipantUpdate
 	engine.OnActiveSpeakersChanged = r.handleActiveSpeakerChange
+	engine.OnSpeakersChanged = r.handleSpeakersChange
 	engine.OnDataReceived = r.handleDataReceived
 
 	joinRes, err := engine.Join(url, token, params)
@@ -221,7 +224,44 @@ func (r *Room) handleActiveSpeakerChange(speakers []*livekit.SpeakerInfo) {
 		return true
 	})
 	r.ActiveSpeakers = activeSpeakers
+	r.Callback.OnActiveSpeakersChanged(activeSpeakers)
+}
 
+func (r *Room) handleSpeakersChange(speakerUpdates []*livekit.SpeakerInfo) {
+	speakerMap := make(map[string]Participant)
+	for _, p := range r.ActiveSpeakers {
+		speakerMap[p.SID()] = p
+	}
+	for _, info := range speakerUpdates {
+		var participant Participant
+		if info.Sid == r.LocalParticipant.SID() {
+			participant = r.LocalParticipant
+		} else {
+			if obj, ok := r.participants.Load(info.Sid); ok {
+				if p, ok := obj.(Participant); ok {
+					participant = p
+				}
+			}
+		}
+		if participant == nil {
+			break
+		}
+
+		participant.setAudioLevel(info.Level)
+		participant.setIsSpeaking(info.Active)
+
+		if info.Active {
+			speakerMap[info.Sid] = participant
+		} else {
+			delete(speakerMap, info.Sid)
+		}
+	}
+
+	activeSpeakers := funk.Values(speakerMap).([]Participant)
+	sort.Slice(activeSpeakers, func(i, j int) bool {
+		return activeSpeakers[i].AudioLevel() > activeSpeakers[j].AudioLevel()
+	})
+	r.ActiveSpeakers = activeSpeakers
 	r.Callback.OnActiveSpeakersChanged(activeSpeakers)
 }
 
