@@ -119,6 +119,54 @@ func trackSubscribed(track *webrtc.TrackRemote, publication lksdk.TrackPublicati
 }
 ```
 
+## Publishing tracks to Room
+
+With the Go SDK, you can publish existing files encoded in H.264, VP8, and Opus to the room.
+
+First, you will need to encode media into the right format.
+
+### VP8 / Opus
+
+```bash
+INPUT_FILE=<file> \
+OUTPUT_VP8=<file> \
+OUTPUT_OGG=<file> \
+ffmpeg -i $INPUT_FILE \
+  -c:v libvpx -keyint_min 120 -qmax 50 -maxrate 2M -b:v 1M $OUTPUT_VP8 \
+  -c:a libopus -page_duration 20000 -vn $OUTPUT_OGG
+```
+
+The above encodes VP8 at average 1Mbps / max 2Mbps with a minimum keyframe interval of 120.  
+
+### H.264 / Opus
+
+```bash
+INPUT_FILE=<file> \
+OUTPUT_H264=<file> \
+OUTPUT_OGG=<file> \
+ffmpeg -i $INPUT_FILE
+  -c:v libx264 -bsf:v h264_mp4toannexb -b:v 2M -x264-params keyint=120 -max_delay 0 -bf 0 $OUTPUT_H264 \
+  -c:a libopus -page_duration 20000 -vn $OUTPUT_OGG
+```
+
+The above encodes VP8 a CBS of 2Mbps with a minimum keyframe interval of 120.
+
+### Publish
+
+```go
+track, err := lksdk.NewLocalFileTrack(f,
+	// control FPS to ensure synchronization
+	lksdk.FileTrackWithFrameDuration(33 * time.Millisecond),
+	lksdk.FileTrackWithOnWriteComplete(func() { fmt.Println("track finished") }),
+)
+if err != nil {
+    return err
+}
+if _, err = room.LocalParticipant.PublishTrack(track, "video.ivf"); err != nil {
+    return err
+}
+```
+
 ## Receiving webhooks
 
 The Go SDK helps you to verify and decode webhook callbacks to ensure their authenticity.
