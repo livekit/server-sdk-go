@@ -13,20 +13,24 @@ import (
 )
 
 const (
+	// defaults to 30 fps
 	defaultH264FrameDuration = 33 * time.Millisecond
 	defaultOpusFrameDuration = 20 * time.Millisecond
 )
 
-// FileSampleProvider allows LiveKit to publish a file into a room
+// FileSampleProvider provides samples by reading from a video file
 type FileSampleProvider struct {
 	Mime            string
 	FileName        string
 	FrameDuration   time.Duration
 	OnWriteComplete func()
+	AudioLevel      uint8
 	file            *os.File
 
 	// for vp8
-	ivfreader *ivfreader.IVFReader
+	ivfreader     *ivfreader.IVFReader
+	ivfTimebase   float64
+	lastTimestamp uint64
 
 	// for h264
 	h264reader *h264reader.H264Reader
@@ -59,6 +63,8 @@ func FileTrackWithOnWriteComplete(f func()) func(provider *FileSampleProvider) {
 func NewLocalFileTrack(file string, options ...FileSampleProviderOption) (*LocalSampleTrack, error) {
 	provider := &FileSampleProvider{
 		FileName: file,
+		// default audio level to be fairly loud
+		AudioLevel: 15,
 	}
 	for _, opt := range options {
 		opt(provider)
@@ -116,7 +122,7 @@ func (p *FileSampleProvider) OnBind() error {
 		var ivfheader *ivfreader.IVFFileHeader
 		p.ivfreader, ivfheader, err = ivfreader.NewWith(p.file)
 		if err == nil {
-			p.FrameDuration = time.Millisecond * time.Duration((float32(ivfheader.TimebaseNumerator)/float32(ivfheader.TimebaseDenominator))*1000)
+			p.ivfTimebase = float64(ivfheader.TimebaseNumerator) / float64(ivfheader.TimebaseDenominator)
 		}
 	case webrtc.MimeTypeOpus:
 		p.oggreader, _, err = oggreader.NewWith(p.file)
@@ -134,6 +140,10 @@ func (p *FileSampleProvider) OnUnbind() error {
 	return p.file.Close()
 }
 
+func (p *FileSampleProvider) CurrentAudioLevel() uint8 {
+	return p.AudioLevel
+}
+
 func (p *FileSampleProvider) NextSample() (media.Sample, error) {
 	sample := media.Sample{}
 	switch p.Mime {
@@ -143,14 +153,31 @@ func (p *FileSampleProvider) NextSample() (media.Sample, error) {
 			return sample, err
 		}
 
+		isFrame := false
+		switch nal.UnitType {
+		case h264reader.NalUnitTypeCodedSliceDataPartitionA,
+			h264reader.NalUnitTypeCodedSliceDataPartitionB,
+			h264reader.NalUnitTypeCodedSliceDataPartitionC,
+			h264reader.NalUnitTypeCodedSliceIdr,
+			h264reader.NalUnitTypeCodedSliceNonIdr:
+			isFrame = true
+		}
+
 		sample.Data = nal.Data
+		if !isFrame {
+			// return it without duration
+			return sample, nil
+		}
 		sample.Duration = defaultH264FrameDuration
 	case webrtc.MimeTypeVP8:
-		frame, _, err := p.ivfreader.ParseNextFrame()
+		frame, header, err := p.ivfreader.ParseNextFrame()
 		if err != nil {
 			return sample, err
 		}
+		delta := header.Timestamp - p.lastTimestamp
 		sample.Data = frame
+		sample.Duration = time.Duration(p.ivfTimebase*float64(delta)*1000) * time.Millisecond
+		p.lastTimestamp = header.Timestamp
 	case webrtc.MimeTypeOpus:
 		pageData, pageHeader, err := p.oggreader.ParseNextPage()
 		if err != nil {
@@ -161,6 +188,9 @@ func (p *FileSampleProvider) NextSample() (media.Sample, error) {
 
 		sample.Data = pageData
 		sample.Duration = time.Duration((sampleCount/48000)*1000) * time.Millisecond
+		if sample.Duration == 0 {
+			sample.Duration = defaultOpusFrameDuration
+		}
 	}
 
 	if p.FrameDuration > 0 {

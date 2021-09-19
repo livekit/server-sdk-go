@@ -14,6 +14,11 @@ type SampleProvider interface {
 	OnUnbind() error
 }
 
+type AudioSampleProvider interface {
+	SampleProvider
+	CurrentAudioLevel() uint8
+}
+
 // NullSampleProvider is a media provider that provides null packets, it could meet a certain bitrate, if desired
 type NullSampleProvider struct {
 	BytesPerSample uint32
