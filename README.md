@@ -130,8 +130,8 @@ First, you will need to encode media into the right format.
 
 ```bash
 INPUT_FILE=<file> \
-OUTPUT_VP8=<file> \
-OUTPUT_OGG=<file> \
+OUTPUT_VP8=<output.ivf> \
+OUTPUT_OGG=<output.ogg> \
 ffmpeg -i $INPUT_FILE \
   -c:v libvpx -keyint_min 120 -qmax 50 -maxrate 2M -b:v 1M $OUTPUT_VP8 \
   -c:a libopus -page_duration 20000 -vn $OUTPUT_OGG
@@ -143,8 +143,8 @@ The above encodes VP8 at average 1Mbps / max 2Mbps with a minimum keyframe inter
 
 ```bash
 INPUT_FILE=<file> \
-OUTPUT_H264=<file> \
-OUTPUT_OGG=<file> \
+OUTPUT_H264=<output.h264> \
+OUTPUT_OGG=<output.ogg> \
 ffmpeg -i $INPUT_FILE
   -c:v libx264 -bsf:v h264_mp4toannexb -b:v 2M -x264-params keyint=120 -max_delay 0 -bf 0 $OUTPUT_H264 \
   -c:a libopus -page_duration 20000 -vn $OUTPUT_OGG
