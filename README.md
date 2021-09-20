@@ -5,6 +5,7 @@ This is the official Golang SDK to [LiveKit](https://docs.livekit.io). You would
 - Create access tokens
 - Access LiveKit server-side APIs, giving you moderation capabilities
 - Client SDK to interact as participant, publish & record room streams
+- Receive [webhook](https://docs.livekit.io/guides/webhooks/) callbacks
 
 ## Token creation
 
@@ -166,6 +167,8 @@ if _, err = room.LocalParticipant.PublishTrack(track, "video.ivf"); err != nil {
     return err
 }
 ```
+
+For a full working example, refer to [join.go](https://github.com/livekit/livekit-cli/blob/main/cmd/livekit-cli/join.go) in livekit-cli.
 
 ## Receiving webhooks
 
