@@ -152,10 +152,11 @@ ffmpeg -i $INPUT_FILE
 
 The above encodes VP8 a CBS of 2Mbps with a minimum keyframe interval of 120.
 
-### Publish
+### Publish from file
 
 ```go
-track, err := lksdk.NewLocalFileTrack(f,
+file := "video.ivf"
+track, err := lksdk.NewLocalFileTrack(file,
 	// control FPS to ensure synchronization
 	lksdk.FileTrackWithFrameDuration(33 * time.Millisecond),
 	lksdk.FileTrackWithOnWriteComplete(func() { fmt.Println("track finished") }),
@@ -163,12 +164,18 @@ track, err := lksdk.NewLocalFileTrack(f,
 if err != nil {
     return err
 }
-if _, err = room.LocalParticipant.PublishTrack(track, "video.ivf"); err != nil {
+if _, err = room.LocalParticipant.PublishTrack(track, file); err != nil {
     return err
 }
 ```
 
 For a full working example, refer to [join.go](https://github.com/livekit/livekit-cli/blob/main/cmd/livekit-cli/join.go) in livekit-cli.
+
+### Publish from other sources
+
+In order to publish from non-file sources, you will have to implement your own `SampleProvider`, that could provide frames of data with a `NextSample` method.
+
+The SDK takes care of sending the samples to the room.
 
 ## Receiving webhooks
 
