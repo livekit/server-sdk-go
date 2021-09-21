@@ -150,7 +150,7 @@ ffmpeg -i $INPUT_FILE
   -c:a libopus -page_duration 20000 -vn $OUTPUT_OGG
 ```
 
-The above encodes VP8 a CBS of 2Mbps with a minimum keyframe interval of 120.
+The above encodes H264 with CBS of 2Mbps with a minimum keyframe interval of 120.
 
 ### Publish from file
 
