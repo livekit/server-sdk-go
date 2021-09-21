@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/bep/debounce"
+	"github.com/pion/interceptor"
+	"github.com/pion/sdp/v3"
 	"github.com/pion/webrtc/v3"
 )
 
@@ -15,7 +17,6 @@ const (
 // PCTransport is a wrapper around PeerConnection, with some helper methods
 type PCTransport struct {
 	pc *webrtc.PeerConnection
-	me *webrtc.MediaEngine
 
 	lock               sync.Mutex
 	pendingCandidates  []webrtc.ICECandidateInit
@@ -26,7 +27,22 @@ type PCTransport struct {
 }
 
 func NewPCTransport(iceServers []webrtc.ICEServer) (*PCTransport, error) {
-	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{ICEServers: iceServers})
+	m := &webrtc.MediaEngine{}
+	if err := m.RegisterDefaultCodecs(); err != nil {
+		return nil, err
+	}
+	audioLevelExtension := webrtc.RTPHeaderExtensionCapability{URI: sdp.AudioLevelURI}
+	if err := m.RegisterHeaderExtension(audioLevelExtension, webrtc.RTPCodecTypeAudio); err != nil {
+		return nil, err
+	}
+
+	i := &interceptor.Registry{}
+	if err := webrtc.RegisterDefaultInterceptors(m, i); err != nil {
+		return nil, err
+	}
+
+	api := webrtc.NewAPI(webrtc.WithMediaEngine(m), webrtc.WithInterceptorRegistry(i))
+	pc, err := api.NewPeerConnection(webrtc.Configuration{ICEServers: iceServers})
 	if err != nil {
 		return nil, err
 	}
