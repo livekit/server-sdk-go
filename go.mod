@@ -9,9 +9,10 @@ require (
 	github.com/google/uuid v1.3.0 // indirect
 	github.com/gorilla/websocket v1.4.2
 	github.com/lithammer/shortuuid/v3 v3.0.7 // indirect
-	github.com/livekit/protocol v0.9.1
-	github.com/pion/interceptor v0.0.15 // indirect
-	github.com/pion/rtp v1.7.1 // indirect
+	github.com/livekit/protocol v0.9.7
+	github.com/pion/interceptor v0.0.15
+	github.com/pion/rtp v1.7.1
+	github.com/pion/sdp/v3 v3.0.4
 	github.com/pion/srtp/v2 v2.0.5 // indirect
 	github.com/pion/webrtc/v3 v3.0.32
 	github.com/thoas/go-funk v0.9.0
