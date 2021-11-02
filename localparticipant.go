@@ -61,6 +61,19 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, name string) (*
 	if err != nil {
 		return nil, err
 	}
+
+	// read incoming rtcp packets so interceptors can handle NACKs
+	go func() {
+		sender := pub.transceiver.Sender()
+		rtcpBuf := make([]byte, 1500)
+		for {
+			if _, _, rtcpErr := sender.Read(rtcpBuf); rtcpErr != nil {
+				// pipe closed
+				return
+			}
+		}
+	}()
+
 	pub.sid = pubRes.Track.Sid
 	p.addPublication(&pub)
 
