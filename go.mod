@@ -9,7 +9,7 @@ require (
 	github.com/google/uuid v1.3.0 // indirect
 	github.com/gorilla/websocket v1.4.2
 	github.com/lithammer/shortuuid/v3 v3.0.7 // indirect
-	github.com/livekit/protocol v0.9.11
+	github.com/livekit/protocol v0.10.3
 	github.com/pion/interceptor v0.0.15
 	github.com/pion/rtp v1.7.1
 	github.com/pion/sdp/v3 v3.0.4
