@@ -34,6 +34,8 @@ type RTCEngine struct {
 	OnActiveSpeakersChanged func([]*livekit.SpeakerInfo)
 	OnSpeakersChanged       func([]*livekit.SpeakerInfo)
 	OnDataReceived          func(userPacket *livekit.UserPacket)
+	OnConnectionQuality     func([]*livekit.ConnectionQualityInfo)
+	OnRoomUpdate            func(room *livekit.Room)
 }
 
 func NewRTCEngine() *RTCEngine {
@@ -229,6 +231,8 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 	e.client.OnParticipantUpdate = e.OnParticipantUpdate
 	e.client.OnSpeakersChanged = e.OnSpeakersChanged
 	e.client.OnLocalTrackPublished = e.handleLocalTrackPublished
+	e.client.OnConnectionQuality = e.OnConnectionQuality
+	e.client.OnRoomUpdate = e.OnRoomUpdate
 	e.client.OnLeave = e.OnDisconnected
 	e.client.OnClose = func() {
 		// TODO: implement reconnection logic

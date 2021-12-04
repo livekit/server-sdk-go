@@ -15,7 +15,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const PROTOCOL = 3
+const PROTOCOL = 5
 
 type SignalClient struct {
 	conn        *websocket.Conn
@@ -29,6 +29,8 @@ type SignalClient struct {
 	OnParticipantUpdate   func([]*livekit.ParticipantInfo)
 	OnLocalTrackPublished func(response *livekit.TrackPublishedResponse)
 	OnSpeakersChanged     func([]*livekit.SpeakerInfo)
+	OnConnectionQuality   func([]*livekit.ConnectionQualityInfo)
+	OnRoomUpdate          func(room *livekit.Room)
 	OnLeave               func()
 }
 
@@ -207,6 +209,16 @@ func (c *SignalClient) handleResponse(res *livekit.SignalResponse) {
 		if c.OnLocalTrackPublished != nil {
 			c.OnLocalTrackPublished(msg.TrackPublished)
 		}
+	case *livekit.SignalResponse_ConnectionQuality:
+		if c.OnConnectionQuality != nil {
+			c.OnConnectionQuality(msg.ConnectionQuality.Updates)
+		}
+	case *livekit.SignalResponse_RoomUpdate:
+		if c.OnRoomUpdate != nil {
+			c.OnRoomUpdate(msg.RoomUpdate.Room)
+		}
+	case *livekit.SignalResponse_StreamedTracksUpdate:
+		// TODO: provide track status update
 	case *livekit.SignalResponse_Leave:
 		if c.OnLeave != nil {
 			c.OnLeave()

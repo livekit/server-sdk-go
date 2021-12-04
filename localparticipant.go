@@ -24,11 +24,10 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, name string) (*
 	kind := KindFromRTPType(track.Kind())
 	pub := LocalTrackPublication{
 		trackPublicationBase: trackPublicationBase{
-			kind:    kind,
-			track:   track,
-			name:    name,
-			isMuted: false,
-			client:  p.engine.client,
+			kind:   kind,
+			track:  track,
+			name:   name,
+			client: p.engine.client,
 		},
 	}
 	err := p.engine.client.SendRequest(&livekit.SignalRequest{

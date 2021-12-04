@@ -17,9 +17,3 @@ then
   echo "Ensure `go env GOPATH`/bin is in your \$PATH"
   exit 1
 fi
-
-echo "downloading go modules"
-go mod download
-go install \
-	"google.golang.org/protobuf/cmd/protoc-gen-go" \
-	"github.com/twitchtv/twirp/protoc-gen-twirp"
