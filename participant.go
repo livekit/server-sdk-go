@@ -12,20 +12,27 @@ type Participant interface {
 	Identity() string
 	IsSpeaking() bool
 	AudioLevel() float32
+	Tracks() []TrackPublication
+	IsCameraEnabled() bool
+	IsMicrophoneEnabled() bool
+	IsScreenShareEnabled() bool
+	Metadata() string
+	GetTrack(source livekit.TrackSource) TrackPublication
+
 	setAudioLevel(level float32)
 	setIsSpeaking(speaking bool)
-	Tracks() []TrackPublication
-	Metadata() string
+	setConnectionQualityInfo(info *livekit.ConnectionQualityInfo)
 }
 
 type baseParticipant struct {
-	sid        string
-	identity   string
-	audioLevel atomic.Value
-	metadata   string
-	isSpeaking atomic.Value
-	info       *livekit.ParticipantInfo
-	lock       sync.Mutex
+	sid               string
+	identity          string
+	audioLevel        atomic.Value
+	metadata          string
+	isSpeaking        atomic.Value
+	info              *livekit.ParticipantInfo
+	connectionQuality *livekit.ConnectionQualityInfo
+	lock              sync.Mutex
 
 	Callback     *ParticipantCallback
 	roomCallback *RoomCallback
@@ -83,6 +90,34 @@ func (p *baseParticipant) Tracks() []TrackPublication {
 	return tracks
 }
 
+func (p *baseParticipant) GetTrack(source livekit.TrackSource) TrackPublication {
+	var pub TrackPublication
+	p.tracks.Range(func(_, value interface{}) bool {
+		trackPub := value.(TrackPublication)
+		if trackPub.Source() == source {
+			pub = trackPub
+			return false
+		}
+		return true
+	})
+	return pub
+}
+
+func (p *baseParticipant) IsCameraEnabled() bool {
+	pub := p.GetTrack(livekit.TrackSource_CAMERA)
+	return pub != nil && !pub.IsMuted()
+}
+
+func (p *baseParticipant) IsMicrophoneEnabled() bool {
+	pub := p.GetTrack(livekit.TrackSource_MICROPHONE)
+	return pub != nil && !pub.IsMuted()
+}
+
+func (p *baseParticipant) IsScreenShareEnabled() bool {
+	pub := p.GetTrack(livekit.TrackSource_SCREEN_SHARE)
+	return pub != nil && !pub.IsMuted()
+}
+
 func (p *baseParticipant) setAudioLevel(level float32) {
 	p.audioLevel.Store(level)
 }
@@ -95,6 +130,14 @@ func (p *baseParticipant) setIsSpeaking(speaking bool) {
 	p.isSpeaking.Store(speaking)
 	p.Callback.OnIsSpeakingChanged(p)
 	p.roomCallback.OnIsSpeakingChanged(p)
+}
+
+func (p *baseParticipant) setConnectionQualityInfo(info *livekit.ConnectionQualityInfo) {
+	p.lock.Lock()
+	p.connectionQuality = info
+	p.lock.Unlock()
+	p.Callback.OnConnectionQualityChanged(info, p)
+	p.roomCallback.OnConnectionQualityChanged(info, p)
 }
 
 func (p *baseParticipant) updateInfo(pi *livekit.ParticipantInfo, participant Participant) {

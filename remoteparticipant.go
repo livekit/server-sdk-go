@@ -59,8 +59,8 @@ func (p *RemoteParticipant) updateInfo(pi *livekit.ParticipantInfo) {
 	if hadInfo {
 		// send events for new publications
 		for _, pub := range newPubs {
-			p.Callback.OnTrackPublished(pub, p)
-			p.roomCallback.OnTrackPublished(pub, p)
+			p.Callback.OnTrackPublished(pub.(*RemoteTrackPublication), p)
+			p.roomCallback.OnTrackPublished(pub.(*RemoteTrackPublication), p)
 		}
 	}
 	var toUnpublish []string
@@ -146,8 +146,8 @@ func (p *RemoteParticipant) unpublishAllTracks() {
 		pub := value.(TrackPublication)
 		if remoteTrack, ok := pub.Track().(*webrtc.TrackRemote); ok {
 			if pub.Track() != nil {
-				p.Callback.OnTrackUnsubscribed(remoteTrack, pub, p)
-				p.roomCallback.OnTrackUnsubscribed(remoteTrack, pub, p)
+				p.Callback.OnTrackUnsubscribed(remoteTrack, pub.(*RemoteTrackPublication), p)
+				p.roomCallback.OnTrackUnsubscribed(remoteTrack, pub.(*RemoteTrackPublication), p)
 			}
 		}
 		return true

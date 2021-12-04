@@ -39,9 +39,13 @@ type Room struct {
 	SID              string
 	Name             string
 	LocalParticipant *LocalParticipant
-	participants     *sync.Map
-	ActiveSpeakers   []Participant
 	Callback         *RoomCallback
+
+	participants   *sync.Map
+	metadata       string
+	activeSpeakers []Participant
+
+	lock sync.RWMutex
 }
 
 func ConnectToRoom(url string, info ConnectInfo, opts ...ConnectOption) (*Room, error) {
@@ -86,6 +90,8 @@ func ConnectToRoomWithToken(url, token string, opts ...ConnectOption) (*Room, er
 	engine.OnActiveSpeakersChanged = r.handleActiveSpeakerChange
 	engine.OnSpeakersChanged = r.handleSpeakersChange
 	engine.OnDataReceived = r.handleDataReceived
+	engine.OnConnectionQuality = r.handleConnectionQualityUpdate
+	engine.OnRoomUpdate = r.handleRoomUpdate
 
 	joinRes, err := engine.Join(url, token, params)
 	if err != nil {
@@ -122,8 +128,19 @@ func (r *Room) GetParticipants() []*RemoteParticipant {
 	return participants
 }
 
-func (r *Room) addRemoteParticipant(pi *livekit.ParticipantInfo) *RemoteParticipant {
+func (r *Room) ActiveSpeakers() []Participant {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+	return r.activeSpeakers
+}
 
+func (r *Room) Metadata() string {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+	return r.metadata
+}
+
+func (r *Room) addRemoteParticipant(pi *livekit.ParticipantInfo) *RemoteParticipant {
 	pRaw, ok := r.participants.Load(pi.Sid)
 	if ok {
 		return pRaw.(*RemoteParticipant)
@@ -223,13 +240,15 @@ func (r *Room) handleActiveSpeakerChange(speakers []*livekit.SpeakerInfo) {
 		}
 		return true
 	})
-	r.ActiveSpeakers = activeSpeakers
+	r.lock.Lock()
+	r.activeSpeakers = activeSpeakers
+	r.lock.Unlock()
 	r.Callback.OnActiveSpeakersChanged(activeSpeakers)
 }
 
 func (r *Room) handleSpeakersChange(speakerUpdates []*livekit.SpeakerInfo) {
 	speakerMap := make(map[string]Participant)
-	for _, p := range r.ActiveSpeakers {
+	for _, p := range r.ActiveSpeakers() {
 		speakerMap[p.SID()] = p
 	}
 	for _, info := range speakerUpdates {
@@ -261,8 +280,34 @@ func (r *Room) handleSpeakersChange(speakerUpdates []*livekit.SpeakerInfo) {
 	sort.Slice(activeSpeakers, func(i, j int) bool {
 		return activeSpeakers[i].AudioLevel() > activeSpeakers[j].AudioLevel()
 	})
-	r.ActiveSpeakers = activeSpeakers
+	r.lock.Lock()
+	r.activeSpeakers = activeSpeakers
+	r.lock.Unlock()
 	r.Callback.OnActiveSpeakersChanged(activeSpeakers)
+}
+
+func (r *Room) handleConnectionQualityUpdate(updates []*livekit.ConnectionQualityInfo) {
+	for _, update := range updates {
+		var participant Participant
+		if update.ParticipantSid == r.LocalParticipant.sid {
+			participant = r.LocalParticipant
+		} else {
+			participant = r.GetParticipant(update.ParticipantSid)
+		}
+		if participant != nil {
+			participant.setConnectionQualityInfo(update)
+		}
+	}
+}
+
+func (r *Room) handleRoomUpdate(room *livekit.Room) {
+	if r.Metadata() == room.Metadata {
+		return
+	}
+	r.lock.Lock()
+	r.metadata = room.Metadata
+	r.lock.Unlock()
+	r.Callback.OnRoomMetadataChanged(room.Metadata)
 }
 
 func unpackStreamID(packed string) (participantId string, trackId string) {
