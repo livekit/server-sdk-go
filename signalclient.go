@@ -217,8 +217,6 @@ func (c *SignalClient) handleResponse(res *livekit.SignalResponse) {
 		if c.OnRoomUpdate != nil {
 			c.OnRoomUpdate(msg.RoomUpdate.Room)
 		}
-	case *livekit.SignalResponse_StreamedTracksUpdate:
-		// TODO: provide track status update
 	case *livekit.SignalResponse_Leave:
 		if c.OnLeave != nil {
 			c.OnLeave()
