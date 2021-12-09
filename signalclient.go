@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 
 	"github.com/gorilla/websocket"
-	livekit "github.com/livekit/protocol/proto"
+	"github.com/livekit/protocol/livekit"
 	"github.com/pion/webrtc/v3"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"

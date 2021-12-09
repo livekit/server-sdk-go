@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/livekit/protocol/auth"
-	livekit "github.com/livekit/protocol/proto"
+	"github.com/livekit/protocol/livekit"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 

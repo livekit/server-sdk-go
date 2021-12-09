@@ -3,7 +3,7 @@ package lksdk
 import (
 	"sync/atomic"
 
-	livekit "github.com/livekit/protocol/proto"
+	"github.com/livekit/protocol/livekit"
 	"github.com/pion/webrtc/v3"
 )
 

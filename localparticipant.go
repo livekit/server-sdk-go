@@ -3,7 +3,7 @@ package lksdk
 import (
 	"time"
 
-	livekit "github.com/livekit/protocol/proto"
+	"github.com/livekit/protocol/livekit"
 	"github.com/pion/webrtc/v3"
 	"google.golang.org/protobuf/proto"
 )
@@ -144,6 +144,10 @@ func (p *LocalParticipant) UnpublishTrack(sid string) error {
 
 func (p *LocalParticipant) updateInfo(info *livekit.ParticipantInfo) {
 	p.baseParticipant.updateInfo(info, p)
+	p.lock.Lock()
+	p.sid = info.Sid
+	p.identity = info.Identity
+	p.lock.Unlock()
 
 	// detect tracks that have been muted remotely, and apply changes
 	for _, ti := range info.Tracks {

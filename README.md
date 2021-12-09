@@ -38,7 +38,7 @@ RoomService gives you complete control over rooms and participants within them. 
 ```go
 import (
 	lksdk "github.com/livekit/server-sdk-go"
-	livekit "github.com/livekit/protocol/proto"
+	livekit "github.com/livekit/protocol/livekit"
 )
 
 func main() {
@@ -184,7 +184,7 @@ See [webhooks guide](https://docs.livekit.io/guides/webhooks) for configuration.
 
 ```go
 import (
-	livekit "github.com/livekit/protocol/proto"
+	livekit "github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/webhook"
 	"google.golang.org/protobuf/encoding/protojson"
 )

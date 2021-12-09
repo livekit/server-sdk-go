@@ -4,7 +4,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	livekit "github.com/livekit/protocol/proto"
+	"github.com/livekit/protocol/livekit"
 )
 
 type Participant interface {

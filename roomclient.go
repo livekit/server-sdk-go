@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/livekit/protocol/auth"
-	livekit "github.com/livekit/protocol/proto"
+	"github.com/livekit/protocol/livekit"
 )
 
 type RoomServiceClient struct {

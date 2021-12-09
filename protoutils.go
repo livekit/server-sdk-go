@@ -3,7 +3,7 @@ package lksdk
 import (
 	"encoding/json"
 
-	livekit "github.com/livekit/protocol/proto"
+	"github.com/livekit/protocol/livekit"
 	"github.com/pion/webrtc/v3"
 	"github.com/thoas/go-funk"
 )

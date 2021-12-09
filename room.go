@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/livekit/protocol/auth"
-	livekit "github.com/livekit/protocol/proto"
+	"github.com/livekit/protocol/livekit"
 	"github.com/pion/webrtc/v3"
 	"github.com/thoas/go-funk"
 )
@@ -113,7 +113,7 @@ func (r *Room) Disconnect() {
 
 func (r *Room) GetParticipant(sid string) *RemoteParticipant {
 	partRaw, ok := r.participants.Load(sid)
-	if !ok {
+	if !ok || partRaw == nil {
 		return nil
 	}
 	return partRaw.(*RemoteParticipant)
@@ -288,14 +288,16 @@ func (r *Room) handleSpeakersChange(speakerUpdates []*livekit.SpeakerInfo) {
 
 func (r *Room) handleConnectionQualityUpdate(updates []*livekit.ConnectionQualityInfo) {
 	for _, update := range updates {
-		var participant Participant
-		if update.ParticipantSid == r.LocalParticipant.sid {
-			participant = r.LocalParticipant
+		if update.ParticipantSid == r.LocalParticipant.SID() {
+			r.LocalParticipant.setConnectionQualityInfo(update)
 		} else {
-			participant = r.GetParticipant(update.ParticipantSid)
-		}
-		if participant != nil {
-			participant.setConnectionQualityInfo(update)
+			p := r.GetParticipant(update.ParticipantSid)
+			if p != nil {
+				p.setConnectionQualityInfo(update)
+			} else {
+				logger.Info("could not find participant", "sid", update.ParticipantSid,
+					"localParticipant", r.LocalParticipant.SID())
+			}
 		}
 	}
 }
