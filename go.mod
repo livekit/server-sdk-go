@@ -8,7 +8,7 @@ require (
 	github.com/go-logr/stdr v1.0.0
 	github.com/gorilla/websocket v1.4.2
 	github.com/lithammer/shortuuid/v3 v3.0.7 // indirect
-	github.com/livekit/protocol v0.11.0
+	github.com/livekit/protocol v0.11.5
 	github.com/pion/interceptor v0.1.2
 	github.com/pion/rtp v1.7.4
 	github.com/pion/sdp/v3 v3.0.4

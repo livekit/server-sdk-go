@@ -12,6 +12,7 @@ type TrackPublication interface {
 	SID() string
 	Source() livekit.TrackSource
 	Kind() TrackKind
+	MimeType() string
 	IsMuted() bool
 	IsSubscribed() bool
 	// Track is either a webrtc.TrackLocal or webrtc.TrackRemote
@@ -44,6 +45,13 @@ func (p *trackPublicationBase) Kind() TrackKind {
 
 func (p *trackPublicationBase) Track() Track {
 	return p.track
+}
+
+func (p *trackPublicationBase) MimeType() string {
+	if info, ok := p.info.Load().(*livekit.TrackInfo); ok {
+		return info.MimeType
+	}
+	return ""
 }
 
 func (p *trackPublicationBase) Source() livekit.TrackSource {
