@@ -10,6 +10,7 @@ import (
 type Participant interface {
 	SID() string
 	Identity() string
+	Name() string
 	IsSpeaking() bool
 	AudioLevel() float32
 	Tracks() []TrackPublication
@@ -27,12 +28,13 @@ type Participant interface {
 type baseParticipant struct {
 	sid               string
 	identity          string
+	name              string
 	audioLevel        atomic.Value
 	metadata          string
 	isSpeaking        atomic.Value
 	info              *livekit.ParticipantInfo
 	connectionQuality *livekit.ConnectionQualityInfo
-	lock              sync.Mutex
+	lock              sync.RWMutex
 
 	Callback     *ParticipantCallback
 	roomCallback *RoomCallback
@@ -64,7 +66,13 @@ func (p *baseParticipant) Identity() string {
 	return p.identity
 }
 
+func (p *baseParticipant) Name() string {
+	return p.name
+}
+
 func (p *baseParticipant) Metadata() string {
+	p.lock.RLock()
+	defer p.lock.RUnlock()
 	return p.metadata
 }
 
@@ -145,6 +153,7 @@ func (p *baseParticipant) updateInfo(pi *livekit.ParticipantInfo, participant Pa
 	p.info = pi
 	p.identity = pi.Identity
 	p.sid = pi.Sid
+	p.name = pi.Name
 	oldMetadata := p.metadata
 	p.metadata = pi.Metadata
 	p.lock.Unlock()
