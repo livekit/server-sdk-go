@@ -18,6 +18,7 @@ type ConnectInfo struct {
 	APIKey              string
 	APISecret           string
 	RoomName            string
+	ParticipantName     string
 	ParticipantIdentity string
 	ParticipantMetadata string
 }
@@ -57,7 +58,8 @@ func ConnectToRoom(url string, info ConnectInfo, opts ...ConnectOption) (*Room, 
 	}
 	at.AddGrant(grant).
 		SetIdentity(info.ParticipantIdentity).
-		SetMetadata(info.ParticipantMetadata)
+		SetMetadata(info.ParticipantMetadata).
+		SetName(info.ParticipantName)
 
 	token, err := at.ToJWT()
 	if err != nil {
