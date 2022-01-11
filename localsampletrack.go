@@ -37,6 +37,7 @@ type LocalSampleTrack struct {
 	bound        uint32
 	lock         sync.RWMutex
 	audioLevelID uint8
+	lastTS       time.Time
 
 	cancelWrite func()
 	provider    SampleProvider
@@ -207,6 +208,12 @@ func (s *LocalSampleTrack) WriteSample(sample media.Sample, opts *SampleWriteOpt
 	// skip packets by the number of previously dropped packets
 	for i := uint16(0); i < sample.PrevDroppedPackets; i++ {
 		s.sequencer.NextSequenceNumber()
+	}
+
+	// calculate / interpolate duration when supplied duration is invalid
+	if sample.Duration.Nanoseconds() < 0 {
+		sample.Duration = sample.Timestamp.Sub(s.lastTS)
+		s.lastTS = sample.Timestamp
 	}
 
 	samples := uint32(sample.Duration.Seconds() * clockRate)
