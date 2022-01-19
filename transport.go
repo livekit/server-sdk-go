@@ -41,7 +41,10 @@ func NewPCTransport(iceServers []webrtc.ICEServer) (*PCTransport, error) {
 		return nil, err
 	}
 
-	api := webrtc.NewAPI(webrtc.WithMediaEngine(m), webrtc.WithInterceptorRegistry(i))
+	se := webrtc.SettingEngine{}
+	se.SetAnsweringDTLSRole(webrtc.DTLSRoleClient)
+
+	api := webrtc.NewAPI(webrtc.WithMediaEngine(m), webrtc.WithInterceptorRegistry(i), webrtc.WithSettingEngine(se))
 	pc, err := api.NewPeerConnection(webrtc.Configuration{ICEServers: iceServers})
 	if err != nil {
 		return nil, err
@@ -123,6 +126,7 @@ func (t *PCTransport) createAndSendOffer(options *webrtc.OfferOptions) {
 
 	logger.V(1).Info("starting to negotiate")
 	offer, err := t.pc.CreateOffer(options)
+	logger.V(1).Info("create offer", "offer", offer.SDP)
 	if err != nil {
 		logger.Error(err, "could not negotiate")
 	}
