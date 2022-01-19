@@ -3,6 +3,7 @@ module github.com/livekit/server-sdk-go
 go 1.16
 
 require (
+	github.com/aws/aws-sdk-go v1.42.36
 	github.com/bep/debounce v1.2.0
 	github.com/go-logr/logr v1.1.0
 	github.com/go-logr/stdr v1.0.0

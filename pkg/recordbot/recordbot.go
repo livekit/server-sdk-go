@@ -41,7 +41,7 @@ type RecordBotHooks struct {
 	GenerateFileID func(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) string
 
 	// Include recorder hooks
-	RecorderHooks
+	Recorder RecorderHooks
 }
 
 type OutputType string
@@ -138,7 +138,7 @@ func (bot *recordbot) handleTrackSubscribed(track *webrtc.TrackRemote, publicati
 	fileName := fmt.Sprintf("%s.%s", fileID, fileExtension)
 
 	// Create recorder
-	rec, err := NewRecorder(fileName, track.Codec(), bot.hooks.RecorderHooks)
+	rec, err := NewRecorder(fileName, track.Codec(), bot.hooks.Recorder)
 	if err != nil {
 		log.Fatal("fail to initialise recorder")
 	}
