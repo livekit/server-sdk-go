@@ -110,6 +110,7 @@ func (r *recorder) record(track *webrtc.TrackRemote) {
 			if err != nil {
 				// Do something with error before exiting
 				r.cleanup()
+				r.wg.Done()
 			}
 		}
 	}
