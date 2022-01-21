@@ -3,7 +3,6 @@ module github.com/livekit/server-sdk-go
 go 1.16
 
 require (
-	github.com/aws/aws-sdk-go v1.42.36
 	github.com/bep/debounce v1.2.0
 	github.com/go-logr/logr v1.1.0
 	github.com/go-logr/stdr v1.0.0
@@ -17,6 +16,7 @@ require (
 	github.com/stretchr/testify v1.7.0
 	github.com/thoas/go-funk v0.9.0
 	github.com/twitchtv/twirp v8.1.0+incompatible
+	golang.org/x/net v0.0.0-20211216030914-fe4d6282115f // indirect
 	google.golang.org/protobuf v1.27.1
 	gopkg.in/square/go-jose.v2 v2.6.0 // indirect
 )
