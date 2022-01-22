@@ -210,9 +210,9 @@ func ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 RecordBot is suitable if you want to record tracks separately (`video-only`, `audio-only` or `split-audio-video`). It does this by the following steps:
 
-1. Joining the room as a bot. We can hide the bot by not rendering any participants with the same name of the bot (default is `recordbot`).
-2. Writing RTP packets directly to file, relying on `MediaWriter` interface in `ion-sfu`. The file ID (without extension) generator is passed in a hook.
-3. Optionally upload to cloud via hook. An S3 uploader is provided, but it still needs more documentation around setting up the IAM role. If not properly configured, it will fail during runtime, although the local file is left intact.
+1. Join the room as a bot. We can hide the bot by not rendering any participants with the same name of the bot (default is `recordbot`).
+2. Write RTP packets directly to file, relying on `MediaWriter` interface in `ion-sfu`. A function to generate the file name needs to be passed to `GenerateFilename(...)` hook.
+3. Optionally upload to cloud via `UploadFile(...)` hook.
 
 Unfortunately, RecordBot will not be able to do compositing of tracks. If you require this feature, the original [livekit-recorder](https://github.com/livekit/livekit-recorder) is your solution.
 
@@ -222,27 +222,16 @@ Note: Each room must only have 1 RecordBot as RecordBot manages multiple recorde
 import "github.com/livekit/server-sdk-go/pkg/recordbot"
 
 func main() {
-	awsConfig := uploader.S3Config{
-		Region:  "AWS_REGION",
-		RoleARN: "AWS_ROLE_ARN",
-		Bucket:  "AWS_S3_BUCKET",
-		ACL:     "AWS_S3_ACL",
-	}
-	uploader, err := recordbot.NewS3Uploader(awsConfig)
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	config := recordbot.RecordBotConfig{
 		BaseUrl:   "LIVEKIT_URL",
 		ApiKey:    "LIVEKIT_API_KEY",
 		ApiSecret: "LIVEKIT_API_SECRET",
 		BotName:   "recordbot",
 		Hooks: recordbot.RecordBotHooks{
-			GenerateFileID: func(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) string {
-				// Example: user1--2022_01_19-11_38_23 .
-				// Don't generate anything with a `.` character. File extension will be handled internally.
-				return fmt.Sprintf("%s--%d_%02d_%02d-%02d_%02d_%02d",
+			GenerateFilename: func(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) string {
+				// Check track.Kind() for file extension.
+				// Example: user1--2022-01-19_11-38-23.mp4 for video or `.ogg` for audio
+				return fmt.Sprintf("%s--%d-%02d-%02d_%02d-%02d-%02d.mp4",
 					rp.Identity(),
 					current.Year(), current.Month(), current.Day(),
 					current.Hour(), current.Minute(), current.Second())
@@ -255,19 +244,7 @@ func main() {
 						return err
 					}
 
-					// Upload the file
-					_, err = uploader.Upload(filename, file)
-					if err != nil {
-						return err
-					}
-
-					// Optionally delete file afterwards
-					err = os.Remove(filename)
-					if err != nil {
-						return err
-					}
-
-					return nil
+					// Do upload
 				},
 			},
 		},
@@ -279,7 +256,7 @@ func main() {
 	// - Attach 2 callbacks:
 	//   a) Create a recorder and start recording anytime a track is subscribed
 	//   b) When a track is unsubscribed, stop recording and save the file
-	bot, err := recordbot.NewRecordBot("my_room", config)
+	bot, err := recordbot.NewRecordBot("myroom", config)
 
 	// When Disconnect() is called, it will:
 	// - Stop all recorders and save the respective files
