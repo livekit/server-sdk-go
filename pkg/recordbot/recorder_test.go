@@ -114,7 +114,7 @@ func TestWhenRecorderIsStoppedChannelReceivesStopSignal(t *testing.T) {
 }
 
 func TestCanCreateRecorderForSupportedCodecs(t *testing.T) {
-	rec, err := NewRecorder("test.mp4", createTestCodec(), RecorderHooks{})
+	rec, err := NewSingleTrackRecorder("test.mp4", createTestCodec(), RecorderHooks{})
 	assert.NoError(t, err)
 	assert.NotNil(t, rec)
 	os.Remove("test.mp4")
@@ -122,7 +122,7 @@ func TestCanCreateRecorderForSupportedCodecs(t *testing.T) {
 
 func TestGetNilRecorderForUnsupportedCodec(t *testing.T) {
 	unsupportedMimeType := "video/H263"
-	rec, err := NewRecorder(
+	rec, err := NewSingleTrackRecorder(
 		"test.mp4",
 		webrtc.RTPCodecParameters{
 			RTPCodecCapability: webrtc.RTPCodecCapability{

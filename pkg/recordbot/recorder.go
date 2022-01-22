@@ -45,7 +45,7 @@ type RecorderHooks struct {
 	UploadFile func(filename string) error
 }
 
-func NewRecorder(filename string, codec webrtc.RTPCodecParameters, hooks RecorderHooks) (Recorder, error) {
+func NewSingleTrackRecorder(filename string, codec webrtc.RTPCodecParameters, hooks RecorderHooks) (Recorder, error) {
 	// Instantiates the appropriate media writer to save RTP packets
 	writer, err := createMediaWriter(filename, codec.MimeType)
 	if err != nil {
@@ -82,72 +82,58 @@ func (r *recorder) Start(track *webrtc.TrackRemote) {
 }
 
 func (r *recorder) record(track *webrtc.TrackRemote) {
+	var err error
+	defer func() {
+		// Close the channel as we don't need it anymore
+		close(r.done)
+
+		// Handle error during recording
+		if err != nil {
+			log.Println(err)
+		}
+
+		// Close file
+		err := r.writer.Close()
+		if err != nil {
+			log.Println(err)
+		}
+
+		// If we specified file upload, run it in a goroutine
+		if r.hooks.UploadFile != nil {
+			r.wg.Add(1)
+			go func() {
+				err := r.hooks.UploadFile(r.filename)
+				if err != nil {
+					log.Println(err)
+				}
+				// Once we're done uploading, signal that we've finished the job
+				r.wg.Done()
+			}()
+		}
+
+		// Signal all jobs are finished
+		r.wg.Done()
+	}()
+
 	// Run forever loop to save the packets to file, until we receive a stop signal
 	for {
 		select {
-		case done := <-r.done:
-			if done {
-				r.cleanup()
-
-				// If we specified file upload, run it in a goroutine
-				if r.hooks.UploadFile != nil {
-					r.wg.Add(1)
-					go func() {
-						err := r.hooks.UploadFile(r.filename)
-						if err != nil {
-							log.Fatal(err)
-						}
-						// Once we're done uploading, signal that we've finished the job
-						r.wg.Done()
-					}()
-				}
-
-				// Signal all jobs are finished
-				r.wg.Done()
-			}
+		case <-r.done:
+			return
 		default:
-			err := writeTrackToFile(r.writer, track)
+			// Read RTP stream
+			packet, _, err := track.ReadRTP()
 			if err != nil {
-				// Do something with error before exiting
-				r.cleanup()
-				r.wg.Done()
+				return
+			}
+
+			// Write to file
+			err = r.writer.WriteRTP(packet)
+			if err != nil {
+				return
 			}
 		}
 	}
-}
-
-func writeTrackToFile(writer media.Writer, track *webrtc.TrackRemote) error {
-	// If track is nil, return
-	if track == nil {
-		return errors.New("track is nil")
-	}
-
-	// Read RTP stream
-	packet, _, err := track.ReadRTP()
-	if err != nil {
-		return err
-	}
-
-	// Write to file
-	err = writer.WriteRTP(packet)
-	if err != nil {
-		return err
-	}
-
-	// Return success
-	return nil
-}
-
-func (r *recorder) cleanup() error {
-	// Close file
-	err := r.writer.Close()
-	if err != nil {
-		return err
-	}
-
-	// Close the channel
-	close(r.done)
-	return nil
 }
 
 func (r *recorder) Stop() {
