@@ -66,6 +66,9 @@ func NewLocalSampleTrack(c webrtc.RTPCodecCapability) (*LocalSampleTrack, error)
 // and StreamID would be 'desktop' or 'webcam'
 func (s *LocalSampleTrack) ID() string { return s.rtpTrack.ID() }
 
+// RID is the RTP stream identifier.
+func (s *LocalSampleTrack) RID() string { return s.rtpTrack.RID() }
+
 // StreamID is the group this track belongs too. This must be unique
 func (s *LocalSampleTrack) StreamID() string { return s.rtpTrack.StreamID() }
 
