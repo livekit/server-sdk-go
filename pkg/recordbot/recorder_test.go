@@ -2,7 +2,6 @@ package recordbot
 
 import (
 	"os"
-	"sync"
 	"testing"
 
 	"github.com/pion/webrtc/v3"
@@ -26,8 +25,9 @@ func createTestCodec() webrtc.RTPCodecParameters {
 func createTestRecorder() recorder {
 	codec := createTestCodec()
 	writer, _ := createMediaWriter("test.mp4", codec.MimeType)
-	done := make(chan bool, 1)
-	return recorder{"test.mp4", writer, done, sync.WaitGroup{}, RecorderHooks{}}
+	done := make(chan struct{}, 1)
+	closed := make(chan struct{}, 1)
+	return recorder{"test.mp4", writer, done, closed, RecorderHooks{}}
 }
 
 func cleanupTestRecorder() {

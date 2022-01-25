@@ -3,7 +3,6 @@ package recordbot
 import (
 	"errors"
 	"log"
-	"sync"
 
 	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/pkg/media"
@@ -30,11 +29,9 @@ type recorder struct {
 	// Each recorder uses different writer depending if it's for video / audio
 	writer media.Writer
 
-	// The `done` channel is an internal channel for tracking the start to finish of the recording
-	done chan bool
-
-	// WaitGroup is used to ensure everything is cleaned up in the goroutines before closing the recorder
-	wg sync.WaitGroup
+	// Channels for tracking the state of the recorder
+	done   chan struct{}
+	closed chan struct{}
 
 	// Hooks provide access to customising aspects of the recorder, such as uploading the file after recording
 	hooks RecorderHooks
@@ -52,10 +49,11 @@ func NewSingleTrackRecorder(filename string, codec webrtc.RTPCodecParameters, ho
 		return nil, err
 	}
 
-	// Make channel for tracking recorder state
-	done := make(chan bool, 1)
+	// Make channels for tracking recorder state
+	done := make(chan struct{}, 1)
+	closed := make(chan struct{}, 1)
 
-	return &recorder{filename, writer, done, sync.WaitGroup{}, hooks}, nil
+	return &recorder{filename, writer, done, closed, hooks}, nil
 }
 
 func createMediaWriter(fileName string, mimeType string) (media.Writer, error) {
@@ -77,16 +75,12 @@ func createMediaWriter(fileName string, mimeType string) (media.Writer, error) {
 }
 
 func (r *recorder) Start(track *webrtc.TrackRemote) {
-	r.wg.Add(1)
 	go r.record(track)
 }
 
 func (r *recorder) record(track *webrtc.TrackRemote) {
 	var err error
 	defer func() {
-		// Close the channel as we don't need it anymore
-		close(r.done)
-
 		// Handle error during recording
 		if err != nil {
 			log.Println(err)
@@ -98,21 +92,16 @@ func (r *recorder) record(track *webrtc.TrackRemote) {
 			log.Println(err)
 		}
 
-		// If we specified file upload, run it in a goroutine
+		// Upload file if the hook was provided
 		if r.hooks.UploadFile != nil {
-			r.wg.Add(1)
-			go func() {
-				err := r.hooks.UploadFile(r.filename)
-				if err != nil {
-					log.Println(err)
-				}
-				// Once we're done uploading, signal that we've finished the job
-				r.wg.Done()
-			}()
+			err := r.hooks.UploadFile(r.filename)
+			if err != nil {
+				log.Println(err)
+			}
 		}
 
-		// Signal all jobs are finished
-		r.wg.Done()
+		// Signal all jobs are finished (this unblocks the execution in Stop())
+		close(r.closed)
 	}()
 
 	// Run forever loop to save the packets to file, until we receive a stop signal
@@ -137,9 +126,9 @@ func (r *recorder) record(track *webrtc.TrackRemote) {
 }
 
 func (r *recorder) Stop() {
-	// Signal recorder to stop
-	r.done <- true
+	// Close sends a signal to `done` channel, stopping the recorder
+	close(r.done)
 
-	// Wait for goroutine to finish cleaning up before returning
-	r.wg.Wait()
+	// Block execution until post processing is done
+	<-r.closed
 }
