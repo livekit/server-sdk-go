@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 
+	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/pkg/media"
 	"github.com/pion/webrtc/v3/pkg/media/h264writer"
@@ -14,11 +15,11 @@ import (
 var ErrUnsupportedCodec = errors.New("unsupported codec")
 
 type Recorder interface {
-	// Reads RTP packets in TrackRemote and save them to local file.
+	// Start reads RTP packets in TrackRemote and save them to local file.
 	// No need to call this in a goroutine as the function already calls one.
 	Start(track *webrtc.TrackRemote)
 
-	// Stops the recording and does cleanups such as closing the file and channel.
+	// Stop the recording and does cleanups such as closing the file and channel.
 	Stop()
 }
 
@@ -111,7 +112,8 @@ func (r *recorder) record(track *webrtc.TrackRemote) {
 			return
 		default:
 			// Read RTP stream
-			packet, _, err := track.ReadRTP()
+			var packet *rtp.Packet
+			packet, _, err = track.ReadRTP()
 			if err != nil {
 				return
 			}

@@ -9,7 +9,6 @@ import (
 	"github.com/pion/webrtc/v3"
 )
 
-var ErrRecorderNotFound = errors.New("recorder not found")
 var ErrFilenameCannotBeEmpty = errors.New("file name cannot be empty")
 var ErrGenerateFilenameCannotBeNil = errors.New("GenerateFilename() cannot be nil")
 
@@ -112,23 +111,23 @@ func (b *recordbot) Disconnect() {
 	}
 }
 
-func (bot *recordbot) handleTrackSubscribed(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
+func (b *recordbot) handleTrackSubscribed(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
 	// If the preferred output type is not Split AV (we want both tracks), and
 	// the track type (video or audio only) does not match our preferred output type, return
 	trackOutputType := OutputType(track.Kind().String())
-	if bot.outputType != OutputSingleTrackAV && bot.outputType != trackOutputType {
+	if b.outputType != OutputSingleTrackAV && b.outputType != trackOutputType {
 		return
 	}
 
 	// Generate filename via custom hook
-	fileName := bot.hooks.GenerateFilename(track, publication, rp)
+	fileName := b.hooks.GenerateFilename(track, publication, rp)
 	if fileName == "" {
 		log.Println(ErrFilenameCannotBeEmpty)
 		return
 	}
 
 	// Create recorder
-	rec, err := NewSingleTrackRecorder(fileName, track.Codec(), bot.hooks.Recorder)
+	rec, err := NewSingleTrackRecorder(fileName, track.Codec(), b.hooks.Recorder)
 	if err != nil {
 		log.Println("fail to initialise recorder")
 		return
@@ -138,16 +137,16 @@ func (bot *recordbot) handleTrackSubscribed(track *webrtc.TrackRemote, publicati
 	rec.Start(track)
 
 	// Remember to attach the recorder to list of existing recorders
-	bot.lock.Lock()
-	bot.recorders[publication.SID()] = rec
-	bot.lock.Unlock()
+	b.lock.Lock()
+	b.recorders[publication.SID()] = rec
+	b.lock.Unlock()
 }
 
-func (bot *recordbot) handleTrackUnsubscribed(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
+func (b *recordbot) handleTrackUnsubscribed(_ *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, _ *lksdk.RemoteParticipant) {
 	// Try getting the recorder
-	bot.lock.Lock()
-	rec, found := bot.recorders[publication.SID()]
-	bot.lock.Unlock()
+	b.lock.Lock()
+	rec, found := b.recorders[publication.SID()]
+	b.lock.Unlock()
 
 	// If not found, stop
 	if !found {
@@ -158,7 +157,7 @@ func (bot *recordbot) handleTrackUnsubscribed(track *webrtc.TrackRemote, publica
 	rec.Stop()
 
 	// Remove recorder from list
-	bot.lock.Lock()
-	delete(bot.recorders, publication.SID())
-	bot.lock.Unlock()
+	b.lock.Lock()
+	delete(b.recorders, publication.SID())
+	b.lock.Unlock()
 }
