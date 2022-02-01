@@ -96,6 +96,11 @@ func ConnectToRoomWithToken(url, token string, opts ...ConnectOption) (*Room, er
 	engine.OnRoomUpdate = r.handleRoomUpdate
 
 	joinRes, err := engine.Join(url, token, params)
+
+	r.Name = joinRes.Room.Name
+	r.SID = joinRes.Room.Sid
+	r.metadata = joinRes.Room.Metadata
+
 	if err != nil {
 		return nil, err
 	}
