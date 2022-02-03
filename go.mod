@@ -11,7 +11,7 @@ require (
 	github.com/pion/interceptor v0.1.7
 	github.com/pion/rtp v1.7.4
 	github.com/pion/sdp/v3 v3.0.4
-	github.com/pion/webrtc/v3 v3.1.19
+	github.com/pion/webrtc/v3 v3.1.20
 	github.com/thoas/go-funk v0.9.0
 	github.com/twitchtv/twirp v8.1.0+incompatible
 	google.golang.org/protobuf v1.27.1

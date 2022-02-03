@@ -41,10 +41,7 @@ func NewPCTransport(iceServers []webrtc.ICEServer) (*PCTransport, error) {
 		return nil, err
 	}
 
-	se := webrtc.SettingEngine{}
-	se.SetAnsweringDTLSRole(webrtc.DTLSRoleClient)
-
-	api := webrtc.NewAPI(webrtc.WithMediaEngine(m), webrtc.WithInterceptorRegistry(i), webrtc.WithSettingEngine(se))
+	api := webrtc.NewAPI(webrtc.WithMediaEngine(m), webrtc.WithInterceptorRegistry(i))
 	pc, err := api.NewPeerConnection(webrtc.Configuration{ICEServers: iceServers})
 	if err != nil {
 		return nil, err
