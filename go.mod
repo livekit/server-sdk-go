@@ -11,7 +11,7 @@ require (
 	github.com/pion/interceptor v0.1.7
 	github.com/pion/rtp v1.7.4
 	github.com/pion/sdp/v3 v3.0.4
-	github.com/pion/webrtc/v3 v3.1.20
+	github.com/pion/webrtc/v3 v3.1.22
 	github.com/thoas/go-funk v0.9.0
 	github.com/twitchtv/twirp v8.1.0+incompatible
 	google.golang.org/protobuf v1.27.1
@@ -30,7 +30,7 @@ require (
 	github.com/lithammer/shortuuid/v3 v3.0.7 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.1 // indirect
 	github.com/pion/datachannel v1.5.2 // indirect
-	github.com/pion/dtls/v2 v2.1.1 // indirect
+	github.com/pion/dtls/v2 v2.1.2 // indirect
 	github.com/pion/ice/v2 v2.1.20 // indirect
 	github.com/pion/logging v0.2.2 // indirect
 	github.com/pion/mdns v0.0.5 // indirect
@@ -46,7 +46,7 @@ require (
 	github.com/prometheus/client_model v0.2.0 // indirect
 	github.com/prometheus/common v0.26.0 // indirect
 	github.com/prometheus/procfs v0.6.0 // indirect
-	golang.org/x/crypto v0.0.0-20211215153901-e495a2d5b3d3 // indirect
+	golang.org/x/crypto v0.0.0-20220131195533-30dcbda58838 // indirect
 	golang.org/x/net v0.0.0-20220127200216-cd36cc0744dd // indirect
 	golang.org/x/sys v0.0.0-20211216021012-1d35b9e2eb4e // indirect
 	golang.org/x/text v0.3.7 // indirect
