@@ -184,18 +184,20 @@ See [webhooks guide](https://docs.livekit.io/guides/webhooks) for configuration.
 
 ```go
 import (
-	livekit "github.com/livekit/protocol/livekit"
+	"github.com/livekit/protocol/auth"
+	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/webhook"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
-func ServeHTTP(w http.ResponseWriter, r *http.Request) {
+var authProvider = auth.NewFileBasedKeyProviderFromMap(
+	map[string]string{
+		os.Getenv("LIVEKIT_API_KEY"): os.Getenv("LIVEKIT_API_SECRET"),
+	},
+)
 
-	keys := map[string]string{
-		os.Getenv("LIVEKIT_KEY"): os.Getenv("LIVEKIT_SECRET"),
-	}
-	provider := auth.NewFileBasedKeyProviderFromMap(keys)
-	data, err := webhook.Receive(r, provider)
+func ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	data, err := webhook.Receive(r, authProvider)
 	if err != nil {
 		// could not validate, handle error
 		return
