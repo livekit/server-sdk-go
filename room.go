@@ -7,6 +7,7 @@ import (
 
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
+	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v3"
 	"github.com/thoas/go-funk"
 )
@@ -34,6 +35,8 @@ func WithAutoSubscribe(val bool) ConnectOption {
 		p.AutoSubscribe = val
 	}
 }
+
+type PLIWriter func(webrtc.SSRC)
 
 type Room struct {
 	engine           *RTCEngine
@@ -152,7 +155,12 @@ func (r *Room) addRemoteParticipant(pi *livekit.ParticipantInfo) *RemoteParticip
 	if ok {
 		return pRaw.(*RemoteParticipant)
 	}
-	p := newRemoteParticipant(pi, r.Callback)
+	p := newRemoteParticipant(pi, r.Callback, func(ssrc webrtc.SSRC) {
+		pli := []rtcp.Packet{
+			&rtcp.PictureLossIndication{SenderSSRC: uint32(ssrc), MediaSSRC: uint32(ssrc)},
+		}
+		r.engine.subscriber.pc.WriteRTCP(pli)
+	})
 	r.participants.Store(pi.Sid, p)
 	return p
 }

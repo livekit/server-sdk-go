@@ -10,11 +10,13 @@ import (
 
 type RemoteParticipant struct {
 	baseParticipant
+	pliWriter PLIWriter
 }
 
-func newRemoteParticipant(pi *livekit.ParticipantInfo, roomCallback *RoomCallback) *RemoteParticipant {
+func newRemoteParticipant(pi *livekit.ParticipantInfo, roomCallback *RoomCallback, pliWriter PLIWriter) *RemoteParticipant {
 	p := &RemoteParticipant{
 		baseParticipant: *newBaseParticipant(roomCallback),
+		pliWriter:       pliWriter,
 	}
 	p.updateInfo(pi)
 	return p
@@ -138,6 +140,10 @@ func (p *RemoteParticipant) unpublishTrack(sid string, sendUnpublish bool) {
 		p.Callback.OnTrackUnpublished(pub, p)
 		p.roomCallback.OnTrackUnpublished(pub, p)
 	}
+}
+
+func (p *RemoteParticipant) WritePLI(ssrc webrtc.SSRC) {
+	p.pliWriter(ssrc)
 }
 
 func (p *RemoteParticipant) unpublishAllTracks() {
