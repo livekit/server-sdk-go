@@ -190,7 +190,12 @@ import (
 )
 
 func ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	data, err := webhook.Receive(r, s.provider)
+
+	keys := map[string]string{
+		os.Getenv("LIVEKIT_KEY"): os.Getenv("LIVEKIT_SECRET"),
+	}
+	provider := auth.NewFileBasedKeyProviderFromMap(keys)
+	data, err := webhook.Receive(r, provider)
 	if err != nil {
 		// could not validate, handle error
 		return
