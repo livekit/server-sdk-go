@@ -83,6 +83,7 @@ func NewTrackWriter(track *webrtc.TrackRemote, pliWriter lksdk.PLIWriter, fileNa
 		sb = samplebuilder.New(maxLate, &codecs.VP8Packet{}, track.Codec().ClockRate, samplebuilder.WithPacketDroppedHandler(func() {
 			pliWriter(track.SSRC())
 		}))
+		// ivfwriter use frame count as PTS, that might cause video played in a incorrect framerate(fast or slow)
 		writer, err = ivfwriter.New(fileName + ".ivf")
 
 	case strings.EqualFold(track.Codec().MimeType, "video/h264"):
