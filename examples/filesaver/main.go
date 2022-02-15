@@ -47,8 +47,7 @@ func main() {
 		panic(err)
 	}
 
-	room.Callback.OnTrackSubscribed = trackSubscribed
-	// room.Callback.OnTrackUnsubscribed = nil
+	room.Callback.OnTrackSubscribed = onTrackSubscribed
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT)
 
@@ -56,14 +55,15 @@ func main() {
 	room.Disconnect()
 }
 
-func trackSubscribed(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
+func onTrackSubscribed(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
 	fileName := fmt.Sprintf("%s-%s", rp.Identity(), track.ID())
 	fmt.Println("write track to file ", fileName)
 	NewTrackWriter(track, rp.WritePLI, fileName)
 }
 
 const (
-	maxLate = 200
+	maxVideoLate = 1000 // nearly 2s for fhd video
+	maxAudioLate = 200  // 4s for audio
 )
 
 type TrackWriter struct {
@@ -80,21 +80,21 @@ func NewTrackWriter(track *webrtc.TrackRemote, pliWriter lksdk.PLIWriter, fileNa
 	)
 	switch {
 	case strings.EqualFold(track.Codec().MimeType, "video/vp8"):
-		sb = samplebuilder.New(maxLate, &codecs.VP8Packet{}, track.Codec().ClockRate, samplebuilder.WithPacketDroppedHandler(func() {
+		sb = samplebuilder.New(maxVideoLate, &codecs.VP8Packet{}, track.Codec().ClockRate, samplebuilder.WithPacketDroppedHandler(func() {
 			pliWriter(track.SSRC())
 		}))
 		// ivfwriter use frame count as PTS, that might cause video played in a incorrect framerate(fast or slow)
 		writer, err = ivfwriter.New(fileName + ".ivf")
 
 	case strings.EqualFold(track.Codec().MimeType, "video/h264"):
-		sb = samplebuilder.New(maxLate, &codecs.H264Packet{}, track.Codec().ClockRate, samplebuilder.WithPacketDroppedHandler(func() {
+		sb = samplebuilder.New(maxVideoLate, &codecs.H264Packet{}, track.Codec().ClockRate, samplebuilder.WithPacketDroppedHandler(func() {
 			pliWriter(track.SSRC())
 		}))
 		writer, err = h264writer.New(fileName + ".h264")
 
 	case strings.EqualFold(track.Codec().MimeType, "audio/opus"):
-		sb = samplebuilder.New(maxLate, &codecs.OpusPacket{}, track.Codec().ClockRate)
-		writer, err = oggwriter.New(fileName+".ogg", 48000, 2)
+		sb = samplebuilder.New(maxAudioLate, &codecs.OpusPacket{}, track.Codec().ClockRate)
+		writer, err = oggwriter.New(fileName+".ogg", 48000, track.Codec().Channels)
 
 	default:
 		return nil, errors.New("unsupported codec type")
