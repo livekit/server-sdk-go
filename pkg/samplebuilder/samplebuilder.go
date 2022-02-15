@@ -1,5 +1,5 @@
 // This SampleBuilder is copied from https://github.com/jech/samplebuilder.
-// Modify it to integrate with media writer of pion
+// Modified to integrate with Pion's media.Writer
 
 // Package samplebuilder builds media frames from RTP packets.
 package samplebuilder
