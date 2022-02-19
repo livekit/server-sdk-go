@@ -140,16 +140,6 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 	})
 
 	e.subscriber.pc.OnTrack(func(remote *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
-		go func() {
-			// read incoming rtcp packets so interceptors can handle NACKs
-			rtcpBuf := make([]byte, 1500)
-			for {
-				if _, _, rtcpErr := receiver.Read(rtcpBuf); rtcpErr != nil {
-					// pipe closed
-					return
-				}
-			}
-		}()
 		if e.OnMediaTrack != nil {
 			e.OnMediaTrack(remote, receiver)
 		}

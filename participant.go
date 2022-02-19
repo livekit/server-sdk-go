@@ -165,7 +165,6 @@ func (p *baseParticipant) updateInfo(pi *livekit.ParticipantInfo, participant Pa
 }
 
 func (p *baseParticipant) addPublication(publication TrackPublication) {
-
 	sid := publication.SID()
 	p.tracks.Store(sid, publication)
 	switch publication.Kind() {
