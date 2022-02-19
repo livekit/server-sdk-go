@@ -26,6 +26,7 @@ type ConnectInfo struct {
 
 type ConnectParams struct {
 	AutoSubscribe bool
+	Callbacks     *RoomCallback
 }
 
 type ConnectOption func(*ConnectParams)
@@ -53,33 +54,24 @@ type Room struct {
 }
 
 func ConnectToRoom(url string, info ConnectInfo, opts ...ConnectOption) (*Room, error) {
-	// generate token
-	at := auth.NewAccessToken(info.APIKey, info.APISecret)
-	grant := &auth.VideoGrant{
-		RoomJoin: true,
-		Room:     info.RoomName,
-	}
-	at.AddGrant(grant).
-		SetIdentity(info.ParticipantIdentity).
-		SetMetadata(info.ParticipantMetadata).
-		SetName(info.ParticipantName)
-
-	token, err := at.ToJWT()
+	room := CreateRoom(url)
+	err := room.Join(url, info, opts...)
 	if err != nil {
 		return nil, err
 	}
-
-	return ConnectToRoomWithToken(url, token, opts...)
+	return room, nil
 }
 
 func ConnectToRoomWithToken(url, token string, opts ...ConnectOption) (*Room, error) {
-	params := &ConnectParams{
-		AutoSubscribe: true,
+	room := CreateRoom(url)
+	err := room.JoinWithToken(url, token, opts...)
+	if err != nil {
+		return nil, err
 	}
-	for _, opt := range opts {
-		opt(params)
-	}
+	return room, nil
+}
 
+func CreateRoom(url string) *Room {
 	engine := NewRTCEngine()
 	r := &Room{
 		engine:       engine,
@@ -98,9 +90,40 @@ func ConnectToRoomWithToken(url, token string, opts ...ConnectOption) (*Room, er
 	engine.OnConnectionQuality = r.handleConnectionQualityUpdate
 	engine.OnRoomUpdate = r.handleRoomUpdate
 
-	joinRes, err := engine.Join(url, token, params)
+	return r
+}
+
+func (r *Room) Join(url string, info ConnectInfo, opts ...ConnectOption) error {
+	// generate token
+	at := auth.NewAccessToken(info.APIKey, info.APISecret)
+	grant := &auth.VideoGrant{
+		RoomJoin: true,
+		Room:     info.RoomName,
+	}
+	at.AddGrant(grant).
+		SetIdentity(info.ParticipantIdentity).
+		SetMetadata(info.ParticipantMetadata).
+		SetName(info.ParticipantName)
+
+	token, err := at.ToJWT()
 	if err != nil {
-		return nil, err
+		return err
+	}
+
+	return r.JoinWithToken(url, token, opts...)
+}
+
+func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
+	params := &ConnectParams{
+		AutoSubscribe: true,
+	}
+	for _, opt := range opts {
+		opt(params)
+	}
+
+	joinRes, err := r.engine.Join(url, token, params)
+	if err != nil {
+		return err
 	}
 
 	r.Name = joinRes.Room.Name
@@ -113,7 +136,7 @@ func ConnectToRoomWithToken(url, token string, opts ...ConnectOption) (*Room, er
 		r.addRemoteParticipant(pi)
 	}
 
-	return r, nil
+	return nil
 }
 
 func (r *Room) Disconnect() {

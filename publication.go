@@ -101,6 +101,24 @@ func (p *RemoteTrackPublication) Receiver() *webrtc.RTPReceiver {
 	return p.receiver
 }
 
+func (p *RemoteTrackPublication) SetSubscribed(subscribed bool) error {
+	return p.client.SendRequest(&livekit.SignalRequest{
+		Message: &livekit.SignalRequest_Subscription{
+			Subscription: &livekit.UpdateSubscription{
+				Subscribe: subscribed,
+				ParticipantTracks: []*livekit.ParticipantTracks{
+					{
+						// sending an empty participant id since TrackPublication doesn't keep it
+						// this is filled in by the participant that receives this message
+						ParticipantSid: "",
+						TrackSids:      []string{p.sid},
+					},
+				},
+			},
+		},
+	})
+}
+
 type LocalTrackPublication struct {
 	trackPublicationBase
 	transceiver *webrtc.RTPTransceiver
