@@ -1,11 +1,16 @@
 package lksdk
 
 import (
+	"sort"
 	"time"
 
 	"github.com/livekit/protocol/livekit"
 	"github.com/pion/webrtc/v3"
 	"google.golang.org/protobuf/proto"
+)
+
+const (
+	trackPublishTimeout = 10 * time.Second
 )
 
 type LocalParticipant struct {
@@ -41,14 +46,27 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 			client: p.engine.client,
 		},
 	}
+	req := &livekit.AddTrackRequest{
+		Cid:    track.ID(),
+		Name:   opts.Name,
+		Source: opts.Source,
+		Type:   kind.ProtoType(),
+		Width:  uint32(opts.VideoWidth),
+		Height: uint32(opts.VideoHeight),
+	}
+	if kind == TrackKindVideo {
+		// single layer
+		req.Layers = []*livekit.VideoLayer{
+			{
+				Quality: livekit.VideoQuality_HIGH,
+				Width:   uint32(opts.VideoWidth),
+				Height:  uint32(opts.VideoHeight),
+			},
+		}
+	}
 	err := p.engine.client.SendRequest(&livekit.SignalRequest{
 		Message: &livekit.SignalRequest_AddTrack{
-			AddTrack: &livekit.AddTrackRequest{
-				Cid:    track.ID(),
-				Name:   opts.Name,
-				Source: opts.Source,
-				Type:   kind.ProtoType(),
-			},
+			AddTrack: req,
 		},
 	})
 	if err != nil {
@@ -61,7 +79,7 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 	select {
 	case pubRes = <-pubChan:
 		break
-	case <-time.After(5 * time.Second):
+	case <-time.After(trackPublishTimeout):
 		return nil, ErrTrackPublishTimeout
 	}
 
@@ -76,6 +94,94 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 	pub.setSender(transceiver.Sender())
 
 	pub.sid = pubRes.Track.Sid
+	p.addPublication(&pub)
+
+	p.engine.publisher.Negotiate()
+
+	logger.Info("published track", "name", opts.Name, "source", opts.Source.String())
+
+	return &pub, nil
+}
+
+// PublishSimulcastTrack publishes up to three layers to the server
+func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalSampleTrack, opts *TrackPublicationOptions) (*LocalTrackPublication, error) {
+	if len(tracks) == 0 {
+		return nil, nil
+	}
+	firstTrack := tracks[0]
+	kind := KindFromRTPType(firstTrack.Kind())
+	if kind != TrackKindVideo {
+		return nil, ErrUnsupportedSimulcastKind
+	}
+
+	if firstTrack.videoLayer == nil || firstTrack.simulcastID == "" {
+		return nil, ErrInvalidSimulcastTrack
+	}
+
+	// tracks should be low to high
+	sort.Slice(tracks, func(i, j int) bool {
+		return tracks[i].videoLayer.Width < tracks[j].videoLayer.Width
+	})
+
+	if opts == nil {
+		opts = &TrackPublicationOptions{}
+	}
+	// default sources, since clients generally look for camera/mic
+	if opts.Source == livekit.TrackSource_UNKNOWN {
+		opts.Source = livekit.TrackSource_CAMERA
+	}
+	pub := LocalTrackPublication{
+		trackPublicationBase: trackPublicationBase{
+			kind:   kind,
+			name:   opts.Name,
+			client: p.engine.client,
+		},
+	}
+	var layers []*livekit.VideoLayer
+	for _, st := range tracks {
+		layers = append(layers, st.videoLayer)
+	}
+	err := p.engine.client.SendRequest(&livekit.SignalRequest{
+		Message: &livekit.SignalRequest_AddTrack{
+			AddTrack: &livekit.AddTrackRequest{
+				Cid:    firstTrack.ID(),
+				Name:   opts.Name,
+				Source: opts.Source,
+				Type:   kind.ProtoType(),
+				Width:  tracks[0].videoLayer.Width,
+				Height: tracks[0].videoLayer.Height,
+				Layers: layers,
+			},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	pubChan := p.engine.TrackPublishedChan()
+	var pubRes *livekit.TrackPublishedResponse
+
+	select {
+	case pubRes = <-pubChan:
+		break
+	case <-time.After(trackPublishTimeout):
+		return nil, ErrTrackPublishTimeout
+	}
+
+	// add transceivers
+	publishPC := p.engine.publisher.PeerConnection()
+	for _, st := range tracks {
+		transceiver, err := publishPC.AddTransceiverFromTrack(st, webrtc.RTPTransceiverInit{
+			Direction: webrtc.RTPTransceiverDirectionSendonly,
+		})
+		if err != nil {
+			return nil, err
+		}
+		pub.setSimulcastTrack(st, transceiver.Sender())
+	}
+
+	pub.sid = pubRes.Track.Sid
+	pub.updateInfo(pubRes.Track)
 	p.addPublication(&pub)
 
 	p.engine.publisher.Negotiate()
