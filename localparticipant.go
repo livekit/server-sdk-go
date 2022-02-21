@@ -20,22 +20,34 @@ func newLocalParticipant(engine *RTCEngine, roomcallback *RoomCallback) *LocalPa
 	}
 }
 
-func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, name string) (*LocalTrackPublication, error) {
+func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPublicationOptions) (*LocalTrackPublication, error) {
+	if opts == nil {
+		opts = &TrackPublicationOptions{}
+	}
 	kind := KindFromRTPType(track.Kind())
+	// default sources, since clients generally look for camera/mic
+	if opts.Source == livekit.TrackSource_UNKNOWN {
+		if kind == TrackKindVideo {
+			opts.Source = livekit.TrackSource_CAMERA
+		} else if kind == TrackKindAudio {
+			opts.Source = livekit.TrackSource_MICROPHONE
+		}
+	}
 	pub := LocalTrackPublication{
 		trackPublicationBase: trackPublicationBase{
 			kind:   kind,
 			track:  track,
-			name:   name,
+			name:   opts.Name,
 			client: p.engine.client,
 		},
 	}
 	err := p.engine.client.SendRequest(&livekit.SignalRequest{
 		Message: &livekit.SignalRequest_AddTrack{
 			AddTrack: &livekit.AddTrackRequest{
-				Cid:  track.ID(),
-				Name: name,
-				Type: kind.ProtoType(),
+				Cid:    track.ID(),
+				Name:   opts.Name,
+				Source: opts.Source,
+				Type:   kind.ProtoType(),
 			},
 		},
 	})
@@ -54,31 +66,21 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, name string) (*
 	}
 
 	// add transceivers
-	pub.transceiver, err = p.engine.publisher.PeerConnection().AddTransceiverFromTrack(track, webrtc.RTPTransceiverInit{
+	transceiver, err := p.engine.publisher.PeerConnection().AddTransceiverFromTrack(track, webrtc.RTPTransceiverInit{
 		Direction: webrtc.RTPTransceiverDirectionSendonly,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	// read incoming rtcp packets so interceptors can handle NACKs
-	go func() {
-		sender := pub.transceiver.Sender()
-		rtcpBuf := make([]byte, 1500)
-		for {
-			if _, _, rtcpErr := sender.Read(rtcpBuf); rtcpErr != nil {
-				// pipe closed
-				return
-			}
-		}
-	}()
+	pub.setSender(transceiver.Sender())
 
 	pub.sid = pubRes.Track.Sid
 	p.addPublication(&pub)
 
 	p.engine.publisher.Negotiate()
 
-	logger.Info("published track", "track", name)
+	logger.Info("published track", "name", opts.Name, "source", opts.Source.String())
 
 	return &pub, nil
 }
@@ -140,6 +142,18 @@ func (p *LocalParticipant) UnpublishTrack(sid string) error {
 	}
 
 	return err
+}
+
+// GetSubscriberPeerConnection is a power-user API that gives access to the underlying subscriber peer connection
+// subscribed tracks are received using this PeerConnection
+func (p *LocalParticipant) GetSubscriberPeerConnection() *webrtc.PeerConnection {
+	return p.engine.subscriber.PeerConnection()
+}
+
+// GetPublisherPeerConnection is a power-user API that gives access to the underlying publisher peer connection
+// local tracks are published to server via this PeerConnection
+func (p *LocalParticipant) GetPublisherPeerConnection() *webrtc.PeerConnection {
+	return p.engine.publisher.PeerConnection()
 }
 
 func (p *LocalParticipant) updateInfo(info *livekit.ParticipantInfo) {
