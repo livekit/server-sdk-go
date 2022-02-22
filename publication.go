@@ -1,9 +1,11 @@
 package lksdk
 
 import (
+	"sync"
 	"sync/atomic"
 
 	"github.com/livekit/protocol/livekit"
+	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v3"
 )
 
@@ -15,6 +17,8 @@ type TrackPublication interface {
 	MimeType() string
 	IsMuted() bool
 	IsSubscribed() bool
+	// OnRTCP sets a callback to handle RTCP packets during publishing or receiving
+	OnRTCP(cb func(rtcp.Packet))
 	// Track is either a webrtc.TrackLocal or webrtc.TrackRemote
 	Track() Track
 	updateInfo(info *livekit.TrackInfo)
@@ -27,8 +31,10 @@ type trackPublicationBase struct {
 	name    string
 	isMuted uint32
 
+	lock   sync.Mutex
 	info   atomic.Value
 	client *SignalClient
+	onRTCP func(rtcp.Packet)
 }
 
 func (p *trackPublicationBase) Name() string {
@@ -69,6 +75,12 @@ func (p *trackPublicationBase) IsSubscribed() bool {
 	return p.track != nil
 }
 
+func (p *trackPublicationBase) OnRTCP(cb func(rtcp.Packet)) {
+	p.lock.Lock()
+	p.onRTCP = cb
+	p.lock.Unlock()
+}
+
 func (p *trackPublicationBase) updateInfo(info *livekit.TrackInfo) {
 	p.name = info.Name
 	p.sid = info.Sid
@@ -91,6 +103,8 @@ type RemoteTrackPublication struct {
 }
 
 func (p *RemoteTrackPublication) TrackRemote() *webrtc.TrackRemote {
+	p.lock.Lock()
+	defer p.lock.Unlock()
 	if t, ok := p.track.(*webrtc.TrackRemote); ok {
 		return t
 	}
@@ -98,6 +112,8 @@ func (p *RemoteTrackPublication) TrackRemote() *webrtc.TrackRemote {
 }
 
 func (p *RemoteTrackPublication) Receiver() *webrtc.RTPReceiver {
+	p.lock.Lock()
+	defer p.lock.Unlock()
 	return p.receiver
 }
 
@@ -119,9 +135,44 @@ func (p *RemoteTrackPublication) SetSubscribed(subscribed bool) error {
 	})
 }
 
+func (p *RemoteTrackPublication) setReceiverAndTrack(r *webrtc.RTPReceiver, t *webrtc.TrackRemote) {
+	p.lock.Lock()
+	p.receiver = r
+	p.track = t
+	p.lock.Unlock()
+	if r != nil {
+		go p.rtcpWorker()
+	}
+}
+
+func (p *RemoteTrackPublication) rtcpWorker() {
+	receiver := p.Receiver()
+	if receiver == nil {
+		return
+	}
+	// read incoming rtcp packets so interceptors can handle NACKs
+	for {
+		packets, _, err := receiver.ReadRTCP()
+		if err != nil {
+			// pipe closed
+			return
+		}
+
+		p.lock.Lock()
+		// rtcpCB could have changed along the way
+		rtcpCB := p.onRTCP
+		p.lock.Unlock()
+		if rtcpCB != nil {
+			for _, packet := range packets {
+				rtcpCB(packet)
+			}
+		}
+	}
+}
+
 type LocalTrackPublication struct {
 	trackPublicationBase
-	transceiver *webrtc.RTPTransceiver
+	sender *webrtc.RTPSender
 }
 
 func (p *LocalTrackPublication) TrackLocal() webrtc.TrackLocal {
@@ -144,6 +195,41 @@ func (p *LocalTrackPublication) SetMuted(muted bool) {
 	_ = p.client.SendMuteTrack(p.sid, muted)
 }
 
+func (p *LocalTrackPublication) setSender(sender *webrtc.RTPSender) {
+	p.lock.Lock()
+	p.sender = sender
+	p.lock.Unlock()
+
+	if sender != nil {
+		go p.rtcpWorker()
+	}
+}
+
+func (p *LocalTrackPublication) rtcpWorker() {
+	p.lock.Lock()
+	sender := p.sender
+	p.lock.Unlock()
+	// read incoming rtcp packets, interceptors require this
+	for {
+		packets, _, rtcpErr := sender.ReadRTCP()
+		if rtcpErr != nil {
+			// pipe closed
+			return
+		}
+
+		p.lock.Lock()
+		// rtcpCB could have changed along the way
+		rtcpCB := p.onRTCP
+		p.lock.Unlock()
+		if rtcpCB != nil {
+			for _, packet := range packets {
+				rtcpCB(packet)
+			}
+		}
+	}
+}
+
 type TrackPublicationOptions struct {
-	Name string
+	Name   string
+	Source livekit.TrackSource
 }
