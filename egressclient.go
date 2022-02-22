@@ -3,12 +3,7 @@ package lksdk
 import (
 	"context"
 	"net/http"
-	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
 )
@@ -75,26 +70,4 @@ func (c *EgressClient) StopEgress(ctx context.Context, req *livekit.StopEgressRe
 		return nil, err
 	}
 	return c.Egress.StopEgress(ctx, req)
-}
-
-// GeneratePresignedURL creates an upload URL for file results
-func GeneratePresignedURL(accessKey, secret, endpoint, region, bucket, key string) (string, error) {
-	sess, err := session.NewSession(&aws.Config{
-		Credentials: credentials.NewStaticCredentials(accessKey, secret, ""),
-		Endpoint:    aws.String(endpoint),
-		Region:      aws.String(region),
-	})
-	if err != nil {
-		return "", err
-	}
-	req, _ := s3.New(sess).PutObjectRequest(&s3.PutObjectInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(key),
-	})
-
-	url, err := req.Presign(time.Hour * 24)
-	if err != nil {
-		return "", err
-	}
-	return url, nil
 }

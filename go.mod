@@ -3,7 +3,6 @@ module github.com/livekit/server-sdk-go
 go 1.17
 
 require (
-	github.com/aws/aws-sdk-go v1.43.3
 	github.com/bep/debounce v1.2.0
 	github.com/go-logr/logr v1.1.0
 	github.com/go-logr/stdr v1.0.0
@@ -28,7 +27,6 @@ require (
 	github.com/go-redis/redis/v8 v8.11.3 // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/google/uuid v1.3.0 // indirect
-	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/jxskiss/base62 v0.0.0-20191017122030-4f11678b909b // indirect
 	github.com/lithammer/shortuuid/v3 v3.0.7 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.1 // indirect
