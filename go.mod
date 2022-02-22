@@ -3,12 +3,12 @@ module github.com/livekit/server-sdk-go
 go 1.17
 
 require (
+	github.com/aws/aws-sdk-go v1.43.3
 	github.com/bep/debounce v1.2.0
 	github.com/go-logr/logr v1.1.0
 	github.com/go-logr/stdr v1.0.0
 	github.com/gorilla/websocket v1.4.2
 	github.com/livekit/protocol v0.11.14-0.20220222082129-ec6020d8659b
-	github.com/minio/minio-go v6.0.14+incompatible
 	github.com/pion/interceptor v0.1.7
 	github.com/pion/rtcp v1.2.9
 	github.com/pion/rtp v1.7.4
@@ -25,14 +25,13 @@ require (
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/eapache/channels v1.1.0 // indirect
 	github.com/eapache/queue v1.1.0 // indirect
-	github.com/go-ini/ini v1.66.4 // indirect
 	github.com/go-redis/redis/v8 v8.11.3 // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/google/uuid v1.3.0 // indirect
+	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/jxskiss/base62 v0.0.0-20191017122030-4f11678b909b // indirect
 	github.com/lithammer/shortuuid/v3 v3.0.7 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.1 // indirect
-	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/pion/datachannel v1.5.2 // indirect
 	github.com/pion/dtls/v2 v2.1.2 // indirect
 	github.com/pion/ice/v2 v2.1.20 // indirect
