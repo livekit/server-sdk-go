@@ -7,7 +7,7 @@ require (
 	github.com/go-logr/logr v1.1.0
 	github.com/go-logr/stdr v1.0.0
 	github.com/gorilla/websocket v1.4.2
-	github.com/livekit/protocol v0.11.14-0.20220222053746-4b4755b2ecbb
+	github.com/livekit/protocol v0.11.14-0.20220222082129-ec6020d8659b
 	github.com/minio/minio-go v6.0.14+incompatible
 	github.com/pion/interceptor v0.1.7
 	github.com/pion/rtcp v1.2.9
