@@ -29,14 +29,16 @@ type SampleWriteOptions struct {
 // publishing tracks at the right frequency
 // This extends webrtc.TrackLocalStaticSample, and adds the ability to write RTP extensions
 type LocalSampleTrack struct {
-	packetizer   rtp.Packetizer
-	sequencer    rtp.Sequencer
-	rtpTrack     *webrtc.TrackLocalStaticRTP
-	clockRate    float64
-	bound        uint32
-	lock         sync.RWMutex
-	audioLevelID uint8
-	lastTS       time.Time
+	packetizer      rtp.Packetizer
+	sequencer       rtp.Sequencer
+	rtpTrack        *webrtc.TrackLocalStaticRTP
+	clockRate       float64
+	bound           uint32
+	lock            sync.RWMutex
+	audioLevelID    uint8
+	sdesMidID       uint8
+	sdesRtpStreamID uint8
+	lastTS          time.Time
 
 	cancelWrite func()
 	provider    SampleProvider
@@ -105,7 +107,14 @@ func (s *LocalSampleTrack) Bind(t webrtc.TrackLocalContext) (webrtc.RTPCodecPara
 	for _, ext := range t.HeaderExtensions() {
 		if ext.URI == sdp.AudioLevelURI {
 			s.audioLevelID = uint8(ext.ID)
-			break
+		}
+
+		if ext.URI == sdp.SDESMidURI {
+			s.sdesMidID = uint8(ext.ID)
+		}
+
+		if ext.URI == sdp.SDESRTPStreamIDURI {
+			s.sdesRtpStreamID = uint8(ext.ID)
 		}
 	}
 	s.sequencer = rtp.NewRandomSequencer()
@@ -247,6 +256,30 @@ func (s *LocalSampleTrack) WriteSample(sample media.Sample, opts *SampleWriteOpt
 				continue
 			}
 		}
+
+		// LK-TODO-START
+		//    - Need to send mid/rid for simuclast streams
+		//    - Need to get mid from transceiver
+		//    - Need to have a sent packet counter and send mid/rid only for the first 10 packets or so
+		// LK-TODO-END
+		if s.sdesMidID != 0 {
+			midValue := "mid" // LK_TODO: get mid from transceiver
+			if err := p.Header.SetExtension(s.sdesMidID, []byte(midValue)); err != nil {
+				logger.Info("setting SDES MID", "mid", midValue)
+				writeErrs = append(writeErrs, err)
+				continue
+			}
+		}
+
+		if s.sdesRtpStreamID != 0 {
+			ridValue := "q" // LK_TODO: get rid for specific stream
+			if err := p.Header.SetExtension(s.sdesRtpStreamID, []byte(ridValue)); err != nil {
+				logger.Info("setting SDES RID", "rid", ridValue)
+				writeErrs = append(writeErrs, err)
+				continue
+			}
+		}
+
 		if err := s.rtpTrack.WriteRTP(p); err != nil {
 			writeErrs = append(writeErrs, err)
 		}

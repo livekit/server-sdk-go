@@ -254,11 +254,11 @@ func (p *LocalTrackPublication) setSimulcastTrack(st *LocalSampleTrack, sender *
 		p.simulcastTracks = make(map[livekit.VideoQuality]*LocalSampleTrack)
 		p.simulcastSenders = make(map[livekit.VideoQuality]*webrtc.RTPSender)
 	}
-	//if st != nil {
-	//	p.simulcastTracks[st.videoLayer.Quality] = st
-	//	p.simulcastSenders[st.videoLayer.Quality] = sender
-	//	go p.rtcpWorker(sender)
-	//}
+	if st != nil {
+		p.simulcastTracks[st.videoLayer.Quality] = st
+		p.simulcastSenders[st.videoLayer.Quality] = sender
+		go p.simulcastRtcpWorker(sender, st.RID())
+	}
 }
 
 func (p *LocalTrackPublication) setSender(sender *webrtc.RTPSender) {
@@ -275,6 +275,27 @@ func (p *LocalTrackPublication) rtcpWorker(sender *webrtc.RTPSender) {
 	// read incoming rtcp packets, interceptors require this
 	for {
 		packets, _, rtcpErr := sender.ReadRTCP()
+		if rtcpErr != nil {
+			// pipe closed
+			return
+		}
+
+		p.lock.Lock()
+		// rtcpCB could have changed along the way
+		rtcpCB := p.onRTCP
+		p.lock.Unlock()
+		if rtcpCB != nil {
+			for _, packet := range packets {
+				rtcpCB(packet)
+			}
+		}
+	}
+}
+
+func (p *LocalTrackPublication) simulcastRtcpWorker(sender *webrtc.RTPSender, rid string) {
+	// read incoming rtcp packets, interceptors require this
+	for {
+		packets, _, rtcpErr := sender.ReadSimulcastRTCP(rid)
 		if rtcpErr != nil {
 			// pipe closed
 			return
