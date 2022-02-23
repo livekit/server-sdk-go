@@ -26,7 +26,6 @@ type ConnectInfo struct {
 
 type ConnectParams struct {
 	AutoSubscribe bool
-	Callbacks     *RoomCallback
 }
 
 type ConnectOption func(*ConnectParams)
