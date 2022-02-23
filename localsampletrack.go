@@ -29,7 +29,6 @@ type SampleWriteOptions struct {
 // publishing tracks at the right frequency
 // This extends webrtc.TrackLocalStaticSample, and adds the ability to write RTP extensions
 type LocalSampleTrack struct {
-	//webrtc.TrackLocalStaticSample
 	packetizer   rtp.Packetizer
 	sequencer    rtp.Sequencer
 	rtpTrack     *webrtc.TrackLocalStaticRTP
@@ -47,18 +46,22 @@ type LocalSampleTrack struct {
 	onWriteComplete func()
 }
 
-func NewLocalSampleTrack(c webrtc.RTPCodecCapability) (*LocalSampleTrack, error) {
-	//sample, err := webrtc.NewTrackLocalStaticSample(c, utils.NewGuid("TR_"), utils.NewGuid("ST_"))
-	rtpTrack, err := webrtc.NewTrackLocalStaticRTP(c, utils.NewGuid("TR_"), utils.NewGuid("ST_"))
+type LocalSampleTrackOptions func(s *LocalSampleTrack)
+
+func NewLocalSampleTrack(c webrtc.RTPCodecCapability, opts ...LocalSampleTrackOptions) (*LocalSampleTrack, error) {
+	s := &LocalSampleTrack{}
+	for _, o := range opts {
+		o(s)
+	}
+	rid := ""
+	trackID := utils.NewGuid("TR_")
+	streamID := utils.NewGuid("ST_")
+	rtpTrack, err := webrtc.NewTrackLocalStaticRTP(c, trackID, streamID, webrtc.WithRTPStreamID(rid))
 	if err != nil {
 		return nil, err
 	}
-	if err != nil {
-		return nil, err
-	}
-	return &LocalSampleTrack{
-		rtpTrack: rtpTrack,
-	}, nil
+	s.rtpTrack = rtpTrack
+	return s, nil
 }
 
 // ID is the unique identifier for this Track. This should be unique for the
@@ -67,7 +70,9 @@ func NewLocalSampleTrack(c webrtc.RTPCodecCapability) (*LocalSampleTrack, error)
 func (s *LocalSampleTrack) ID() string { return s.rtpTrack.ID() }
 
 // RID is the RTP stream identifier.
-func (s *LocalSampleTrack) RID() string { return s.rtpTrack.RID() }
+func (s *LocalSampleTrack) RID() string {
+	return s.rtpTrack.RID()
+}
 
 // StreamID is the group this track belongs too. This must be unique
 func (s *LocalSampleTrack) StreamID() string { return s.rtpTrack.StreamID() }
@@ -292,6 +297,7 @@ func (s *LocalSampleTrack) writeWorker(provider SampleProvider, onComplete func(
 			logger.Error(err, "could not write sample")
 			return
 		}
+		// account for clock drift
 		nextSampleTime = nextSampleTime.Add(sample.Duration)
 		sleepDuration := nextSampleTime.Sub(time.Now())
 		if sleepDuration < 0 {
@@ -316,7 +322,9 @@ func payloaderForCodec(codec webrtc.RTPCodecCapability) (rtp.Payloader, error) {
 	case strings.ToLower(webrtc.MimeTypeOpus):
 		return &codecs.OpusPayloader{}, nil
 	case strings.ToLower(webrtc.MimeTypeVP8):
-		return &codecs.VP8Payloader{}, nil
+		return &codecs.VP8Payloader{
+			EnablePictureID: true,
+		}, nil
 	case strings.ToLower(webrtc.MimeTypeVP9):
 		return &codecs.VP9Payloader{}, nil
 	case strings.ToLower(webrtc.MimeTypeG722):

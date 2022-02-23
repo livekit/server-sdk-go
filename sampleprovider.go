@@ -1,8 +1,6 @@
 package lksdk
 
 import (
-	"encoding/binary"
-	"errors"
 	"time"
 
 	"github.com/pion/webrtc/v3/pkg/media"
@@ -44,43 +42,5 @@ func (p *NullSampleProvider) OnBind() error {
 }
 
 func (p *NullSampleProvider) OnUnbind() error {
-	return nil
-}
-
-// LoadTestProvider is designed to be used with the load tester.
-// It provides samples that are encoded with sequence and timing information, in order determine RTT and loss
-type LoadTestProvider struct {
-	BytesPerSample uint32
-	SampleDuration time.Duration
-}
-
-func NewLoadTestProvider(bitrate uint32) (*LoadTestProvider, error) {
-	bps := bitrate / 8 / 30
-	if bps < 8 {
-		return nil, errors.New("bitrate lower than minimum of 1920")
-	}
-
-	return &LoadTestProvider{
-		SampleDuration: time.Second / 30,
-		BytesPerSample: bps,
-	}, nil
-}
-
-func (p *LoadTestProvider) NextSample() (media.Sample, error) {
-	ts := make([]byte, 8)
-	binary.LittleEndian.PutUint64(ts, uint64(time.Now().UnixNano()))
-	packet := append(make([]byte, p.BytesPerSample-8), ts...)
-
-	return media.Sample{
-		Data:     packet,
-		Duration: p.SampleDuration,
-	}, nil
-}
-
-func (p *LoadTestProvider) OnBind() error {
-	return nil
-}
-
-func (p *LoadTestProvider) OnUnbind() error {
 	return nil
 }

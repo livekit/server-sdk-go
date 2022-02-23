@@ -8,6 +8,10 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+const (
+	trackPublishTimeout = 10 * time.Second
+)
+
 type LocalParticipant struct {
 	baseParticipant
 	engine *RTCEngine
@@ -41,14 +45,27 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 			client: p.engine.client,
 		},
 	}
+	req := &livekit.AddTrackRequest{
+		Cid:    track.ID(),
+		Name:   opts.Name,
+		Source: opts.Source,
+		Type:   kind.ProtoType(),
+		Width:  uint32(opts.VideoWidth),
+		Height: uint32(opts.VideoHeight),
+	}
+	if kind == TrackKindVideo {
+		// single layer
+		req.Layers = []*livekit.VideoLayer{
+			{
+				Quality: livekit.VideoQuality_HIGH,
+				Width:   uint32(opts.VideoWidth),
+				Height:  uint32(opts.VideoHeight),
+			},
+		}
+	}
 	err := p.engine.client.SendRequest(&livekit.SignalRequest{
 		Message: &livekit.SignalRequest_AddTrack{
-			AddTrack: &livekit.AddTrackRequest{
-				Cid:    track.ID(),
-				Name:   opts.Name,
-				Source: opts.Source,
-				Type:   kind.ProtoType(),
-			},
+			AddTrack: req,
 		},
 	})
 	if err != nil {
@@ -61,7 +78,7 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 	select {
 	case pubRes = <-pubChan:
 		break
-	case <-time.After(5 * time.Second):
+	case <-time.After(trackPublishTimeout):
 		return nil, ErrTrackPublishTimeout
 	}
 
