@@ -99,7 +99,8 @@ func (p *trackPublicationBase) updateInfo(info *livekit.TrackInfo) {
 
 type RemoteTrackPublication struct {
 	trackPublicationBase
-	receiver *webrtc.RTPReceiver
+	receiver      *webrtc.RTPReceiver
+	participantID string
 
 	disabled bool
 
@@ -130,9 +131,7 @@ func (p *RemoteTrackPublication) SetSubscribed(subscribed bool) error {
 				Subscribe: subscribed,
 				ParticipantTracks: []*livekit.ParticipantTracks{
 					{
-						// sending an empty participant id since TrackPublication doesn't keep it
-						// this is filled in by the participant that receives this message
-						ParticipantSid: "",
+						ParticipantSid: p.participantID,
 						TrackSids:      []string{p.sid},
 					},
 				},
