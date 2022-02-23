@@ -8,7 +8,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/utils"
 	"github.com/pion/rtp"
 	"github.com/pion/rtp/codecs"
@@ -39,10 +38,6 @@ type LocalSampleTrack struct {
 	audioLevelID uint8
 	lastTS       time.Time
 
-	// used for simulcast
-	videoLayer  *livekit.VideoLayer // helps with RID translation
-	simulcastID string              // server requires tracks to have matching ID
-
 	cancelWrite func()
 	provider    SampleProvider
 	onBind      func()
@@ -53,35 +48,14 @@ type LocalSampleTrack struct {
 
 type LocalSampleTrackOptions func(s *LocalSampleTrack)
 
-func WithSimulcast(id string, layer *livekit.VideoLayer) func(*LocalSampleTrack) {
-	return func(s *LocalSampleTrack) {
-		s.simulcastID = id
-		s.videoLayer = layer
-	}
-}
-
 func NewLocalSampleTrack(c webrtc.RTPCodecCapability, opts ...LocalSampleTrackOptions) (*LocalSampleTrack, error) {
 	s := &LocalSampleTrack{}
 	for _, o := range opts {
 		o(s)
 	}
 	rid := ""
-	if s.videoLayer != nil {
-		switch s.videoLayer.Quality {
-		case livekit.VideoQuality_HIGH:
-			rid = "f"
-		case livekit.VideoQuality_MEDIUM:
-			rid = "h"
-		case livekit.VideoQuality_LOW:
-			rid = "q"
-		}
-	}
 	trackID := utils.NewGuid("TR_")
 	streamID := utils.NewGuid("ST_")
-	if s.simulcastID != "" {
-		trackID = s.simulcastID
-		streamID = s.simulcastID
-	}
 	rtpTrack, err := webrtc.NewTrackLocalStaticRTP(c, trackID, streamID, webrtc.WithRTPStreamID(rid))
 	if err != nil {
 		return nil, err
