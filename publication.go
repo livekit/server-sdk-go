@@ -254,11 +254,11 @@ func (p *LocalTrackPublication) setSimulcastTrack(st *LocalSampleTrack, sender *
 		p.simulcastTracks = make(map[livekit.VideoQuality]*LocalSampleTrack)
 		p.simulcastSenders = make(map[livekit.VideoQuality]*webrtc.RTPSender)
 	}
-	if st != nil {
-		p.simulcastTracks[st.videoLayer.Quality] = st
-		p.simulcastSenders[st.videoLayer.Quality] = sender
-		go p.rtcpWorker(sender)
-	}
+	//if st != nil {
+	//	p.simulcastTracks[st.videoLayer.Quality] = st
+	//	p.simulcastSenders[st.videoLayer.Quality] = sender
+	//	go p.rtcpWorker(sender)
+	//}
 }
 
 func (p *LocalTrackPublication) setSender(sender *webrtc.RTPSender) {
