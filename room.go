@@ -178,11 +178,11 @@ func (r *Room) addRemoteParticipant(pi *livekit.ParticipantInfo) *RemoteParticip
 	if ok {
 		return pRaw.(*RemoteParticipant)
 	}
-	p := newRemoteParticipant(pi, r.Callback, func(ssrc webrtc.SSRC) {
+	p := newRemoteParticipant(pi, r.Callback, r.engine.client, func(ssrc webrtc.SSRC) {
 		pli := []rtcp.Packet{
 			&rtcp.PictureLossIndication{SenderSSRC: uint32(ssrc), MediaSSRC: uint32(ssrc)},
 		}
-		r.engine.subscriber.pc.WriteRTCP(pli)
+		_ = r.engine.subscriber.pc.WriteRTCP(pli)
 	})
 	r.participants.Store(pi.Sid, p)
 	return p

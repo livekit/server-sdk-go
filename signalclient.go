@@ -152,6 +152,14 @@ func (c *SignalClient) SendRequest(req *livekit.SignalRequest) error {
 	return c.conn.WriteMessage(websocket.BinaryMessage, payload)
 }
 
+func (c *SignalClient) SendUpdateTrackSettings(settings *livekit.UpdateTrackSettings) error {
+	return c.SendRequest(&livekit.SignalRequest{
+		Message: &livekit.SignalRequest_TrackSetting{
+			TrackSetting: settings,
+		},
+	})
+}
+
 func (c *SignalClient) ReadResponse() (*livekit.SignalResponse, error) {
 	if c.conn == nil {
 		return nil, errors.New("cannot read response before join")

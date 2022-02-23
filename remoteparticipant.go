@@ -11,11 +11,13 @@ import (
 type RemoteParticipant struct {
 	baseParticipant
 	pliWriter PLIWriter
+	client    *SignalClient
 }
 
-func newRemoteParticipant(pi *livekit.ParticipantInfo, roomCallback *RoomCallback, pliWriter PLIWriter) *RemoteParticipant {
+func newRemoteParticipant(pi *livekit.ParticipantInfo, roomCallback *RoomCallback, client *SignalClient, pliWriter PLIWriter) *RemoteParticipant {
 	p := &RemoteParticipant{
 		baseParticipant: *newBaseParticipant(roomCallback),
+		client:          client,
 		pliWriter:       pliWriter,
 	}
 	p.updateInfo(pi)
@@ -39,6 +41,7 @@ func (p *RemoteParticipant) updateInfo(pi *livekit.ParticipantInfo) {
 			// new track
 			remotePub := &RemoteTrackPublication{}
 			remotePub.updateInfo(ti)
+			remotePub.client = p.client
 			p.addPublication(remotePub)
 			newPubs[ti.Sid] = remotePub
 			pub = remotePub
