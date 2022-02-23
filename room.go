@@ -52,25 +52,8 @@ type Room struct {
 	lock sync.RWMutex
 }
 
-func ConnectToRoom(url string, info ConnectInfo, opts ...ConnectOption) (*Room, error) {
-	room := CreateRoom(url)
-	err := room.Join(url, info, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return room, nil
-}
-
-func ConnectToRoomWithToken(url, token string, opts ...ConnectOption) (*Room, error) {
-	room := CreateRoom(url)
-	err := room.JoinWithToken(url, token, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return room, nil
-}
-
-func CreateRoom(url string) *Room {
+// CreateRoom can be used to update callbacks before calling Join
+func CreateRoom() *Room {
 	engine := NewRTCEngine()
 	r := &Room{
 		engine:       engine,
@@ -92,6 +75,27 @@ func CreateRoom(url string) *Room {
 	return r
 }
 
+// ConnectToRoom creates and joins the room
+func ConnectToRoom(url string, info ConnectInfo, opts ...ConnectOption) (*Room, error) {
+	room := CreateRoom()
+	err := room.Join(url, info, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return room, nil
+}
+
+// ConnectToRoomWithToken creates and joins the room
+func ConnectToRoomWithToken(url, token string, opts ...ConnectOption) (*Room, error) {
+	room := CreateRoom()
+	err := room.JoinWithToken(url, token, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return room, nil
+}
+
+// Join should only be used with CreateRoom
 func (r *Room) Join(url string, info ConnectInfo, opts ...ConnectOption) error {
 	// generate token
 	at := auth.NewAccessToken(info.APIKey, info.APISecret)
@@ -112,6 +116,7 @@ func (r *Room) Join(url string, info ConnectInfo, opts ...ConnectOption) error {
 	return r.JoinWithToken(url, token, opts...)
 }
 
+// JoinWithToken should only be used with CreateRoom
 func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 	params := &ConnectParams{
 		AutoSubscribe: true,
