@@ -20,8 +20,9 @@ import (
 )
 
 const (
-	rtpOutboundMTU = 1200
-	rtpInboundMTU  = 1500
+	rtpOutboundMTU           = 1200
+	rtpInboundMTU            = 1500
+	sdesRepairRTPStreamIDURI = "urn:ietf:params:rtp-hdrext:sdes:repaired-rtp-stream-id"
 )
 
 type SampleWriteOptions struct {
@@ -33,19 +34,21 @@ type SampleWriteOptions struct {
 // publishing tracks at the right frequency
 // This extends webrtc.TrackLocalStaticSample, and adds the ability to write RTP extensions
 type LocalSampleTrack struct {
-	packetizer      rtp.Packetizer
-	sequencer       rtp.Sequencer
-	rtpTrack        *webrtc.TrackLocalStaticRTP
-	clockRate       float64
-	bound           uint32
-	lock            sync.RWMutex
-	audioLevelID    uint8
-	sdesMidID       uint8
-	sdesRtpStreamID uint8
-	lastTS          time.Time
-	simulcastID     string
-	videoLayer      *livekit.VideoLayer
-	onRTCP          func(rtcp.Packet)
+	packetizer         rtp.Packetizer
+	sequencer          rtp.Sequencer
+	rtpTrack           *webrtc.TrackLocalStaticRTP
+	clockRate          float64
+	bound              uint32
+	lock               sync.RWMutex
+	audioLevelID       uint8
+	sdesMidID          uint8
+	sdesRtpStreamID    uint8
+	sdesRepairStreamID uint8
+	initialPacketsSent uint32
+	lastTS             time.Time
+	simulcastID        string
+	videoLayer         *livekit.VideoLayer
+	onRTCP             func(rtcp.Packet)
 
 	cancelWrite func()
 	provider    SampleProvider
@@ -278,6 +281,7 @@ func (s *LocalSampleTrack) WriteSample(sample media.Sample, opts *SampleWriteOpt
 	packets := p.(rtp.Packetizer).Packetize(sample.Data, samples)
 
 	var writeErrs []error
+	initialPackets := atomic.LoadUint32(&s.initialPacketsSent)
 	for _, p := range packets {
 		if s.audioLevelID != 0 && opts != nil && opts.AudioLevel != nil {
 			ext := rtp.AudioLevelExtension{
@@ -296,32 +300,35 @@ func (s *LocalSampleTrack) WriteSample(sample media.Sample, opts *SampleWriteOpt
 		}
 
 		// LK-TODO-START
-		//    - Need to send mid/rid for simuclast streams
-		//    - Need to get mid from transceiver
-		//    - Need to have a sent packet counter and send mid/rid only for the first 10 packets or so
+		//    - mid is hardcoded right now, need to get actual value from transceiver
 		// LK-TODO-END
-		if s.sdesMidID != 0 {
-			midValue := "mid" // LK_TODO: get mid from transceiver
-			if err := p.Header.SetExtension(s.sdesMidID, []byte(midValue)); err != nil {
+		if initialPackets < 10 {
+			if s.sdesMidID != 0 {
+				midValue := "1"
 				logger.Info("setting SDES MID", "mid", midValue)
-				writeErrs = append(writeErrs, err)
-				continue
+				if err := p.Header.SetExtension(s.sdesMidID, []byte(midValue)); err != nil {
+					writeErrs = append(writeErrs, err)
+					continue
+				}
 			}
-		}
 
-		if s.sdesRtpStreamID != 0 {
-			ridValue := "q" // LK_TODO: get rid for specific stream
-			if err := p.Header.SetExtension(s.sdesRtpStreamID, []byte(ridValue)); err != nil {
+			if s.sdesRtpStreamID != 0 {
+				ridValue := s.RID()
 				logger.Info("setting SDES RID", "rid", ridValue)
-				writeErrs = append(writeErrs, err)
-				continue
+				if err := p.Header.SetExtension(s.sdesRtpStreamID, []byte(ridValue)); err != nil {
+					writeErrs = append(writeErrs, err)
+					continue
+				}
 			}
 		}
 
 		if err := s.rtpTrack.WriteRTP(p); err != nil {
 			writeErrs = append(writeErrs, err)
 		}
+		initialPackets++
 	}
+
+	atomic.StoreUint32(&s.initialPacketsSent, initialPackets)
 
 	if len(writeErrs) > 0 {
 		return writeErrs[0]
