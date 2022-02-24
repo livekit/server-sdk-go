@@ -108,14 +108,14 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalSampleTrack, opt
 	if len(tracks) == 0 {
 		return nil, nil
 	}
-	firstTrack := tracks[0]
-	kind := KindFromRTPType(firstTrack.Kind())
-	if kind != TrackKindVideo {
-		return nil, ErrUnsupportedSimulcastKind
-	}
 
-	if firstTrack.videoLayer == nil || firstTrack.simulcastID == "" {
-		return nil, ErrInvalidSimulcastTrack
+	for _, track := range tracks {
+		if track.Kind() != webrtc.RTPCodecTypeVideo {
+			return nil, ErrUnsupportedSimulcastKind
+		}
+		if track.videoLayer == nil || track.RID() == "" {
+			return nil, ErrInvalidSimulcastTrack
+		}
 	}
 
 	// tracks should be low to high
@@ -130,9 +130,11 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalSampleTrack, opt
 	if opts.Source == livekit.TrackSource_UNKNOWN {
 		opts.Source = livekit.TrackSource_CAMERA
 	}
+
+	firstTrack := tracks[0]
 	pub := LocalTrackPublication{
 		trackPublicationBase: trackPublicationBase{
-			kind:   kind,
+			kind:   KindFromRTPType(firstTrack.Kind()),
 			name:   opts.Name,
 			client: p.engine.client,
 		},
@@ -147,9 +149,9 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalSampleTrack, opt
 				Cid:    firstTrack.ID(),
 				Name:   opts.Name,
 				Source: opts.Source,
-				Type:   kind.ProtoType(),
-				Width:  tracks[0].videoLayer.Width,
-				Height: tracks[0].videoLayer.Height,
+				Type:   pub.Kind().ProtoType(),
+				Width:  firstTrack.videoLayer.Width,
+				Height: firstTrack.videoLayer.Height,
 				Layers: layers,
 			},
 		},
@@ -176,16 +178,17 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalSampleTrack, opt
 			transceiver, err := publishPC.AddTransceiverFromTrack(st, webrtc.RTPTransceiverInit{
 				Direction: webrtc.RTPTransceiverDirectionSendonly,
 			})
-			if err == nil {
-				sender = transceiver.Sender()
+			if err != nil {
+				return nil, err
 			}
+			sender = transceiver.Sender()
+			pub.setSender(sender)
 		} else {
-			err = sender.AddEncoding(st)
+			if err = sender.AddEncoding(st); err != nil {
+				return nil, err
+			}
 		}
-		if err != nil {
-			return nil, err
-		}
-		pub.setSimulcastTrack(st, sender)
+		pub.addSimulcastTrack(st)
 	}
 
 	pub.sid = pubRes.Track.Sid
@@ -194,7 +197,7 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalSampleTrack, opt
 
 	p.engine.publisher.Negotiate()
 
-	logger.Info("published track", "name", opts.Name, "source", opts.Source.String())
+	logger.Info("published simulcast track", "name", opts.Name, "source", opts.Source.String())
 
 	return &pub, nil
 }

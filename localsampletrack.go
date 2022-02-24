@@ -8,7 +8,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/utils"
+	"github.com/pion/interceptor"
+	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
 	"github.com/pion/rtp/codecs"
 	"github.com/pion/sdp/v3"
@@ -18,6 +21,7 @@ import (
 
 const (
 	rtpOutboundMTU = 1200
+	rtpInboundMTU  = 1500
 )
 
 type SampleWriteOptions struct {
@@ -39,6 +43,9 @@ type LocalSampleTrack struct {
 	sdesMidID       uint8
 	sdesRtpStreamID uint8
 	lastTS          time.Time
+	simulcastID     string
+	videoLayer      *livekit.VideoLayer
+	onRTCP          func(rtcp.Packet)
 
 	cancelWrite func()
 	provider    SampleProvider
@@ -50,14 +57,43 @@ type LocalSampleTrack struct {
 
 type LocalSampleTrackOptions func(s *LocalSampleTrack)
 
+// WithSimulcast marks the current track for simulcasting.
+// In order to use simulcast, simulcastID must be identical across all layers
+func WithSimulcast(simulcastID string, layer *livekit.VideoLayer) LocalSampleTrackOptions {
+	return func(s *LocalSampleTrack) {
+		s.videoLayer = layer
+		s.simulcastID = simulcastID
+	}
+}
+
+func WithRTCPHandler(cb func(rtcp.Packet)) LocalSampleTrackOptions {
+	return func(s *LocalSampleTrack) {
+		s.onRTCP = cb
+	}
+}
+
 func NewLocalSampleTrack(c webrtc.RTPCodecCapability, opts ...LocalSampleTrackOptions) (*LocalSampleTrack, error) {
 	s := &LocalSampleTrack{}
 	for _, o := range opts {
 		o(s)
 	}
 	rid := ""
+	if s.videoLayer != nil {
+		switch s.videoLayer.Quality {
+		case livekit.VideoQuality_HIGH:
+			rid = "f"
+		case livekit.VideoQuality_MEDIUM:
+			rid = "h"
+		case livekit.VideoQuality_LOW:
+			rid = "q"
+		}
+	}
 	trackID := utils.NewGuid("TR_")
 	streamID := utils.NewGuid("ST_")
+	if s.simulcastID != "" {
+		trackID = s.simulcastID
+		streamID = s.simulcastID
+	}
 	rtpTrack, err := webrtc.NewTrackLocalStaticRTP(c, trackID, streamID, webrtc.WithRTPStreamID(rid))
 	if err != nil {
 		return nil, err
@@ -137,6 +173,8 @@ func (s *LocalSampleTrack) Bind(t webrtc.TrackLocalContext) (webrtc.RTPCodecPara
 		err = provider.OnBind()
 		go s.writeWorker(provider, onWriteComplete)
 	}
+
+	go s.rtcpWorker(t.RTCPReader())
 
 	// notify callbacks last
 	if onBind != nil {
@@ -239,7 +277,7 @@ func (s *LocalSampleTrack) WriteSample(sample media.Sample, opts *SampleWriteOpt
 	}
 	packets := p.(rtp.Packetizer).Packetize(sample.Data, samples)
 
-	writeErrs := []error{}
+	var writeErrs []error
 	for _, p := range packets {
 		if s.audioLevelID != 0 && opts != nil && opts.AudioLevel != nil {
 			ext := rtp.AudioLevelExtension{
@@ -290,6 +328,30 @@ func (s *LocalSampleTrack) WriteSample(sample media.Sample, opts *SampleWriteOpt
 	}
 
 	return nil
+}
+
+func (s *LocalSampleTrack) rtcpWorker(rtcpReader interceptor.RTCPReader) {
+	// read incoming rtcp packets, interceptors require this
+	b := make([]byte, rtpInboundMTU)
+	rtcpCB := s.onRTCP
+
+	for {
+		var a interceptor.Attributes
+		i, _, err := rtcpReader.Read(b, a)
+		if err != nil {
+			// pipe closed
+			return
+		}
+		if rtcpCB != nil {
+			pkts, err := rtcp.Unmarshal(b[:i])
+			if err != nil {
+				return
+			}
+			for _, packet := range pkts {
+				rtcpCB(packet)
+			}
+		}
+	}
 }
 
 func (s *LocalSampleTrack) writeWorker(provider SampleProvider, onComplete func()) {

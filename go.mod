@@ -12,7 +12,7 @@ require (
 	github.com/pion/rtcp v1.2.9
 	github.com/pion/rtp v1.7.4
 	github.com/pion/sdp/v3 v3.0.4
-	github.com/pion/webrtc/v3 v3.1.23
+	github.com/pion/webrtc/v3 v3.1.24-0.20220224064458-2a11ce2c400a
 	github.com/thoas/go-funk v0.9.0
 	github.com/twitchtv/twirp v8.1.0+incompatible
 	google.golang.org/protobuf v1.27.1
