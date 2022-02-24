@@ -42,6 +42,7 @@ func (p *RemoteParticipant) updateInfo(pi *livekit.ParticipantInfo) {
 			remotePub := &RemoteTrackPublication{}
 			remotePub.updateInfo(ti)
 			remotePub.client = p.client
+			remotePub.participantID = p.sid
 			p.addPublication(remotePub)
 			newPubs[ti.Sid] = remotePub
 			pub = remotePub
