@@ -172,10 +172,11 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalSampleTrack, opt
 
 	// add transceivers
 	publishPC := p.engine.publisher.PeerConnection()
+	var transceiver *webrtc.RTPTransceiver
 	var sender *webrtc.RTPSender
 	for idx, st := range tracks {
 		if idx == 0 {
-			transceiver, err := publishPC.AddTransceiverFromTrack(st, webrtc.RTPTransceiverInit{
+			transceiver, err = publishPC.AddTransceiverFromTrack(st, webrtc.RTPTransceiverInit{
 				Direction: webrtc.RTPTransceiverDirectionSendonly,
 			})
 			if err != nil {
@@ -189,6 +190,7 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalSampleTrack, opt
 			}
 		}
 		pub.addSimulcastTrack(st)
+		st.SetTransceiver(transceiver)
 	}
 
 	pub.sid = pubRes.Track.Sid

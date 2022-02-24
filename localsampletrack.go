@@ -36,6 +36,7 @@ type SampleWriteOptions struct {
 type LocalSampleTrack struct {
 	packetizer         rtp.Packetizer
 	sequencer          rtp.Sequencer
+	transceiver        *webrtc.RTPTransceiver
 	rtpTrack           *webrtc.TrackLocalStaticRTP
 	clockRate          float64
 	bound              uint32
@@ -103,6 +104,13 @@ func NewLocalSampleTrack(c webrtc.RTPCodecCapability, opts ...LocalSampleTrackOp
 	}
 	s.rtpTrack = rtpTrack
 	return s, nil
+}
+
+func (s *LocalSampleTrack) SetTransceiver(transceiver *webrtc.RTPTransceiver) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	s.transceiver = transceiver
 }
 
 // ID is the unique identifier for this Track. This should be unique for the
@@ -257,6 +265,7 @@ func (s *LocalSampleTrack) WriteSample(sample media.Sample, opts *SampleWriteOpt
 	s.lock.RLock()
 	p := s.packetizer
 	clockRate := s.clockRate
+	transceiver := s.transceiver
 	s.lock.RUnlock()
 
 	if p == nil {
@@ -299,26 +308,23 @@ func (s *LocalSampleTrack) WriteSample(sample media.Sample, opts *SampleWriteOpt
 			}
 		}
 
-		// LK-TODO-START
-		//    - mid is hardcoded right now, need to get actual value from transceiver
-		// LK-TODO-END
-		if initialPackets < 10 {
+		if s.RID() != "" && transceiver != nil && transceiver.Mid() != "" && initialPackets < 1000 {
 			if s.sdesMidID != 0 {
-				midValue := "1"
-				logger.Info("setting SDES MID", "mid", midValue)
+				midValue := transceiver.Mid()
 				if err := p.Header.SetExtension(s.sdesMidID, []byte(midValue)); err != nil {
 					writeErrs = append(writeErrs, err)
 					continue
 				}
+				logger.Info("setting SDES MID", "mid", midValue)
 			}
 
 			if s.sdesRtpStreamID != 0 {
 				ridValue := s.RID()
-				logger.Info("setting SDES RID", "rid", ridValue)
 				if err := p.Header.SetExtension(s.sdesRtpStreamID, []byte(ridValue)); err != nil {
 					writeErrs = append(writeErrs, err)
 					continue
 				}
+				logger.Info("setting SDES RID", "rid", ridValue)
 			}
 		}
 
