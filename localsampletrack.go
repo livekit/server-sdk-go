@@ -38,6 +38,8 @@ type LocalSampleTrack struct {
 	sequencer          rtp.Sequencer
 	transceiver        *webrtc.RTPTransceiver
 	rtpTrack           *webrtc.TrackLocalStaticRTP
+	ssrc               webrtc.SSRC
+	ssrcAcked          bool
 	clockRate          float64
 	bound              uint32
 	lock               sync.RWMutex
@@ -45,7 +47,6 @@ type LocalSampleTrack struct {
 	sdesMidID          uint8
 	sdesRtpStreamID    uint8
 	sdesRepairStreamID uint8
-	initialPacketsSent uint32
 	lastTS             time.Time
 	simulcastID        string
 	videoLayer         *livekit.VideoLayer
@@ -151,6 +152,7 @@ func (s *LocalSampleTrack) Bind(t webrtc.TrackLocalContext) (webrtc.RTPCodecPara
 	}
 
 	s.lock.Lock()
+	s.ssrc = t.SSRC()
 	for _, ext := range t.HeaderExtensions() {
 		if ext.URI == sdp.AudioLevelURI {
 			s.audioLevelID = uint8(ext.ID)
@@ -266,6 +268,7 @@ func (s *LocalSampleTrack) WriteSample(sample media.Sample, opts *SampleWriteOpt
 	p := s.packetizer
 	clockRate := s.clockRate
 	transceiver := s.transceiver
+	ssrcAcked := s.ssrcAcked
 	s.lock.RUnlock()
 
 	if p == nil {
@@ -290,7 +293,6 @@ func (s *LocalSampleTrack) WriteSample(sample media.Sample, opts *SampleWriteOpt
 	packets := p.(rtp.Packetizer).Packetize(sample.Data, samples)
 
 	var writeErrs []error
-	initialPackets := atomic.LoadUint32(&s.initialPacketsSent)
 	for _, p := range packets {
 		if s.audioLevelID != 0 && opts != nil && opts.AudioLevel != nil {
 			ext := rtp.AudioLevelExtension{
@@ -308,7 +310,7 @@ func (s *LocalSampleTrack) WriteSample(sample media.Sample, opts *SampleWriteOpt
 			}
 		}
 
-		if s.RID() != "" && transceiver != nil && transceiver.Mid() != "" && initialPackets < 1000 {
+		if s.RID() != "" && transceiver != nil && transceiver.Mid() != "" && !ssrcAcked {
 			if s.sdesMidID != 0 {
 				midValue := transceiver.Mid()
 				if err := p.Header.SetExtension(s.sdesMidID, []byte(midValue)); err != nil {
@@ -331,10 +333,7 @@ func (s *LocalSampleTrack) WriteSample(sample media.Sample, opts *SampleWriteOpt
 		if err := s.rtpTrack.WriteRTP(p); err != nil {
 			writeErrs = append(writeErrs, err)
 		}
-		initialPackets++
 	}
-
-	atomic.StoreUint32(&s.initialPacketsSent, initialPackets)
 
 	if len(writeErrs) > 0 {
 		return writeErrs[0]
@@ -355,12 +354,26 @@ func (s *LocalSampleTrack) rtcpWorker(rtcpReader interceptor.RTCPReader) {
 			// pipe closed
 			return
 		}
-		if rtcpCB != nil {
-			pkts, err := rtcp.Unmarshal(b[:i])
-			if err != nil {
-				return
+
+		pkts, err := rtcp.Unmarshal(b[:i])
+		if err != nil {
+			return
+		}
+		for _, packet := range pkts {
+			s.lock.Lock()
+			if !s.ssrcAcked {
+				switch p := packet.(type) {
+				case *rtcp.ReceiverReport:
+					for _, r := range p.Reports {
+						if webrtc.SSRC(r.SSRC) == s.ssrc {
+							s.ssrcAcked = true
+							break
+						}
+					}
+				}
 			}
-			for _, packet := range pkts {
+			s.lock.Unlock()
+			if rtcpCB != nil {
 				rtcpCB(packet)
 			}
 		}
