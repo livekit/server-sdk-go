@@ -17,8 +17,6 @@ type TrackPublication interface {
 	MimeType() string
 	IsMuted() bool
 	IsSubscribed() bool
-	// OnRTCP sets a callback to handle RTCP packets during publishing or receiving
-	OnRTCP(cb func(rtcp.Packet))
 	// Track is either a webrtc.TrackLocal or webrtc.TrackRemote
 	Track() Track
 	updateInfo(info *livekit.TrackInfo)
@@ -34,7 +32,6 @@ type trackPublicationBase struct {
 	lock   sync.Mutex
 	info   atomic.Value
 	client *SignalClient
-	onRTCP func(rtcp.Packet)
 }
 
 func (p *trackPublicationBase) Name() string {
@@ -75,12 +72,6 @@ func (p *trackPublicationBase) IsSubscribed() bool {
 	return p.track != nil
 }
 
-func (p *trackPublicationBase) OnRTCP(cb func(rtcp.Packet)) {
-	p.lock.Lock()
-	p.onRTCP = cb
-	p.lock.Unlock()
-}
-
 func (p *trackPublicationBase) updateInfo(info *livekit.TrackInfo) {
 	p.name = info.Name
 	p.sid = info.Sid
@@ -99,8 +90,9 @@ func (p *trackPublicationBase) updateInfo(info *livekit.TrackInfo) {
 
 type RemoteTrackPublication struct {
 	trackPublicationBase
-	receiver      *webrtc.RTPReceiver
 	participantID string
+	receiver      *webrtc.RTPReceiver
+	onRTCP        func(rtcp.Packet)
 
 	disabled bool
 
@@ -163,6 +155,12 @@ func (p *RemoteTrackPublication) SetVideoDimensions(width uint32, height uint32)
 	p.updateSettings()
 }
 
+func (p *RemoteTrackPublication) OnRTCP(cb func(rtcp.Packet)) {
+	p.lock.Lock()
+	p.onRTCP = cb
+	p.lock.Unlock()
+}
+
 func (p *RemoteTrackPublication) updateSettings() {
 	p.lock.Lock()
 	settings := &livekit.UpdateTrackSettings{
@@ -218,13 +216,11 @@ type LocalTrackPublication struct {
 	trackPublicationBase
 	sender *webrtc.RTPSender
 	// set for simulcasted tracks
-	simulcastTracks  map[livekit.VideoQuality]*LocalSampleTrack
-	simulcastSenders map[livekit.VideoQuality]*webrtc.RTPSender
+	simulcastTracks map[livekit.VideoQuality]*LocalSampleTrack
 }
 
 type SimulcastTrack struct {
 	trackLocal webrtc.TrackLocal
-	sender     *webrtc.RTPSender
 	videoLayer *livekit.VideoLayer
 }
 
@@ -264,49 +260,21 @@ func (p *LocalTrackPublication) SetMuted(muted bool) {
 	_ = p.client.SendMuteTrack(p.sid, muted)
 }
 
-func (p *LocalTrackPublication) setSimulcastTrack(st *LocalSampleTrack, sender *webrtc.RTPSender) {
+func (p *LocalTrackPublication) addSimulcastTrack(st *LocalSampleTrack) {
 	p.lock.Lock()
 	defer p.lock.Unlock()
 	if p.simulcastTracks == nil {
 		p.simulcastTracks = make(map[livekit.VideoQuality]*LocalSampleTrack)
-		p.simulcastSenders = make(map[livekit.VideoQuality]*webrtc.RTPSender)
 	}
-	//if st != nil {
-	//	p.simulcastTracks[st.videoLayer.Quality] = st
-	//	p.simulcastSenders[st.videoLayer.Quality] = sender
-	//	go p.rtcpWorker(sender)
-	//}
+	if st != nil {
+		p.simulcastTracks[st.videoLayer.Quality] = st
+	}
 }
 
 func (p *LocalTrackPublication) setSender(sender *webrtc.RTPSender) {
 	p.lock.Lock()
 	p.sender = sender
 	p.lock.Unlock()
-
-	if sender != nil {
-		go p.rtcpWorker(sender)
-	}
-}
-
-func (p *LocalTrackPublication) rtcpWorker(sender *webrtc.RTPSender) {
-	// read incoming rtcp packets, interceptors require this
-	for {
-		packets, _, rtcpErr := sender.ReadRTCP()
-		if rtcpErr != nil {
-			// pipe closed
-			return
-		}
-
-		p.lock.Lock()
-		// rtcpCB could have changed along the way
-		rtcpCB := p.onRTCP
-		p.lock.Unlock()
-		if rtcpCB != nil {
-			for _, packet := range packets {
-				rtcpCB(packet)
-			}
-		}
-	}
 }
 
 func (t *SimulcastTrack) TrackLocal() webrtc.TrackLocal {

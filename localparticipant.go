@@ -1,6 +1,7 @@
 package lksdk
 
 import (
+	"sort"
 	"time"
 
 	"github.com/livekit/protocol/livekit"
@@ -98,6 +99,107 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 	p.engine.publisher.Negotiate()
 
 	logger.Info("published track", "name", opts.Name, "source", opts.Source.String())
+
+	return &pub, nil
+}
+
+// PublishSimulcastTrack publishes up to three layers to the server
+func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalSampleTrack, opts *TrackPublicationOptions) (*LocalTrackPublication, error) {
+	if len(tracks) == 0 {
+		return nil, nil
+	}
+
+	for _, track := range tracks {
+		if track.Kind() != webrtc.RTPCodecTypeVideo {
+			return nil, ErrUnsupportedSimulcastKind
+		}
+		if track.videoLayer == nil || track.RID() == "" {
+			return nil, ErrInvalidSimulcastTrack
+		}
+	}
+
+	// tracks should be low to high
+	sort.Slice(tracks, func(i, j int) bool {
+		return tracks[i].videoLayer.Width < tracks[j].videoLayer.Width
+	})
+
+	if opts == nil {
+		opts = &TrackPublicationOptions{}
+	}
+	// default sources, since clients generally look for camera/mic
+	if opts.Source == livekit.TrackSource_UNKNOWN {
+		opts.Source = livekit.TrackSource_CAMERA
+	}
+
+	firstTrack := tracks[0]
+	pub := LocalTrackPublication{
+		trackPublicationBase: trackPublicationBase{
+			kind:   KindFromRTPType(firstTrack.Kind()),
+			name:   opts.Name,
+			client: p.engine.client,
+		},
+	}
+	var layers []*livekit.VideoLayer
+	for _, st := range tracks {
+		layers = append(layers, st.videoLayer)
+	}
+	err := p.engine.client.SendRequest(&livekit.SignalRequest{
+		Message: &livekit.SignalRequest_AddTrack{
+			AddTrack: &livekit.AddTrackRequest{
+				Cid:    firstTrack.ID(),
+				Name:   opts.Name,
+				Source: opts.Source,
+				Type:   pub.Kind().ProtoType(),
+				Width:  firstTrack.videoLayer.Width,
+				Height: firstTrack.videoLayer.Height,
+				Layers: layers,
+			},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	pubChan := p.engine.TrackPublishedChan()
+	var pubRes *livekit.TrackPublishedResponse
+
+	select {
+	case pubRes = <-pubChan:
+		break
+	case <-time.After(trackPublishTimeout):
+		return nil, ErrTrackPublishTimeout
+	}
+
+	// add transceivers
+	publishPC := p.engine.publisher.PeerConnection()
+	var transceiver *webrtc.RTPTransceiver
+	var sender *webrtc.RTPSender
+	for idx, st := range tracks {
+		if idx == 0 {
+			transceiver, err = publishPC.AddTransceiverFromTrack(st, webrtc.RTPTransceiverInit{
+				Direction: webrtc.RTPTransceiverDirectionSendonly,
+			})
+			if err != nil {
+				return nil, err
+			}
+			sender = transceiver.Sender()
+			pub.setSender(sender)
+		} else {
+			if err = sender.AddEncoding(st); err != nil {
+				return nil, err
+			}
+		}
+		pub.addSimulcastTrack(st)
+		st.SetTransceiver(transceiver)
+	}
+
+	pub.sid = pubRes.Track.Sid
+	pub.updateInfo(pubRes.Track)
+	p.addPublication(&pub)
+
+	p.engine.publisher.Negotiate()
+
+	logger.Info("published simulcast track", "name", opts.Name, "source", opts.Source.String())
 
 	return &pub, nil
 }
