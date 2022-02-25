@@ -89,7 +89,7 @@ func (p *RemoteParticipant) addSubscribedMediaTrack(track *webrtc.TrackRemote, t
 		// wait for metadata to arrive
 		go func() {
 			start := time.Now()
-			for time.Now().Sub(start) > 5*time.Second {
+			for time.Since(start) > 5*time.Second {
 				pub := p.getPublication(trackSID)
 				if pub != nil {
 					p.addSubscribedMediaTrack(track, trackSID, receiver)

@@ -33,23 +33,22 @@ type SampleWriteOptions struct {
 // publishing tracks at the right frequency
 // This extends webrtc.TrackLocalStaticSample, and adds the ability to write RTP extensions
 type LocalSampleTrack struct {
-	packetizer         rtp.Packetizer
-	sequencer          rtp.Sequencer
-	transceiver        *webrtc.RTPTransceiver
-	rtpTrack           *webrtc.TrackLocalStaticRTP
-	ssrc               webrtc.SSRC
-	ssrcAcked          bool
-	clockRate          float64
-	bound              uint32
-	lock               sync.RWMutex
-	audioLevelID       uint8
-	sdesMidID          uint8
-	sdesRtpStreamID    uint8
-	sdesRepairStreamID uint8
-	lastTS             time.Time
-	simulcastID        string
-	videoLayer         *livekit.VideoLayer
-	onRTCP             func(rtcp.Packet)
+	packetizer      rtp.Packetizer
+	sequencer       rtp.Sequencer
+	transceiver     *webrtc.RTPTransceiver
+	rtpTrack        *webrtc.TrackLocalStaticRTP
+	ssrc            webrtc.SSRC
+	ssrcAcked       bool
+	clockRate       float64
+	bound           uint32
+	lock            sync.RWMutex
+	audioLevelID    uint8
+	sdesMidID       uint8
+	sdesRtpStreamID uint8
+	lastTS          time.Time
+	simulcastID     string
+	videoLayer      *livekit.VideoLayer
+	onRTCP          func(rtcp.Packet)
 
 	cancelWrite func()
 	provider    SampleProvider
@@ -287,9 +286,9 @@ func (s *LocalSampleTrack) WriteSample(sample media.Sample, opts *SampleWriteOpt
 
 	samples := uint32(sample.Duration.Seconds() * clockRate)
 	if sample.PrevDroppedPackets > 0 {
-		p.(rtp.Packetizer).SkipSamples(samples * uint32(sample.PrevDroppedPackets))
+		p.SkipSamples(samples * uint32(sample.PrevDroppedPackets))
 	}
-	packets := p.(rtp.Packetizer).Packetize(sample.Data, samples)
+	packets := p.Packetize(sample.Data, samples)
 
 	var writeErrs []error
 	for _, p := range packets {
@@ -416,7 +415,7 @@ func (s *LocalSampleTrack) writeWorker(provider SampleProvider, onComplete func(
 		}
 		// account for clock drift
 		nextSampleTime = nextSampleTime.Add(sample.Duration)
-		sleepDuration := nextSampleTime.Sub(time.Now())
+		sleepDuration := time.Until(nextSampleTime)
 		if sleepDuration < 0 {
 			continue
 		}

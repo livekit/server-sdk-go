@@ -221,7 +221,6 @@ type LocalTrackPublication struct {
 
 type SimulcastTrack struct {
 	trackLocal webrtc.TrackLocal
-	sender     *webrtc.RTPSender
 	videoLayer *livekit.VideoLayer
 }
 

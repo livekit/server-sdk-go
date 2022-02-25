@@ -1,7 +1,6 @@
 package lksdk
 
 import (
-	"sync"
 	"time"
 
 	"github.com/livekit/protocol/livekit"
@@ -21,7 +20,6 @@ type RTCEngine struct {
 	lossyDC            *webrtc.DataChannel
 	reliableDCSub      *webrtc.DataChannel
 	lossyDCSub         *webrtc.DataChannel
-	lock               sync.Mutex
 	trackPublishedChan chan *livekit.TrackPublishedResponse
 	subscriberPrimary  bool
 

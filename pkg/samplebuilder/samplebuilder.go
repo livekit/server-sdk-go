@@ -84,58 +84,58 @@ func WithPacketDroppedHandler(h func()) Option {
 }
 
 // check verifies the samplebuilder's invariants.  It may be used in testing.
-func (s *SampleBuilder) check() {
-	if s.head == s.tail {
-		return
-	}
-
-	// the entry at tail must not be missing
-	if s.packets[s.tail].packet == nil {
-		panic("tail is missing")
-	}
-	// the entry at head-1 must not be missing
-	if s.packets[s.dec(s.head)].packet == nil {
-		panic("head is missing")
-	}
-	if s.lastSeqnoValid {
-		// the last dropped packet is before tail
-		diff := s.packets[s.tail].packet.SequenceNumber - s.lastSeqno
-		if diff == 0 || diff&0x8000 != 0 {
-			panic("lastSeqno is after tail")
-		}
-	}
-
-	// indices are sequential, and the start and end flags are correct
-	tailSeqno := s.packets[s.tail].packet.SequenceNumber
-	for i := uint16(0); i < s.length(); i++ {
-		index := (s.tail + i) % uint16(len(s.packets))
-		if s.packets[index].packet == nil {
-			continue
-		}
-		if s.packets[index].packet.SequenceNumber != tailSeqno+i {
-			panic("wrong seqno")
-		}
-		ts := s.packets[index].packet.Timestamp
-		if index != s.tail && !s.packets[index].start {
-			prev := s.dec(index)
-			if s.packets[prev].packet != nil && s.packets[prev].packet.Timestamp != ts {
-				panic("start is not set")
-			}
-		}
-		if index != s.dec(s.head) && !s.packets[index].end {
-			next := s.inc(index)
-			if s.packets[next].packet != nil && s.packets[next].packet.Timestamp != ts {
-				panic("end is not set")
-			}
-		}
-	}
-	// all packets outside of the interval are missing
-	for i := s.head; i != s.tail; i = s.inc(i) {
-		if s.packets[i].packet != nil {
-			panic("packet is set")
-		}
-	}
-}
+//func (s *SampleBuilder) check() {
+//	if s.head == s.tail {
+//		return
+//	}
+//
+//	// the entry at tail must not be missing
+//	if s.packets[s.tail].packet == nil {
+//		panic("tail is missing")
+//	}
+//	// the entry at head-1 must not be missing
+//	if s.packets[s.dec(s.head)].packet == nil {
+//		panic("head is missing")
+//	}
+//	if s.lastSeqnoValid {
+//		// the last dropped packet is before tail
+//		diff := s.packets[s.tail].packet.SequenceNumber - s.lastSeqno
+//		if diff == 0 || diff&0x8000 != 0 {
+//			panic("lastSeqno is after tail")
+//		}
+//	}
+//
+//	// indices are sequential, and the start and end flags are correct
+//	tailSeqno := s.packets[s.tail].packet.SequenceNumber
+//	for i := uint16(0); i < s.length(); i++ {
+//		index := (s.tail + i) % uint16(len(s.packets))
+//		if s.packets[index].packet == nil {
+//			continue
+//		}
+//		if s.packets[index].packet.SequenceNumber != tailSeqno+i {
+//			panic("wrong seqno")
+//		}
+//		ts := s.packets[index].packet.Timestamp
+//		if index != s.tail && !s.packets[index].start {
+//			prev := s.dec(index)
+//			if s.packets[prev].packet != nil && s.packets[prev].packet.Timestamp != ts {
+//				panic("start is not set")
+//			}
+//		}
+//		if index != s.dec(s.head) && !s.packets[index].end {
+//			next := s.inc(index)
+//			if s.packets[next].packet != nil && s.packets[next].packet.Timestamp != ts {
+//				panic("end is not set")
+//			}
+//		}
+//	}
+//	// all packets outside of the interval are missing
+//	for i := s.head; i != s.tail; i = s.inc(i) {
+//		if s.packets[i].packet != nil {
+//			panic("packet is set")
+//		}
+//	}
+//}
 
 // length returns the length of the packet sequence stored in the SampleBuilder.
 func (s *SampleBuilder) length() uint16 {
@@ -394,7 +394,6 @@ func (s *SampleBuilder) Push(p *rtp.Packet) {
 		end:    end,
 		packet: p,
 	}
-	return
 }
 
 func (s *SampleBuilder) popRtpPackets(force bool) ([]*rtp.Packet, uint32) {
