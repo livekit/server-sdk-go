@@ -90,8 +90,9 @@ func (p *trackPublicationBase) updateInfo(info *livekit.TrackInfo) {
 
 type RemoteTrackPublication struct {
 	trackPublicationBase
-	receiver *webrtc.RTPReceiver
-	onRTCP   func(rtcp.Packet)
+	participantID string
+	receiver      *webrtc.RTPReceiver
+	onRTCP        func(rtcp.Packet)
 
 	disabled bool
 
@@ -113,6 +114,22 @@ func (p *RemoteTrackPublication) Receiver() *webrtc.RTPReceiver {
 	p.lock.Lock()
 	defer p.lock.Unlock()
 	return p.receiver
+}
+
+func (p *RemoteTrackPublication) SetSubscribed(subscribed bool) error {
+	return p.client.SendRequest(&livekit.SignalRequest{
+		Message: &livekit.SignalRequest_Subscription{
+			Subscription: &livekit.UpdateSubscription{
+				Subscribe: subscribed,
+				ParticipantTracks: []*livekit.ParticipantTracks{
+					{
+						ParticipantSid: p.participantID,
+						TrackSids:      []string{p.sid},
+					},
+				},
+			},
+		},
+	})
 }
 
 func (p *RemoteTrackPublication) IsEnabled() bool {

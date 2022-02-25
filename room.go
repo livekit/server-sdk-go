@@ -52,34 +52,8 @@ type Room struct {
 	lock sync.RWMutex
 }
 
-func ConnectToRoom(url string, info ConnectInfo, opts ...ConnectOption) (*Room, error) {
-	// generate token
-	at := auth.NewAccessToken(info.APIKey, info.APISecret)
-	grant := &auth.VideoGrant{
-		RoomJoin: true,
-		Room:     info.RoomName,
-	}
-	at.AddGrant(grant).
-		SetIdentity(info.ParticipantIdentity).
-		SetMetadata(info.ParticipantMetadata).
-		SetName(info.ParticipantName)
-
-	token, err := at.ToJWT()
-	if err != nil {
-		return nil, err
-	}
-
-	return ConnectToRoomWithToken(url, token, opts...)
-}
-
-func ConnectToRoomWithToken(url, token string, opts ...ConnectOption) (*Room, error) {
-	params := &ConnectParams{
-		AutoSubscribe: true,
-	}
-	for _, opt := range opts {
-		opt(params)
-	}
-
+// CreateRoom can be used to update callbacks before calling Join
+func CreateRoom() *Room {
 	engine := NewRTCEngine()
 	r := &Room{
 		engine:       engine,
@@ -98,9 +72,62 @@ func ConnectToRoomWithToken(url, token string, opts ...ConnectOption) (*Room, er
 	engine.OnConnectionQuality = r.handleConnectionQualityUpdate
 	engine.OnRoomUpdate = r.handleRoomUpdate
 
-	joinRes, err := engine.Join(url, token, params)
+	return r
+}
+
+// ConnectToRoom creates and joins the room
+func ConnectToRoom(url string, info ConnectInfo, opts ...ConnectOption) (*Room, error) {
+	room := CreateRoom()
+	err := room.Join(url, info, opts...)
 	if err != nil {
 		return nil, err
+	}
+	return room, nil
+}
+
+// ConnectToRoomWithToken creates and joins the room
+func ConnectToRoomWithToken(url, token string, opts ...ConnectOption) (*Room, error) {
+	room := CreateRoom()
+	err := room.JoinWithToken(url, token, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return room, nil
+}
+
+// Join should only be used with CreateRoom
+func (r *Room) Join(url string, info ConnectInfo, opts ...ConnectOption) error {
+	// generate token
+	at := auth.NewAccessToken(info.APIKey, info.APISecret)
+	grant := &auth.VideoGrant{
+		RoomJoin: true,
+		Room:     info.RoomName,
+	}
+	at.AddGrant(grant).
+		SetIdentity(info.ParticipantIdentity).
+		SetMetadata(info.ParticipantMetadata).
+		SetName(info.ParticipantName)
+
+	token, err := at.ToJWT()
+	if err != nil {
+		return err
+	}
+
+	return r.JoinWithToken(url, token, opts...)
+}
+
+// JoinWithToken should only be used with CreateRoom
+func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
+	params := &ConnectParams{
+		AutoSubscribe: true,
+	}
+	for _, opt := range opts {
+		opt(params)
+	}
+
+	joinRes, err := r.engine.Join(url, token, params)
+	if err != nil {
+		return err
 	}
 
 	r.Name = joinRes.Room.Name
@@ -113,7 +140,7 @@ func ConnectToRoomWithToken(url, token string, opts ...ConnectOption) (*Room, er
 		r.addRemoteParticipant(pi)
 	}
 
-	return r, nil
+	return nil
 }
 
 func (r *Room) Disconnect() {
