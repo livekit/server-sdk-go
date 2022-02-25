@@ -20,9 +20,8 @@ import (
 )
 
 const (
-	rtpOutboundMTU           = 1200
-	rtpInboundMTU            = 1500
-	sdesRepairRTPStreamIDURI = "urn:ietf:params:rtp-hdrext:sdes:repaired-rtp-stream-id"
+	rtpOutboundMTU = 1200
+	rtpInboundMTU  = 1500
 )
 
 type SampleWriteOptions struct {
