@@ -304,7 +304,6 @@ func (s *LocalSampleTrack) WriteSample(sample media.Sample, opts *SampleWriteOpt
 				continue
 			}
 			if err := p.Header.SetExtension(s.audioLevelID, data); err != nil {
-				logger.Info("setting audio level", "audioLevel", *opts.AudioLevel)
 				writeErrs = append(writeErrs, err)
 				continue
 			}
@@ -317,7 +316,6 @@ func (s *LocalSampleTrack) WriteSample(sample media.Sample, opts *SampleWriteOpt
 					writeErrs = append(writeErrs, err)
 					continue
 				}
-				logger.Info("setting SDES MID", "mid", midValue)
 			}
 
 			if s.sdesRtpStreamID != 0 {
@@ -326,7 +324,6 @@ func (s *LocalSampleTrack) WriteSample(sample media.Sample, opts *SampleWriteOpt
 					writeErrs = append(writeErrs, err)
 					continue
 				}
-				logger.Info("setting SDES RID", "rid", ridValue)
 			}
 		}
 
