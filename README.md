@@ -129,12 +129,9 @@ First, you will need to encode media into the right format.
 ### VP8 / Opus
 
 ```bash
-INPUT_FILE=<file> \
-OUTPUT_VP8=<output.ivf> \
-OUTPUT_OGG=<output.ogg> \
-ffmpeg -i $INPUT_FILE \
-  -c:v libvpx -keyint_min 120 -qmax 50 -maxrate 2M -b:v 1M $OUTPUT_VP8 \
-  -c:a libopus -page_duration 20000 -vn $OUTPUT_OGG
+ffmpeg -i <input.mp4> \
+  -c:v libvpx -keyint_min 120 -qmax 50 -maxrate 2M -b:v 1M <output.ivf> \
+  -c:a libopus -page_duration 20000 -vn <output.ogg>
 ```
 
 The above encodes VP8 at average 1Mbps / max 2Mbps with a minimum keyframe interval of 120.  
@@ -142,12 +139,9 @@ The above encodes VP8 at average 1Mbps / max 2Mbps with a minimum keyframe inter
 ### H.264 / Opus
 
 ```bash
-INPUT_FILE=<file> \
-OUTPUT_H264=<output.h264> \
-OUTPUT_OGG=<output.ogg> \
-ffmpeg -i $INPUT_FILE
-  -c:v libx264 -bsf:v h264_mp4toannexb -b:v 2M -x264-params keyint=120 -max_delay 0 -bf 0 $OUTPUT_H264 \
-  -c:a libopus -page_duration 20000 -vn $OUTPUT_OGG
+ffmpeg -i <input.mp4> \
+  -c:v libx264 -bsf:v h264_mp4toannexb -b:v 2M -x264-params keyint=120 -max_delay 0 -bf 0 <output.h264> \
+  -c:a libopus -page_duration 20000 -vn <output.ogg>
 ```
 
 The above encodes H264 with CBS of 2Mbps with a minimum keyframe interval of 120.

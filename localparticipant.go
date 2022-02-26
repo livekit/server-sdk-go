@@ -131,10 +131,10 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalSampleTrack, opt
 		opts.Source = livekit.TrackSource_CAMERA
 	}
 
-	firstTrack := tracks[0]
+	mainTrack := tracks[len(tracks)-1]
 	pub := LocalTrackPublication{
 		trackPublicationBase: trackPublicationBase{
-			kind:   KindFromRTPType(firstTrack.Kind()),
+			kind:   KindFromRTPType(mainTrack.Kind()),
 			name:   opts.Name,
 			client: p.engine.client,
 		},
@@ -146,12 +146,12 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalSampleTrack, opt
 	err := p.engine.client.SendRequest(&livekit.SignalRequest{
 		Message: &livekit.SignalRequest_AddTrack{
 			AddTrack: &livekit.AddTrackRequest{
-				Cid:    firstTrack.ID(),
+				Cid:    mainTrack.ID(),
 				Name:   opts.Name,
 				Source: opts.Source,
 				Type:   pub.Kind().ProtoType(),
-				Width:  firstTrack.videoLayer.Width,
-				Height: firstTrack.videoLayer.Height,
+				Width:  mainTrack.videoLayer.Width,
+				Height: mainTrack.videoLayer.Height,
 				Layers: layers,
 			},
 		},

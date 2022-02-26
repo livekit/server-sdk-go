@@ -17,8 +17,21 @@ type AudioSampleProvider interface {
 	CurrentAudioLevel() uint8
 }
 
+// BaseSampleProvider provides empty implementations for OnBind and OnUnbind
+type BaseSampleProvider struct {
+}
+
+func (p *BaseSampleProvider) OnBind() error {
+	return nil
+}
+
+func (p *BaseSampleProvider) OnUnbind() error {
+	return nil
+}
+
 // NullSampleProvider is a media provider that provides null packets, it could meet a certain bitrate, if desired
 type NullSampleProvider struct {
+	BaseSampleProvider
 	BytesPerSample uint32
 	SampleDuration time.Duration
 }
@@ -35,12 +48,4 @@ func (p *NullSampleProvider) NextSample() (media.Sample, error) {
 		Data:     make([]byte, p.BytesPerSample),
 		Duration: p.SampleDuration,
 	}, nil
-}
-
-func (p *NullSampleProvider) OnBind() error {
-	return nil
-}
-
-func (p *NullSampleProvider) OnUnbind() error {
-	return nil
 }
