@@ -1,12 +1,12 @@
-// This SampleBuilder is copied from https://github.com/jech/samplebuilder.
-// Modified to integrate with Pion's media.Writer
+// This SampleBuilder is copied from https://github.com/jech/samplebuilder
+// Fixed bugs and added PopPacket support
 
 // Package samplebuilder builds media frames from RTP packets.
+// it re-orders incoming packets to be in order, and notifies callback when packets are dropped
 package samplebuilder
 
 import (
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/pion/rtp"
@@ -79,6 +79,8 @@ func WithPacketReleaseHandler(h func(*rtp.Packet)) Option {
 	}
 }
 
+// WithPacketDroppedHandler sets a callback that's called when a packet
+// is dropped. This signifies packet loss.
 func WithPacketDroppedHandler(h func()) Option {
 	return func(s *SampleBuilder) {
 		s.onPacketDropped = h
@@ -278,6 +280,7 @@ func (s *SampleBuilder) Push(p *rtp.Packet) {
 	if seqno == lastSeqno+1 {
 		// sequential
 		if s.tail == s.inc(s.head) {
+			// buffer is full, so we must drop
 			s.drop()
 		}
 		start := false
@@ -434,29 +437,13 @@ again:
 		last = s.inc(last)
 	}
 
-	// include end packet
-	if last != s.head && s.packets[last].end {
-		if s.packets[last].packet == nil {
-			if force {
-				s.drop()
-				goto again
-			}
-			return nil, 0
-		}
-		last = s.inc(last)
-		fmt.Println("adding end packet", s.packets[last].packet.SequenceNumber)
-	}
-
 	if last == s.head {
-		fmt.Println("returning nil, wrapped")
 		return nil, 0
 	}
-
 	count := last - s.tail + 1
 	if last < s.tail {
-		count = s.cap() + last - s.tail + 1
+		count = uint16(len(s.packets)) + last - s.tail + 1
 	}
-	fmt.Println("total count", count)
 	packets := make([]*rtp.Packet, 0, count)
 	for i := uint16(0); i < count; i++ {
 		packets = append(packets, s.packets[s.tail].packet)

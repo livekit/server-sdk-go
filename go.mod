@@ -8,7 +8,7 @@ require (
 	github.com/go-logr/stdr v1.0.0
 	github.com/gorilla/websocket v1.4.2
 	github.com/livekit/protocol v0.11.14-0.20220223195254-d8c251e13231
-	github.com/pion/interceptor v0.1.7
+	github.com/pion/interceptor v0.1.8
 	github.com/pion/rtcp v1.2.9
 	github.com/pion/rtp v1.7.4
 	github.com/pion/sdp/v3 v3.0.4
