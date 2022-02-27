@@ -6,11 +6,11 @@ import (
 	"net/url"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"github.com/gorilla/websocket"
 	"github.com/livekit/protocol/livekit"
 	"github.com/pion/webrtc/v3"
+	"go.uber.org/atomic"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
@@ -19,7 +19,7 @@ const PROTOCOL = 5
 
 type SignalClient struct {
 	conn        *websocket.Conn
-	isConnected atomic.Value
+	isConnected atomic.Bool
 	lock        sync.Mutex
 
 	OnClose               func()
@@ -188,7 +188,7 @@ func (c *SignalClient) ReadResponse() (*livekit.SignalResponse, error) {
 }
 
 func (c *SignalClient) IsConnected() bool {
-	return c.isConnected.Load().(bool)
+	return c.isConnected.Load()
 }
 
 func (c *SignalClient) handleResponse(res *livekit.SignalResponse) {

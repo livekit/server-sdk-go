@@ -5,7 +5,6 @@ import (
 	"io"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/livekit/protocol/livekit"
@@ -17,6 +16,7 @@ import (
 	"github.com/pion/sdp/v3"
 	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/pkg/media"
+	"go.uber.org/atomic"
 )
 
 const (
@@ -40,7 +40,7 @@ type LocalSampleTrack struct {
 	ssrc            webrtc.SSRC
 	ssrcAcked       bool
 	clockRate       float64
-	bound           uint32
+	bound           atomic.Bool
 	lock            sync.RWMutex
 	audioLevelID    uint8
 	sdesMidID       uint8
@@ -134,7 +134,7 @@ func (s *LocalSampleTrack) Codec() webrtc.RTPCodecCapability {
 }
 
 func (s *LocalSampleTrack) IsBound() bool {
-	return atomic.LoadUint32(&s.bound) == 1
+	return s.bound.Load()
 }
 
 // Bind is an interface for TrackLocal, not for external consumption
@@ -177,7 +177,7 @@ func (s *LocalSampleTrack) Bind(t webrtc.TrackLocalContext) (webrtc.RTPCodecPara
 	onBind := s.onBind
 	provider := s.provider
 	onWriteComplete := s.onWriteComplete
-	atomic.StoreUint32(&s.bound, 1)
+	s.bound.Store(true)
 	s.lock.Unlock()
 
 	if provider != nil {
@@ -199,7 +199,7 @@ func (s *LocalSampleTrack) Unbind(t webrtc.TrackLocalContext) error {
 	s.lock.Lock()
 	provider := s.provider
 	onUnbind := s.onUnbind
-	atomic.StoreUint32(&s.bound, 0)
+	s.bound.Store(false)
 	cancel := s.cancelWrite
 	s.lock.Unlock()
 
