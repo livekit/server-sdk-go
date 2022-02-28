@@ -1,10 +1,12 @@
-// This SampleBuilder is copied from https://github.com/jech/samplebuilder.
-// Modified to integrate with Pion's media.Writer
+// This SampleBuilder is copied from https://github.com/jech/samplebuilder
+// Fixed bugs and added PopPacket support
 
 // Package samplebuilder builds media frames from RTP packets.
+// it re-orders incoming packets to be in order, and notifies callback when packets are dropped
 package samplebuilder
 
 import (
+	"errors"
 	"time"
 
 	"github.com/pion/rtp"
@@ -77,6 +79,8 @@ func WithPacketReleaseHandler(h func(*rtp.Packet)) Option {
 	}
 }
 
+// WithPacketDroppedHandler sets a callback that's called when a packet
+// is dropped. This signifies packet loss.
 func WithPacketDroppedHandler(h func()) Option {
 	return func(s *SampleBuilder) {
 		s.onPacketDropped = h
@@ -84,58 +88,59 @@ func WithPacketDroppedHandler(h func()) Option {
 }
 
 // check verifies the samplebuilder's invariants.  It may be used in testing.
-//func (s *SampleBuilder) check() {
-//	if s.head == s.tail {
-//		return
-//	}
-//
-//	// the entry at tail must not be missing
-//	if s.packets[s.tail].packet == nil {
-//		panic("tail is missing")
-//	}
-//	// the entry at head-1 must not be missing
-//	if s.packets[s.dec(s.head)].packet == nil {
-//		panic("head is missing")
-//	}
-//	if s.lastSeqnoValid {
-//		// the last dropped packet is before tail
-//		diff := s.packets[s.tail].packet.SequenceNumber - s.lastSeqno
-//		if diff == 0 || diff&0x8000 != 0 {
-//			panic("lastSeqno is after tail")
-//		}
-//	}
-//
-//	// indices are sequential, and the start and end flags are correct
-//	tailSeqno := s.packets[s.tail].packet.SequenceNumber
-//	for i := uint16(0); i < s.length(); i++ {
-//		index := (s.tail + i) % uint16(len(s.packets))
-//		if s.packets[index].packet == nil {
-//			continue
-//		}
-//		if s.packets[index].packet.SequenceNumber != tailSeqno+i {
-//			panic("wrong seqno")
-//		}
-//		ts := s.packets[index].packet.Timestamp
-//		if index != s.tail && !s.packets[index].start {
-//			prev := s.dec(index)
-//			if s.packets[prev].packet != nil && s.packets[prev].packet.Timestamp != ts {
-//				panic("start is not set")
-//			}
-//		}
-//		if index != s.dec(s.head) && !s.packets[index].end {
-//			next := s.inc(index)
-//			if s.packets[next].packet != nil && s.packets[next].packet.Timestamp != ts {
-//				panic("end is not set")
-//			}
-//		}
-//	}
-//	// all packets outside of the interval are missing
-//	for i := s.head; i != s.tail; i = s.inc(i) {
-//		if s.packets[i].packet != nil {
-//			panic("packet is set")
-//		}
-//	}
-//}
+func (s *SampleBuilder) check() error {
+	if s.head == s.tail {
+		return nil
+	}
+
+	// the entry at tail must not be missing
+	if s.packets[s.tail].packet == nil {
+		return errors.New("tail is missing")
+	}
+	// the entry at head-1 must not be missing
+	if s.packets[s.dec(s.head)].packet == nil {
+		return errors.New("head is missing")
+	}
+	if s.lastSeqnoValid {
+		// the last dropped packet is before tail
+		diff := s.packets[s.tail].packet.SequenceNumber - s.lastSeqno
+		if diff == 0 || diff&0x8000 != 0 {
+			return errors.New("lastSeqno is after tail")
+		}
+	}
+
+	// indices are sequential, and the start and end flags are correct
+	tailSeqno := s.packets[s.tail].packet.SequenceNumber
+	for i := uint16(0); i < s.length(); i++ {
+		index := (s.tail + i) % uint16(len(s.packets))
+		if s.packets[index].packet == nil {
+			continue
+		}
+		if s.packets[index].packet.SequenceNumber != tailSeqno+i {
+			return errors.New("wrong seqno")
+		}
+		ts := s.packets[index].packet.Timestamp
+		if index != s.tail && !s.packets[index].start {
+			prev := s.dec(index)
+			if s.packets[prev].packet != nil && s.packets[prev].packet.Timestamp != ts {
+				return errors.New("start is not set")
+			}
+		}
+		if index != s.dec(s.head) && !s.packets[index].end {
+			next := s.inc(index)
+			if s.packets[next].packet != nil && s.packets[next].packet.Timestamp != ts {
+				return errors.New("end is not set")
+			}
+		}
+	}
+	// all packets outside of the interval are missing
+	for i := s.head; i != s.tail; i = s.inc(i) {
+		if s.packets[i].packet != nil {
+			return errors.New("packet is set")
+		}
+	}
+	return nil
+}
 
 // length returns the length of the packet sequence stored in the SampleBuilder.
 func (s *SampleBuilder) length() uint16 {
@@ -275,6 +280,7 @@ func (s *SampleBuilder) Push(p *rtp.Packet) {
 	if seqno == lastSeqno+1 {
 		// sequential
 		if s.tail == s.inc(s.head) {
+			// buffer is full, so we must drop
 			s.drop()
 		}
 		start := false
@@ -434,10 +440,9 @@ again:
 	if last == s.head {
 		return nil, 0
 	}
-
 	count := last - s.tail + 1
 	if last < s.tail {
-		count = s.cap() + last - s.tail + 1
+		count = uint16(len(s.packets)) + last - s.tail + 1
 	}
 	packets := make([]*rtp.Packet, 0, count)
 	for i := uint16(0); i < count; i++ {
@@ -450,6 +455,9 @@ again:
 
 func (s *SampleBuilder) popSample(force bool) (*media.Sample, uint32) {
 	packets, ts := s.popRtpPackets(force)
+	if packets == nil {
+		return nil, 0
+	}
 
 	var data []byte
 	var unMarshalErr error

@@ -40,7 +40,7 @@ func NewRTCEngine() *RTCEngine {
 	return &RTCEngine{
 		client:             NewSignalClient(),
 		trackPublishedChan: make(chan *livekit.TrackPublishedResponse, 1),
-		JoinTimeout:        5 * time.Second,
+		JoinTimeout:        15 * time.Second,
 	}
 }
 
