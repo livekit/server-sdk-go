@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"github.com/gorilla/websocket"
 	"github.com/livekit/protocol/livekit"
@@ -18,9 +17,8 @@ import (
 const PROTOCOL = 5
 
 type SignalClient struct {
-	conn        *websocket.Conn
-	isConnected atomic.Value
-	lock        sync.Mutex
+	conn *websocket.Conn
+	lock sync.Mutex
 
 	OnClose               func()
 	OnAnswer              func(sd webrtc.SessionDescription)
@@ -36,7 +34,6 @@ type SignalClient struct {
 
 func NewSignalClient() *SignalClient {
 	c := &SignalClient{}
-	c.isConnected.Store(false)
 	return c
 }
 
@@ -185,10 +182,6 @@ func (c *SignalClient) ReadResponse() (*livekit.SignalResponse, error) {
 			return nil, nil
 		}
 	}
-}
-
-func (c *SignalClient) IsConnected() bool {
-	return c.isConnected.Load().(bool)
 }
 
 func (c *SignalClient) handleResponse(res *livekit.SignalResponse) {

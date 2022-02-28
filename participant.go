@@ -2,9 +2,9 @@ package lksdk
 
 import (
 	"sync"
-	"sync/atomic"
 
 	"github.com/livekit/protocol/livekit"
+	"go.uber.org/atomic"
 )
 
 type Participant interface {
@@ -29,9 +29,9 @@ type baseParticipant struct {
 	sid               string
 	identity          string
 	name              string
-	audioLevel        atomic.Value
+	audioLevel        atomic.Float64
 	metadata          string
-	isSpeaking        atomic.Value
+	isSpeaking        atomic.Bool
 	info              *livekit.ParticipantInfo
 	connectionQuality *livekit.ConnectionQualityInfo
 	lock              sync.RWMutex
@@ -77,15 +77,11 @@ func (p *baseParticipant) Metadata() string {
 }
 
 func (p *baseParticipant) IsSpeaking() bool {
-	val := p.isSpeaking.Load()
-	if speaking, ok := val.(bool); ok {
-		return speaking
-	}
-	return false
+	return p.isSpeaking.Load()
 }
 
 func (p *baseParticipant) AudioLevel() float32 {
-	return p.audioLevel.Load().(float32)
+	return float32(p.audioLevel.Load())
 }
 
 func (p *baseParticipant) Tracks() []TrackPublication {
@@ -127,15 +123,13 @@ func (p *baseParticipant) IsScreenShareEnabled() bool {
 }
 
 func (p *baseParticipant) setAudioLevel(level float32) {
-	p.audioLevel.Store(level)
+	p.audioLevel.Store(float64(level))
 }
 
 func (p *baseParticipant) setIsSpeaking(speaking bool) {
-	lastSpeaking := p.IsSpeaking()
-	if speaking == lastSpeaking {
+	if !p.isSpeaking.Swap(speaking) {
 		return
 	}
-	p.isSpeaking.Store(speaking)
 	p.Callback.OnIsSpeakingChanged(p)
 	p.roomCallback.OnIsSpeakingChanged(p)
 }

@@ -16,6 +16,7 @@ require (
 	github.com/stretchr/testify v1.7.0
 	github.com/thoas/go-funk v0.9.0
 	github.com/twitchtv/twirp v8.1.0+incompatible
+	go.uber.org/atomic v1.9.0
 	google.golang.org/protobuf v1.27.1
 )
 

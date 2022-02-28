@@ -2,11 +2,11 @@ package lksdk
 
 import (
 	"sync"
-	"sync/atomic"
 
 	"github.com/livekit/protocol/livekit"
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v3"
+	"go.uber.org/atomic"
 )
 
 type TrackPublication interface {
@@ -27,7 +27,7 @@ type trackPublicationBase struct {
 	track   Track
 	sid     string
 	name    string
-	isMuted uint32
+	isMuted atomic.Bool
 
 	lock   sync.Mutex
 	info   atomic.Value
@@ -65,7 +65,7 @@ func (p *trackPublicationBase) Source() livekit.TrackSource {
 }
 
 func (p *trackPublicationBase) IsMuted() bool {
-	return atomic.LoadUint32(&p.isMuted) == 1
+	return p.isMuted.Load()
 }
 
 func (p *trackPublicationBase) IsSubscribed() bool {
@@ -75,11 +75,7 @@ func (p *trackPublicationBase) IsSubscribed() bool {
 func (p *trackPublicationBase) updateInfo(info *livekit.TrackInfo) {
 	p.name = info.Name
 	p.sid = info.Sid
-	val := uint32(0)
-	if info.Muted {
-		val = 1
-	}
-	atomic.StoreUint32(&p.isMuted, val)
+	p.isMuted.Store(info.Muted)
 	if info.Type == livekit.TrackType_AUDIO {
 		p.kind = TrackKindAudio
 	} else if info.Type == livekit.TrackType_VIDEO {
@@ -248,14 +244,9 @@ func (p *LocalTrackPublication) GetSimulcastTrack(quality livekit.VideoQuality) 
 }
 
 func (p *LocalTrackPublication) SetMuted(muted bool) {
-	if p.IsMuted() == muted {
+	if !p.isMuted.Swap(muted) {
 		return
 	}
-	val := uint32(0)
-	if muted {
-		val = 1
-	}
-	atomic.StoreUint32(&p.isMuted, val)
 
 	_ = p.client.SendMuteTrack(p.sid, muted)
 }
