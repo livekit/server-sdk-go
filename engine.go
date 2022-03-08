@@ -248,7 +248,7 @@ func (e *RTCEngine) ensurePublisherConnected(dataReady bool) error {
 		return e.waitUntilConnected()
 	}
 
-	if e.publisher.IsConnected() && e.dataPubChannelReady() {
+	if e.publisher.IsConnected() && (!dataReady || e.dataPubChannelReady()) {
 		return nil
 	}
 
@@ -261,7 +261,7 @@ func (e *RTCEngine) ensurePublisherConnected(dataReady bool) error {
 			return ErrConnectionTimeout
 		case <-time.After(10 * time.Millisecond):
 			if e.publisher.IsConnected() {
-				if !dataReady || (dataReady && e.dataPubChannelReady()) {
+				if !dataReady || e.dataPubChannelReady() {
 					return nil
 				}
 			}
