@@ -243,12 +243,12 @@ func (e *RTCEngine) waitUntilConnected() error {
 	}
 }
 
-func (e *RTCEngine) ensurePublisherConnected(dataReady bool) error {
+func (e *RTCEngine) ensurePublisherConnected(ensureDataReady bool) error {
 	if !e.subscriberPrimary {
 		return e.waitUntilConnected()
 	}
 
-	if e.publisher.IsConnected() && (!dataReady || e.dataPubChannelReady()) {
+	if e.publisher.IsConnected() && (!ensureDataReady || e.dataPubChannelReady()) {
 		return nil
 	}
 
@@ -261,7 +261,7 @@ func (e *RTCEngine) ensurePublisherConnected(dataReady bool) error {
 			return ErrConnectionTimeout
 		case <-time.After(10 * time.Millisecond):
 			if e.publisher.IsConnected() {
-				if !dataReady || e.dataPubChannelReady() {
+				if !ensureDataReady || e.dataPubChannelReady() {
 					return nil
 				}
 			}
