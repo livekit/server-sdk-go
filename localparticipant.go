@@ -217,7 +217,7 @@ func (p *LocalParticipant) PublishData(data []byte, kind livekit.DataPacket_Kind
 		},
 	}
 
-	if err := p.engine.ensurePublisherConnected(); err != nil {
+	if err := p.engine.ensurePublisherConnected(true); err != nil {
 		return err
 	}
 

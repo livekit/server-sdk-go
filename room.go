@@ -238,7 +238,7 @@ func (r *Room) handleParticipantUpdate(participants []*livekit.ParticipantInfo) 
 			}
 		} else if isNew {
 			p = r.addRemoteParticipant(pi)
-			r.Callback.OnParticipantConnected(p)
+			go r.Callback.OnParticipantConnected(p)
 		} else {
 			p.updateInfo(pi)
 		}
@@ -248,7 +248,7 @@ func (r *Room) handleParticipantUpdate(participants []*livekit.ParticipantInfo) 
 func (r *Room) handleParticipantDisconnect(p *RemoteParticipant) {
 	r.participants.Delete(p.SID())
 	p.unpublishAllTracks()
-	r.Callback.OnParticipantDisconnected(p)
+	go r.Callback.OnParticipantDisconnected(p)
 }
 
 func (r *Room) handleActiveSpeakerChange(speakers []*livekit.SpeakerInfo) {
@@ -285,7 +285,7 @@ func (r *Room) handleActiveSpeakerChange(speakers []*livekit.SpeakerInfo) {
 	r.lock.Lock()
 	r.activeSpeakers = activeSpeakers
 	r.lock.Unlock()
-	r.Callback.OnActiveSpeakersChanged(activeSpeakers)
+	go r.Callback.OnActiveSpeakersChanged(activeSpeakers)
 }
 
 func (r *Room) handleSpeakersChange(speakerUpdates []*livekit.SpeakerInfo) {
@@ -325,7 +325,7 @@ func (r *Room) handleSpeakersChange(speakerUpdates []*livekit.SpeakerInfo) {
 	r.lock.Lock()
 	r.activeSpeakers = activeSpeakers
 	r.lock.Unlock()
-	r.Callback.OnActiveSpeakersChanged(activeSpeakers)
+	go r.Callback.OnActiveSpeakersChanged(activeSpeakers)
 }
 
 func (r *Room) handleConnectionQualityUpdate(updates []*livekit.ConnectionQualityInfo) {
@@ -351,7 +351,7 @@ func (r *Room) handleRoomUpdate(room *livekit.Room) {
 	r.lock.Lock()
 	r.metadata = room.Metadata
 	r.lock.Unlock()
-	r.Callback.OnRoomMetadataChanged(room.Metadata)
+	go r.Callback.OnRoomMetadataChanged(room.Metadata)
 }
 
 func unpackStreamID(packed string) (participantId string, trackId string) {

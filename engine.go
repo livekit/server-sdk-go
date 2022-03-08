@@ -243,12 +243,12 @@ func (e *RTCEngine) waitUntilConnected() error {
 	}
 }
 
-func (e *RTCEngine) ensurePublisherConnected() error {
+func (e *RTCEngine) ensurePublisherConnected(ensureDataReady bool) error {
 	if !e.subscriberPrimary {
 		return e.waitUntilConnected()
 	}
 
-	if e.publisher.IsConnected() {
+	if e.publisher.IsConnected() && (!ensureDataReady || e.dataPubChannelReady()) {
 		return nil
 	}
 
@@ -261,10 +261,16 @@ func (e *RTCEngine) ensurePublisherConnected() error {
 			return ErrConnectionTimeout
 		case <-time.After(10 * time.Millisecond):
 			if e.publisher.IsConnected() {
-				return nil
+				if !ensureDataReady || e.dataPubChannelReady() {
+					return nil
+				}
 			}
 		}
 	}
+}
+
+func (e *RTCEngine) dataPubChannelReady() bool {
+	return e.reliableDC.ReadyState() == webrtc.DataChannelStateOpen && e.lossyDC.ReadyState() == webrtc.DataChannelStateOpen
 }
 
 func (e *RTCEngine) handleLocalTrackPublished(res *livekit.TrackPublishedResponse) {
