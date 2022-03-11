@@ -51,16 +51,26 @@ func createMediaWriter(out io.Writer, codec webrtc.RTPCodecParameters) (media.Wr
 	}
 }
 
+const (
+	maxVideoLate = 1000 // nearly 2s for fhd video
+	maxAudioLate = 200  // 4s for audio
+)
+
 func createSampleBuilder(codec webrtc.RTPCodecParameters, opts ...samplebuilder.Option) *samplebuilder.SampleBuilder {
-	var depacketizer rtp.Depacketizer
-	var maxLate uint16 = 1000
+	var (
+		depacketizer rtp.Depacketizer
+		maxLate      uint16
+	)
 	switch codec.MimeType {
 	case webrtc.MimeTypeVP8:
 		depacketizer = &codecs.VP8Packet{}
+		maxLate = maxVideoLate
 	case webrtc.MimeTypeH264:
 		depacketizer = &codecs.H264Packet{}
+		maxLate = maxVideoLate
 	case webrtc.MimeTypeOpus:
 		depacketizer = &codecs.OpusPacket{}
+		maxLate = maxAudioLate
 	default:
 		return nil
 	}

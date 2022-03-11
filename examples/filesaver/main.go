@@ -1,23 +1,20 @@
 package main
 
 import (
-	"errors"
+	"context"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
+	"time"
 
-	"github.com/pion/rtp/codecs"
-	"github.com/pion/webrtc/v3"
-	"github.com/pion/webrtc/v3/pkg/media"
-	"github.com/pion/webrtc/v3/pkg/media/h264writer"
-	"github.com/pion/webrtc/v3/pkg/media/ivfwriter"
-	"github.com/pion/webrtc/v3/pkg/media/oggwriter"
-
+	"github.com/livekit/protocol/auth"
 	lksdk "github.com/livekit/server-sdk-go"
 	"github.com/livekit/server-sdk-go/pkg/samplebuilder"
+	"github.com/livekit/server-sdk-go/pkg/trackrecorder"
+	"github.com/pion/webrtc/v3"
 )
 
 var (
@@ -38,93 +35,96 @@ func main() {
 		fmt.Println("invalid arguments.")
 		return
 	}
-	room, err := lksdk.ConnectToRoom(host, lksdk.ConnectInfo{
-		APIKey:              apiKey,
-		APISecret:           apiSecret,
-		RoomName:            roomName,
-		ParticipantIdentity: identity,
-	})
+
+	token, err := createSubscriberToken(apiKey, apiSecret, identity)
 	if err != nil {
 		panic(err)
 	}
 
-	room.Callback.OnTrackSubscribed = onTrackSubscribed
+	b, err := createBot(host, token)
+	if err != nil {
+		panic(err)
+	}
+
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT)
 
 	<-sigChan
-	room.Disconnect()
+	b.Disconnect()
 }
 
-func onTrackSubscribed(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
-	fileName := fmt.Sprintf("%s-%s", rp.Identity(), track.ID())
-	fmt.Println("write track to file ", fileName)
-	NewTrackWriter(track, rp.WritePLI, fileName)
+func createSubscriberToken(key string, secret string, id string) (string, error) {
+	at := auth.NewAccessToken(apiKey, apiSecret)
+	f := false
+	t := true
+	grant := &auth.VideoGrant{
+		Room:           roomName,
+		RoomJoin:       true,
+		CanPublish:     &f,
+		CanPublishData: &f,
+		CanSubscribe:   &t,
+		Hidden:         true,
+	}
+	return at.
+		AddGrant(grant).
+		SetIdentity(identity).
+		SetValidFor(time.Hour).
+		ToJWT()
 }
 
-const (
-	maxVideoLate = 1000 // nearly 2s for fhd video
-	maxAudioLate = 200  // 4s for audio
-)
-
-type TrackWriter struct {
-	sb     *samplebuilder.SampleBuilder
-	writer media.Writer
-	track  *webrtc.TrackRemote
+type bot struct {
+	recorders map[string]trackrecorder.Recorder
+	room      *lksdk.Room
 }
 
-func NewTrackWriter(track *webrtc.TrackRemote, pliWriter lksdk.PLIWriter, fileName string) (*TrackWriter, error) {
-	var (
-		sb     *samplebuilder.SampleBuilder
-		writer media.Writer
-		err    error
-	)
-	switch {
-	case strings.EqualFold(track.Codec().MimeType, "video/vp8"):
-		sb = samplebuilder.New(maxVideoLate, &codecs.VP8Packet{}, track.Codec().ClockRate, samplebuilder.WithPacketDroppedHandler(func() {
-			pliWriter(track.SSRC())
-		}))
-		// ivfwriter use frame count as PTS, that might cause video played in a incorrect framerate(fast or slow)
-		writer, err = ivfwriter.New(fileName + ".ivf")
-
-	case strings.EqualFold(track.Codec().MimeType, "video/h264"):
-		sb = samplebuilder.New(maxVideoLate, &codecs.H264Packet{}, track.Codec().ClockRate, samplebuilder.WithPacketDroppedHandler(func() {
-			pliWriter(track.SSRC())
-		}))
-		writer, err = h264writer.New(fileName + ".h264")
-
-	case strings.EqualFold(track.Codec().MimeType, "audio/opus"):
-		sb = samplebuilder.New(maxAudioLate, &codecs.OpusPacket{}, track.Codec().ClockRate)
-		writer, err = oggwriter.New(fileName+".ogg", 48000, track.Codec().Channels)
-
-	default:
-		return nil, errors.New("unsupported codec type")
+func createBot(url string, token string) (*bot, error) {
+	b := &bot{
+		recorders: make(map[string]trackrecorder.Recorder),
 	}
 
+	room, err := lksdk.ConnectToRoomWithToken(host, token)
 	if err != nil {
 		return nil, err
 	}
 
-	t := &TrackWriter{
-		sb:     sb,
-		writer: writer,
-		track:  track,
-	}
-	go t.start()
-	return t, nil
+	room.Callback.OnTrackSubscribed = b.OnTrackSubscribed
+	room.Callback.OnTrackUnsubscribed = b.OnTrackUnsubscribed
+	b.room = room
+
+	return b, nil
 }
 
-func (t *TrackWriter) start() {
-	defer t.writer.Close()
-	for {
-		pkt, _, err := t.track.ReadRTP()
-		if err != nil {
-			break
-		}
-		t.sb.Push(pkt)
-
-		for _, p := range t.sb.PopPackets() {
-			t.writer.WriteRTP(p)
-		}
+func (b *bot) Disconnect() {
+	for _, r := range b.recorders {
+		r.Stop()
 	}
+	b.room.Disconnect()
+}
+
+func (b *bot) OnTrackSubscribed(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
+	// Don't need check empty string (unsupported codec). We'll catch this error in trackrecorder.New()
+	fileExt := trackrecorder.GetMediaExtension(track.Codec().MimeType)
+	fileName := fmt.Sprintf("%s-%s.%s", rp.Identity(), track.ID(), fileExt)
+
+	r, err := trackrecorder.New(fileName, track.Codec(), samplebuilder.WithPacketDroppedHandler(func() {
+		rp.WritePLI(track.SSRC())
+	}))
+	if err != nil {
+		log.Println("trackrecorder error: ", err)
+		return
+	}
+
+	r.Start(context.TODO(), track)
+	b.recorders[publication.SID()] = r
+}
+
+func (b *bot) OnTrackUnsubscribed(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
+	_, found := b.recorders[publication.SID()]
+	if !found {
+		return
+	}
+
+	r := b.recorders[publication.SID()]
+	r.Stop()
+	delete(b.recorders, publication.SID())
 }
