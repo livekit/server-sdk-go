@@ -237,8 +237,10 @@ func (r *Room) handleParticipantUpdate(participants []*livekit.ParticipantInfo) 
 				r.handleParticipantDisconnect(p)
 			}
 		} else if isNew {
-			p = r.addRemoteParticipant(pi)
-			go r.Callback.OnParticipantConnected(p)
+			if pi.State == livekit.ParticipantInfo_ACTIVE {
+				p = r.addRemoteParticipant(pi)
+				go r.Callback.OnParticipantConnected(p)
+			}
 		} else {
 			p.updateInfo(pi)
 		}
