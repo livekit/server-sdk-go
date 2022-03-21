@@ -7,8 +7,7 @@ require (
 	github.com/go-logr/logr v1.1.0
 	github.com/go-logr/stdr v1.0.0
 	github.com/gorilla/websocket v1.4.2
-	// TODO: update version after protocol PR is merged
-	github.com/livekit/protocol v0.11.15-0.20220320074808-41056286643d
+	github.com/livekit/protocol v0.12.0
 	github.com/pion/interceptor v0.1.8
 	github.com/pion/rtcp v1.2.9
 	github.com/pion/rtp v1.7.4
