@@ -71,6 +71,8 @@ func CreateRoom() *Room {
 	engine.OnDataReceived = r.handleDataReceived
 	engine.OnConnectionQuality = r.handleConnectionQualityUpdate
 	engine.OnRoomUpdate = r.handleRoomUpdate
+	engine.client.OnLocalTrackUnpublished = r.handleLocalTrackUnpublished
+	engine.client.OnTrackMuted = r.handleTrackMuted
 
 	return r
 }
@@ -354,6 +356,23 @@ func (r *Room) handleRoomUpdate(room *livekit.Room) {
 	r.metadata = room.Metadata
 	r.lock.Unlock()
 	go r.Callback.OnRoomMetadataChanged(room.Metadata)
+}
+
+func (r *Room) handleTrackMuted(msg *livekit.MuteTrackRequest) {
+	for _, pub := range r.LocalParticipant.Tracks() {
+		if pub.SID() == msg.Sid {
+			localPub := pub.(*LocalTrackPublication)
+			// TODO: pause sending data because it'll be dropped by SFU
+			localPub.SetMuted(msg.Muted)
+		}
+	}
+}
+
+func (r *Room) handleLocalTrackUnpublished(msg *livekit.TrackUnpublishedResponse) {
+	err := r.LocalParticipant.UnpublishTrack(msg.TrackSid)
+	if err != nil {
+		logger.Error(err, "could not unpublish track", "trackID", msg.TrackSid)
+	}
 }
 
 func unpackStreamID(packed string) (participantId string, trackId string) {

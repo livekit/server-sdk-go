@@ -5,6 +5,7 @@ import (
 
 	"github.com/livekit/protocol/livekit"
 	"github.com/pion/webrtc/v3"
+	"go.uber.org/atomic"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
@@ -22,6 +23,9 @@ type RTCEngine struct {
 	lossyDCSub         *webrtc.DataChannel
 	trackPublishedChan chan *livekit.TrackPublishedResponse
 	subscriberPrimary  bool
+
+	url   string
+	token atomic.String
 
 	JoinTimeout time.Duration
 
@@ -49,6 +53,8 @@ func (e *RTCEngine) Join(url string, token string, params *ConnectParams) (*live
 	if err != nil {
 		return nil, err
 	}
+	e.url = url
+	e.token.Store(token)
 
 	if err = e.configure(res); err != nil {
 		return nil, err
@@ -222,6 +228,9 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 	e.client.OnConnectionQuality = e.OnConnectionQuality
 	e.client.OnRoomUpdate = e.OnRoomUpdate
 	e.client.OnLeave = e.OnDisconnected
+	e.client.OnTokenRefresh = func(refreshToken string) {
+		e.token.Store(refreshToken)
+	}
 	e.client.OnClose = func() {
 		// TODO: implement reconnection logic
 		logger.Info("signal connection disconnected")

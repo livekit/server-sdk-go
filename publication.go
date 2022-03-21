@@ -247,7 +247,6 @@ func (p *LocalTrackPublication) SetMuted(muted bool) {
 	if !p.isMuted.Swap(muted) {
 		return
 	}
-
 	_ = p.client.SendMuteTrack(p.sid, muted)
 }
 
