@@ -14,22 +14,25 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const PROTOCOL = 5
+const PROTOCOL = 7
 
 type SignalClient struct {
 	conn *websocket.Conn
 	lock sync.Mutex
 
-	OnClose               func()
-	OnAnswer              func(sd webrtc.SessionDescription)
-	OnOffer               func(sd webrtc.SessionDescription)
-	OnTrickle             func(init webrtc.ICECandidateInit, target livekit.SignalTarget)
-	OnParticipantUpdate   func([]*livekit.ParticipantInfo)
-	OnLocalTrackPublished func(response *livekit.TrackPublishedResponse)
-	OnSpeakersChanged     func([]*livekit.SpeakerInfo)
-	OnConnectionQuality   func([]*livekit.ConnectionQualityInfo)
-	OnRoomUpdate          func(room *livekit.Room)
-	OnLeave               func()
+	OnClose                 func()
+	OnAnswer                func(sd webrtc.SessionDescription)
+	OnOffer                 func(sd webrtc.SessionDescription)
+	OnTrickle               func(init webrtc.ICECandidateInit, target livekit.SignalTarget)
+	OnParticipantUpdate     func([]*livekit.ParticipantInfo)
+	OnLocalTrackPublished   func(response *livekit.TrackPublishedResponse)
+	OnSpeakersChanged       func([]*livekit.SpeakerInfo)
+	OnConnectionQuality     func([]*livekit.ConnectionQualityInfo)
+	OnRoomUpdate            func(room *livekit.Room)
+	OnTrackMuted            func(request *livekit.MuteTrackRequest)
+	OnLocalTrackUnpublished func(response *livekit.TrackUnpublishedResponse)
+	OnTokenRefresh          func(refreshToken string)
+	OnLeave                 func()
 }
 
 func NewSignalClient() *SignalClient {
@@ -210,6 +213,10 @@ func (c *SignalClient) handleResponse(res *livekit.SignalResponse) {
 		if c.OnLocalTrackPublished != nil {
 			c.OnLocalTrackPublished(msg.TrackPublished)
 		}
+	case *livekit.SignalResponse_Mute:
+		if c.OnTrackMuted != nil {
+			c.OnTrackMuted(msg.Mute)
+		}
 	case *livekit.SignalResponse_ConnectionQuality:
 		if c.OnConnectionQuality != nil {
 			c.OnConnectionQuality(msg.ConnectionQuality.Updates)
@@ -221,6 +228,14 @@ func (c *SignalClient) handleResponse(res *livekit.SignalResponse) {
 	case *livekit.SignalResponse_Leave:
 		if c.OnLeave != nil {
 			c.OnLeave()
+		}
+	case *livekit.SignalResponse_RefreshToken:
+		if c.OnTokenRefresh != nil {
+			c.OnTokenRefresh(msg.RefreshToken)
+		}
+	case *livekit.SignalResponse_TrackUnpublished:
+		if c.OnLocalTrackUnpublished != nil {
+			c.OnLocalTrackUnpublished(msg.TrackUnpublished)
 		}
 	}
 }
