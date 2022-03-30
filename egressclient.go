@@ -24,12 +24,12 @@ func NewEgressClient(url string, apiKey string, secretKey string) *EgressClient 
 	}
 }
 
-func (c *EgressClient) StartWebCompositeEgress(ctx context.Context, req *livekit.WebCompositeEgressRequest) (*livekit.EgressInfo, error) {
+func (c *EgressClient) StartRoomCompositeEgress(ctx context.Context, req *livekit.RoomCompositeEgressRequest) (*livekit.EgressInfo, error) {
 	ctx, err := c.withAuth(ctx, auth.VideoGrant{RoomRecord: true})
 	if err != nil {
 		return nil, err
 	}
-	return c.Egress.StartWebCompositeEgress(ctx, req)
+	return c.Egress.StartRoomCompositeEgress(ctx, req)
 }
 
 // func (c *EgressClient) StartTrackCompositeEgress(ctx context.Context, req *livekit.TrackCompositeEgressRequest) (*livekit.EgressInfo, error) {
