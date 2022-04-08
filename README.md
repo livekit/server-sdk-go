@@ -181,25 +181,17 @@ import (
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/webhook"
-	"google.golang.org/protobuf/encoding/protojson"
 )
 
-var authProvider = auth.NewFileBasedKeyProviderFromMap(
-	map[string]string{
-		os.Getenv("LIVEKIT_API_KEY"): os.Getenv("LIVEKIT_API_SECRET"),
-	},
+var authProvider = auth.NewSimpleKeyProvider(
+	apiKey, apiSecret,
 )
 
 func ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	data, err := webhook.Receive(r, authProvider)
+  // event is a livekit.WebhookEvent{} object
+	event, err := webhook.ReceiveWebhookEvent(r, authProvider)
 	if err != nil {
 		// could not validate, handle error
-		return
-	}
-
-	event := livekit.WebhookEvent{}
-	if err = protojson.Unmarshal(data, &event); err != nil {
-		// handle error
 		return
 	}
 
