@@ -509,18 +509,26 @@ func (s *SampleBuilder) Pop() *media.Sample {
 // ForcePopWithTimestamp is like PopWithTimestamp, but will always pops
 // a sample if any are available, even if it's being blocked by a missing
 // packet.  This is useful when the stream ends, or after a link outage.
-// After ForcePopWithTimestamp returns nil, the samplebuilder is
+// After ForcePopWithTimestamp returns nil, the SampleBuilder is
 // guaranteed to be empty.
 func (s *SampleBuilder) ForcePopWithTimestamp() (*media.Sample, uint32) {
 	return s.popSample(true)
 }
 
-// PopPackets returns rtp packets of a completed packet(a frame of audio/video).
+// PopPackets returns rtp packets of a completed packet (a frame of audio/video).
 // If the oldest packet is incomplete and hasn't reached MaxLate yet, PopPackets
 // returns nil.
 // rtp packets returned is not called release handle by SampleBuilder, so caller
-// is reponsible for release these packets if required.
+// is responsible for release these packets if required.
 func (s *SampleBuilder) PopPackets() []*rtp.Packet {
 	pkts, _ := s.popRtpPackets(false)
+	return pkts
+}
+
+// PopPackets returns rtp packets of all remaining completed packets
+// (frames of audio/video). Any incomplete packets are dropped. After
+// ForcePopPackets returns, the SampleBuilder is guaranteed to be empty.
+func (s *SampleBuilder) ForcePopPackets() []*rtp.Packet {
+	pkts, _ := s.popRtpPackets(true)
 	return pkts
 }
