@@ -525,7 +525,7 @@ func (s *SampleBuilder) PopPackets() []*rtp.Packet {
 	return pkts
 }
 
-// PopPackets returns rtp packets of all remaining completed packets
+// ForcePopPackets returns rtp packets of all remaining completed packets
 // (frames of audio/video). Any incomplete packets are dropped. After
 // ForcePopPackets returns, the SampleBuilder is guaranteed to be empty.
 func (s *SampleBuilder) ForcePopPackets() []*rtp.Packet {
