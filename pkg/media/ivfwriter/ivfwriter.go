@@ -41,14 +41,13 @@ type IVFWriter struct {
 	// AV1
 	av1Frame frame.AV1
 
-	width        uint16
-	height       uint16
-	frameCount   uint64
-	droppedCount uint64
+	width      uint16
+	height     uint16
+	frameCount uint64
 
-	clockRate      uint32
-	firstTimestamp uint32
-	lastTimestamp  uint32
+	clockRate uint32
+	ptsOffset uint32
+	lastPTS   uint32
 }
 
 // New builds a new IVF writer
@@ -107,21 +106,16 @@ func (i *IVFWriter) writeHeader() error {
 		copy(header[8:], "AV01")
 	}
 
-	binary.LittleEndian.PutUint16(header[12:], 640) // Width in pixels
-	binary.LittleEndian.PutUint16(header[14:], 480) // Height in pixels
-	binary.LittleEndian.PutUint32(header[16:], 30)  // Framerate numerator
-	binary.LittleEndian.PutUint32(header[20:], 1)   // Framerate denominator
-	binary.LittleEndian.PutUint32(header[24:], 900) // Frame count
-	binary.LittleEndian.PutUint32(header[28:], 0)   // Unused
+	binary.LittleEndian.PutUint32(header[28:], 0) // Unused
 
 	_, err := i.ioWriter.Write(header)
 	return err
 }
 
-func (i *IVFWriter) writeFrame(frame []byte) error {
+func (i *IVFWriter) writeFrame(frame []byte, pts uint64) error {
 	frameHeader := make([]byte, 12)
 	binary.LittleEndian.PutUint32(frameHeader[0:], uint32(len(frame))) // Frame length
-	binary.LittleEndian.PutUint64(frameHeader[4:], i.frameCount)       // PTS
+	binary.LittleEndian.PutUint64(frameHeader[4:], pts)                // PTS
 	i.frameCount++
 
 	if _, err := i.ioWriter.Write(frameHeader); err != nil {
@@ -153,7 +147,7 @@ func (i *IVFWriter) WriteRTP(packet *rtp.Packet) error {
 			return nil
 		case !i.seenKeyFrame:
 			i.seenKeyFrame = true
-			i.firstTimestamp = packet.Timestamp
+			i.ptsOffset = packet.Timestamp
 		}
 
 		i.currentFrame = append(i.currentFrame, vp8Packet.Payload[0:]...)
@@ -164,12 +158,12 @@ func (i *IVFWriter) WriteRTP(packet *rtp.Packet) error {
 			return nil
 		}
 
-		i.lastTimestamp = packet.Timestamp
-
-		if err := i.writeFrame(i.currentFrame); err != nil {
+		pts := packet.Timestamp - i.ptsOffset
+		if err := i.writeFrame(i.currentFrame, uint64(pts)); err != nil {
 			return err
 		}
 
+		i.lastPTS = pts
 		i.currentFrame = nil
 	} else if i.isAV1 {
 		av1Packet := &codecs.AV1Packet{}
@@ -183,7 +177,7 @@ func (i *IVFWriter) WriteRTP(packet *rtp.Packet) error {
 		}
 
 		for j := range obus {
-			if err := i.writeFrame(obus[j]); err != nil {
+			if err := i.writeFrame(obus[j], i.frameCount); err != nil {
 				return err
 			}
 		}
@@ -193,7 +187,7 @@ func (i *IVFWriter) WriteRTP(packet *rtp.Packet) error {
 }
 
 func (i *IVFWriter) FrameDropped() {
-	i.droppedCount++
+	i.frameCount++
 }
 
 // Close stops the recording
@@ -214,9 +208,7 @@ func (i *IVFWriter) Close() error {
 			return err
 		}
 
-		totalSamples := float64(i.lastTimestamp - i.firstTimestamp)
-		totalFrames := float64(i.frameCount + i.droppedCount)
-		num, den := framerate.GetBestMatch(float64(i.clockRate) * totalFrames / totalSamples)
+		num, den := framerate.GetBestMatch(float64(i.clockRate) * float64(i.frameCount) / float64(i.lastPTS))
 
 		buff := make([]byte, 16)
 		binary.LittleEndian.PutUint16(buff, i.width)                   // Width in pixels
