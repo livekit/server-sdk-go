@@ -104,6 +104,9 @@ func (i *IVFWriter) writeHeader() error {
 
 	binary.LittleEndian.PutUint16(header[12:], 640) // Width in pixels
 	binary.LittleEndian.PutUint16(header[14:], 480) // Height in pixels
+	binary.LittleEndian.PutUint32(header[16:], 24)  // Framerate numerator (updated on Close)
+	binary.LittleEndian.PutUint32(header[20:], 1)   // Framerate denominator (updated on Close)
+	binary.LittleEndian.PutUint32(header[24:], 900) // Frame count (updated on Close)
 	binary.LittleEndian.PutUint32(header[28:], 0)   // Unused
 
 	_, err := i.ioWriter.Write(header)
