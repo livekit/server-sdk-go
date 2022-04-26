@@ -22,8 +22,9 @@ var (
 )
 
 const (
-	mimeTypeVP8 = "video/VP8"
-	mimeTypeAV1 = "video/AV1"
+	mimeTypeVP8         = "video/VP8"
+	defaultVP8ClockRate = 90000
+	mimeTypeAV1         = "video/AV1"
 
 	ivfFileHeaderSignature = "DKIF"
 )
@@ -81,6 +82,9 @@ func NewWith(out io.Writer, opts ...Option) (*IVFWriter, error) {
 
 	if !writer.isAV1 && !writer.isVP8 {
 		writer.isVP8 = true
+		if writer.clockRate == 0 {
+			writer.clockRate = defaultVP8ClockRate
+		}
 	}
 
 	if err := writer.writeHeader(); err != nil {
@@ -240,13 +244,23 @@ func WithCodec(mimeType string) Option {
 		switch mimeType {
 		case mimeTypeVP8:
 			i.isVP8 = true
-			i.clockRate = 90000
+			if i.clockRate == 0 {
+				i.clockRate = defaultVP8ClockRate
+			}
 		case mimeTypeAV1:
 			i.isAV1 = true
 		default:
 			return errNoSuchCodec
 		}
 
+		return nil
+	}
+}
+
+// WithClockRate sets clock rate to ensure proper playback speed
+func WithClockRate(clockRate uint32) Option {
+	return func(i *IVFWriter) error {
+		i.clockRate = clockRate
 		return nil
 	}
 }
