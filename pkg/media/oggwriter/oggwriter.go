@@ -13,13 +13,18 @@ import (
 )
 
 const (
+	idPageSignature      = "OpusHead"
+	defaultPreSkip       = 3840 // 3840 recommended in the RFC
+	outputGain           = 0
+	commentPageSignature = "OpusTags"
+	commentVendorLength  = 7
+	commentVendorName    = "LiveKit"
+	userCommentLength    = 0
+
+	pageHeaderSignature                = "OggS"
 	pageHeaderTypeContinuationOfStream = 0x00
 	pageHeaderTypeBeginningOfStream    = 0x02
 	pageHeaderTypeEndOfStream          = 0x04
-	defaultPreSkip                     = 3840 // 3840 recommended in the RFC
-	idPageSignature                    = "OpusHead"
-	commentPageSignature               = "OpusTags"
-	pageHeaderSignature                = "OggS"
 )
 
 var (
@@ -29,16 +34,16 @@ var (
 
 // OggWriter is used to take RTP packets and write them to an OGG on disk
 type OggWriter struct {
-	stream                  io.Writer
-	fd                      *os.File
-	sampleRate              uint32
-	channelCount            uint16
-	serial                  uint32
-	pageIndex               uint32
-	checksumTable           *[256]uint32
-	previousGranulePosition uint64
-	previousTimestamp       uint32
-	lastPayloadSize         int
+	stream          io.Writer
+	fd              *os.File
+	sampleRate      uint32
+	channelCount    uint16
+	serial          uint32
+	pageIndex       uint32
+	checksumTable   *[256]uint32
+	granulePosition uint64
+	lastTimestamp   uint32
+	payloadSize     int
 }
 
 // New builds a new OGG Opus writer
@@ -70,8 +75,8 @@ func NewWith(out io.Writer, sampleRate uint32, channelCount uint16) (*OggWriter,
 
 		// Timestamp and Granule MUST start from 1
 		// Only headers can have 0 values
-		previousTimestamp:       1,
-		previousGranulePosition: 1,
+		lastTimestamp:   1,
+		granulePosition: 1,
 	}
 	if err := writer.writeHeaders(); err != nil {
 		return nil, err
@@ -108,12 +113,12 @@ func (i *OggWriter) writeHeaders() error {
 	oggIDHeader := make([]byte, 19)
 
 	copy(oggIDHeader[0:], idPageSignature)                          // Magic Signature 'OpusHead'
-	oggIDHeader[8] = 1                                              // Version
+	oggIDHeader[8] = uint8(1)                                       // Version
 	oggIDHeader[9] = uint8(i.channelCount)                          // Channel count
 	binary.LittleEndian.PutUint16(oggIDHeader[10:], defaultPreSkip) // pre-skip
-	binary.LittleEndian.PutUint32(oggIDHeader[12:], i.sampleRate)   // original sample rate, any valid sample e.g 48000
-	binary.LittleEndian.PutUint16(oggIDHeader[16:], 0)              // output gain
-	oggIDHeader[18] = 0                                             // channel map 0 = one stream: mono or stereo
+	binary.LittleEndian.PutUint32(oggIDHeader[12:], i.sampleRate)   // input sample rate, any valid sample e.g 48000
+	binary.LittleEndian.PutUint16(oggIDHeader[16:], outputGain)     // output gain
+	oggIDHeader[18] = 0                                             // channel mapping family 0 = mono or stereo
 
 	// Reference: https://tools.ietf.org/html/rfc7845.html#page-6
 	// RFC specifies that the ID Header page should have a granule position of 0 and a Header Type set to 2 (StartOfStream)
@@ -121,21 +126,19 @@ func (i *OggWriter) writeHeaders() error {
 	if err := i.writeToStream(data); err != nil {
 		return err
 	}
-	i.pageIndex++
 
 	// Comment Header
-	oggCommentHeader := make([]byte, 21)
-	copy(oggCommentHeader[0:], commentPageSignature)        // Magic Signature 'OpusTags'
-	binary.LittleEndian.PutUint32(oggCommentHeader[8:], 5)  // Vendor Length
-	copy(oggCommentHeader[12:], "pion")                     // Vendor name 'pion'
-	binary.LittleEndian.PutUint32(oggCommentHeader[17:], 0) // User Comment List Length
+	oggCommentHeader := make([]byte, 23)
+	copy(oggCommentHeader[0:], commentPageSignature)                         // Magic Signature 'OpusTags'
+	binary.LittleEndian.PutUint32(oggCommentHeader[8:], commentVendorLength) // Vendor Length
+	copy(oggCommentHeader[12:], commentVendorName)                           // Vendor name 'LiveKit'
+	binary.LittleEndian.PutUint32(oggCommentHeader[19:], userCommentLength)  // User Comment List Length
 
 	// RFC specifies that the page where the CommentHeader completes should have a granule position of 0
 	data = i.createPage(oggCommentHeader, pageHeaderTypeContinuationOfStream, 0, i.pageIndex)
 	if err := i.writeToStream(data); err != nil {
 		return err
 	}
-	i.pageIndex++
 
 	return nil
 }
@@ -144,26 +147,28 @@ const (
 	pageHeaderSize = 27
 )
 
+// https://datatracker.ietf.org/doc/html/rfc3533#section-6
 func (i *OggWriter) createPage(payload []uint8, headerType uint8, granulePos uint64, pageIndex uint32) []byte {
-	i.lastPayloadSize = len(payload)
-	page := make([]byte, pageHeaderSize+1+i.lastPayloadSize)
+	i.payloadSize = len(payload)
+	page := make([]byte, pageHeaderSize+1+i.payloadSize)
 
-	copy(page[0:], pageHeaderSignature)                 // page headers starts with 'OggS'
+	copy(page[0:], pageHeaderSignature)                 // Magic Signature 'OggS'
 	page[4] = 0                                         // Version
-	page[5] = headerType                                // 1 = continuation, 2 = beginning of stream, 4 = end of stream
-	binary.LittleEndian.PutUint64(page[6:], granulePos) // granule position
+	page[5] = headerType                                // Header type
+	binary.LittleEndian.PutUint64(page[6:], granulePos) // Granule position
 	binary.LittleEndian.PutUint32(page[14:], i.serial)  // Bitstream serial number
 	binary.LittleEndian.PutUint32(page[18:], pageIndex) // Page sequence number
-	page[26] = 1                                        // Number of segments in page, giving always 1 segment
-	page[27] = uint8(i.lastPayloadSize)                 // Segment Table inserting at 27th position since page header length is 27
-	copy(page[28:], payload)                            // inserting at 28th since Segment Table(1) + header length(27)
+	page[26] = 1                                        // Number of page segments
+	page[27] = uint8(i.payloadSize)                     // Segment Table
+	copy(page[28:], payload)                            // Payload
 
 	var checksum uint32
 	for index := range page {
 		checksum = (checksum << 8) ^ i.checksumTable[byte(checksum>>24)^page[index]]
 	}
-	binary.LittleEndian.PutUint32(page[22:], checksum) // Checksum - generating for page data and inserting at 22th position into 32 bits
+	binary.LittleEndian.PutUint32(page[22:], checksum) // Checksum
 
+	i.pageIndex++
 	return page
 }
 
@@ -185,14 +190,14 @@ func (i *OggWriter) WriteRTP(packet *rtp.Packet) error {
 	payload := opusPacket.Payload[0:]
 
 	// Should be equivalent to sampleRate * duration
-	if i.previousTimestamp != 1 {
-		increment := packet.Timestamp - i.previousTimestamp
-		i.previousGranulePosition += uint64(increment)
+	if i.lastTimestamp != 1 {
+		i.granulePosition += uint64(packet.Timestamp - i.lastTimestamp)
 	}
-	i.previousTimestamp = packet.Timestamp
 
-	data := i.createPage(payload, pageHeaderTypeContinuationOfStream, i.previousGranulePosition, i.pageIndex)
-	i.pageIndex++
+	data := i.createPage(payload, pageHeaderTypeContinuationOfStream, i.granulePosition, i.pageIndex)
+
+	i.lastTimestamp = packet.Timestamp
+
 	return i.writeToStream(data)
 }
 
@@ -214,17 +219,17 @@ func (i *OggWriter) Close() error {
 	}
 
 	// Seek back one page, we need to update the header and generate new CRC
-	pageOffset, err := i.fd.Seek(-1*int64(i.lastPayloadSize+pageHeaderSize+1), 2)
+	pageOffset, err := i.fd.Seek(-1*int64(i.payloadSize+pageHeaderSize+1), 2)
 	if err != nil {
 		return err
 	}
 
-	payload := make([]byte, i.lastPayloadSize)
+	payload := make([]byte, i.payloadSize)
 	if _, err := i.fd.ReadAt(payload, pageOffset+pageHeaderSize+1); err != nil {
 		return err
 	}
 
-	data := i.createPage(payload, pageHeaderTypeEndOfStream, i.previousGranulePosition, i.pageIndex-1)
+	data := i.createPage(payload, pageHeaderTypeEndOfStream, i.granulePosition, i.pageIndex-1)
 	if err := i.writeToStream(data); err != nil {
 		return err
 	}
@@ -257,7 +262,7 @@ func generateChecksumTable() *[256]uint32 {
 			} else {
 				r <<= 1
 			}
-			table[i] = (r & 0xffffffff)
+			table[i] = r & 0xffffffff
 		}
 	}
 	return &table
