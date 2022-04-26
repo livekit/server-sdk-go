@@ -41,13 +41,14 @@ type IVFWriter struct {
 	// AV1
 	av1Frame frame.AV1
 
-	width      uint16
-	height     uint16
-	frameCount uint64
+	width         uint16
+	height        uint16
+	framesDropped uint64
+	frameCount    uint64
 
-	clockRate uint32
-	ptsOffset uint32
-	lastPTS   uint32
+	clockRate      uint32
+	firstTimestamp uint32
+	lastTimestamp  uint32
 }
 
 // New builds a new IVF writer
@@ -147,7 +148,7 @@ func (i *IVFWriter) WriteRTP(packet *rtp.Packet) error {
 			return nil
 		case !i.seenKeyFrame:
 			i.seenKeyFrame = true
-			i.ptsOffset = packet.Timestamp
+			i.firstTimestamp = packet.Timestamp
 		}
 
 		i.currentFrame = append(i.currentFrame, vp8Packet.Payload[0:]...)
@@ -158,12 +159,11 @@ func (i *IVFWriter) WriteRTP(packet *rtp.Packet) error {
 			return nil
 		}
 
-		pts := packet.Timestamp - i.ptsOffset
-		if err := i.writeFrame(i.currentFrame, uint64(pts)); err != nil {
+		if err := i.writeFrame(i.currentFrame, i.frameCount); err != nil {
 			return err
 		}
 
-		i.lastPTS = pts
+		i.lastTimestamp = packet.Timestamp
 		i.currentFrame = nil
 	} else if i.isAV1 {
 		av1Packet := &codecs.AV1Packet{}
@@ -187,7 +187,7 @@ func (i *IVFWriter) WriteRTP(packet *rtp.Packet) error {
 }
 
 func (i *IVFWriter) FrameDropped() {
-	i.frameCount++
+	i.framesDropped++
 }
 
 // Close stops the recording
@@ -208,7 +208,7 @@ func (i *IVFWriter) Close() error {
 			return err
 		}
 
-		num, den := framerate.GetBestMatch(float64(i.clockRate) * float64(i.frameCount) / float64(i.lastPTS))
+		num, den := framerate.GetBestMatch(float64(i.clockRate) * float64(i.frameCount) / float64(i.lastTimestamp-i.firstTimestamp))
 
 		buff := make([]byte, 16)
 		binary.LittleEndian.PutUint16(buff, i.width)                   // Width in pixels
