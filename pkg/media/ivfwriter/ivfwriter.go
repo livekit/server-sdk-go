@@ -41,10 +41,7 @@ type IVFWriter struct {
 	// AV1
 	av1Frame frame.AV1
 
-	width         uint16
-	height        uint16
-	framesDropped uint64
-	frameCount    uint64
+	frameCount uint64
 
 	clockRate      uint32
 	firstTimestamp uint32
@@ -74,8 +71,6 @@ func NewWith(out io.Writer, opts ...Option) (*IVFWriter, error) {
 	writer := &IVFWriter{
 		ioWriter:     out,
 		seenKeyFrame: false,
-		width:        640,
-		height:       480,
 	}
 
 	for _, o := range opts {
@@ -107,16 +102,18 @@ func (i *IVFWriter) writeHeader() error {
 		copy(header[8:], "AV01")
 	}
 
-	binary.LittleEndian.PutUint32(header[28:], 0) // Unused
+	binary.LittleEndian.PutUint16(header[12:], 640) // Width in pixels
+	binary.LittleEndian.PutUint16(header[14:], 480) // Height in pixels
+	binary.LittleEndian.PutUint32(header[28:], 0)   // Unused
 
 	_, err := i.ioWriter.Write(header)
 	return err
 }
 
-func (i *IVFWriter) writeFrame(frame []byte, pts uint64) error {
+func (i *IVFWriter) writeFrame(frame []byte) error {
 	frameHeader := make([]byte, 12)
 	binary.LittleEndian.PutUint32(frameHeader[0:], uint32(len(frame))) // Frame length
-	binary.LittleEndian.PutUint64(frameHeader[4:], pts)                // PTS
+	binary.LittleEndian.PutUint64(frameHeader[4:], i.frameCount)       // PTS
 	i.frameCount++
 
 	if _, err := i.ioWriter.Write(frameHeader); err != nil {
@@ -159,7 +156,7 @@ func (i *IVFWriter) WriteRTP(packet *rtp.Packet) error {
 			return nil
 		}
 
-		if err := i.writeFrame(i.currentFrame, i.frameCount); err != nil {
+		if err := i.writeFrame(i.currentFrame); err != nil {
 			return err
 		}
 
@@ -177,7 +174,7 @@ func (i *IVFWriter) WriteRTP(packet *rtp.Packet) error {
 		}
 
 		for j := range obus {
-			if err := i.writeFrame(obus[j], i.frameCount); err != nil {
+			if err := i.writeFrame(obus[j]); err != nil {
 				return err
 			}
 		}
@@ -187,7 +184,7 @@ func (i *IVFWriter) WriteRTP(packet *rtp.Packet) error {
 }
 
 func (i *IVFWriter) FrameDropped() {
-	i.framesDropped++
+	i.frameCount++
 }
 
 // Close stops the recording
@@ -204,18 +201,16 @@ func (i *IVFWriter) Close() error {
 
 	if ws, ok := i.ioWriter.(io.WriteSeeker); ok {
 		// Update header
-		if _, err := ws.Seek(12, 0); err != nil {
+		if _, err := ws.Seek(16, 0); err != nil {
 			return err
 		}
 
 		num, den := framerate.GetBestMatch(float64(i.clockRate) * float64(i.frameCount) / float64(i.lastTimestamp-i.firstTimestamp))
 
-		buff := make([]byte, 16)
-		binary.LittleEndian.PutUint16(buff, i.width)                   // Width in pixels
-		binary.LittleEndian.PutUint16(buff[2:], i.height)              // Height in pixels
-		binary.LittleEndian.PutUint32(buff[4:], num)                   // Framerate numerator
-		binary.LittleEndian.PutUint32(buff[8:], den)                   // Framerate denominator
-		binary.LittleEndian.PutUint32(buff[12:], uint32(i.frameCount)) // Frame count
+		buff := make([]byte, 12)
+		binary.LittleEndian.PutUint32(buff[0:], num)                  // Framerate numerator
+		binary.LittleEndian.PutUint32(buff[4:], den)                  // Framerate denominator
+		binary.LittleEndian.PutUint32(buff[8:], uint32(i.frameCount)) // Frame count
 
 		if _, err := ws.Write(buff); err != nil {
 			return err
