@@ -140,7 +140,8 @@ The above encodes VP8 at average 1Mbps / max 2Mbps with a minimum keyframe inter
 
 ```bash
 ffmpeg -i <input.mp4> \
-  -c:v libx264 -bsf:v h264_mp4toannexb -b:v 2M -x264-params keyint=120 -max_delay 0 -bf 0 <output.h264> \
+  -c:v libx264 -bsf:v h264_mp4toannexb -b:v 2M -profile baseline -pix_fmt yuv420p \
+    -x264-params keyint=120 -max_delay 0 -bf 0 <output.h264> \
   -c:a libopus -page_duration 20000 -vn <output.ogg>
 ```
 
