@@ -14,6 +14,7 @@ type EgressClient struct {
 }
 
 func NewEgressClient(url string, apiKey string, secretKey string) *EgressClient {
+	url = ToHttpURL(url)
 	client := livekit.NewEgressProtobufClient(url, &http.Client{})
 	return &EgressClient{
 		Egress: client,

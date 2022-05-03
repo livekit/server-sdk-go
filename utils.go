@@ -2,10 +2,12 @@ package lksdk
 
 import (
 	"encoding/json"
+	"strings"
 
-	"github.com/livekit/protocol/livekit"
 	"github.com/pion/webrtc/v3"
 	"github.com/thoas/go-funk"
+
+	"github.com/livekit/protocol/livekit"
 )
 
 func ToProtoSessionDescription(sd webrtc.SessionDescription) *livekit.SessionDescription {
@@ -56,4 +58,18 @@ func FromProtoIceServers(iceservers []*livekit.ICEServer) []webrtc.ICEServer {
 		}
 	})
 	return servers.([]webrtc.ICEServer)
+}
+
+func ToHttpURL(url string) string {
+	if strings.HasPrefix(url, "ws") {
+		return strings.Replace(url, "ws", "http", 1)
+	}
+	return url
+}
+
+func ToWebsocketURL(url string) string {
+	if strings.HasPrefix(url, "http") {
+		return strings.Replace(url, "http", "ws", 1)
+	}
+	return url
 }
