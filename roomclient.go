@@ -14,6 +14,7 @@ type RoomServiceClient struct {
 }
 
 func NewRoomServiceClient(url string, apiKey string, secretKey string) *RoomServiceClient {
+	url = ToHttpURL(url)
 	client := livekit.NewRoomServiceProtobufClient(url, &http.Client{})
 	return &RoomServiceClient{
 		RoomService: client,

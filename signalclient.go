@@ -4,14 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"strings"
 	"sync"
 
 	"github.com/gorilla/websocket"
-	"github.com/livekit/protocol/livekit"
 	"github.com/pion/webrtc/v3"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+
+	"github.com/livekit/protocol/livekit"
 )
 
 const PROTOCOL = 7
@@ -41,10 +41,7 @@ func NewSignalClient() *SignalClient {
 }
 
 func (c *SignalClient) Join(urlPrefix string, token string, params *ConnectParams) (*livekit.JoinResponse, error) {
-	if strings.HasPrefix(urlPrefix, "http") {
-		urlPrefix = strings.Replace(urlPrefix, "http", "ws", 1)
-	}
-
+	urlPrefix = ToWebsocketURL(urlPrefix)
 	urlSuffix := fmt.Sprintf("/rtc?protocol=%d&sdk=go&version=%s", PROTOCOL, Version)
 
 	if params.AutoSubscribe {
