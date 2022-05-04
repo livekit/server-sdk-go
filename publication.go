@@ -245,7 +245,7 @@ func (p *LocalTrackPublication) GetSimulcastTrack(quality livekit.VideoQuality) 
 }
 
 func (p *LocalTrackPublication) SetMuted(muted bool) {
-	if !p.isMuted.Swap(muted) {
+	if p.isMuted.Swap(muted) == muted {
 		return
 	}
 	_ = p.client.SendMuteTrack(p.sid, muted)
