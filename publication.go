@@ -3,10 +3,11 @@ package lksdk
 import (
 	"sync"
 
-	"github.com/livekit/protocol/livekit"
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v3"
 	"go.uber.org/atomic"
+
+	"github.com/livekit/protocol/livekit"
 )
 
 type TrackPublication interface {
@@ -244,7 +245,7 @@ func (p *LocalTrackPublication) GetSimulcastTrack(quality livekit.VideoQuality) 
 }
 
 func (p *LocalTrackPublication) SetMuted(muted bool) {
-	if !p.isMuted.Swap(muted) {
+	if p.isMuted.Swap(muted) == muted {
 		return
 	}
 	_ = p.client.SendMuteTrack(p.sid, muted)
@@ -285,4 +286,6 @@ type TrackPublicationOptions struct {
 	// Set dimensions for video
 	VideoWidth  int
 	VideoHeight int
+	// Opus only
+	DisableDTX bool
 }

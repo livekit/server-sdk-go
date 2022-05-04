@@ -4,9 +4,10 @@ import (
 	"sort"
 	"time"
 
-	"github.com/livekit/protocol/livekit"
 	"github.com/pion/webrtc/v3"
 	"google.golang.org/protobuf/proto"
+
+	"github.com/livekit/protocol/livekit"
 )
 
 const (
@@ -47,12 +48,13 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 		},
 	}
 	req := &livekit.AddTrackRequest{
-		Cid:    track.ID(),
-		Name:   opts.Name,
-		Source: opts.Source,
-		Type:   kind.ProtoType(),
-		Width:  uint32(opts.VideoWidth),
-		Height: uint32(opts.VideoHeight),
+		Cid:        track.ID(),
+		Name:       opts.Name,
+		Source:     opts.Source,
+		Type:       kind.ProtoType(),
+		Width:      uint32(opts.VideoWidth),
+		Height:     uint32(opts.VideoHeight),
+		DisableDtx: opts.DisableDTX,
 	}
 	if kind == TrackKindVideo {
 		// single layer

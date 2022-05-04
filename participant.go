@@ -3,8 +3,9 @@ package lksdk
 import (
 	"sync"
 
-	"github.com/livekit/protocol/livekit"
 	"go.uber.org/atomic"
+
+	"github.com/livekit/protocol/livekit"
 )
 
 type Participant interface {
@@ -127,7 +128,7 @@ func (p *baseParticipant) setAudioLevel(level float32) {
 }
 
 func (p *baseParticipant) setIsSpeaking(speaking bool) {
-	if !p.isSpeaking.Swap(speaking) {
+	if p.isSpeaking.Swap(speaking) == speaking {
 		return
 	}
 	p.Callback.OnIsSpeakingChanged(p)

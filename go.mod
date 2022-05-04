@@ -9,8 +9,9 @@ require (
 	github.com/gorilla/websocket v1.4.2
 	github.com/livekit/protocol v0.13.0
 	github.com/pion/interceptor v0.1.8
+	github.com/pion/randutil v0.1.0
 	github.com/pion/rtcp v1.2.9
-	github.com/pion/rtp v1.7.4
+	github.com/pion/rtp v1.7.13
 	github.com/pion/sdp/v3 v3.0.4
 	github.com/pion/webrtc/v3 v3.1.25-0.20220225075517-37e16a3b15a3
 	github.com/stretchr/testify v1.7.0
@@ -38,7 +39,6 @@ require (
 	github.com/pion/ice/v2 v2.2.1 // indirect
 	github.com/pion/logging v0.2.2 // indirect
 	github.com/pion/mdns v0.0.5 // indirect
-	github.com/pion/randutil v0.1.0 // indirect
 	github.com/pion/sctp v1.8.2 // indirect
 	github.com/pion/srtp/v2 v2.0.5 // indirect
 	github.com/pion/stun v0.3.5 // indirect

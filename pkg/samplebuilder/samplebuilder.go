@@ -40,7 +40,8 @@ type SampleBuilder struct {
 	// indicates whether the lastTimestamp field is valid
 	lastTimestampValid bool
 	// the timestamp of the last popped packet, if any.
-	lastTimestamp   uint32
+	lastTimestamp uint32
+
 	onPacketDropped func()
 }
 
@@ -87,7 +88,7 @@ func WithPacketDroppedHandler(h func()) Option {
 	}
 }
 
-// check verifies the samplebuilder's invariants.  It may be used in testing.
+// check verifies the SampleBuilder's invariants.  It may be used in testing.
 func (s *SampleBuilder) check() error {
 	if s.head == s.tail {
 		return nil
@@ -217,6 +218,9 @@ func (s *SampleBuilder) releaseAll() {
 func (s *SampleBuilder) drop() (bool, uint32) {
 	if s.tail == s.head {
 		return false, 0
+	}
+	if s.onPacketDropped != nil {
+		s.onPacketDropped()
 	}
 	ts := s.packets[s.tail].packet.Timestamp
 	s.release(true)
