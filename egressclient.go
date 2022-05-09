@@ -33,21 +33,21 @@ func (c *EgressClient) StartRoomCompositeEgress(ctx context.Context, req *liveki
 	return c.Egress.StartRoomCompositeEgress(ctx, req)
 }
 
-// func (c *EgressClient) StartTrackCompositeEgress(ctx context.Context, req *livekit.TrackCompositeEgressRequest) (*livekit.EgressInfo, error) {
-// 	ctx, err := c.withAuth(ctx, auth.VideoGrant{RoomRecord: true})
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	return c.Egress.StartTrackCompositeEgress(ctx, req)
-// }
-//
-// func (c *EgressClient) StartTrackEgress(ctx context.Context, req *livekit.TrackEgressRequest) (*livekit.EgressInfo, error) {
-// 	ctx, err := c.withAuth(ctx, auth.VideoGrant{RoomRecord: true})
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	return c.Egress.StartTrackEgress(ctx, req)
-// }
+func (c *EgressClient) StartTrackCompositeEgress(ctx context.Context, req *livekit.TrackCompositeEgressRequest) (*livekit.EgressInfo, error) {
+	ctx, err := c.withAuth(ctx, auth.VideoGrant{RoomRecord: true})
+	if err != nil {
+		return nil, err
+	}
+	return c.Egress.StartTrackCompositeEgress(ctx, req)
+}
+
+func (c *EgressClient) StartTrackEgress(ctx context.Context, req *livekit.TrackEgressRequest) (*livekit.EgressInfo, error) {
+	ctx, err := c.withAuth(ctx, auth.VideoGrant{RoomRecord: true})
+	if err != nil {
+		return nil, err
+	}
+	return c.Egress.StartTrackEgress(ctx, req)
+}
 
 func (c *EgressClient) UpdateLayout(ctx context.Context, req *livekit.UpdateLayoutRequest) (*livekit.EgressInfo, error) {
 	ctx, err := c.withAuth(ctx, auth.VideoGrant{RoomRecord: true})
