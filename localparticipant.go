@@ -241,7 +241,7 @@ func (p *LocalParticipant) PublishData(data []byte, kind livekit.DataPacket_Kind
 func (p *LocalParticipant) UnpublishTrack(sid string) error {
 	obj, loaded := p.tracks.LoadAndDelete(sid)
 	if !loaded {
-		return nil
+		return ErrCannotFindTrack
 	}
 	p.audioTracks.Delete(sid)
 	p.videoTracks.Delete(sid)
