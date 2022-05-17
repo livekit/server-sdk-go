@@ -9,4 +9,5 @@ var (
 	ErrUnsupportedFileType      = errors.New("FileSampleProvider does not support this mime type")
 	ErrUnsupportedSimulcastKind = errors.New("simulcast is only supported for video")
 	ErrInvalidSimulcastTrack    = errors.New("simulcast track was not initiated correctly")
+	ErrCannotFindTrack          = errors.New("could not find the track")
 )
