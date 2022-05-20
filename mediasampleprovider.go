@@ -94,6 +94,7 @@ func NewLocalFileTrack(file string, options ...MediaSampleProviderOption) (*Loca
 }
 
 // NewLocalReaderTrack uses io.ReadCloser interface to adapt to various ingress types
+// - mime: has to be one of webrtc.MimeType...
 func NewLocalReaderTrack(in io.ReadCloser, mime string, options ...MediaSampleProviderOption) (*LocalSampleTrack, error) {
 	provider := &MediaSampleProvider{
 		Mime:   mime,
