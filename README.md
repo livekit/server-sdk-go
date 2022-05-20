@@ -153,13 +153,30 @@ The above encodes H264 with CBS of 2Mbps with a minimum keyframe interval of 120
 file := "video.ivf"
 track, err := lksdk.NewLocalFileTrack(file,
 	// control FPS to ensure synchronization
-	lksdk.FileTrackWithFrameDuration(33 * time.Millisecond),
-	lksdk.FileTrackWithOnWriteComplete(func() { fmt.Println("track finished") }),
+	lksdk.MediaTrackWithFrameDuration(33 * time.Millisecond),
+	lksdk.MediaTrackWithOnWriteComplete(func() { fmt.Println("track finished") }),
 )
 if err != nil {
     return err
 }
 if _, err = room.LocalParticipant.PublishTrack(track, file); err != nil {
+    return err
+}
+```
+
+### Publish from io.ReadCloser implementation
+
+```go
+// - `in` implements io.ReadCloser, such as buffer or file
+// - `mime` has to be one of webrtc.MimeType...
+track, err := lksdk.NewLocalReaderTrack(in, mime,
+	lksdk.MediaTrackWithFrameDuration(33 * time.Millisecond),
+	lksdk.MediaTrackWithOnWriteComplete(func() { fmt.Println("track finished") }),
+)
+if err != nil {
+	return err
+}
+if _, err = room.LocalParticipant.PublishTrack(track, &lksdk.TrackPublicationOptions{}); err != nil {
     return err
 }
 ```
