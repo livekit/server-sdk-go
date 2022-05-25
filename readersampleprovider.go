@@ -19,8 +19,8 @@ const (
 	defaultOpusFrameDuration = 20 * time.Millisecond
 )
 
-// MediaSampleProvider provides samples by reading from an io.ReadCloser implementation
-type MediaSampleProvider struct {
+// ReaderSampleProvider provides samples by reading from an io.ReadCloser implementation
+type ReaderSampleProvider struct {
 	// Configuration
 	Mime            string
 	FrameDuration   time.Duration
@@ -43,28 +43,28 @@ type MediaSampleProvider struct {
 	lastGranule uint64
 }
 
-type MediaSampleProviderOption func(*MediaSampleProvider)
+type ReaderSampleProviderOption func(*ReaderSampleProvider)
 
-func MediaTrackWithMime(mime string) func(provider *MediaSampleProvider) {
-	return func(provider *MediaSampleProvider) {
+func ReaderTrackWithMime(mime string) func(provider *ReaderSampleProvider) {
+	return func(provider *ReaderSampleProvider) {
 		provider.Mime = mime
 	}
 }
 
-func MediaTrackWithFrameDuration(duration time.Duration) func(provider *MediaSampleProvider) {
-	return func(provider *MediaSampleProvider) {
+func ReaderTrackWithFrameDuration(duration time.Duration) func(provider *ReaderSampleProvider) {
+	return func(provider *ReaderSampleProvider) {
 		provider.FrameDuration = duration
 	}
 }
 
-func MediaTrackWithOnWriteComplete(f func()) func(provider *MediaSampleProvider) {
-	return func(provider *MediaSampleProvider) {
+func ReaderTrackWithOnWriteComplete(f func()) func(provider *ReaderSampleProvider) {
+	return func(provider *ReaderSampleProvider) {
 		provider.OnWriteComplete = f
 	}
 }
 
 // NewLocalFileTrack creates an *os.File reader for NewLocalReaderTrack
-func NewLocalFileTrack(file string, options ...MediaSampleProviderOption) (*LocalSampleTrack, error) {
+func NewLocalFileTrack(file string, options ...ReaderSampleProviderOption) (*LocalSampleTrack, error) {
 	// File health check
 	var err error
 	if _, err = os.Stat(file); err != nil {
@@ -94,9 +94,9 @@ func NewLocalFileTrack(file string, options ...MediaSampleProviderOption) (*Loca
 }
 
 // NewLocalReaderTrack uses io.ReadCloser interface to adapt to various ingress types
-// - mime: has to be one of webrtc.MimeType...
-func NewLocalReaderTrack(in io.ReadCloser, mime string, options ...MediaSampleProviderOption) (*LocalSampleTrack, error) {
-	provider := &MediaSampleProvider{
+// - mime: has to be one of webrtc.MimeType... (e.g. webrtc.MimeTypeOpus)
+func NewLocalReaderTrack(in io.ReadCloser, mime string, options ...ReaderSampleProviderOption) (*LocalSampleTrack, error) {
+	provider := &ReaderSampleProvider{
 		Mime:   mime,
 		reader: in,
 		// default audio level to be fairly loud
@@ -128,7 +128,7 @@ func NewLocalReaderTrack(in io.ReadCloser, mime string, options ...MediaSamplePr
 	return track, nil
 }
 
-func (p *MediaSampleProvider) OnBind() error {
+func (p *ReaderSampleProvider) OnBind() error {
 	var err error
 	switch p.Mime {
 	case webrtc.MimeTypeH264:
@@ -151,15 +151,15 @@ func (p *MediaSampleProvider) OnBind() error {
 	return nil
 }
 
-func (p *MediaSampleProvider) OnUnbind() error {
+func (p *ReaderSampleProvider) OnUnbind() error {
 	return p.reader.Close()
 }
 
-func (p *MediaSampleProvider) CurrentAudioLevel() uint8 {
+func (p *ReaderSampleProvider) CurrentAudioLevel() uint8 {
 	return p.AudioLevel
 }
 
-func (p *MediaSampleProvider) NextSample() (media.Sample, error) {
+func (p *ReaderSampleProvider) NextSample() (media.Sample, error) {
 	sample := media.Sample{}
 	switch p.Mime {
 	case webrtc.MimeTypeH264:
