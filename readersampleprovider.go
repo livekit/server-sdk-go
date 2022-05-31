@@ -1,6 +1,7 @@
 package lksdk
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -18,14 +19,16 @@ const (
 	defaultOpusFrameDuration = 20 * time.Millisecond
 )
 
-// FileSampleProvider provides samples by reading from a video file
-type FileSampleProvider struct {
+// ReaderSampleProvider provides samples by reading from an io.ReadCloser implementation
+type ReaderSampleProvider struct {
+	// Configuration
 	Mime            string
-	FileName        string
 	FrameDuration   time.Duration
 	OnWriteComplete func()
 	AudioLevel      uint8
-	file            *os.File
+
+	// Allow various types of ingress
+	reader io.ReadCloser
 
 	// for vp8
 	ivfreader     *ivfreader.IVFReader
@@ -40,29 +43,62 @@ type FileSampleProvider struct {
 	lastGranule uint64
 }
 
-type FileSampleProviderOption func(*FileSampleProvider)
+type ReaderSampleProviderOption func(*ReaderSampleProvider)
 
-func FileTrackWithMime(mime string) func(provider *FileSampleProvider) {
-	return func(provider *FileSampleProvider) {
+func ReaderTrackWithMime(mime string) func(provider *ReaderSampleProvider) {
+	return func(provider *ReaderSampleProvider) {
 		provider.Mime = mime
 	}
 }
 
-func FileTrackWithFrameDuration(duration time.Duration) func(provider *FileSampleProvider) {
-	return func(provider *FileSampleProvider) {
+func ReaderTrackWithFrameDuration(duration time.Duration) func(provider *ReaderSampleProvider) {
+	return func(provider *ReaderSampleProvider) {
 		provider.FrameDuration = duration
 	}
 }
 
-func FileTrackWithOnWriteComplete(f func()) func(provider *FileSampleProvider) {
-	return func(provider *FileSampleProvider) {
+func ReaderTrackWithOnWriteComplete(f func()) func(provider *ReaderSampleProvider) {
+	return func(provider *ReaderSampleProvider) {
 		provider.OnWriteComplete = f
 	}
 }
 
-func NewLocalFileTrack(file string, options ...FileSampleProviderOption) (*LocalSampleTrack, error) {
-	provider := &FileSampleProvider{
-		FileName: file,
+// NewLocalFileTrack creates an *os.File reader for NewLocalReaderTrack
+func NewLocalFileTrack(file string, options ...ReaderSampleProviderOption) (*LocalSampleTrack, error) {
+	// File health check
+	var err error
+	if _, err = os.Stat(file); err != nil {
+		return nil, err
+	}
+
+	// Open the file
+	fp, err := os.Open(file)
+	if err != nil {
+		return nil, err
+	}
+
+	// Determine mime type from extension
+	var mime string
+	switch filepath.Ext(file) {
+	case ".h264":
+		mime = webrtc.MimeTypeH264
+	case ".ivf":
+		mime = webrtc.MimeTypeVP8
+	case ".ogg":
+		mime = webrtc.MimeTypeOpus
+	default:
+		return nil, ErrCannotDetermineMime
+	}
+
+	return NewLocalReaderTrack(fp, mime, options...)
+}
+
+// NewLocalReaderTrack uses io.ReadCloser interface to adapt to various ingress types
+// - mime: has to be one of webrtc.MimeType... (e.g. webrtc.MimeTypeOpus)
+func NewLocalReaderTrack(in io.ReadCloser, mime string, options ...ReaderSampleProviderOption) (*LocalSampleTrack, error) {
+	provider := &ReaderSampleProvider{
+		Mime:   mime,
+		reader: in,
 		// default audio level to be fairly loud
 		AudioLevel: 15,
 	}
@@ -70,21 +106,7 @@ func NewLocalFileTrack(file string, options ...FileSampleProviderOption) (*Local
 		opt(provider)
 	}
 
-	// detect mime if not set
-	if provider.Mime == "" {
-		ext := filepath.Ext(file)
-		switch ext {
-		case ".h264":
-			provider.Mime = webrtc.MimeTypeH264
-		case ".ogg":
-			provider.Mime = webrtc.MimeTypeOpus
-		case ".ivf":
-			provider.Mime = webrtc.MimeTypeVP8
-		default:
-			return nil, ErrCannotDetermineMime
-		}
-	}
-
+	// check if mime type is supported
 	switch provider.Mime {
 	case webrtc.MimeTypeH264, webrtc.MimeTypeOpus, webrtc.MimeTypeVP8:
 	// allow
@@ -92,10 +114,7 @@ func NewLocalFileTrack(file string, options ...FileSampleProviderOption) (*Local
 		return nil, ErrUnsupportedFileType
 	}
 
-	if _, err := os.Stat(file); err != nil {
-		return nil, err
-	}
-
+	// Create sample track & bind handler
 	track, err := NewLocalSampleTrack(webrtc.RTPCodecCapability{MimeType: provider.Mime})
 	if err != nil {
 		return nil, err
@@ -109,42 +128,38 @@ func NewLocalFileTrack(file string, options ...FileSampleProviderOption) (*Local
 	return track, nil
 }
 
-func (p *FileSampleProvider) OnBind() error {
+func (p *ReaderSampleProvider) OnBind() error {
 	var err error
-	p.file, err = os.Open(p.FileName)
-	if err != nil {
-		return err
-	}
 	switch p.Mime {
 	case webrtc.MimeTypeH264:
-		p.h264reader, err = h264reader.NewReader(p.file)
+		p.h264reader, err = h264reader.NewReader(p.reader)
 	case webrtc.MimeTypeVP8:
 		var ivfheader *ivfreader.IVFFileHeader
-		p.ivfreader, ivfheader, err = ivfreader.NewWith(p.file)
+		p.ivfreader, ivfheader, err = ivfreader.NewWith(p.reader)
 		if err == nil {
 			p.ivfTimebase = float64(ivfheader.TimebaseNumerator) / float64(ivfheader.TimebaseDenominator)
 		}
 	case webrtc.MimeTypeOpus:
-		p.oggreader, _, err = oggreader.NewWith(p.file)
+		p.oggreader, _, err = oggreader.NewWith(p.reader)
 	default:
 		err = ErrUnsupportedFileType
 	}
 	if err != nil {
-		_ = p.file.Close()
+		_ = p.reader.Close()
 		return err
 	}
 	return nil
 }
 
-func (p *FileSampleProvider) OnUnbind() error {
-	return p.file.Close()
+func (p *ReaderSampleProvider) OnUnbind() error {
+	return p.reader.Close()
 }
 
-func (p *FileSampleProvider) CurrentAudioLevel() uint8 {
+func (p *ReaderSampleProvider) CurrentAudioLevel() uint8 {
 	return p.AudioLevel
 }
 
-func (p *FileSampleProvider) NextSample() (media.Sample, error) {
+func (p *ReaderSampleProvider) NextSample() (media.Sample, error) {
 	sample := media.Sample{}
 	switch p.Mime {
 	case webrtc.MimeTypeH264:
