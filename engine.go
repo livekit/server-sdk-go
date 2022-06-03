@@ -3,11 +3,12 @@ package lksdk
 import (
 	"time"
 
-	"github.com/livekit/protocol/livekit"
 	"github.com/pion/webrtc/v3"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+
+	"github.com/livekit/protocol/livekit"
 )
 
 const reliableDataChannelName = "_reliable"
@@ -59,6 +60,8 @@ func (e *RTCEngine) Join(url string, token string, params *ConnectParams) (*live
 	if err = e.configure(res); err != nil {
 		return nil, err
 	}
+
+	e.client.Start()
 
 	// send offer
 	if !res.SubscriberPrimary {
