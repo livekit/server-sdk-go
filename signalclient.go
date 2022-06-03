@@ -3,11 +3,13 @@ package lksdk
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"sync"
 
 	"github.com/gorilla/websocket"
 	"github.com/pion/webrtc/v3"
+	"go.uber.org/atomic"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
@@ -17,8 +19,10 @@ import (
 const PROTOCOL = 7
 
 type SignalClient struct {
-	conn *websocket.Conn
-	lock sync.Mutex
+	conn      *websocket.Conn
+	lock      sync.Mutex
+	isClosed  atomic.Bool
+	isStarted atomic.Bool
 
 	OnClose                 func()
 	OnAnswer                func(sd webrtc.SessionDescription)
@@ -38,6 +42,13 @@ type SignalClient struct {
 func NewSignalClient() *SignalClient {
 	c := &SignalClient{}
 	return c
+}
+
+func (c *SignalClient) Start() {
+	if c.isStarted.Swap(true) {
+		return
+	}
+	go c.readWorker()
 }
 
 func (c *SignalClient) Join(urlPrefix string, token string, params *ConnectParams) (*livekit.JoinResponse, error) {
@@ -64,9 +75,7 @@ func (c *SignalClient) Join(urlPrefix string, token string, params *ConnectParam
 	conn.SetCloseHandler(func(code int, text string) error {
 		if c.OnClose != nil {
 			c.OnClose()
-			c.lock.Lock()
-			c.conn = nil
-			c.lock.Unlock()
+			c.isClosed.Store(true)
 		}
 		return nil
 	})
@@ -81,12 +90,13 @@ func (c *SignalClient) Join(urlPrefix string, token string, params *ConnectParam
 		return nil, fmt.Errorf("unexpected response: %v", res.Message)
 	}
 
-	go c.readWorker()
-
 	return join, nil
 }
 
 func (c *SignalClient) Close() {
+	if c.isClosed.Swap(true) {
+		return
+	}
 	if c.conn != nil {
 		_ = c.conn.Close()
 	}
@@ -160,6 +170,9 @@ func (c *SignalClient) SendUpdateTrackSettings(settings *livekit.UpdateTrackSett
 func (c *SignalClient) ReadResponse() (*livekit.SignalResponse, error) {
 	if c.conn == nil {
 		return nil, errors.New("cannot read response before join")
+	}
+	if c.isClosed.Load() {
+		return nil, io.EOF
 	}
 	for {
 		// handle special messages and pass on the rest
@@ -238,16 +251,14 @@ func (c *SignalClient) handleResponse(res *livekit.SignalResponse) {
 }
 
 func (c *SignalClient) readWorker() {
-	conn := c.conn
-	for conn != nil {
+	for !c.isClosed.Load() {
 		res, err := c.ReadResponse()
 		if err != nil {
+			if err != io.EOF {
+				logger.Error(err, "error with read worker")
+			}
 			return
 		}
 		c.handleResponse(res)
-
-		c.lock.Lock()
-		conn = c.conn
-		c.lock.Unlock()
 	}
 }
