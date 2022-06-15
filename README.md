@@ -2,10 +2,10 @@
 
 This is the official Golang SDK to [LiveKit](https://docs.livekit.io). You would integrate this on your app's backend in order to
 
-- Create access tokens
-- Access LiveKit server-side APIs, giving you moderation capabilities
-- Client SDK to interact as participant, publish & record room streams
-- Receive [webhook](https://docs.livekit.io/guides/webhooks/) callbacks
+-   Create access tokens
+-   Access LiveKit server-side APIs, giving you moderation capabilities
+-   Client SDK to interact as participant, publish & record room streams
+-   Receive [webhook](https://docs.livekit.io/guides/webhooks/) callbacks
 
 ## Token creation
 
@@ -134,7 +134,7 @@ ffmpeg -i <input.mp4> \
   -c:a libopus -page_duration 20000 -vn <output.ogg>
 ```
 
-The above encodes VP8 at average 1Mbps / max 2Mbps with a minimum keyframe interval of 120.  
+The above encodes VP8 at average 1Mbps / max 2Mbps with a minimum keyframe interval of 120.
 
 ### H.264 / Opus
 
@@ -153,8 +153,8 @@ The above encodes H264 with CBS of 2Mbps with a minimum keyframe interval of 120
 file := "video.ivf"
 track, err := lksdk.NewLocalFileTrack(file,
 	// control FPS to ensure synchronization
-	lksdk.MediaTrackWithFrameDuration(33 * time.Millisecond),
-	lksdk.MediaTrackWithOnWriteComplete(func() { fmt.Println("track finished") }),
+	lksdk.ReaderTrackWithFrameDuration(33 * time.Millisecond),
+	lksdk.ReaderTrackWithOnWriteComplete(func() { fmt.Println("track finished") }),
 )
 if err != nil {
     return err
@@ -170,8 +170,8 @@ if _, err = room.LocalParticipant.PublishTrack(track, file); err != nil {
 // - `in` implements io.ReadCloser, such as buffer or file
 // - `mime` has to be one of webrtc.MimeType...
 track, err := lksdk.NewLocalReaderTrack(in, mime,
-	lksdk.MediaTrackWithFrameDuration(33 * time.Millisecond),
-	lksdk.MediaTrackWithOnWriteComplete(func() { fmt.Println("track finished") }),
+	lksdk.ReaderTrackWithFrameDuration(33 * time.Millisecond),
+	lksdk.ReaderTrackWithOnWriteComplete(func() { fmt.Println("track finished") }),
 )
 if err != nil {
 	return err
