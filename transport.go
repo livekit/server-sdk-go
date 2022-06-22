@@ -113,20 +113,29 @@ func (t *PCTransport) Negotiate() {
 	})
 }
 
-func (t *PCTransport) createAndSendOffer(options *webrtc.OfferOptions) {
+func (t *PCTransport) createAndSendOffer(options *webrtc.OfferOptions) error {
 	if t.OnOffer == nil {
-		return
+		return nil
 	}
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
-	// TODO: does not support ice restart yet
-	//if options.ICERestart {
-	//	logger.V(1).Info("restarting ICE")
-	//}
+	iceRestart := options != nil && options.ICERestart
+	if iceRestart {
+		logger.V(1).Info("restarting ICE")
+	}
 	if t.pc.SignalingState() == webrtc.SignalingStateHaveLocalOffer {
-		t.renegotiate = true
-		return
+		if iceRestart {
+			currentSD := t.pc.CurrentRemoteDescription()
+			if currentSD != nil {
+				if err := t.pc.SetRemoteDescription(*currentSD); err != nil {
+					return err
+				}
+			}
+		} else {
+			t.renegotiate = true
+			return nil
+		}
 	}
 
 	logger.V(1).Info("starting to negotiate")
@@ -134,9 +143,12 @@ func (t *PCTransport) createAndSendOffer(options *webrtc.OfferOptions) {
 	logger.V(1).Info("create offer", "offer", offer.SDP)
 	if err != nil {
 		logger.Error(err, "could not negotiate")
+		return err
 	}
 	if err := t.pc.SetLocalDescription(offer); err != nil {
 		logger.Error(err, "could not set local description")
+		return err
 	}
 	t.OnOffer(offer)
+	return nil
 }
