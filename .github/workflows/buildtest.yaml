@@ -49,10 +49,13 @@ jobs:
         with:
           version: "2021.1.1"
 
-      - name: Test
-        run: |
-          set -euo pipefail
-          TestFlags="-json -v" mage test 2>&1 | tee /tmp/gotest.log | gotestfmt
+      - name: Mage Test
+        uses: magefile/mage-action@v1
+        with:
+          version: latest
+          args: test 2>&1 | tee /tmp/gotest.log | gotestfmt
+        env:
+          TestFlags: "-json -v"
 
       # Upload the original go test log as an artifact for later review.
       - name: Upload test log
