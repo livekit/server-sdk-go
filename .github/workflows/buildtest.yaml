@@ -33,7 +33,7 @@ jobs:
           go get github.com/sasha-s/go-deadlock
           grep -rl sync.Mutex . | xargs sed -i 's/sync\.Mutex/deadlock\.Mutex/g'
           grep -rl sync.RWMutex . | xargs sed -i 's/sync\.RWMutex/deadlock\.RWMutex/g'
-          go install golang.org/x/tools/cmd/goimports
+          go install golang.org/x/tools/cmd/goimports@latest
           grep -rl deadlock.Mutex . | xargs goimports -w
           grep -rl deadlock.RWMutex . | xargs goimports -w
           go mod tidy
