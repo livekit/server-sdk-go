@@ -1,0 +1,61 @@
+name: Test
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/go/bin
+            ~/.cache
+
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.17
+
+      - name: Set up gotestfmt
+        run: go install github.com/haveyoudebuggedit/gotestfmt/v2/cmd/gotestfmt@latest
+
+      - name: Replace mutexes
+        run: |
+          go get github.com/sasha-s/go-deadlock
+          grep -rl sync.Mutex ./pkg | xargs sed -i 's/sync\.Mutex/deadlock\.Mutex/g'
+          grep -rl sync.RWMutex ./pkg | xargs sed -i 's/sync\.RWMutex/deadlock\.RWMutex/g'
+          go install golang.org/x/tools/cmd/goimports
+          grep -rl deadlock.Mutex ./pkg | xargs goimports -w
+          grep -rl deadlock.RWMutex ./pkg | xargs goimports -w
+          go mod tidy
+      - name: Mage Build
+        uses: magefile/mage-action@v1
+        with:
+          version: latest
+          args: build
+
+      - name: Static Check
+        uses: dominikh/staticcheck-action@v1.1.0
+        with:
+          version: "2021.1.1"
+
+      - name: Test
+        run: |
+          set -euo pipefail
+          mage test 2>&1 | tee /tmp/gotest.log | gotestfmt
+      # Upload the original go test log as an artifact for later review.
+      - name: Upload test log
+        uses: actions/upload-artifact@v2
+        if: always()
+        with:
+          name: test-log
+          path: /tmp/gotest.log
+          if-no-files-found: error
