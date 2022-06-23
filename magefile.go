@@ -45,7 +45,8 @@ func Test() error {
 	}()
 
 	fmt.Println("testing...")
-	return run(map[string]string{"LIVEKIT_KEYS": testApiKey}, `go test`)
+	testflags := os.Getenv("TestFlags")
+	return run(map[string]string{"LIVEKIT_KEYS": testApiKey}, `go test -race `+testflags)
 }
 
 func run(env map[string]string, commands ...string) error {
