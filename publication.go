@@ -6,6 +6,7 @@ import (
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v3"
 	"go.uber.org/atomic"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/livekit/protocol/livekit"
 )
@@ -18,6 +19,7 @@ type TrackPublication interface {
 	MimeType() string
 	IsMuted() bool
 	IsSubscribed() bool
+	TrackInfo() *livekit.TrackInfo
 	// Track is either a webrtc.TrackLocal or webrtc.TrackRemote
 	Track() Track
 	updateInfo(info *livekit.TrackInfo)
@@ -83,6 +85,13 @@ func (p *trackPublicationBase) updateInfo(info *livekit.TrackInfo) {
 		p.kind = TrackKindVideo
 	}
 	p.info.Store(info)
+}
+
+func (p *trackPublicationBase) TrackInfo() *livekit.TrackInfo {
+	if info := p.info.Load(); info != nil {
+		return proto.Clone(info.(*livekit.TrackInfo)).(*livekit.TrackInfo)
+	}
+	return nil
 }
 
 type RemoteTrackPublication struct {

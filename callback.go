@@ -44,6 +44,8 @@ type RoomCallback struct {
 	OnParticipantDisconnected func(*RemoteParticipant)
 	OnActiveSpeakersChanged   func([]Participant)
 	OnRoomMetadataChanged     func(metadata string)
+	OnReconnecting            func()
+	OnReconnected             func()
 
 	// participant events are sent to the room as well
 	ParticipantCallback
@@ -59,5 +61,7 @@ func NewRoomCallback() *RoomCallback {
 		OnParticipantDisconnected: func(participant *RemoteParticipant) {},
 		OnActiveSpeakersChanged:   func(participants []Participant) {},
 		OnRoomMetadataChanged:     func(metadata string) {},
+		OnReconnecting:            func() {},
+		OnReconnected:             func() {},
 	}
 }

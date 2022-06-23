@@ -1,6 +1,7 @@
 package lksdk
 
 import (
+	"errors"
 	"time"
 
 	"github.com/pion/webrtc/v3"
@@ -11,8 +12,14 @@ import (
 	"github.com/livekit/protocol/livekit"
 )
 
-const reliableDataChannelName = "_reliable"
-const lossyDataChannelName = "_lossy"
+const (
+	reliableDataChannelName = "_reliable"
+	lossyDataChannelName    = "_lossy"
+
+	maxReconnectCount        = 10
+	initialReconnectInterval = 300 * time.Millisecond
+	maxReconnectInterval     = 60 * time.Second
+)
 
 type RTCEngine struct {
 	publisher          *PCTransport
@@ -24,9 +31,13 @@ type RTCEngine struct {
 	lossyDCSub         *webrtc.DataChannel
 	trackPublishedChan chan *livekit.TrackPublishedResponse
 	subscriberPrimary  bool
+	hasPublish         atomic.Bool
+	closed             atomic.Bool
+	reconnecting       atomic.Bool
 
-	url   string
-	token atomic.String
+	url        string
+	token      atomic.String
+	connParams *ConnectParams
 
 	JoinTimeout time.Duration
 
@@ -39,6 +50,10 @@ type RTCEngine struct {
 	OnDataReceived          func(userPacket *livekit.UserPacket)
 	OnConnectionQuality     func([]*livekit.ConnectionQualityInfo)
 	OnRoomUpdate            func(room *livekit.Room)
+	OnRestarting            func()
+	OnRestarted             func(*livekit.JoinResponse)
+	OnResuming              func()
+	OnResumed               func()
 }
 
 func NewRTCEngine() *RTCEngine {
@@ -54,8 +69,10 @@ func (e *RTCEngine) Join(url string, token string, params *ConnectParams) (*live
 	if err != nil {
 		return nil, err
 	}
+
 	e.url = url
 	e.token.Store(token)
+	e.connParams = params
 
 	if err = e.configure(res); err != nil {
 		return nil, err
@@ -75,6 +92,9 @@ func (e *RTCEngine) Join(url string, token string, params *ConnectParams) (*live
 }
 
 func (e *RTCEngine) Close() {
+	if !e.closed.CAS(false, true) {
+		return
+	}
 	if e.publisher != nil {
 		_ = e.publisher.Close()
 	}
@@ -140,9 +160,9 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 			logger.Info("ICE connected")
 		case webrtc.ICEConnectionStateDisconnected:
 			logger.Info("ICE disconnected")
-			if e.OnDisconnected != nil {
-				e.OnDisconnected()
-			}
+		case webrtc.ICEConnectionStateFailed:
+			logger.Info("ICE failed")
+			e.handleDisconnect()
 		}
 	})
 
@@ -234,10 +254,7 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 	e.client.OnTokenRefresh = func(refreshToken string) {
 		e.token.Store(refreshToken)
 	}
-	e.client.OnClose = func() {
-		// TODO: implement reconnection logic
-		logger.Info("signal connection disconnected")
-	}
+	e.client.OnClose = e.handleDisconnect
 	return nil
 }
 
@@ -263,6 +280,8 @@ func (e *RTCEngine) ensurePublisherConnected(ensureDataReady bool) error {
 	if e.publisher.IsConnected() && (!ensureDataReady || e.dataPubChannelReady()) {
 		return nil
 	}
+
+	e.hasPublish.Store(true)
 
 	e.publisher.Negotiate()
 
@@ -314,4 +333,105 @@ func (e *RTCEngine) readDataPacket(msg webrtc.DataChannelMessage) (*livekit.Data
 	}
 	err := proto.Unmarshal(msg.Data, dataPacket)
 	return dataPacket, err
+}
+
+func (e *RTCEngine) handleDisconnect() {
+	if e.closed.Load() {
+		return
+	}
+
+	if !e.reconnecting.CAS(false, true) {
+		return
+	}
+
+	go func() {
+		defer e.reconnecting.Store(false)
+		var reconnectCount int
+		var fullReconnect bool
+		for ; reconnectCount < maxReconnectCount; reconnectCount++ {
+			if fullReconnect {
+				if reconnectCount == 0 && e.OnRestarting != nil {
+					e.OnRestarting()
+				}
+				if err := e.restartConnection(); err != nil {
+					logger.Error(err, "restart connection failed")
+				} else {
+					return
+				}
+			} else {
+				if reconnectCount == 0 && e.OnResuming != nil {
+					e.OnResuming()
+				}
+				if err := e.resumeConnection(); err != nil {
+					logger.Error(err, "resume connection failed")
+					if !errors.Is(err, ErrSignalError) {
+						fullReconnect = true
+					}
+				} else {
+					return
+				}
+			}
+
+			delay := time.Duration(reconnectCount*reconnectCount) * initialReconnectInterval
+			if delay > maxReconnectInterval {
+				break
+			}
+			if reconnectCount < maxReconnectCount-1 {
+				time.Sleep(delay)
+			}
+		}
+
+		if e.OnDisconnected != nil {
+			e.OnDisconnected()
+		}
+	}()
+}
+
+func (e *RTCEngine) resumeConnection() error {
+	_, err := e.client.Join(e.url, e.token.Load(), &ConnectParams{Reconnect: true})
+	if err != nil {
+		return err
+	}
+
+	e.client.Start()
+
+	// send offer if publisher enabled
+	if !e.subscriberPrimary || e.hasPublish.Load() {
+		e.publisher.createAndSendOffer(&webrtc.OfferOptions{
+			ICERestart: true,
+		})
+	}
+
+	if err = e.waitUntilConnected(); err != nil {
+		return err
+	}
+
+	if e.OnResumed != nil {
+		e.OnResumed()
+	}
+	return nil
+}
+
+func (e *RTCEngine) restartConnection() error {
+	if e.client.IsStarted() {
+		e.client.SendLeave()
+	}
+	e.client.Close()
+	if e.publisher != nil {
+		e.publisher.Close()
+	}
+
+	if e.subscriber != nil {
+		e.subscriber.Close()
+	}
+
+	res, err := e.Join(e.url, e.token.Load(), e.connParams)
+	if err != nil {
+		return err
+	}
+
+	if e.OnRestarted != nil {
+		e.OnRestarted(res)
+	}
+	return nil
 }

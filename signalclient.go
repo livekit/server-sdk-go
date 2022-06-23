@@ -18,6 +18,8 @@ import (
 
 const PROTOCOL = 7
 
+var ErrSignalError = errors.New("signal error")
+
 type SignalClient struct {
 	conn      *websocket.Conn
 	lock      sync.Mutex
@@ -51,6 +53,10 @@ func (c *SignalClient) Start() {
 	go c.readWorker()
 }
 
+func (c *SignalClient) IsStarted() bool {
+	return c.isStarted.Load()
+}
+
 func (c *SignalClient) Join(urlPrefix string, token string, params *ConnectParams) (*livekit.JoinResponse, error) {
 	urlPrefix = ToWebsocketURL(urlPrefix)
 	urlSuffix := fmt.Sprintf("/rtc?protocol=%d&sdk=go&version=%s", PROTOCOL, Version)
@@ -61,6 +67,10 @@ func (c *SignalClient) Join(urlPrefix string, token string, params *ConnectParam
 		urlSuffix += "&auto_subscribe=0"
 	}
 
+	if params.Reconnect {
+		urlSuffix += "&reconnect=1"
+	}
+
 	u, err := url.Parse(urlPrefix + urlSuffix)
 	if err != nil {
 		return nil, err
@@ -69,16 +79,10 @@ func (c *SignalClient) Join(urlPrefix string, token string, params *ConnectParam
 	header := newHeaderWithToken(token)
 	conn, _, err := websocket.DefaultDialer.Dial(u.String(), header)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w dial error: %s", ErrSignalError, err.Error())
 	}
+	c.isClosed.Store(false)
 	c.conn = conn
-	conn.SetCloseHandler(func(code int, text string) error {
-		if c.OnClose != nil {
-			c.OnClose()
-			c.isClosed.Store(true)
-		}
-		return nil
-	})
 
 	// server should send join as soon as connected
 	res, err := c.ReadResponse()
@@ -133,6 +137,14 @@ func (c *SignalClient) SendMuteTrack(sid string, muted bool) error {
 				Sid:   sid,
 				Muted: muted,
 			},
+		},
+	})
+}
+
+func (c *SignalClient) SendSyncState(state *livekit.SyncState) error {
+	return c.SendRequest(&livekit.SignalRequest{
+		Message: &livekit.SignalRequest_SyncState{
+			SyncState: state,
 		},
 	})
 }
@@ -251,6 +263,12 @@ func (c *SignalClient) handleResponse(res *livekit.SignalResponse) {
 }
 
 func (c *SignalClient) readWorker() {
+	defer func() {
+		c.isStarted.Store(false)
+		if c.OnClose != nil {
+			c.OnClose()
+		}
+	}()
 	for !c.isClosed.Load() {
 		res, err := c.ReadResponse()
 		if err != nil {

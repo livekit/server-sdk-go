@@ -12,6 +12,12 @@ import (
 	"github.com/thoas/go-funk"
 )
 
+type SimulateScenario int
+
+const (
+	SimulateSignalReconnect SimulateScenario = iota
+)
+
 type TrackPubCallback func(track Track, pub TrackPublication, participant *RemoteParticipant)
 type PubCallback func(pub TrackPublication, participant *RemoteParticipant)
 
@@ -26,6 +32,7 @@ type ConnectInfo struct {
 
 type ConnectParams struct {
 	AutoSubscribe bool
+	Reconnect     bool
 }
 
 type ConnectOption func(*ConnectParams)
@@ -71,6 +78,10 @@ func CreateRoom() *Room {
 	engine.OnDataReceived = r.handleDataReceived
 	engine.OnConnectionQuality = r.handleConnectionQualityUpdate
 	engine.OnRoomUpdate = r.handleRoomUpdate
+	engine.OnRestarting = r.handleRestarting
+	engine.OnRestarted = r.handleRestarted
+	engine.OnResuming = r.handleResuming
+	engine.OnResumed = r.handleResumed
 	engine.client.OnLocalTrackUnpublished = r.handleLocalTrackUnpublished
 	engine.client.OnTrackMuted = r.handleTrackMuted
 
@@ -215,6 +226,54 @@ func (r *Room) handleDisconnect() {
 	r.engine.Close()
 }
 
+func (r *Room) handleRestarting() {
+	r.Callback.OnReconnecting()
+	r.participants.Range(func(_, value interface{}) bool {
+		r.handleParticipantDisconnect(value.(*RemoteParticipant))
+		return true
+	})
+}
+
+func (r *Room) handleRestarted(joinRes *livekit.JoinResponse) {
+	r.lock.Lock()
+	r.Name = joinRes.Room.Name
+	r.SID = joinRes.Room.Sid
+	r.metadata = joinRes.Room.Metadata
+	r.lock.Unlock()
+
+	r.LocalParticipant.updateInfo(joinRes.Participant)
+
+	r.handleParticipantUpdate(joinRes.OtherParticipants)
+
+	var localPubs []*LocalTrackPublication
+	r.LocalParticipant.tracks.Range(func(_, value interface{}) bool {
+		track := value.(*LocalTrackPublication)
+
+		if track.Track() != nil {
+			localPubs = append(localPubs, track)
+		}
+		return true
+	})
+
+	for _, pub := range localPubs {
+		if track := pub.TrackLocal(); track != nil {
+			r.LocalParticipant.PublishTrack(track, &TrackPublicationOptions{
+				Name: pub.name,
+			})
+		}
+	}
+	r.Callback.OnReconnected()
+}
+
+func (r *Room) handleResuming() {
+	r.Callback.OnReconnecting()
+}
+
+func (r *Room) handleResumed() {
+	r.Callback.OnReconnected()
+	r.sendSyncState()
+}
+
 func (r *Room) handleDataReceived(userPacket *livekit.UserPacket) {
 	if userPacket.ParticipantSid == r.LocalParticipant.sid {
 		// if sent by itself, do not handle data
@@ -239,10 +298,8 @@ func (r *Room) handleParticipantUpdate(participants []*livekit.ParticipantInfo) 
 				r.handleParticipantDisconnect(p)
 			}
 		} else if isNew {
-			if pi.State == livekit.ParticipantInfo_ACTIVE {
-				p = r.addRemoteParticipant(pi)
-				go r.Callback.OnParticipantConnected(p)
-			}
+			p = r.addRemoteParticipant(pi)
+			go r.Callback.OnParticipantConnected(p)
 		} else {
 			p.updateInfo(pi)
 		}
@@ -372,6 +429,69 @@ func (r *Room) handleLocalTrackUnpublished(msg *livekit.TrackUnpublishedResponse
 	err := r.LocalParticipant.UnpublishTrack(msg.TrackSid)
 	if err != nil {
 		logger.Error(err, "could not unpublish track", "trackID", msg.TrackSid)
+	}
+}
+
+func (r *Room) sendSyncState() {
+	if r.engine.subscriber == nil || r.engine.subscriber.pc.RemoteDescription() == nil {
+		return
+	}
+
+	previousSdp := r.engine.subscriber.pc.LocalDescription()
+
+	var trackSids []string
+	sendUnsub := r.engine.connParams.AutoSubscribe
+	r.participants.Range(func(_, val interface{}) bool {
+		p := val.(*RemoteParticipant)
+		for _, t := range p.Tracks() {
+			if t.IsSubscribed() != sendUnsub {
+				trackSids = append(trackSids, t.SID())
+			}
+		}
+		return true
+	})
+
+	var publishedTracks []*livekit.TrackPublishedResponse
+	for _, t := range r.LocalParticipant.Tracks() {
+		if t.Track() != nil {
+			publishedTracks = append(publishedTracks, &livekit.TrackPublishedResponse{
+				Cid:   t.Track().ID(),
+				Track: t.TrackInfo(),
+			})
+		}
+	}
+
+	var dataChannels []*livekit.DataChannelInfo
+	getDCinfo := func(dc *webrtc.DataChannel, target livekit.SignalTarget) {
+		if dc != nil && dc.ID() != nil {
+			dataChannels = append(dataChannels, &livekit.DataChannelInfo{
+				Label:  dc.Label(),
+				Id:     uint32(*dc.ID()),
+				Target: target,
+			})
+		}
+	}
+
+	getDCinfo(r.engine.reliableDC, livekit.SignalTarget_PUBLISHER)
+	getDCinfo(r.engine.lossyDC, livekit.SignalTarget_PUBLISHER)
+	getDCinfo(r.engine.reliableDCSub, livekit.SignalTarget_SUBSCRIBER)
+	getDCinfo(r.engine.lossyDCSub, livekit.SignalTarget_SUBSCRIBER)
+
+	r.engine.client.SendSyncState(&livekit.SyncState{
+		Answer: ToProtoSessionDescription(*previousSdp),
+		Subscription: &livekit.UpdateSubscription{
+			TrackSids: trackSids,
+			Subscribe: !sendUnsub,
+		},
+		PublishTracks: publishedTracks,
+		DataChannels:  dataChannels,
+	})
+}
+
+func (r *Room) Simulate(scenario SimulateScenario) {
+	switch scenario {
+	case SimulateSignalReconnect:
+		r.engine.client.Close()
 	}
 }
 
