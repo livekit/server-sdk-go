@@ -3,9 +3,9 @@ name: Test
 on:
   workflow_dispatch:
   push:
-    branches: [ master ]
+    branches: [ main ]
   pull_request:
-    branches: [ master ]
+    branches: [ main ]
 
 jobs:
   test:
@@ -50,7 +50,7 @@ jobs:
       - name: Test
         run: |
           set -euo pipefail
-          mage test 2>&1 | tee /tmp/gotest.log | gotestfmt
+          TestFlags="-json -v" mage test 2>&1 | tee /tmp/gotest.log | gotestfmt
       # Upload the original go test log as an artifact for later review.
       - name: Upload test log
         uses: actions/upload-artifact@v2

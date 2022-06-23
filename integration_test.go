@@ -87,10 +87,10 @@ func TestJoin(t *testing.T) {
 
 	audioTrackName := "audio_of_pub1"
 	var trackLock sync.Mutex
-	var trackReceived bool
+	var trackReceived atomic.Bool
 	sub.Callback.OnTrackSubscribed = func(track *webrtc.TrackRemote, publication *RemoteTrackPublication, rp *RemoteParticipant) {
 		trackLock.Lock()
-		trackReceived = true
+		trackReceived.Store(true)
 		require.Equal(t, rp.Name(), pub.LocalParticipant.Name())
 		require.Equal(t, publication.Name(), audioTrackName)
 		require.Equal(t, track.Kind(), webrtc.RTPCodecTypeAudio)
@@ -101,7 +101,7 @@ func TestJoin(t *testing.T) {
 	localPub := pubNullTrack(t, pub, audioTrackName)
 	require.Equal(t, localPub.Name(), audioTrackName)
 
-	require.Eventually(t, func() bool { return trackReceived }, 5*time.Second, 100*time.Millisecond)
+	require.Eventually(t, func() bool { return trackReceived.Load() }, 5*time.Second, 100*time.Millisecond)
 	require.Eventually(t, func() bool {
 		dataLock.Lock()
 		defer dataLock.Unlock()
@@ -129,10 +129,10 @@ func TestResume(t *testing.T) {
 	// test pub sub after reconnected
 	audioTrackName := "audio_of_pub1"
 	var trackLock sync.Mutex
-	var trackReceived bool
+	var trackReceived atomic.Bool
 	sub.Callback.OnTrackSubscribed = func(track *webrtc.TrackRemote, publication *RemoteTrackPublication, rp *RemoteParticipant) {
 		trackLock.Lock()
-		trackReceived = true
+		trackReceived.Store(true)
 		require.Equal(t, rp.Name(), pub.LocalParticipant.Name())
 		require.Equal(t, publication.Name(), audioTrackName)
 		require.Equal(t, track.Kind(), webrtc.RTPCodecTypeAudio)
@@ -141,7 +141,7 @@ func TestResume(t *testing.T) {
 
 	localPub := pubNullTrack(t, pub, audioTrackName)
 	require.Equal(t, localPub.Name(), audioTrackName)
-	require.Eventually(t, func() bool { return trackReceived }, 5*time.Second, 100*time.Millisecond)
+	require.Eventually(t, func() bool { return trackReceived.Load() }, 5*time.Second, 100*time.Millisecond)
 
 	for _, room := range rooms {
 		room.Disconnect()
