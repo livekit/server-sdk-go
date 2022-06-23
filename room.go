@@ -32,6 +32,7 @@ type ConnectInfo struct {
 
 type ConnectParams struct {
 	AutoSubscribe bool
+	Reconnect     bool
 }
 
 type ConnectOption func(*ConnectParams)

@@ -25,7 +25,6 @@ var (
 
 func TestMain(m *testing.M) {
 	keys := strings.Split(os.Getenv("LIVEKIT_KEYS"), ": ")
-	// keys := strings.Split("APIhdZda4TDAGxk: 4BA2qCorbmGnVZ9iMri7Sp0EEA7v2S4Oi8eyHuPxtxJ", ": ")
 	apiKey, apiSecret = keys[0], keys[1]
 
 	os.Exit(m.Run())
@@ -123,7 +122,7 @@ func TestResume(t *testing.T) {
 		reconnected.Store(true)
 	}
 	pub.Simulate(SimulateSignalReconnect)
-	require.Eventually(t, func() bool { return reconnected.Load() }, 500*time.Second, 100*time.Millisecond)
+	require.Eventually(t, func() bool { return reconnected.Load() }, 5*time.Second, 100*time.Millisecond)
 
 	logger.Info("reconnected")
 

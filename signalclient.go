@@ -67,6 +67,10 @@ func (c *SignalClient) Join(urlPrefix string, token string, params *ConnectParam
 		urlSuffix += "&auto_subscribe=0"
 	}
 
+	if params.Reconnect {
+		urlSuffix += "&reconnect=1"
+	}
+
 	u, err := url.Parse(urlPrefix + urlSuffix)
 	if err != nil {
 		return nil, err

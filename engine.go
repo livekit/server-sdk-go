@@ -388,7 +388,7 @@ func (e *RTCEngine) handleDisconnect() {
 }
 
 func (e *RTCEngine) resumeConnection() error {
-	_, err := e.client.Join(e.url, e.token.Load(), e.connParams)
+	_, err := e.client.Join(e.url, e.token.Load(), &ConnectParams{Reconnect: true})
 	if err != nil {
 		return err
 	}
