@@ -30,6 +30,7 @@ jobs:
 
       - name: Replace mutexes
         run: |
+          go mod download golang.org/x/tools
           go get github.com/sasha-s/go-deadlock
           grep -rl sync.Mutex . | xargs sed -i 's/sync\.Mutex/deadlock\.Mutex/g'
           grep -rl sync.RWMutex . | xargs sed -i 's/sync\.RWMutex/deadlock\.RWMutex/g'
