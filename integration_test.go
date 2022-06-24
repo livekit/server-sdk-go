@@ -79,7 +79,7 @@ func TestJoin(t *testing.T) {
 
 	var dataLock sync.Mutex
 	var receivedData string
-	sub.Callback.OnDataReceived = func(data []byte, rp *RemoteParticipant) {
+	sub.callback.OnDataReceived = func(data []byte, rp *RemoteParticipant) {
 		dataLock.Lock()
 		receivedData = string(data)
 		dataLock.Unlock()
@@ -88,7 +88,7 @@ func TestJoin(t *testing.T) {
 	audioTrackName := "audio_of_pub1"
 	var trackLock sync.Mutex
 	var trackReceived atomic.Bool
-	sub.Callback.OnTrackSubscribed = func(track *webrtc.TrackRemote, publication *RemoteTrackPublication, rp *RemoteParticipant) {
+	sub.callback.OnTrackSubscribed = func(track *webrtc.TrackRemote, publication *RemoteTrackPublication, rp *RemoteParticipant) {
 		trackLock.Lock()
 		trackReceived.Store(true)
 		require.Equal(t, rp.Name(), pub.LocalParticipant.Name())
@@ -118,7 +118,7 @@ func TestResume(t *testing.T) {
 	require.NoError(t, err)
 	pub, sub := rooms[0], rooms[1]
 	var reconnected atomic.Bool
-	pub.Callback.OnReconnected = func() {
+	pub.callback.OnReconnected = func() {
 		reconnected.Store(true)
 	}
 	pub.Simulate(SimulateSignalReconnect)
@@ -130,7 +130,7 @@ func TestResume(t *testing.T) {
 	audioTrackName := "audio_of_pub1"
 	var trackLock sync.Mutex
 	var trackReceived atomic.Bool
-	sub.Callback.OnTrackSubscribed = func(track *webrtc.TrackRemote, publication *RemoteTrackPublication, rp *RemoteParticipant) {
+	sub.callback.OnTrackSubscribed = func(track *webrtc.TrackRemote, publication *RemoteTrackPublication, rp *RemoteParticipant) {
 		trackLock.Lock()
 		trackReceived.Store(true)
 		require.Equal(t, rp.Name(), pub.LocalParticipant.Name())

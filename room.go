@@ -33,6 +33,7 @@ type ConnectInfo struct {
 type ConnectParams struct {
 	AutoSubscribe bool
 	Reconnect     bool
+	Callback      *RoomCallback
 }
 
 type ConnectOption func(*ConnectParams)
@@ -43,14 +44,20 @@ func WithAutoSubscribe(val bool) ConnectOption {
 	}
 }
 
+func WithCallback(cb *RoomCallback) ConnectOption {
+	return func(p *ConnectParams) {
+		p.Callback = cb
+	}
+}
+
 type PLIWriter func(webrtc.SSRC)
 
 type Room struct {
 	engine           *RTCEngine
-	SID              string
-	Name             string
+	sid              string
+	name             string
 	LocalParticipant *LocalParticipant
-	Callback         *RoomCallback
+	callback         *RoomCallback
 
 	participants   *sync.Map
 	metadata       string
@@ -65,9 +72,9 @@ func CreateRoom() *Room {
 	r := &Room{
 		engine:       engine,
 		participants: &sync.Map{},
-		Callback:     NewRoomCallback(),
+		callback:     NewRoomCallback(),
 	}
-	r.LocalParticipant = newLocalParticipant(engine, r.Callback)
+	r.LocalParticipant = newLocalParticipant(engine, r.callback)
 
 	// callbacks from engine
 	engine.OnMediaTrack = r.handleMediaTrack
@@ -108,8 +115,29 @@ func ConnectToRoomWithToken(url, token string, opts ...ConnectOption) (*Room, er
 	return room, nil
 }
 
+func (r *Room) Name() string {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+	return r.name
+}
+
+func (r *Room) SID() string {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+	return r.sid
+}
+
 // Join should only be used with CreateRoom
 func (r *Room) Join(url string, info ConnectInfo, opts ...ConnectOption) error {
+	var params ConnectParams
+	for _, opt := range opts {
+		opt(&params)
+	}
+
+	if params.Callback != nil {
+		r.callback.Merge(params.Callback)
+	}
+
 	// generate token
 	at := auth.NewAccessToken(info.APIKey, info.APISecret)
 	grant := &auth.VideoGrant{
@@ -143,9 +171,11 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 		return err
 	}
 
-	r.Name = joinRes.Room.Name
-	r.SID = joinRes.Room.Sid
+	r.lock.Lock()
+	r.name = joinRes.Room.Name
+	r.sid = joinRes.Room.Sid
 	r.metadata = joinRes.Room.Metadata
+	r.lock.Unlock()
 
 	r.LocalParticipant.updateInfo(joinRes.Participant)
 
@@ -195,7 +225,7 @@ func (r *Room) addRemoteParticipant(pi *livekit.ParticipantInfo) *RemoteParticip
 	if ok {
 		return pRaw.(*RemoteParticipant)
 	}
-	p := newRemoteParticipant(pi, r.Callback, r.engine.client, func(ssrc webrtc.SSRC) {
+	p := newRemoteParticipant(pi, r.callback, r.engine.client, func(ssrc webrtc.SSRC) {
 		pli := []rtcp.Packet{
 			&rtcp.PictureLossIndication{SenderSSRC: uint32(ssrc), MediaSSRC: uint32(ssrc)},
 		}
@@ -222,12 +252,12 @@ func (r *Room) handleMediaTrack(track *webrtc.TrackRemote, receiver *webrtc.RTPR
 }
 
 func (r *Room) handleDisconnect() {
-	r.Callback.OnDisconnected()
+	r.callback.OnDisconnected()
 	r.engine.Close()
 }
 
 func (r *Room) handleRestarting() {
-	r.Callback.OnReconnecting()
+	r.callback.OnReconnecting()
 	r.participants.Range(func(_, value interface{}) bool {
 		r.handleParticipantDisconnect(value.(*RemoteParticipant))
 		return true
@@ -236,8 +266,8 @@ func (r *Room) handleRestarting() {
 
 func (r *Room) handleRestarted(joinRes *livekit.JoinResponse) {
 	r.lock.Lock()
-	r.Name = joinRes.Room.Name
-	r.SID = joinRes.Room.Sid
+	r.name = joinRes.Room.Name
+	r.sid = joinRes.Room.Sid
 	r.metadata = joinRes.Room.Metadata
 	r.lock.Unlock()
 
@@ -258,19 +288,19 @@ func (r *Room) handleRestarted(joinRes *livekit.JoinResponse) {
 	for _, pub := range localPubs {
 		if track := pub.TrackLocal(); track != nil {
 			r.LocalParticipant.PublishTrack(track, &TrackPublicationOptions{
-				Name: pub.name,
+				Name: pub.Name(),
 			})
 		}
 	}
-	r.Callback.OnReconnected()
+	r.callback.OnReconnected()
 }
 
 func (r *Room) handleResuming() {
-	r.Callback.OnReconnecting()
+	r.callback.OnReconnecting()
 }
 
 func (r *Room) handleResumed() {
-	r.Callback.OnReconnected()
+	r.callback.OnReconnected()
 	r.sendSyncState()
 }
 
@@ -284,7 +314,7 @@ func (r *Room) handleDataReceived(userPacket *livekit.UserPacket) {
 		return
 	}
 	p.Callback.OnDataReceived(userPacket.Payload, p)
-	r.Callback.OnDataReceived(userPacket.Payload, p)
+	r.callback.OnDataReceived(userPacket.Payload, p)
 }
 
 func (r *Room) handleParticipantUpdate(participants []*livekit.ParticipantInfo) {
@@ -299,7 +329,7 @@ func (r *Room) handleParticipantUpdate(participants []*livekit.ParticipantInfo) 
 			}
 		} else if isNew {
 			p = r.addRemoteParticipant(pi)
-			go r.Callback.OnParticipantConnected(p)
+			go r.callback.OnParticipantConnected(p)
 		} else {
 			p.updateInfo(pi)
 		}
@@ -309,7 +339,7 @@ func (r *Room) handleParticipantUpdate(participants []*livekit.ParticipantInfo) 
 func (r *Room) handleParticipantDisconnect(p *RemoteParticipant) {
 	r.participants.Delete(p.SID())
 	p.unpublishAllTracks()
-	go r.Callback.OnParticipantDisconnected(p)
+	go r.callback.OnParticipantDisconnected(p)
 }
 
 func (r *Room) handleActiveSpeakerChange(speakers []*livekit.SpeakerInfo) {
@@ -346,7 +376,7 @@ func (r *Room) handleActiveSpeakerChange(speakers []*livekit.SpeakerInfo) {
 	r.lock.Lock()
 	r.activeSpeakers = activeSpeakers
 	r.lock.Unlock()
-	go r.Callback.OnActiveSpeakersChanged(activeSpeakers)
+	go r.callback.OnActiveSpeakersChanged(activeSpeakers)
 }
 
 func (r *Room) handleSpeakersChange(speakerUpdates []*livekit.SpeakerInfo) {
@@ -386,7 +416,7 @@ func (r *Room) handleSpeakersChange(speakerUpdates []*livekit.SpeakerInfo) {
 	r.lock.Lock()
 	r.activeSpeakers = activeSpeakers
 	r.lock.Unlock()
-	go r.Callback.OnActiveSpeakersChanged(activeSpeakers)
+	go r.callback.OnActiveSpeakersChanged(activeSpeakers)
 }
 
 func (r *Room) handleConnectionQualityUpdate(updates []*livekit.ConnectionQualityInfo) {
@@ -412,7 +442,7 @@ func (r *Room) handleRoomUpdate(room *livekit.Room) {
 	r.lock.Lock()
 	r.metadata = room.Metadata
 	r.lock.Unlock()
-	go r.Callback.OnRoomMetadataChanged(room.Metadata)
+	go r.callback.OnRoomMetadataChanged(room.Metadata)
 }
 
 func (r *Room) handleTrackMuted(msg *livekit.MuteTrackRequest) {

@@ -39,14 +39,9 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 			opts.Source = livekit.TrackSource_MICROPHONE
 		}
 	}
-	pub := LocalTrackPublication{
-		trackPublicationBase: trackPublicationBase{
-			kind:   kind,
-			track:  track,
-			name:   opts.Name,
-			client: p.engine.client,
-		},
-	}
+
+	pub := NewLocalTrackPublication(kind, track, opts.Name, p.engine.client)
+
 	req := &livekit.AddTrackRequest{
 		Cid:        track.ID(),
 		Name:       opts.Name,
@@ -95,14 +90,14 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 
 	pub.setSender(transceiver.Sender())
 
-	pub.sid = pubRes.Track.Sid
-	p.addPublication(&pub)
+	pub.sid.Store(pubRes.Track.Sid)
+	p.addPublication(pub)
 
 	p.engine.publisher.Negotiate()
 
 	logger.Info("published track", "name", opts.Name, "source", opts.Source.String())
 
-	return &pub, nil
+	return pub, nil
 }
 
 // PublishSimulcastTrack publishes up to three layers to the server
@@ -134,13 +129,9 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalSampleTrack, opt
 	}
 
 	mainTrack := tracks[len(tracks)-1]
-	pub := LocalTrackPublication{
-		trackPublicationBase: trackPublicationBase{
-			kind:   KindFromRTPType(mainTrack.Kind()),
-			name:   opts.Name,
-			client: p.engine.client,
-		},
-	}
+
+	pub := NewLocalTrackPublication(KindFromRTPType(mainTrack.Kind()), nil, opts.Name, p.engine.client)
+
 	var layers []*livekit.VideoLayer
 	for _, st := range tracks {
 		layers = append(layers, st.videoLayer)
@@ -195,15 +186,15 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalSampleTrack, opt
 		st.SetTransceiver(transceiver)
 	}
 
-	pub.sid = pubRes.Track.Sid
+	pub.sid.Store(pubRes.Track.Sid)
 	pub.updateInfo(pubRes.Track)
-	p.addPublication(&pub)
+	p.addPublication(pub)
 
 	p.engine.publisher.Negotiate()
 
 	logger.Info("published simulcast track", "name", opts.Name, "source", opts.Source.String())
 
-	return &pub, nil
+	return pub, nil
 }
 
 func (p *LocalParticipant) PublishData(data []byte, kind livekit.DataPacket_Kind, destinationSids []string) error {
