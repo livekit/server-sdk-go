@@ -16,7 +16,7 @@ import (
 	"github.com/livekit/protocol/livekit"
 )
 
-const PROTOCOL = 7
+const PROTOCOL = 8
 
 var ErrSignalError = errors.New("signal error")
 
