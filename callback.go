@@ -38,6 +38,42 @@ func NewParticipantCallback() *ParticipantCallback {
 	}
 }
 
+func (cb *ParticipantCallback) Merge(other *ParticipantCallback) {
+	if other.OnTrackMuted != nil {
+		cb.OnTrackMuted = other.OnTrackMuted
+	}
+	if other.OnTrackUnmuted != nil {
+		cb.OnTrackUnmuted = other.OnTrackUnmuted
+	}
+	if other.OnMetadataChanged != nil {
+		cb.OnMetadataChanged = other.OnMetadataChanged
+	}
+	if other.OnIsSpeakingChanged != nil {
+		cb.OnIsSpeakingChanged = other.OnIsSpeakingChanged
+	}
+	if other.OnConnectionQualityChanged != nil {
+		cb.OnConnectionQualityChanged = other.OnConnectionQualityChanged
+	}
+	if other.OnTrackSubscribed != nil {
+		cb.OnTrackSubscribed = other.OnTrackSubscribed
+	}
+	if other.OnTrackUnsubscribed != nil {
+		cb.OnTrackUnsubscribed = other.OnTrackUnsubscribed
+	}
+	if other.OnTrackSubscriptionFailed != nil {
+		cb.OnTrackSubscriptionFailed = other.OnTrackSubscriptionFailed
+	}
+	if other.OnTrackPublished != nil {
+		cb.OnTrackPublished = other.OnTrackPublished
+	}
+	if other.OnTrackUnpublished != nil {
+		cb.OnTrackUnpublished = other.OnTrackUnpublished
+	}
+	if other.OnDataReceived != nil {
+		cb.OnDataReceived = other.OnDataReceived
+	}
+}
+
 type RoomCallback struct {
 	OnDisconnected            func()
 	OnParticipantConnected    func(*RemoteParticipant)
@@ -64,4 +100,34 @@ func NewRoomCallback() *RoomCallback {
 		OnReconnecting:            func() {},
 		OnReconnected:             func() {},
 	}
+}
+
+func (cb *RoomCallback) Merge(other *RoomCallback) {
+	if other == nil {
+		return
+	}
+
+	if other.OnDisconnected != nil {
+		cb.OnDisconnected = other.OnDisconnected
+	}
+	if other.OnParticipantConnected != nil {
+		cb.OnParticipantConnected = other.OnParticipantConnected
+	}
+	if other.OnParticipantDisconnected != nil {
+		cb.OnParticipantDisconnected = other.OnParticipantDisconnected
+	}
+	if other.OnActiveSpeakersChanged != nil {
+		cb.OnActiveSpeakersChanged = other.OnActiveSpeakersChanged
+	}
+	if other.OnRoomMetadataChanged != nil {
+		cb.OnRoomMetadataChanged = other.OnRoomMetadataChanged
+	}
+	if other.OnReconnecting != nil {
+		cb.OnReconnecting = other.OnReconnecting
+	}
+	if other.OnReconnected != nil {
+		cb.OnReconnected = other.OnReconnected
+	}
+
+	cb.ParticipantCallback.Merge(&other.ParticipantCallback)
 }

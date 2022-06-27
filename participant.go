@@ -60,14 +60,20 @@ func newBaseParticipant(roomCallback *RoomCallback) *baseParticipant {
 }
 
 func (p *baseParticipant) SID() string {
+	p.lock.RLock()
+	defer p.lock.RUnlock()
 	return p.sid
 }
 
 func (p *baseParticipant) Identity() string {
+	p.lock.RLock()
+	defer p.lock.RUnlock()
 	return p.identity
 }
 
 func (p *baseParticipant) Name() string {
+	p.lock.RLock()
+	defer p.lock.RUnlock()
 	return p.name
 }
 

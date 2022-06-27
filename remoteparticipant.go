@@ -25,7 +25,6 @@ func newRemoteParticipant(pi *livekit.ParticipantInfo, roomCallback *RoomCallbac
 }
 
 func (p *RemoteParticipant) updateInfo(pi *livekit.ParticipantInfo) {
-	hadInfo := p.info != nil
 	p.baseParticipant.updateInfo(pi, p)
 	// update tracks
 	validPubs := make(map[string]TrackPublication)
@@ -62,13 +61,12 @@ func (p *RemoteParticipant) updateInfo(pi *livekit.ParticipantInfo) {
 		validPubs[ti.Sid] = pub
 	}
 
-	if hadInfo {
-		// send events for new publications
-		for _, pub := range newPubs {
-			p.Callback.OnTrackPublished(pub.(*RemoteTrackPublication), p)
-			p.roomCallback.OnTrackPublished(pub.(*RemoteTrackPublication), p)
-		}
+	// send events for new publications
+	for _, pub := range newPubs {
+		p.Callback.OnTrackPublished(pub.(*RemoteTrackPublication), p)
+		p.roomCallback.OnTrackPublished(pub.(*RemoteTrackPublication), p)
 	}
+
 	var toUnpublish []string
 	p.tracks.Range(func(key, value interface{}) bool {
 		sid := key.(string)

@@ -100,17 +100,21 @@ func main() {
   apiSecret := "api-secret"
   roomName := "myroom"
   identity := "botuser"
-	room, err := lksdk.ConnectToRoom(host, lksdk.ConnectInfo{
-		APIKey:              apiKey,
-		APISecret:           apiSecret,
-		RoomName:            roomName,
-		ParticipantIdentity: identity,
-	})
-	if err != nil {
-		panic(err)
-	}
+  roomCB := &lksdk.RoomCallback{
+	ParticipantCallback: lksdk.ParticipantCallback{
+	  OnTrackSubscribed: trackSubscribed
+  	},
+  }
+  room, err := lksdk.ConnectToRoom(host, lksdk.ConnectInfo{
+  	APIKey:              apiKey,
+  	APISecret:           apiSecret,
+  	RoomName:            roomName,
+  	ParticipantIdentity: identity,
+  }, roomCB)
+  if err != nil {
+  	panic(err)
+  }
 
-  room.Callback.OnTrackSubscribed = trackSubscribed
   ...
   room.Disconnect()
 }

@@ -43,12 +43,15 @@ func main() {
 		APISecret:           apiSecret,
 		RoomName:            roomName,
 		ParticipantIdentity: identity,
+	}, &lksdk.RoomCallback{
+		ParticipantCallback: lksdk.ParticipantCallback{
+			OnTrackSubscribed: onTrackSubscribed,
+		},
 	})
 	if err != nil {
 		panic(err)
 	}
 
-	room.Callback.OnTrackSubscribed = onTrackSubscribed
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT)
 
