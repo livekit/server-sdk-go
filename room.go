@@ -44,12 +44,6 @@ func WithAutoSubscribe(val bool) ConnectOption {
 	}
 }
 
-func WithCallback(cb *RoomCallback) ConnectOption {
-	return func(p *ConnectParams) {
-		p.Callback = cb
-	}
-}
-
 type PLIWriter func(webrtc.SSRC)
 
 type Room struct {
@@ -67,13 +61,14 @@ type Room struct {
 }
 
 // CreateRoom can be used to update callbacks before calling Join
-func CreateRoom() *Room {
+func CreateRoom(callback *RoomCallback) *Room {
 	engine := NewRTCEngine()
 	r := &Room{
 		engine:       engine,
 		participants: &sync.Map{},
 		callback:     NewRoomCallback(),
 	}
+	r.callback.Merge(callback)
 	r.LocalParticipant = newLocalParticipant(engine, r.callback)
 
 	// callbacks from engine
@@ -96,8 +91,8 @@ func CreateRoom() *Room {
 }
 
 // ConnectToRoom creates and joins the room
-func ConnectToRoom(url string, info ConnectInfo, opts ...ConnectOption) (*Room, error) {
-	room := CreateRoom()
+func ConnectToRoom(url string, info ConnectInfo, callback *RoomCallback, opts ...ConnectOption) (*Room, error) {
+	room := CreateRoom(callback)
 	err := room.Join(url, info, opts...)
 	if err != nil {
 		return nil, err
@@ -106,8 +101,8 @@ func ConnectToRoom(url string, info ConnectInfo, opts ...ConnectOption) (*Room, 
 }
 
 // ConnectToRoomWithToken creates and joins the room
-func ConnectToRoomWithToken(url, token string, opts ...ConnectOption) (*Room, error) {
-	room := CreateRoom()
+func ConnectToRoomWithToken(url, token string, callback *RoomCallback, opts ...ConnectOption) (*Room, error) {
+	room := CreateRoom(callback)
 	err := room.JoinWithToken(url, token, opts...)
 	if err != nil {
 		return nil, err

@@ -103,6 +103,10 @@ func NewRoomCallback() *RoomCallback {
 }
 
 func (cb *RoomCallback) Merge(other *RoomCallback) {
+	if other == nil {
+		return
+	}
+
 	if other.OnDisconnected != nil {
 		cb.OnDisconnected = other.OnDisconnected
 	}

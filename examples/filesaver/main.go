@@ -43,11 +43,11 @@ func main() {
 		APISecret:           apiSecret,
 		RoomName:            roomName,
 		ParticipantIdentity: identity,
-	}, lksdk.WithCallback(&lksdk.RoomCallback{
+	}, &lksdk.RoomCallback{
 		ParticipantCallback: lksdk.ParticipantCallback{
 			OnTrackSubscribed: onTrackSubscribed,
 		},
-	}))
+	})
 	if err != nil {
 		panic(err)
 	}
