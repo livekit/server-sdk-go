@@ -1,6 +1,7 @@
 package lksdk
 
 import (
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -53,7 +54,7 @@ type Room struct {
 	LocalParticipant *LocalParticipant
 	callback         *RoomCallback
 
-	participants   *sync.Map
+	participants   map[string]*RemoteParticipant
 	metadata       string
 	activeSpeakers []Participant
 
@@ -65,7 +66,7 @@ func CreateRoom(callback *RoomCallback) *Room {
 	engine := NewRTCEngine()
 	r := &Room{
 		engine:       engine,
-		participants: &sync.Map{},
+		participants: make(map[string]*RemoteParticipant),
 		callback:     NewRoomCallback(),
 	}
 	r.callback.Merge(callback)
@@ -175,7 +176,7 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 	r.LocalParticipant.updateInfo(joinRes.Participant)
 
 	for _, pi := range joinRes.OtherParticipants {
-		r.addRemoteParticipant(pi)
+		r.addRemoteParticipant(pi, true)
 	}
 
 	return nil
@@ -187,19 +188,20 @@ func (r *Room) Disconnect() {
 }
 
 func (r *Room) GetParticipant(sid string) *RemoteParticipant {
-	partRaw, ok := r.participants.Load(sid)
-	if !ok || partRaw == nil {
-		return nil
-	}
-	return partRaw.(*RemoteParticipant)
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
+	return r.participants[sid]
 }
 
 func (r *Room) GetParticipants() []*RemoteParticipant {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
 	var participants []*RemoteParticipant
-	r.participants.Range(func(_, value interface{}) bool {
-		participants = append(participants, value.(*RemoteParticipant))
-		return true
-	})
+	for _, rp := range r.participants {
+		participants = append(participants, rp)
+	}
 	return participants
 }
 
@@ -215,19 +217,27 @@ func (r *Room) Metadata() string {
 	return r.metadata
 }
 
-func (r *Room) addRemoteParticipant(pi *livekit.ParticipantInfo) *RemoteParticipant {
-	pRaw, ok := r.participants.Load(pi.Sid)
+func (r *Room) addRemoteParticipant(pi *livekit.ParticipantInfo, updateExisting bool) *RemoteParticipant {
+	r.lock.Lock()
+	rp, ok := r.participants[pi.Sid]
 	if ok {
-		return pRaw.(*RemoteParticipant)
+		if updateExisting {
+			rp.updateInfo(pi)
+		}
+		r.lock.Unlock()
+		return rp
 	}
-	p := newRemoteParticipant(pi, r.callback, r.engine.client, func(ssrc webrtc.SSRC) {
+
+	rp = newRemoteParticipant(pi, r.callback, r.engine.client, func(ssrc webrtc.SSRC) {
 		pli := []rtcp.Packet{
 			&rtcp.PictureLossIndication{SenderSSRC: uint32(ssrc), MediaSSRC: uint32(ssrc)},
 		}
 		_ = r.engine.subscriber.pc.WriteRTCP(pli)
 	})
-	r.participants.Store(pi.Sid, p)
-	return p
+	r.participants[pi.Sid] = rp
+	r.lock.Unlock()
+
+	return rp
 }
 
 func (r *Room) handleMediaTrack(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
@@ -237,13 +247,10 @@ func (r *Room) handleMediaTrack(track *webrtc.TrackRemote, receiver *webrtc.RTPR
 		trackID = track.ID()
 	}
 
-	p := r.GetParticipant(participantID)
-	if p == nil {
-		p = r.addRemoteParticipant(&livekit.ParticipantInfo{
-			Sid: participantID,
-		})
-	}
-	p.addSubscribedMediaTrack(track, trackID, receiver)
+	rp := r.addRemoteParticipant(&livekit.ParticipantInfo{
+		Sid: participantID,
+	}, false)
+	rp.addSubscribedMediaTrack(track, trackID, receiver)
 }
 
 func (r *Room) handleDisconnect() {
@@ -253,10 +260,10 @@ func (r *Room) handleDisconnect() {
 
 func (r *Room) handleRestarting() {
 	r.callback.OnReconnecting()
-	r.participants.Range(func(_, value interface{}) bool {
-		r.handleParticipantDisconnect(value.(*RemoteParticipant))
-		return true
-	})
+
+	for _, rp := range r.GetParticipants() {
+		r.handleParticipantDisconnect(rp)
+	}
 }
 
 func (r *Room) handleRestarted(joinRes *livekit.JoinResponse) {
@@ -323,7 +330,7 @@ func (r *Room) handleParticipantUpdate(participants []*livekit.ParticipantInfo) 
 				r.handleParticipantDisconnect(p)
 			}
 		} else if isNew {
-			p = r.addRemoteParticipant(pi)
+			p = r.addRemoteParticipant(pi, true)
 			go r.callback.OnParticipantConnected(p)
 		} else {
 			p.updateInfo(pi)
@@ -332,7 +339,10 @@ func (r *Room) handleParticipantUpdate(participants []*livekit.ParticipantInfo) 
 }
 
 func (r *Room) handleParticipantDisconnect(p *RemoteParticipant) {
-	r.participants.Delete(p.SID())
+	r.lock.Lock()
+	delete(r.participants, p.SID())
+	r.lock.Unlock()
+
 	p.unpublishAllTracks()
 	go r.callback.OnParticipantDisconnected(p)
 }
@@ -360,14 +370,12 @@ func (r *Room) handleActiveSpeakerChange(speakers []*livekit.SpeakerInfo) {
 	if !seenSids[r.LocalParticipant.sid] {
 		r.LocalParticipant.setAudioLevel(0)
 	}
-	r.participants.Range(func(_, value interface{}) bool {
-		p := value.(*RemoteParticipant)
-		if !seenSids[p.sid] {
-			p.setAudioLevel(0)
-			p.setIsSpeaking(false)
+	for _, rp := range r.GetParticipants() {
+		if !seenSids[rp.sid] {
+			rp.setAudioLevel(0)
+			rp.setIsSpeaking(false)
 		}
-		return true
-	})
+	}
 	r.lock.Lock()
 	r.activeSpeakers = activeSpeakers
 	r.lock.Unlock()
@@ -384,14 +392,10 @@ func (r *Room) handleSpeakersChange(speakerUpdates []*livekit.SpeakerInfo) {
 		if info.Sid == r.LocalParticipant.SID() {
 			participant = r.LocalParticipant
 		} else {
-			if obj, ok := r.participants.Load(info.Sid); ok {
-				if p, ok := obj.(Participant); ok {
-					participant = p
-				}
-			}
+			participant = r.GetParticipant(info.Sid)
 		}
-		if participant == nil {
-			break
+		if reflect.ValueOf(participant).IsNil() {
+			continue
 		}
 
 		participant.setAudioLevel(info.Level)
@@ -466,15 +470,13 @@ func (r *Room) sendSyncState() {
 
 	var trackSids []string
 	sendUnsub := r.engine.connParams.AutoSubscribe
-	r.participants.Range(func(_, val interface{}) bool {
-		p := val.(*RemoteParticipant)
-		for _, t := range p.Tracks() {
+	for _, rp := range r.GetParticipants() {
+		for _, t := range rp.Tracks() {
 			if t.IsSubscribed() != sendUnsub {
 				trackSids = append(trackSids, t.SID())
 			}
 		}
-		return true
-	})
+	}
 
 	var publishedTracks []*livekit.TrackPublishedResponse
 	for _, t := range r.LocalParticipant.Tracks() {
