@@ -3,6 +3,7 @@ package lksdk
 import "errors"
 
 var (
+	ErrURLNotProvided           = errors.New("URL was not provided")
 	ErrConnectionTimeout        = errors.New("could not connect after timeout")
 	ErrTrackPublishTimeout      = errors.New("timed out publishing track")
 	ErrCannotDetermineMime      = errors.New("cannot determine mimetype from file extension")

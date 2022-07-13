@@ -58,6 +58,9 @@ func (c *SignalClient) IsStarted() bool {
 }
 
 func (c *SignalClient) Join(urlPrefix string, token string, params *ConnectParams) (*livekit.JoinResponse, error) {
+	if urlPrefix == "" {
+		return nil, ErrURLNotProvided
+	}
 	urlPrefix = ToWebsocketURL(urlPrefix)
 	urlSuffix := fmt.Sprintf("/rtc?protocol=%d&sdk=go&version=%s", PROTOCOL, Version)
 
