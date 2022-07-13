@@ -270,10 +270,6 @@ func (p *LocalParticipant) GetPublisherPeerConnection() *webrtc.PeerConnection {
 
 func (p *LocalParticipant) updateInfo(info *livekit.ParticipantInfo) {
 	p.baseParticipant.updateInfo(info, p)
-	p.lock.Lock()
-	p.sid = info.Sid
-	p.identity = info.Identity
-	p.lock.Unlock()
 
 	// detect tracks that have been muted remotely, and apply changes
 	for _, ti := range info.Tracks {
