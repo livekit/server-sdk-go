@@ -4,8 +4,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/livekit/protocol/livekit"
 	"github.com/pion/webrtc/v3"
+
+	"github.com/livekit/protocol/livekit"
 )
 
 type RemoteParticipant struct {
@@ -87,7 +88,7 @@ func (p *RemoteParticipant) addSubscribedMediaTrack(track *webrtc.TrackRemote, t
 		// wait for metadata to arrive
 		go func() {
 			start := time.Now()
-			for time.Since(start) > 5*time.Second {
+			for time.Since(start) < 5*time.Second {
 				pub := p.getPublication(trackSID)
 				if pub != nil {
 					p.addSubscribedMediaTrack(track, trackSID, receiver)
