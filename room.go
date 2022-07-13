@@ -176,7 +176,7 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 	r.LocalParticipant.updateInfo(joinRes.Participant)
 
 	for _, pi := range joinRes.OtherParticipants {
-		r.addRemoteParticipant(pi)
+		r.addRemoteParticipant(pi, true)
 	}
 
 	return nil
@@ -217,11 +217,13 @@ func (r *Room) Metadata() string {
 	return r.metadata
 }
 
-func (r *Room) addRemoteParticipant(pi *livekit.ParticipantInfo) *RemoteParticipant {
+func (r *Room) addRemoteParticipant(pi *livekit.ParticipantInfo, updateExisting bool) *RemoteParticipant {
 	r.lock.Lock()
 	rp, ok := r.participants[pi.Sid]
 	if ok {
-		rp.updateInfo(pi)
+		if updateExisting {
+			rp.updateInfo(pi)
+		}
 		r.lock.Unlock()
 		return rp
 	}
@@ -245,12 +247,9 @@ func (r *Room) handleMediaTrack(track *webrtc.TrackRemote, receiver *webrtc.RTPR
 		trackID = track.ID()
 	}
 
-	rp := r.GetParticipant(participantID)
-	if rp == nil {
-		rp = r.addRemoteParticipant(&livekit.ParticipantInfo{
-			Sid: participantID,
-		})
-	}
+	rp := r.addRemoteParticipant(&livekit.ParticipantInfo{
+		Sid: participantID,
+	}, false)
 	rp.addSubscribedMediaTrack(track, trackID, receiver)
 }
 
@@ -331,7 +330,7 @@ func (r *Room) handleParticipantUpdate(participants []*livekit.ParticipantInfo) 
 				r.handleParticipantDisconnect(p)
 			}
 		} else if isNew {
-			p = r.addRemoteParticipant(pi)
+			p = r.addRemoteParticipant(pi, true)
 			go r.callback.OnParticipantConnected(p)
 		} else {
 			p.updateInfo(pi)
