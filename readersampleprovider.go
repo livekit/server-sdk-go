@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/pkg/media"
 	"github.com/pion/webrtc/v3/pkg/media/h264reader"
@@ -26,6 +27,7 @@ type ReaderSampleProvider struct {
 	FrameDuration   time.Duration
 	OnWriteComplete func()
 	AudioLevel      uint8
+	trackOpts       []LocalSampleTrackOptions
 
 	// Allow various types of ingress
 	reader io.ReadCloser
@@ -60,6 +62,12 @@ func ReaderTrackWithFrameDuration(duration time.Duration) func(provider *ReaderS
 func ReaderTrackWithOnWriteComplete(f func()) func(provider *ReaderSampleProvider) {
 	return func(provider *ReaderSampleProvider) {
 		provider.OnWriteComplete = f
+	}
+}
+
+func ReaderTrackWithRTCPHandler(f func(rtcp.Packet)) func(provider *ReaderSampleProvider) {
+	return func(provider *ReaderSampleProvider) {
+		provider.trackOpts = append(provider.trackOpts, WithRTCPHandler(f))
 	}
 }
 
@@ -115,7 +123,7 @@ func NewLocalReaderTrack(in io.ReadCloser, mime string, options ...ReaderSampleP
 	}
 
 	// Create sample track & bind handler
-	track, err := NewLocalSampleTrack(webrtc.RTPCodecCapability{MimeType: provider.Mime})
+	track, err := NewLocalSampleTrack(webrtc.RTPCodecCapability{MimeType: provider.Mime}, provider.trackOpts...)
 	if err != nil {
 		return nil, err
 	}
