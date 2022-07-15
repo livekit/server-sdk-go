@@ -3,7 +3,7 @@ module github.com/livekit/server-sdk-go
 go 1.17
 
 require (
-	github.com/bep/debounce v1.2.0
+	github.com/bep/debounce v1.2.1
 	github.com/go-logr/logr v1.2.3
 	github.com/go-logr/stdr v1.0.0
 	github.com/gorilla/websocket v1.4.2
