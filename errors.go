@@ -11,4 +11,5 @@ var (
 	ErrUnsupportedSimulcastKind = errors.New("simulcast is only supported for video")
 	ErrInvalidSimulcastTrack    = errors.New("simulcast track was not initiated correctly")
 	ErrCannotFindTrack          = errors.New("could not find the track")
+	ErrInvalidParameter         = errors.New("invalid parameter")
 )
