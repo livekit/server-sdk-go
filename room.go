@@ -1,6 +1,7 @@
 package lksdk
 
 import (
+	"fmt"
 	"reflect"
 	"sort"
 	"strings"
@@ -176,6 +177,7 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 	r.LocalParticipant.updateInfo(joinRes.Participant)
 
 	for _, pi := range joinRes.OtherParticipants {
+		fmt.Println("join", *pi)
 		r.addRemoteParticipant(pi, true)
 	}
 
@@ -323,6 +325,8 @@ func (r *Room) handleParticipantUpdate(participants []*livekit.ParticipantInfo) 
 	for _, pi := range participants {
 		p := r.GetParticipant(pi.Sid)
 		isNew := p == nil
+
+		fmt.Println("handleParticipantUpdate", *pi)
 
 		if pi.State == livekit.ParticipantInfo_DISCONNECTED {
 			// remove
