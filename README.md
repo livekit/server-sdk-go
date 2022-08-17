@@ -155,6 +155,8 @@ The above encodes H264 with CBS of 2Mbps with a minimum keyframe interval of 120
 
 ```go
 file := "video.ivf"
+videoWidth := 1920
+videoHeight := 1080
 track, err := lksdk.NewLocalFileTrack(file,
 	// control FPS to ensure synchronization
 	lksdk.ReaderTrackWithFrameDuration(33 * time.Millisecond),
@@ -163,7 +165,11 @@ track, err := lksdk.NewLocalFileTrack(file,
 if err != nil {
     return err
 }
-if _, err = room.LocalParticipant.PublishTrack(track, file); err != nil {
+if _, err = room.LocalParticipant.PublishTrack(track, &lksdk.TrackPublicationOptions{
+	Name: file,
+	Width: videoWidth,
+	Height: videoHeight,
+}); err != nil {
     return err
 }
 ```
