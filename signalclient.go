@@ -87,6 +87,10 @@ func (c *SignalClient) Join(urlPrefix string, token string, params *ConnectParam
 	c.isClosed.Store(false)
 	c.conn = conn
 
+	if params.Reconnect {
+		return nil, nil
+	}
+
 	// server should send join as soon as connected
 	res, err := c.ReadResponse()
 	if err != nil {

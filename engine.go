@@ -353,6 +353,7 @@ func (e *RTCEngine) handleDisconnect() {
 				if reconnectCount == 0 && e.OnRestarting != nil {
 					e.OnRestarting()
 				}
+				logger.Info("restarting connection...", "reconnectCount", reconnectCount)
 				if err := e.restartConnection(); err != nil {
 					logger.Error(err, "restart connection failed")
 				} else {
@@ -362,6 +363,7 @@ func (e *RTCEngine) handleDisconnect() {
 				if reconnectCount == 0 && e.OnResuming != nil {
 					e.OnResuming()
 				}
+				logger.Info("resuming connection...", "reconnectCount", reconnectCount)
 				if err := e.resumeConnection(); err != nil {
 					logger.Error(err, "resume connection failed")
 					if !errors.Is(err, ErrSignalError) {
