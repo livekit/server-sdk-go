@@ -368,7 +368,7 @@ func (e *RTCEngine) handleDisconnect() {
 		return
 	}
 
-	if !e.reconnecting.CAS(false, true) {
+	if !e.reconnecting.CompareAndSwap(false, true) {
 		return
 	}
 
