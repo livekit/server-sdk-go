@@ -92,7 +92,7 @@ func (e *RTCEngine) Join(url string, token string, params *ConnectParams) (*live
 }
 
 func (e *RTCEngine) Close() {
-	if !e.closed.CAS(false, true) {
+	if !e.closed.CompareAndSwap(false, true) {
 		return
 	}
 	if e.publisher != nil {
@@ -340,7 +340,7 @@ func (e *RTCEngine) handleDisconnect() {
 		return
 	}
 
-	if !e.reconnecting.CAS(false, true) {
+	if !e.reconnecting.CompareAndSwap(false, true) {
 		return
 	}
 
