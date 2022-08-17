@@ -20,13 +20,14 @@ const (
 type PCTransport struct {
 	pc *webrtc.PeerConnection
 
-	lock                      sync.Mutex
-	pendingCandidates         []webrtc.ICECandidateInit
-	debouncedNegotiate        func(func())
-	renegotiate               bool
-	currentOfferIceCredential string
-	pendingRestartIceOffer    *webrtc.SessionDescription
-	restartAfterGathering     bool
+	lock                       sync.Mutex
+	pendingCandidates          []webrtc.ICECandidateInit
+	debouncedNegotiate         func(func())
+	renegotiate                bool
+	currentOfferIceCredential  string
+	pendingRestartIceOffer     *webrtc.SessionDescription
+	restartAfterGathering      bool
+	onRemoteDescriptionSettled func() error
 
 	OnOffer func(description webrtc.SessionDescription)
 }
@@ -122,7 +123,6 @@ func (t *PCTransport) Close() error {
 
 func (t *PCTransport) SetRemoteDescription(sd webrtc.SessionDescription) error {
 	t.lock.Lock()
-	defer t.lock.Unlock()
 
 	var (
 		iceCredential   string
@@ -133,6 +133,7 @@ func (t *PCTransport) SetRemoteDescription(sd webrtc.SessionDescription) error {
 		iceCredential, offerRestartICE, err = t.isRemoteOfferRestartICE(sd)
 		if err != nil {
 			logger.Error(err, "check remote offer restart ice failed")
+			t.lock.Unlock()
 			return err
 		}
 	}
@@ -140,10 +141,12 @@ func (t *PCTransport) SetRemoteDescription(sd webrtc.SessionDescription) error {
 	if offerRestartICE && t.pc.ICEGatheringState() == webrtc.ICEGatheringStateGathering {
 		logger.Info("remote offer restart ice while ice gathering")
 		t.pendingRestartIceOffer = &sd
+		t.lock.Unlock()
 		return nil
 	}
 
 	if err := t.pc.SetRemoteDescription(sd); err != nil {
+		t.lock.Unlock()
 		return err
 	}
 
@@ -153,6 +156,7 @@ func (t *PCTransport) SetRemoteDescription(sd webrtc.SessionDescription) error {
 
 	for _, c := range t.pendingCandidates {
 		if err := t.pc.AddICECandidate(c); err != nil {
+			t.lock.Unlock()
 			return err
 		}
 	}
@@ -162,7 +166,20 @@ func (t *PCTransport) SetRemoteDescription(sd webrtc.SessionDescription) error {
 		t.renegotiate = false
 		go t.createAndSendOffer(nil)
 	}
+
+	onRemoteDescriptionSettled := t.onRemoteDescriptionSettled
+	t.lock.Unlock()
+
+	if onRemoteDescriptionSettled != nil {
+		return onRemoteDescriptionSettled()
+	}
 	return nil
+}
+
+func (t *PCTransport) OnRemoteDescriptionSettled(f func() error) {
+	t.lock.Lock()
+	t.onRemoteDescriptionSettled = f
+	t.lock.Unlock()
 }
 
 func (t *PCTransport) isRemoteOfferRestartICE(sd webrtc.SessionDescription) (string, bool, error) {

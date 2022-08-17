@@ -94,7 +94,7 @@ func (e *RTCEngine) Join(url string, token string, params *ConnectParams) (*live
 }
 
 func (e *RTCEngine) Close() {
-	if !e.closed.CAS(false, true) {
+	if !e.closed.CompareAndSwap(false, true) {
 		return
 	}
 	if e.publisher != nil {
@@ -132,6 +132,7 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 	}
 
 	e.subscriberPrimary = res.SubscriberPrimary
+	e.subscriber.OnRemoteDescriptionSettled(e.createPublisherAnswerAndSend)
 
 	e.publisher.pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
 		if candidate == nil {
@@ -240,18 +241,7 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 			logger.Error(err, "could not set remote description")
 			return
 		}
-		answer, err := e.subscriber.pc.CreateAnswer(nil)
-		if err != nil {
-			logger.Error(err, "could not create answer")
-			return
-		}
-		if err := e.subscriber.pc.SetLocalDescription(answer); err != nil {
-			logger.Error(err, "could not set subscriber local description")
-			return
-		}
-		if err := e.client.SendAnswer(answer); err != nil {
-			logger.Error(err, "could not send answer for subscriber")
-		}
+
 	}
 	e.client.OnParticipantUpdate = e.OnParticipantUpdate
 	e.client.OnSpeakersChanged = e.OnSpeakersChanged
@@ -462,6 +452,23 @@ func (e *RTCEngine) restartConnection() error {
 
 	if e.OnRestarted != nil {
 		e.OnRestarted(res)
+	}
+	return nil
+}
+
+func (e *RTCEngine) createPublisherAnswerAndSend() error {
+	answer, err := e.subscriber.pc.CreateAnswer(nil)
+	if err != nil {
+		logger.Error(err, "could not create answer")
+		return err
+	}
+	if err := e.subscriber.pc.SetLocalDescription(answer); err != nil {
+		logger.Error(err, "could not set subscriber local description")
+		return err
+	}
+	if err := e.client.SendAnswer(answer); err != nil {
+		logger.Error(err, "could not send answer for subscriber")
+		return err
 	}
 	return nil
 }
