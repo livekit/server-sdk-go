@@ -220,13 +220,7 @@ func (p *LocalParticipant) PublishData(data []byte, kind livekit.DataPacket_Kind
 		return err
 	}
 
-	if kind == livekit.DataPacket_RELIABLE {
-		return p.engine.reliableDC.Send(encoded)
-	} else if kind == livekit.DataPacket_LOSSY {
-		return p.engine.lossyDC.Send(encoded)
-	}
-
-	return nil
+	return p.engine.GetDataChannel(kind).Send(encoded)
 }
 
 func (p *LocalParticipant) UnpublishTrack(sid string) error {

@@ -2,6 +2,7 @@ package lksdk
 
 import (
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/pion/webrtc/v3"
@@ -25,6 +26,7 @@ type RTCEngine struct {
 	publisher          *PCTransport
 	subscriber         *PCTransport
 	client             *SignalClient
+	dclock             sync.RWMutex
 	reliableDC         *webrtc.DataChannel
 	lossyDC            *webrtc.DataChannel
 	reliableDCSub      *webrtc.DataChannel
@@ -173,6 +175,8 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 	})
 
 	e.subscriber.pc.OnDataChannel(func(c *webrtc.DataChannel) {
+		e.dclock.Lock()
+		defer e.dclock.Unlock()
 		if c.Label() == reliableDataChannelName {
 			e.reliableDCSub = c
 		} else if c.Label() == lossyDataChannelName {
@@ -191,11 +195,13 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 
 	trueVal := true
 	maxRetries := uint16(1)
+	e.dclock.Lock()
 	e.lossyDC, err = e.publisher.PeerConnection().CreateDataChannel(lossyDataChannelName, &webrtc.DataChannelInit{
 		Ordered:        &trueVal,
 		MaxRetransmits: &maxRetries,
 	})
 	if err != nil {
+		e.dclock.Unlock()
 		return err
 	}
 	e.lossyDC.OnMessage(e.handleDataPacket)
@@ -203,9 +209,11 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 		Ordered: &trueVal,
 	})
 	if err != nil {
+		e.dclock.Unlock()
 		return err
 	}
 	e.reliableDC.OnMessage(e.handleDataPacket)
+	e.dclock.Unlock()
 
 	// configure client
 	e.client.OnAnswer = func(sd webrtc.SessionDescription) {
@@ -258,6 +266,24 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 	return nil
 }
 
+func (e *RTCEngine) GetDataChannel(kind livekit.DataPacket_Kind) *webrtc.DataChannel {
+	e.dclock.RLock()
+	defer e.dclock.RUnlock()
+	if kind == livekit.DataPacket_RELIABLE {
+		return e.reliableDC
+	}
+	return e.lossyDC
+}
+
+func (e *RTCEngine) GetDataChannelSub(kind livekit.DataPacket_Kind) *webrtc.DataChannel {
+	e.dclock.RLock()
+	defer e.dclock.RUnlock()
+	if kind == livekit.DataPacket_RELIABLE {
+		return e.reliableDCSub
+	}
+	return e.lossyDCSub
+}
+
 func (e *RTCEngine) waitUntilConnected() error {
 	timeout := time.After(e.JoinTimeout)
 	for {
@@ -301,6 +327,8 @@ func (e *RTCEngine) ensurePublisherConnected(ensureDataReady bool) error {
 }
 
 func (e *RTCEngine) dataPubChannelReady() bool {
+	e.dclock.RLock()
+	defer e.dclock.RUnlock()
 	return e.reliableDC.ReadyState() == webrtc.DataChannelStateOpen && e.lossyDC.ReadyState() == webrtc.DataChannelStateOpen
 }
 
