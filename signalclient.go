@@ -96,6 +96,7 @@ func (c *SignalClient) Join(urlPrefix string, token string, params *ConnectParam
 
 	c.pendingResponse = nil
 	if params.Reconnect {
+		logger.Info("reconnect received response", res.String())
 		if res != nil {
 			if res.GetLeave() != nil {
 				return nil, fmt.Errorf("reconnect received left, reason: %s", res.GetLeave().GetReason())
