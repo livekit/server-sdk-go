@@ -21,10 +21,11 @@ const PROTOCOL = 8
 var ErrSignalError = errors.New("signal error")
 
 type SignalClient struct {
-	conn      *websocket.Conn
-	lock      sync.Mutex
-	isClosed  atomic.Bool
-	isStarted atomic.Bool
+	conn            *websocket.Conn
+	lock            sync.Mutex
+	isClosed        atomic.Bool
+	isStarted       atomic.Bool
+	pendingResponse *livekit.SignalResponse
 
 	OnClose                 func()
 	OnAnswer                func(sd webrtc.SessionDescription)
@@ -92,6 +93,19 @@ func (c *SignalClient) Join(urlPrefix string, token string, params *ConnectParam
 	if err != nil {
 		return nil, err
 	}
+
+	c.pendingResponse = nil
+	if params.Reconnect {
+		logger.Info("reconnect received response", res.String())
+		if res != nil {
+			if res.GetLeave() != nil {
+				return nil, fmt.Errorf("reconnect received left, reason: %s", res.GetLeave().GetReason())
+			}
+			c.pendingResponse = res
+		}
+		return nil, nil
+	}
+
 	join := res.GetJoin()
 	if join == nil {
 		return nil, fmt.Errorf("unexpected response: %v", res.Message)
@@ -272,6 +286,10 @@ func (c *SignalClient) readWorker() {
 			c.OnClose()
 		}
 	}()
+	if pending := c.pendingResponse; pending != nil {
+		c.handleResponse(pending)
+		c.pendingResponse = nil
+	}
 	for !c.isClosed.Load() {
 		res, err := c.ReadResponse()
 		if err != nil {

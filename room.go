@@ -499,10 +499,10 @@ func (r *Room) sendSyncState() {
 		}
 	}
 
-	getDCinfo(r.engine.reliableDC, livekit.SignalTarget_PUBLISHER)
-	getDCinfo(r.engine.lossyDC, livekit.SignalTarget_PUBLISHER)
-	getDCinfo(r.engine.reliableDCSub, livekit.SignalTarget_SUBSCRIBER)
-	getDCinfo(r.engine.lossyDCSub, livekit.SignalTarget_SUBSCRIBER)
+	getDCinfo(r.engine.GetDataChannel(livekit.DataPacket_RELIABLE), livekit.SignalTarget_PUBLISHER)
+	getDCinfo(r.engine.GetDataChannel(livekit.DataPacket_LOSSY), livekit.SignalTarget_PUBLISHER)
+	getDCinfo(r.engine.GetDataChannelSub(livekit.DataPacket_RELIABLE), livekit.SignalTarget_SUBSCRIBER)
+	getDCinfo(r.engine.GetDataChannelSub(livekit.DataPacket_LOSSY), livekit.SignalTarget_SUBSCRIBER)
 
 	r.engine.client.SendSyncState(&livekit.SyncState{
 		Answer: ToProtoSessionDescription(*previousSdp),

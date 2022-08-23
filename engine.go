@@ -2,6 +2,7 @@ package lksdk
 
 import (
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/pion/webrtc/v3"
@@ -25,6 +26,7 @@ type RTCEngine struct {
 	publisher          *PCTransport
 	subscriber         *PCTransport
 	client             *SignalClient
+	dclock             sync.RWMutex
 	reliableDC         *webrtc.DataChannel
 	lossyDC            *webrtc.DataChannel
 	reliableDCSub      *webrtc.DataChannel
@@ -130,6 +132,7 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 	}
 
 	e.subscriberPrimary = res.SubscriberPrimary
+	e.subscriber.OnRemoteDescriptionSettled(e.createPublisherAnswerAndSend)
 
 	e.publisher.pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
 		if candidate == nil {
@@ -173,6 +176,8 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 	})
 
 	e.subscriber.pc.OnDataChannel(func(c *webrtc.DataChannel) {
+		e.dclock.Lock()
+		defer e.dclock.Unlock()
 		if c.Label() == reliableDataChannelName {
 			e.reliableDCSub = c
 		} else if c.Label() == lossyDataChannelName {
@@ -191,11 +196,13 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 
 	trueVal := true
 	maxRetries := uint16(1)
+	e.dclock.Lock()
 	e.lossyDC, err = e.publisher.PeerConnection().CreateDataChannel(lossyDataChannelName, &webrtc.DataChannelInit{
 		Ordered:        &trueVal,
 		MaxRetransmits: &maxRetries,
 	})
 	if err != nil {
+		e.dclock.Unlock()
 		return err
 	}
 	e.lossyDC.OnMessage(e.handleDataPacket)
@@ -203,9 +210,11 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 		Ordered: &trueVal,
 	})
 	if err != nil {
+		e.dclock.Unlock()
 		return err
 	}
 	e.reliableDC.OnMessage(e.handleDataPacket)
+	e.dclock.Unlock()
 
 	// configure client
 	e.client.OnAnswer = func(sd webrtc.SessionDescription) {
@@ -232,18 +241,7 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 			logger.Error(err, "could not set remote description")
 			return
 		}
-		answer, err := e.subscriber.pc.CreateAnswer(nil)
-		if err != nil {
-			logger.Error(err, "could not create answer")
-			return
-		}
-		if err := e.subscriber.pc.SetLocalDescription(answer); err != nil {
-			logger.Error(err, "could not set subscriber local description")
-			return
-		}
-		if err := e.client.SendAnswer(answer); err != nil {
-			logger.Error(err, "could not send answer for subscriber")
-		}
+
 	}
 	e.client.OnParticipantUpdate = e.OnParticipantUpdate
 	e.client.OnSpeakersChanged = e.OnSpeakersChanged
@@ -256,6 +254,24 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 	}
 	e.client.OnClose = e.handleDisconnect
 	return nil
+}
+
+func (e *RTCEngine) GetDataChannel(kind livekit.DataPacket_Kind) *webrtc.DataChannel {
+	e.dclock.RLock()
+	defer e.dclock.RUnlock()
+	if kind == livekit.DataPacket_RELIABLE {
+		return e.reliableDC
+	}
+	return e.lossyDC
+}
+
+func (e *RTCEngine) GetDataChannelSub(kind livekit.DataPacket_Kind) *webrtc.DataChannel {
+	e.dclock.RLock()
+	defer e.dclock.RUnlock()
+	if kind == livekit.DataPacket_RELIABLE {
+		return e.reliableDCSub
+	}
+	return e.lossyDCSub
 }
 
 func (e *RTCEngine) waitUntilConnected() error {
@@ -301,6 +317,8 @@ func (e *RTCEngine) ensurePublisherConnected(ensureDataReady bool) error {
 }
 
 func (e *RTCEngine) dataPubChannelReady() bool {
+	e.dclock.RLock()
+	defer e.dclock.RUnlock()
 	return e.reliableDC.ReadyState() == webrtc.DataChannelStateOpen && e.lossyDC.ReadyState() == webrtc.DataChannelStateOpen
 }
 
@@ -353,6 +371,7 @@ func (e *RTCEngine) handleDisconnect() {
 				if reconnectCount == 0 && e.OnRestarting != nil {
 					e.OnRestarting()
 				}
+				logger.Info("restarting connection...", "reconnectCount", reconnectCount)
 				if err := e.restartConnection(); err != nil {
 					logger.Error(err, "restart connection failed")
 				} else {
@@ -362,6 +381,7 @@ func (e *RTCEngine) handleDisconnect() {
 				if reconnectCount == 0 && e.OnResuming != nil {
 					e.OnResuming()
 				}
+				logger.Info("resuming connection...", "reconnectCount", reconnectCount)
 				if err := e.resumeConnection(); err != nil {
 					logger.Error(err, "resume connection failed")
 					if !errors.Is(err, ErrSignalError) {
@@ -432,6 +452,23 @@ func (e *RTCEngine) restartConnection() error {
 
 	if e.OnRestarted != nil {
 		e.OnRestarted(res)
+	}
+	return nil
+}
+
+func (e *RTCEngine) createPublisherAnswerAndSend() error {
+	answer, err := e.subscriber.pc.CreateAnswer(nil)
+	if err != nil {
+		logger.Error(err, "could not create answer")
+		return err
+	}
+	if err := e.subscriber.pc.SetLocalDescription(answer); err != nil {
+		logger.Error(err, "could not set subscriber local description")
+		return err
+	}
+	if err := e.client.SendAnswer(answer); err != nil {
+		logger.Error(err, "could not send answer for subscriber")
+		return err
 	}
 	return nil
 }
