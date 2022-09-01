@@ -7,8 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/livekit/protocol/livekit"
-	"github.com/livekit/protocol/utils"
 	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
@@ -17,6 +15,9 @@ import (
 	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/pkg/media"
 	"go.uber.org/atomic"
+
+	"github.com/livekit/protocol/livekit"
+	"github.com/livekit/protocol/utils"
 )
 
 const (
@@ -416,7 +417,7 @@ func (s *LocalSampleTrack) writeWorker(provider SampleProvider, onComplete func(
 		// account for clock drift
 		nextSampleTime = nextSampleTime.Add(sample.Duration)
 		sleepDuration := time.Until(nextSampleTime)
-		if sleepDuration < 0 {
+		if sleepDuration <= 0 {
 			continue
 		}
 		ticker.Reset(sleepDuration)
