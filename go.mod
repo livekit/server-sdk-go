@@ -13,7 +13,7 @@ require (
 	github.com/pion/rtcp v1.2.10
 	github.com/pion/rtp v1.7.13
 	github.com/pion/sdp/v3 v3.0.6
-	github.com/pion/webrtc/v3 v3.1.43
+	github.com/pion/webrtc/v3 v3.1.44
 	github.com/stretchr/testify v1.8.0
 	github.com/thoas/go-funk v0.9.2
 	github.com/twitchtv/twirp v8.1.2+incompatible
@@ -42,13 +42,11 @@ require (
 	github.com/pion/mdns v0.0.5 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
 	github.com/pion/sctp v1.8.2 // indirect
-	github.com/pion/sdp v1.3.0 // indirect
 	github.com/pion/srtp/v2 v2.0.10 // indirect
 	github.com/pion/stun v0.3.5 // indirect
 	github.com/pion/transport v0.13.1 // indirect
 	github.com/pion/turn/v2 v2.0.8 // indirect
 	github.com/pion/udp v0.1.1 // indirect
-	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/prometheus/client_golang v1.13.0 // indirect
 	github.com/prometheus/client_model v0.2.0 // indirect
