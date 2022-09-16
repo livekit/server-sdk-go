@@ -293,7 +293,7 @@ func (c *SignalClient) readWorker() {
 	for !c.isClosed.Load() {
 		res, err := c.ReadResponse()
 		if err != nil {
-			if err != io.EOF {
+			if err != io.EOF && !c.isClosed.Load() {
 				logger.Info("error with read worker", "err", err)
 			}
 			return
