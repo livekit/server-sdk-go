@@ -294,7 +294,7 @@ func (c *SignalClient) readWorker() {
 		res, err := c.ReadResponse()
 		if err != nil {
 			if err != io.EOF {
-				logger.Error(err, "error with read worker")
+				logger.Info("error with read worker", "err", err)
 			}
 			return
 		}
