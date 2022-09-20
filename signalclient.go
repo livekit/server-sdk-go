@@ -21,7 +21,7 @@ const PROTOCOL = 8
 var ErrSignalError = errors.New("signal error")
 
 type SignalClient struct {
-	conn            *websocket.Conn
+	conn            atomic.Pointer[websocket.Conn]
 	lock            sync.Mutex
 	isClosed        atomic.Bool
 	isStarted       atomic.Bool
@@ -86,10 +86,10 @@ func (c *SignalClient) Join(urlPrefix string, token string, params *ConnectParam
 		return nil, fmt.Errorf("%w dial error: %s", ErrSignalError, err.Error())
 	}
 	c.isClosed.Store(false)
-	c.conn = conn
+	c.conn.Store(conn)
 
 	// server should send join as soon as connected
-	res, err := c.ReadResponse()
+	res, err := c.readResponse()
 	if err != nil {
 		return nil, err
 	}
@@ -118,8 +118,8 @@ func (c *SignalClient) Close() {
 	if c.isClosed.Swap(true) {
 		return
 	}
-	if c.conn != nil {
-		_ = c.conn.Close()
+	if conn := c.conn.Load(); conn != nil {
+		conn.Close()
 	}
 }
 
@@ -175,7 +175,8 @@ func (c *SignalClient) SendLeave() error {
 }
 
 func (c *SignalClient) SendRequest(req *livekit.SignalRequest) error {
-	if c.conn == nil {
+	conn := c.conn.Load()
+	if conn == nil {
 		return errors.New("client is not connected")
 	}
 	payload, err := proto.Marshal(req)
@@ -185,7 +186,7 @@ func (c *SignalClient) SendRequest(req *livekit.SignalRequest) error {
 
 	c.lock.Lock()
 	defer c.lock.Unlock()
-	return c.conn.WriteMessage(websocket.BinaryMessage, payload)
+	return conn.WriteMessage(websocket.BinaryMessage, payload)
 }
 
 func (c *SignalClient) SendUpdateTrackSettings(settings *livekit.UpdateTrackSettings) error {
@@ -196,33 +197,33 @@ func (c *SignalClient) SendUpdateTrackSettings(settings *livekit.UpdateTrackSett
 	})
 }
 
-func (c *SignalClient) ReadResponse() (*livekit.SignalResponse, error) {
-	if c.conn == nil {
-		return nil, errors.New("cannot read response before join")
-	}
+func (c *SignalClient) readResponse() (*livekit.SignalResponse, error) {
 	if c.isClosed.Load() {
 		return nil, io.EOF
 	}
-	for {
-		// handle special messages and pass on the rest
-		messageType, payload, err := c.conn.ReadMessage()
-		if err != nil {
-			return nil, err
-		}
 
-		msg := &livekit.SignalResponse{}
-		switch messageType {
-		case websocket.BinaryMessage:
-			// protobuf encoded
-			err := proto.Unmarshal(payload, msg)
-			return msg, err
-		case websocket.TextMessage:
-			// json encoded
-			err := protojson.Unmarshal(payload, msg)
-			return msg, err
-		default:
-			return nil, nil
-		}
+	conn := c.conn.Load()
+	if conn == nil {
+		return nil, errors.New("cannot read response before join")
+	}
+	// handle special messages and pass on the rest
+	messageType, payload, err := conn.ReadMessage()
+	if err != nil {
+		return nil, err
+	}
+
+	msg := &livekit.SignalResponse{}
+	switch messageType {
+	case websocket.BinaryMessage:
+		// protobuf encoded
+		err := proto.Unmarshal(payload, msg)
+		return msg, err
+	case websocket.TextMessage:
+		// json encoded
+		err := protojson.Unmarshal(payload, msg)
+		return msg, err
+	default:
+		return nil, nil
 	}
 }
 
@@ -291,7 +292,7 @@ func (c *SignalClient) readWorker() {
 		c.pendingResponse = nil
 	}
 	for !c.isClosed.Load() {
-		res, err := c.ReadResponse()
+		res, err := c.readResponse()
 		if err != nil {
 			if err != io.EOF && !c.isClosed.Load() {
 				logger.Info("error with read worker", "err", err)
