@@ -7,10 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/livekit/protocol/livekit"
 	"github.com/pion/webrtc/v3"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/atomic"
+
+	"github.com/livekit/protocol/livekit"
 )
 
 // The integration test of the SDK. can't run this test standalone, should be run with `mage test`
@@ -98,6 +99,9 @@ func TestJoin(t *testing.T) {
 	}
 	sub, err := createAgent(t.Name(), subCB, "subscriber")
 	require.NoError(t, err)
+	serverInfo := sub.ServerInfo()
+	require.NotNil(t, serverInfo)
+	require.Equal(t, serverInfo.Edition, livekit.ServerInfo_Standard)
 
 	pub.LocalParticipant.PublishData([]byte("test"), livekit.DataPacket_RELIABLE, nil)
 	localPub := pubNullTrack(t, pub, audioTrackName)
