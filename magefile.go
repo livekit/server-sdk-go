@@ -37,6 +37,7 @@ func Test() error {
 	fmt.Println("starting livekit-server...")
 
 	if err := sh.RunV(`docker`, `run`,
+		`-e`, `LIVEKIT_KEYS=`+testApiKey,
 		`-d`, `--rm`, `-p7880:7880`, `-p7881:7881`, `-p7882:7882/udp`,
 		`--name`, `livekit-server`,
 		`livekit/livekit-server`, `--dev`); err != nil {
