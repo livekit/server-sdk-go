@@ -6,11 +6,13 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/livekit/protocol/auth"
-	"github.com/livekit/protocol/livekit"
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v3"
 	"github.com/thoas/go-funk"
+	"google.golang.org/protobuf/proto"
+
+	"github.com/livekit/protocol/auth"
+	"github.com/livekit/protocol/livekit"
 )
 
 type SimulateScenario int
@@ -57,6 +59,7 @@ type Room struct {
 	participants   map[string]*RemoteParticipant
 	metadata       string
 	activeSpeakers []Participant
+	serverInfo     *livekit.ServerInfo
 
 	lock sync.RWMutex
 }
@@ -171,6 +174,7 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 	r.name = joinRes.Room.Name
 	r.sid = joinRes.Room.Sid
 	r.metadata = joinRes.Room.Metadata
+	r.serverInfo = joinRes.ServerInfo
 	r.lock.Unlock()
 
 	r.LocalParticipant.updateInfo(joinRes.Participant)
@@ -215,6 +219,12 @@ func (r *Room) Metadata() string {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 	return r.metadata
+}
+
+func (r *Room) ServerInfo() *livekit.ServerInfo {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+	return proto.Clone(r.serverInfo).(*livekit.ServerInfo)
 }
 
 func (r *Room) addRemoteParticipant(pi *livekit.ParticipantInfo, updateExisting bool) *RemoteParticipant {

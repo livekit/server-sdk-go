@@ -5,10 +5,11 @@ package main
 
 import (
 	"fmt"
-	"github.com/magefile/mage/sh"
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/magefile/mage/sh"
 )
 
 var Default = Build
@@ -29,14 +30,17 @@ func connectStd(cmd *exec.Cmd) {
 }
 
 const (
-	testApiKey = "APIhdZda4TDAGxk: 4BA2qCorbmGnVZ9iMri7Sp0EEA7v2S4Oi8eyHuPxtxJ"
+	testApiKey = "devkey: secret"
 )
 
 func Test() error {
 	fmt.Println("starting livekit-server...")
 
-	if err := sh.RunV(`docker`, `run`, `-d`, `--rm`, `-p7880:7880`, `-e`,
-		fmt.Sprintf(`LIVEKIT_KEYS=%s`, testApiKey), `--name`, `livekit-server`, `livekit/livekit-server`); err != nil {
+	if err := sh.RunV(`docker`, `run`,
+		`-e`, `LIVEKIT_KEYS=`+testApiKey,
+		`-d`, `--rm`, `-p7880:7880`, `-p7881:7881`, `-p7882:7882/udp`,
+		`--name`, `livekit-server`,
+		`livekit/livekit-server`, `--dev`); err != nil {
 		return err
 	}
 	defer func() {
