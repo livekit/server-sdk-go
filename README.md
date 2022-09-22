@@ -7,6 +7,14 @@ This is the official Golang SDK to [LiveKit](https://docs.livekit.io). You would
 -   Client SDK to interact as participant, publish & record room streams
 -   Receive [webhook](https://docs.livekit.io/guides/webhooks/) callbacks
 
+## Installation
+
+```shell
+go get github.com/livekit/server-sdk-go
+```
+
+Note: since v1.0 release, this package requires Go 1.18+ in order to build.
+
 ## Token creation
 
 ```go
