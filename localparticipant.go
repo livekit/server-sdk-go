@@ -41,9 +41,6 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 	}
 
 	pub := NewLocalTrackPublication(kind, track, opts.Name, p.engine.client)
-	pub.OnRttUpdate(func(rtt uint32) {
-		p.engine.setRTT(rtt)
-	})
 
 	req := &livekit.AddTrackRequest{
 		Cid:        track.ID(),

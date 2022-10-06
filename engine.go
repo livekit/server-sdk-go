@@ -121,16 +121,6 @@ func (e *RTCEngine) TrackPublishedChan() <-chan *livekit.TrackPublishedResponse 
 	return e.trackPublishedChan
 }
 
-func (e *RTCEngine) setRTT(rtt uint32) {
-	if pc := e.publisher; pc != nil {
-		pc.SetRTT(rtt)
-	}
-
-	if pc := e.subscriber; pc != nil {
-		pc.SetRTT(rtt)
-	}
-}
-
 func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 	iceServers := FromProtoIceServers(res.IceServers)
 	var err error
