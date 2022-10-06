@@ -3,7 +3,7 @@ package interceptor
 import (
 	"sync"
 
-	"github.com/livekit/livekit-server/pkg/sfu/buffer"
+	"github.com/livekit/mediatransportutil/pkg/nack"
 	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
 	"go.uber.org/atomic"
@@ -40,12 +40,12 @@ type NackGeneratorInterceptor struct {
 	interceptor.NoOp
 	lock       sync.Mutex
 	writer     atomic.Value
-	nackQueues map[uint32]*buffer.NackQueue
+	nackQueues map[uint32]*nack.NackQueue
 }
 
 func NewNackGeneratorInterceptor() (*NackGeneratorInterceptor, error) {
 	n := &NackGeneratorInterceptor{
-		nackQueues: make(map[uint32]*buffer.NackQueue),
+		nackQueues: make(map[uint32]*nack.NackQueue),
 	}
 
 	return n, nil
@@ -70,7 +70,7 @@ func (n *NackGeneratorInterceptor) BindRemoteStream(info *interceptor.StreamInfo
 		return reader
 	}
 
-	nackQueue := buffer.NewNACKQueue()
+	nackQueue := nack.NewNACKQueue()
 	n.lock.Lock()
 	n.nackQueues[info.SSRC] = nackQueue
 	n.lock.Unlock()

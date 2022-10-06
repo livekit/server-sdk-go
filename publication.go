@@ -8,6 +8,7 @@ import (
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/livekit/mediatransportutil"
 	"github.com/livekit/protocol/livekit"
 )
 
@@ -294,7 +295,7 @@ func (p *LocalTrackPublication) setSender(sender *webrtc.RTPSender) {
 				if rr, ok := packet.(*rtcp.ReceiverReport); ok {
 					for _, r := range rr.Reports {
 						rr.Reports = append(rr.Reports, r)
-						rtt := getRttMs(&r)
+						rtt := mediatransportutil.GetRttMs(&r)
 						if rtt != 0 && p.onRttUpdate != nil {
 							p.onRttUpdate(rtt)
 						}
