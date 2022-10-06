@@ -21,7 +21,7 @@ const PROTOCOL = 8
 var ErrSignalError = errors.New("signal error")
 
 type SignalClient struct {
-	conn            atomic.Value // *webrtc.Conn
+	conn            atomic.Value // *websocket.Conn
 	lock            sync.Mutex
 	isClosed        atomic.Bool
 	isStarted       atomic.Bool

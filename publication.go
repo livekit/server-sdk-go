@@ -8,6 +8,7 @@ import (
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/livekit/mediatransportutil"
 	"github.com/livekit/protocol/livekit"
 )
 
@@ -225,6 +226,7 @@ type LocalTrackPublication struct {
 	sender *webrtc.RTPSender
 	// set for simulcasted tracks
 	simulcastTracks map[livekit.VideoQuality]*LocalSampleTrack
+	onRttUpdate     func(uint32)
 }
 
 func NewLocalTrackPublication(kind TrackKind, track Track, name string, client *SignalClient) *LocalTrackPublication {
@@ -278,6 +280,37 @@ func (p *LocalTrackPublication) addSimulcastTrack(st *LocalSampleTrack) {
 func (p *LocalTrackPublication) setSender(sender *webrtc.RTPSender) {
 	p.lock.Lock()
 	p.sender = sender
+	p.lock.Unlock()
+
+	go func() {
+		for {
+			packets, _, err := sender.ReadRTCP()
+			if err != nil {
+				// pipe closed
+				return
+			}
+
+		rttCaculate:
+			for _, packet := range packets {
+				if rr, ok := packet.(*rtcp.ReceiverReport); ok {
+					for _, r := range rr.Reports {
+						rr.Reports = append(rr.Reports, r)
+						rtt := mediatransportutil.GetRttMs(&r)
+						if rtt != 0 && p.onRttUpdate != nil {
+							p.onRttUpdate(rtt)
+						}
+
+						break rttCaculate
+					}
+				}
+			}
+		}
+	}()
+}
+
+func (p *LocalTrackPublication) OnRttUpdate(cb func(uint32)) {
+	p.lock.Lock()
+	p.onRttUpdate = cb
 	p.lock.Unlock()
 }
 
