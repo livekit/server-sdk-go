@@ -7,7 +7,9 @@ import (
 
 	"github.com/bep/debounce"
 	lksdp "github.com/livekit/protocol/sdp"
+	sdkinterceptor "github.com/livekit/server-sdk-go/pkg/interceptor"
 	"github.com/pion/interceptor"
+	"github.com/pion/interceptor/pkg/nack"
 	"github.com/pion/sdp/v3"
 	"github.com/pion/webrtc/v3"
 )
@@ -20,13 +22,15 @@ const (
 type PCTransport struct {
 	pc *webrtc.PeerConnection
 
-	lock                       sync.Mutex
-	pendingCandidates          []webrtc.ICECandidateInit
-	debouncedNegotiate         func(func())
-	renegotiate                bool
-	currentOfferIceCredential  string
-	pendingRestartIceOffer     *webrtc.SessionDescription
-	restartAfterGathering      bool
+	lock                      sync.Mutex
+	pendingCandidates         []webrtc.ICECandidateInit
+	debouncedNegotiate        func(func())
+	renegotiate               bool
+	currentOfferIceCredential string
+	pendingRestartIceOffer    *webrtc.SessionDescription
+	restartAfterGathering     bool
+	nackGenerator             *sdkinterceptor.NackGeneratorInterceptorFactory
+
 	onRemoteDescriptionSettled func() error
 
 	OnOffer func(description webrtc.SessionDescription)
@@ -51,7 +55,26 @@ func NewPCTransport(iceServers []webrtc.ICEServer) (*PCTransport, error) {
 	}
 
 	i := &interceptor.Registry{}
-	if err := webrtc.RegisterDefaultInterceptors(m, i); err != nil {
+
+	// nack interceptor
+	generator := &sdkinterceptor.NackGeneratorInterceptorFactory{}
+	responder, err := nack.NewResponderInterceptor()
+	if err != nil {
+		return nil, err
+	}
+
+	m.RegisterFeedback(webrtc.RTCPFeedback{Type: "nack"}, webrtc.RTPCodecTypeVideo)
+	m.RegisterFeedback(webrtc.RTCPFeedback{Type: "nack", Parameter: "pli"}, webrtc.RTPCodecTypeVideo)
+	i.Add(responder)
+	i.Add(generator)
+
+	// rtcp report interceptor
+	if err := webrtc.ConfigureRTCPReports(i); err != nil {
+		return nil, err
+	}
+
+	// twcc interceptor
+	if err := webrtc.ConfigureTWCCSender(m, i); err != nil {
 		return nil, err
 	}
 
@@ -64,6 +87,7 @@ func NewPCTransport(iceServers []webrtc.ICEServer) (*PCTransport, error) {
 	t := &PCTransport{
 		pc:                 pc,
 		debouncedNegotiate: debounce.New(negotiationFrequency),
+		nackGenerator:      generator,
 	}
 
 	pc.OnICEGatheringStateChange(t.onICEGatheringStateChange)
@@ -119,6 +143,12 @@ func (t *PCTransport) IsConnected() bool {
 
 func (t *PCTransport) Close() error {
 	return t.pc.Close()
+}
+
+func (t *PCTransport) SetRTT(rtt uint32) {
+	if g := t.nackGenerator; g != nil {
+		g.SetRTT(rtt)
+	}
 }
 
 func (t *PCTransport) SetRemoteDescription(sd webrtc.SessionDescription) error {

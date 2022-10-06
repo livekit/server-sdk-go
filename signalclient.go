@@ -21,7 +21,7 @@ const PROTOCOL = 8
 var ErrSignalError = errors.New("signal error")
 
 type SignalClient struct {
-	conn            atomic.Value // *webrtc.Conn
+	conn            atomic.Pointer[websocket.Conn]
 	lock            sync.Mutex
 	isClosed        atomic.Bool
 	isStarted       atomic.Bool
@@ -118,8 +118,8 @@ func (c *SignalClient) Close() {
 	if c.isClosed.Swap(true) {
 		return
 	}
-	if conn := c.websocketConn(); conn != nil {
-		_ = conn.Close()
+	if conn := c.conn.Load(); conn != nil {
+		conn.Close()
 	}
 }
 
@@ -175,7 +175,7 @@ func (c *SignalClient) SendLeave() error {
 }
 
 func (c *SignalClient) SendRequest(req *livekit.SignalRequest) error {
-	conn := c.websocketConn()
+	conn := c.conn.Load()
 	if conn == nil {
 		return errors.New("client is not connected")
 	}
@@ -202,7 +202,7 @@ func (c *SignalClient) readResponse() (*livekit.SignalResponse, error) {
 		return nil, io.EOF
 	}
 
-	conn := c.websocketConn()
+	conn := c.conn.Load()
 	if conn == nil {
 		return nil, errors.New("cannot read response before join")
 	}
@@ -301,15 +301,4 @@ func (c *SignalClient) readWorker() {
 		}
 		c.handleResponse(res)
 	}
-}
-
-func (c *SignalClient) websocketConn() *websocket.Conn {
-	obj := c.conn.Load()
-	if obj == nil {
-		return nil
-	}
-	if conn, ok := obj.(*websocket.Conn); ok {
-		return conn
-	}
-	return nil
 }
