@@ -294,8 +294,8 @@ func (c *SignalClient) readWorker() {
 	for !c.isClosed.Load() {
 		res, err := c.readResponse()
 		if err != nil {
-			if err != io.EOF && !c.isClosed.Load() {
-				logger.Info("error with read worker", "err", err)
+			if isIgnoredWebsocketError(err) && !c.isClosed.Load() {
+				logger.Info("error while reading from signal client", "err", err)
 			}
 			return
 		}
@@ -312,4 +312,12 @@ func (c *SignalClient) websocketConn() *websocket.Conn {
 		return conn
 	}
 	return nil
+}
+
+func isIgnoredWebsocketError(err error) bool {
+	if err == nil || err == io.EOF {
+		return true
+	}
+
+	return websocket.IsCloseError(err, websocket.CloseAbnormalClosure, websocket.CloseGoingAway, websocket.CloseNormalClosure, websocket.CloseNoStatusReceived)
 }
