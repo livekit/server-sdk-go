@@ -294,7 +294,7 @@ func (c *SignalClient) readWorker() {
 	for !c.isClosed.Load() {
 		res, err := c.readResponse()
 		if err != nil {
-			if isIgnoredWebsocketError(err) && !c.isClosed.Load() {
+			if !isIgnoredWebsocketError(err) && !c.isClosed.Load() {
 				logger.Info("error while reading from signal client", "err", err)
 			}
 			return
