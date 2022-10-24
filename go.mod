@@ -17,7 +17,7 @@ require (
 	github.com/pion/webrtc/v3 v3.1.47
 	github.com/stretchr/testify v1.8.0
 	github.com/thoas/go-funk v0.9.2
-	github.com/twitchtv/twirp v8.1.2+incompatible
+	github.com/twitchtv/twirp v8.1.3+incompatible
 	go.uber.org/atomic v1.10.0
 	google.golang.org/protobuf v1.28.1
 )
