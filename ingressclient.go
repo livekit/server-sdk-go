@@ -72,7 +72,3 @@ func (c *IngressClient) DeleteIngress(ctx context.Context, in *livekit.DeleteIng
 	}
 	return c.Ingress.DeleteIngress(ctx, in)
 }
-
-func getBoolPointer(v bool) *bool {
-	return &v
-}
