@@ -49,6 +49,14 @@ func (c *EgressClient) StartTrackEgress(ctx context.Context, req *livekit.TrackE
 	return c.Egress.StartTrackEgress(ctx, req)
 }
 
+func (c *EgressClient) StartWebEgress(ctx context.Context, req *livekit.WebEgressRequest) (*livekit.EgressInfo, error) {
+	ctx, err := c.withAuth(ctx, auth.VideoGrant{RoomRecord: true})
+	if err != nil {
+		return nil, err
+	}
+	return c.Egress.StartWebEgress(ctx, req)
+}
+
 func (c *EgressClient) UpdateLayout(ctx context.Context, req *livekit.UpdateLayoutRequest) (*livekit.EgressInfo, error) {
 	ctx, err := c.withAuth(ctx, auth.VideoGrant{RoomRecord: true})
 	if err != nil {
