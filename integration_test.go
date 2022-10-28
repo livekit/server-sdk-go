@@ -181,7 +181,7 @@ func TestForceTLS(t *testing.T) {
 	pub.LocalParticipant.PublishData([]byte("test"), livekit.DataPacket_RELIABLE, nil)
 
 	pub.Simulate(SimulateForceTLS)
-	require.Eventually(t, func() bool { return reconnected.Load() }, 15*time.Second, 100*time.Millisecond)
+	require.Eventually(t, func() bool { return reconnected.Load() && pub.engine.ensurePublisherConnected(true) == nil }, 15*time.Second, 100*time.Millisecond)
 
 	logger.Info("reconnected")
 
@@ -204,7 +204,6 @@ func TestForceTLS(t *testing.T) {
 		return iceTransport.GetSelectedCandidatePair()
 	}
 
-	require.Eventually(t, func() bool { return reconnected.Load() && pub.engine.ensurePublisherConnected(true) == nil }, 5*time.Second, 100*time.Millisecond)
 	for _, pc := range []*webrtc.PeerConnection{pub.engine.publisher.pc, pub.engine.subscriber.pc} {
 		pair, err := getSelectedPair(pc)
 		require.NoError(t, err)
