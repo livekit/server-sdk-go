@@ -5,6 +5,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
@@ -33,14 +34,87 @@ const (
 	testApiKey = "devkey: secret"
 )
 
+func getLocalIPAddresses() ([]string, error) {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+	loopBacks := make([]string, 0)
+	addresses := make([]string, 0)
+	for _, iface := range ifaces {
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			var ip net.IP
+			switch typedAddr := addr.(type) {
+			case *net.IPNet:
+				ip = typedAddr.IP.To4()
+			case *net.IPAddr:
+				ip = typedAddr.IP.To4()
+			default:
+				continue
+			}
+			if ip == nil {
+				continue
+			}
+			if ip.IsLoopback() {
+				loopBacks = append(loopBacks, ip.String())
+			} else {
+				addresses = append(addresses, ip.String())
+			}
+		}
+	}
+
+	if len(addresses) > 0 {
+		return addresses, nil
+	}
+	if len(loopBacks) > 0 {
+		return loopBacks, nil
+	}
+	return nil, fmt.Errorf("could not find local IP address")
+}
+
 func Test() error {
 	fmt.Println("starting livekit-server...")
 
-	if err := sh.RunV(`docker`, `run`,
-		`-e`, `LIVEKIT_KEYS=`+testApiKey,
-		`-d`, `--rm`, `-p7880:7880`, `-p7881:7881`, `-p7882:7882/udp`,
-		`--name`, `livekit-server`,
-		`livekit/livekit-server`, `--dev`); err != nil {
+	confString := `
+port: 7880
+bind_addresses:
+    - ""
+rtc:
+    udp_port: 7882
+    tcp_port: 7881
+turn:
+    enabled: true
+    domain: ""
+    cert_file: ""
+    key_file: ""
+    tls_port: 0
+    udp_port: 3478
+    relay_range_start: 30000
+    relay_range_end: 30020
+    external_tls: false
+log_level: debug
+logging:
+    pion_level: info
+`
+	parameters := []string{
+		`run`, `-e`, `LIVEKIT_KEYS=` + testApiKey, `-e`, `LIVEKIT_CONFIG=` + string(confString),
+		`-d`, `--rm`, `-p7880:7880`, `-p7881:7881`, `-p7882:7882/udp`, `-p3478:3478/udp`,
+	}
+
+	for p := 30000; p <= 30020; p++ {
+		parameters = append(parameters, fmt.Sprintf("-p%d:%d/udp", p, p))
+	}
+	parameters = append(parameters, []string{`--name`, `livekit-server`, `livekit/livekit-server`}...)
+	if addresses, _ := getLocalIPAddresses(); len(addresses) > 0 {
+		fmt.Println("set node ip", addresses[0])
+		parameters = append(parameters, `--node-ip`, addresses[0])
+	}
+
+	if err := sh.RunV(`docker`, parameters...); err != nil {
 		return err
 	}
 	defer func() {
