@@ -19,6 +19,8 @@ type SimulateScenario int
 
 const (
 	SimulateSignalReconnect SimulateScenario = iota
+	SimulateForceTCP
+	SimulateForceTLS
 )
 
 type TrackPubCallback func(track Track, pub TrackPublication, participant *RemoteParticipant)
@@ -529,6 +531,20 @@ func (r *Room) Simulate(scenario SimulateScenario) {
 	switch scenario {
 	case SimulateSignalReconnect:
 		r.engine.client.Close()
+	case SimulateForceTCP:
+		// pion not support active tcp candidate, skip
+	case SimulateForceTLS:
+		req := &livekit.SignalRequest{
+			Message: &livekit.SignalRequest_Simulate{
+				Simulate: &livekit.SimulateScenario{
+					Scenario: &livekit.SimulateScenario_SwitchCandidateProtocol{
+						SwitchCandidateProtocol: livekit.CandidateProtocol_TLS,
+					},
+				},
+			},
+		}
+		r.engine.client.SendRequest(req)
+		r.engine.client.OnLeave(&livekit.LeaveRequest{CanReconnect: true, Reason: livekit.DisconnectReason_CLIENT_INITIATED})
 	}
 }
 

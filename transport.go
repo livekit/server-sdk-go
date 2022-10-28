@@ -36,7 +36,7 @@ type PCTransport struct {
 	OnOffer func(description webrtc.SessionDescription)
 }
 
-func NewPCTransport(iceServers []webrtc.ICEServer) (*PCTransport, error) {
+func NewPCTransport(configuration webrtc.Configuration) (*PCTransport, error) {
 	m := &webrtc.MediaEngine{}
 	if err := m.RegisterDefaultCodecs(); err != nil {
 		return nil, err
@@ -79,7 +79,7 @@ func NewPCTransport(iceServers []webrtc.ICEServer) (*PCTransport, error) {
 	}
 
 	api := webrtc.NewAPI(webrtc.WithMediaEngine(m), webrtc.WithInterceptorRegistry(i))
-	pc, err := api.NewPeerConnection(webrtc.Configuration{ICEServers: iceServers})
+	pc, err := api.NewPeerConnection(configuration)
 	if err != nil {
 		return nil, err
 	}

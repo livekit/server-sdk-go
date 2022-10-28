@@ -59,11 +59,40 @@ type RTCEngine struct {
 }
 
 func NewRTCEngine() *RTCEngine {
-	return &RTCEngine{
+	e := &RTCEngine{
 		client:             NewSignalClient(),
 		trackPublishedChan: make(chan *livekit.TrackPublishedResponse, 1),
 		JoinTimeout:        15 * time.Second,
 	}
+
+	e.client.OnParticipantUpdate = func(info []*livekit.ParticipantInfo) {
+		if f := e.OnParticipantUpdate; f != nil {
+			f(info)
+		}
+	}
+	e.client.OnSpeakersChanged = func(si []*livekit.SpeakerInfo) {
+		if f := e.OnSpeakersChanged; f != nil {
+			f(si)
+		}
+	}
+	e.client.OnLocalTrackPublished = e.handleLocalTrackPublished
+	e.client.OnConnectionQuality = func(cqi []*livekit.ConnectionQualityInfo) {
+		if f := e.OnConnectionQuality; f != nil {
+			f(cqi)
+		}
+	}
+	e.client.OnRoomUpdate = func(room *livekit.Room) {
+		if f := e.OnRoomUpdate; f != nil {
+			f(room)
+		}
+	}
+	e.client.OnLeave = e.handleLeave
+	e.client.OnTokenRefresh = func(refreshToken string) {
+		e.token.Store(refreshToken)
+	}
+	e.client.OnClose = func() { e.handleDisconnect(false) }
+
+	return e
 }
 
 func (e *RTCEngine) Join(url string, token string, params *ConnectParams) (*livekit.JoinResponse, error) {
@@ -133,11 +162,15 @@ func (e *RTCEngine) setRTT(rtt uint32) {
 
 func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 	iceServers := FromProtoIceServers(res.IceServers)
+	configuration := webrtc.Configuration{ICEServers: iceServers}
+	if res.GetClientConfiguration().GetForceRelay() == livekit.ClientConfigSetting_ENABLED {
+		configuration.ICETransportPolicy = webrtc.ICETransportPolicyRelay
+	}
 	var err error
-	if e.publisher, err = NewPCTransport(iceServers); err != nil {
+	if e.publisher, err = NewPCTransport(configuration); err != nil {
 		return err
 	}
-	if e.subscriber, err = NewPCTransport(iceServers); err != nil {
+	if e.subscriber, err = NewPCTransport(configuration); err != nil {
 		return err
 	}
 
@@ -175,7 +208,7 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 			logger.Info("ICE disconnected")
 		case webrtc.ICEConnectionStateFailed:
 			logger.Info("ICE failed")
-			e.handleDisconnect()
+			e.handleDisconnect(false)
 		}
 	})
 
@@ -253,16 +286,6 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 		}
 
 	}
-	e.client.OnParticipantUpdate = e.OnParticipantUpdate
-	e.client.OnSpeakersChanged = e.OnSpeakersChanged
-	e.client.OnLocalTrackPublished = e.handleLocalTrackPublished
-	e.client.OnConnectionQuality = e.OnConnectionQuality
-	e.client.OnRoomUpdate = e.OnRoomUpdate
-	e.client.OnLeave = e.OnDisconnected
-	e.client.OnTokenRefresh = func(refreshToken string) {
-		e.token.Store(refreshToken)
-	}
-	e.client.OnClose = e.handleDisconnect
 	return nil
 }
 
@@ -363,7 +386,7 @@ func (e *RTCEngine) readDataPacket(msg webrtc.DataChannelMessage) (*livekit.Data
 	return dataPacket, err
 }
 
-func (e *RTCEngine) handleDisconnect() {
+func (e *RTCEngine) handleDisconnect(fullReconnect bool) {
 	if e.closed.Load() {
 		return
 	}
@@ -375,7 +398,6 @@ func (e *RTCEngine) handleDisconnect() {
 	go func() {
 		defer e.reconnecting.Store(false)
 		var reconnectCount int
-		var fullReconnect bool
 		for ; reconnectCount < maxReconnectCount; reconnectCount++ {
 			if fullReconnect {
 				if reconnectCount == 0 && e.OnRestarting != nil {
@@ -481,4 +503,15 @@ func (e *RTCEngine) createPublisherAnswerAndSend() error {
 		return err
 	}
 	return nil
+}
+
+func (e *RTCEngine) handleLeave(leave *livekit.LeaveRequest) {
+	if leave.GetCanReconnect() {
+		e.handleDisconnect(true)
+	} else {
+		logger.Info("Leave room, reason: %s", leave.GetReason())
+		if e.OnDisconnected != nil {
+			e.OnDisconnected()
+		}
+	}
 }

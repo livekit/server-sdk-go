@@ -1,7 +1,10 @@
 package lksdk
 
 import (
+	"errors"
+	"math/rand"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -158,4 +161,55 @@ func TestResume(t *testing.T) {
 
 	pub.Disconnect()
 	sub.Disconnect()
+}
+
+// This test case can't pass with CI's environment (docker + embedded turn), will be skipped with CI running
+func TestForceTLS(t *testing.T) {
+	if os.Getenv("CI") != "" {
+		t.Skip("Skipping in CI environment")
+	}
+	var reconnected atomic.Bool
+	pubCB := &RoomCallback{
+		OnReconnected: func() {
+			reconnected.Store(true)
+		},
+	}
+	pub, err := createAgent(t.Name()+"-"+strconv.Itoa(int(rand.Uint32())), pubCB, "publisher")
+	require.NoError(t, err)
+
+	// ensure publisher connected
+	pub.LocalParticipant.PublishData([]byte("test"), livekit.DataPacket_RELIABLE, nil)
+
+	pub.Simulate(SimulateForceTLS)
+	require.Eventually(t, func() bool { return reconnected.Load() && pub.engine.ensurePublisherConnected(true) == nil }, 15*time.Second, 100*time.Millisecond)
+
+	logger.Info("reconnected")
+
+	getSelectedPair := func(pc *webrtc.PeerConnection) (*webrtc.ICECandidatePair, error) {
+		sctp := pc.SCTP()
+		if sctp == nil {
+			return nil, errors.New("no SCTP")
+		}
+
+		dtlsTransport := sctp.Transport()
+		if dtlsTransport == nil {
+			return nil, errors.New("no DTLS transport")
+		}
+
+		iceTransport := dtlsTransport.ICETransport()
+		if iceTransport == nil {
+			return nil, errors.New("no ICE transport")
+		}
+
+		return iceTransport.GetSelectedCandidatePair()
+	}
+
+	for _, pc := range []*webrtc.PeerConnection{pub.engine.publisher.pc, pub.engine.subscriber.pc} {
+		pair, err := getSelectedPair(pc)
+		require.NoError(t, err)
+		require.NotNil(t, pair)
+		require.Equal(t, pair.Local.Typ, webrtc.ICECandidateTypeRelay)
+	}
+
+	pub.Disconnect()
 }
