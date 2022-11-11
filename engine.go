@@ -509,7 +509,7 @@ func (e *RTCEngine) handleLeave(leave *livekit.LeaveRequest) {
 	if leave.GetCanReconnect() {
 		e.handleDisconnect(true)
 	} else {
-		logger.Info("Leave room, reason: %s", leave.GetReason())
+		logger.Info("Leave room", "reason", leave.GetReason())
 		if e.OnDisconnected != nil {
 			e.OnDisconnected()
 		}
