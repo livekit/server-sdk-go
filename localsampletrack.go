@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	rtpOutboundMTU = 1200
+	rtpOutboundMTU = 1000
 	rtpInboundMTU  = 1500
 )
 
