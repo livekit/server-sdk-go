@@ -7,6 +7,7 @@ package samplebuilder
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/pion/rtp"
@@ -235,6 +236,7 @@ func (s *SampleBuilder) drop() (bool, uint32) {
 		s.lastTimestamp = ts
 		s.lastTimestampValid = true
 	}
+	fmt.Println("DROP", s, ts)
 	return true, ts
 }
 
@@ -311,6 +313,7 @@ func (s *SampleBuilder) Push(p *rtp.Packet) {
 	if ((seqno - lastSeqno) & 0x8000) == 0 {
 		// packet in the future
 		count := seqno - lastSeqno - 1
+		fmt.Println("CAP", s, count, s.cap())
 		if count >= s.cap() {
 			s.releaseAll()
 			s.Push(p)
@@ -337,6 +340,7 @@ func (s *SampleBuilder) Push(p *rtp.Packet) {
 
 	// packet is in the past
 	count := lastSeqno - seqno + 1
+	fmt.Println("CAP", s, count, s.cap())
 	if count >= s.cap() {
 		// too old
 		return
