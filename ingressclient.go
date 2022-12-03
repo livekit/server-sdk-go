@@ -9,7 +9,7 @@ import (
 )
 
 type IngressClient struct {
-	livekit.Ingress
+	ingressClient livekit.Ingress
 	authBase
 }
 
@@ -17,7 +17,7 @@ func NewIngressClient(url string, apiKey string, secretKey string) *IngressClien
 	url = ToHttpURL(url)
 	client := livekit.NewIngressProtobufClient(url, &http.Client{})
 	return &IngressClient{
-		Ingress: client,
+		ingressClient: client,
 		authBase: authBase{
 			apiKey:    apiKey,
 			apiSecret: secretKey,
@@ -34,7 +34,7 @@ func (c *IngressClient) CreateIngress(ctx context.Context, in *livekit.CreateIng
 	if err != nil {
 		return nil, err
 	}
-	return c.Ingress.CreateIngress(ctx, in)
+	return c.ingressClient.CreateIngress(ctx, in)
 }
 
 func (c *IngressClient) UpdateIngress(ctx context.Context, in *livekit.UpdateIngressRequest) (*livekit.IngressInfo, error) {
@@ -46,7 +46,7 @@ func (c *IngressClient) UpdateIngress(ctx context.Context, in *livekit.UpdateIng
 	if err != nil {
 		return nil, err
 	}
-	return c.Ingress.UpdateIngress(ctx, in)
+	return c.ingressClient.UpdateIngress(ctx, in)
 }
 
 func (c *IngressClient) ListIngress(ctx context.Context, in *livekit.ListIngressRequest) (*livekit.ListIngressResponse, error) {
@@ -58,7 +58,7 @@ func (c *IngressClient) ListIngress(ctx context.Context, in *livekit.ListIngress
 	if err != nil {
 		return nil, err
 	}
-	return c.Ingress.ListIngress(ctx, in)
+	return c.ingressClient.ListIngress(ctx, in)
 }
 
 func (c *IngressClient) DeleteIngress(ctx context.Context, in *livekit.DeleteIngressRequest) (*livekit.IngressInfo, error) {
@@ -70,5 +70,5 @@ func (c *IngressClient) DeleteIngress(ctx context.Context, in *livekit.DeleteIng
 	if err != nil {
 		return nil, err
 	}
-	return c.Ingress.DeleteIngress(ctx, in)
+	return c.ingressClient.DeleteIngress(ctx, in)
 }

@@ -9,7 +9,7 @@ import (
 )
 
 type EgressClient struct {
-	livekit.Egress
+	egressClient livekit.Egress
 	authBase
 }
 
@@ -17,7 +17,7 @@ func NewEgressClient(url string, apiKey string, secretKey string) *EgressClient 
 	url = ToHttpURL(url)
 	client := livekit.NewEgressProtobufClient(url, &http.Client{})
 	return &EgressClient{
-		Egress: client,
+		egressClient: client,
 		authBase: authBase{
 			apiKey:    apiKey,
 			apiSecret: secretKey,
@@ -30,7 +30,7 @@ func (c *EgressClient) StartRoomCompositeEgress(ctx context.Context, req *liveki
 	if err != nil {
 		return nil, err
 	}
-	return c.Egress.StartRoomCompositeEgress(ctx, req)
+	return c.egressClient.StartRoomCompositeEgress(ctx, req)
 }
 
 func (c *EgressClient) StartTrackCompositeEgress(ctx context.Context, req *livekit.TrackCompositeEgressRequest) (*livekit.EgressInfo, error) {
@@ -38,7 +38,7 @@ func (c *EgressClient) StartTrackCompositeEgress(ctx context.Context, req *livek
 	if err != nil {
 		return nil, err
 	}
-	return c.Egress.StartTrackCompositeEgress(ctx, req)
+	return c.egressClient.StartTrackCompositeEgress(ctx, req)
 }
 
 func (c *EgressClient) StartTrackEgress(ctx context.Context, req *livekit.TrackEgressRequest) (*livekit.EgressInfo, error) {
@@ -46,7 +46,7 @@ func (c *EgressClient) StartTrackEgress(ctx context.Context, req *livekit.TrackE
 	if err != nil {
 		return nil, err
 	}
-	return c.Egress.StartTrackEgress(ctx, req)
+	return c.egressClient.StartTrackEgress(ctx, req)
 }
 
 func (c *EgressClient) StartWebEgress(ctx context.Context, req *livekit.WebEgressRequest) (*livekit.EgressInfo, error) {
@@ -54,7 +54,7 @@ func (c *EgressClient) StartWebEgress(ctx context.Context, req *livekit.WebEgres
 	if err != nil {
 		return nil, err
 	}
-	return c.Egress.StartWebEgress(ctx, req)
+	return c.egressClient.StartWebEgress(ctx, req)
 }
 
 func (c *EgressClient) UpdateLayout(ctx context.Context, req *livekit.UpdateLayoutRequest) (*livekit.EgressInfo, error) {
@@ -62,7 +62,7 @@ func (c *EgressClient) UpdateLayout(ctx context.Context, req *livekit.UpdateLayo
 	if err != nil {
 		return nil, err
 	}
-	return c.Egress.UpdateLayout(ctx, req)
+	return c.egressClient.UpdateLayout(ctx, req)
 }
 
 func (c *EgressClient) UpdateStream(ctx context.Context, req *livekit.UpdateStreamRequest) (*livekit.EgressInfo, error) {
@@ -70,7 +70,7 @@ func (c *EgressClient) UpdateStream(ctx context.Context, req *livekit.UpdateStre
 	if err != nil {
 		return nil, err
 	}
-	return c.Egress.UpdateStream(ctx, req)
+	return c.egressClient.UpdateStream(ctx, req)
 }
 
 func (c *EgressClient) ListEgress(ctx context.Context, req *livekit.ListEgressRequest) (*livekit.ListEgressResponse, error) {
@@ -78,7 +78,7 @@ func (c *EgressClient) ListEgress(ctx context.Context, req *livekit.ListEgressRe
 	if err != nil {
 		return nil, err
 	}
-	return c.Egress.ListEgress(ctx, req)
+	return c.egressClient.ListEgress(ctx, req)
 }
 
 func (c *EgressClient) StopEgress(ctx context.Context, req *livekit.StopEgressRequest) (*livekit.EgressInfo, error) {
@@ -86,5 +86,5 @@ func (c *EgressClient) StopEgress(ctx context.Context, req *livekit.StopEgressRe
 	if err != nil {
 		return nil, err
 	}
-	return c.Egress.StopEgress(ctx, req)
+	return c.egressClient.StopEgress(ctx, req)
 }
