@@ -2,6 +2,7 @@ package lksdk
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/livekit/protocol/auth"
@@ -9,15 +10,16 @@ import (
 )
 
 type RoomServiceClient struct {
-	livekit.RoomService
+	roomService livekit.RoomService
 	authBase
 }
 
 func NewRoomServiceClient(url string, apiKey string, secretKey string) *RoomServiceClient {
+	fmt.Println("working?")
 	url = ToHttpURL(url)
 	client := livekit.NewRoomServiceProtobufClient(url, &http.Client{})
 	return &RoomServiceClient{
-		RoomService: client,
+		roomService: client,
 		authBase: authBase{
 			apiKey:    apiKey,
 			apiSecret: secretKey,
@@ -31,7 +33,7 @@ func (c *RoomServiceClient) CreateRoom(ctx context.Context, req *livekit.CreateR
 		return nil, err
 	}
 
-	return c.RoomService.CreateRoom(ctx, req)
+	return c.roomService.CreateRoom(ctx, req)
 }
 
 func (c *RoomServiceClient) ListRooms(ctx context.Context, req *livekit.ListRoomsRequest) (*livekit.ListRoomsResponse, error) {
@@ -40,7 +42,7 @@ func (c *RoomServiceClient) ListRooms(ctx context.Context, req *livekit.ListRoom
 		return nil, err
 	}
 
-	return c.RoomService.ListRooms(ctx, req)
+	return c.roomService.ListRooms(ctx, req)
 }
 
 func (c *RoomServiceClient) DeleteRoom(ctx context.Context, req *livekit.DeleteRoomRequest) (*livekit.DeleteRoomResponse, error) {
@@ -49,7 +51,7 @@ func (c *RoomServiceClient) DeleteRoom(ctx context.Context, req *livekit.DeleteR
 		return nil, err
 	}
 
-	return c.RoomService.DeleteRoom(ctx, req)
+	return c.roomService.DeleteRoom(ctx, req)
 }
 
 func (c *RoomServiceClient) ListParticipants(ctx context.Context, req *livekit.ListParticipantsRequest) (*livekit.ListParticipantsResponse, error) {
@@ -58,7 +60,7 @@ func (c *RoomServiceClient) ListParticipants(ctx context.Context, req *livekit.L
 		return nil, err
 	}
 
-	return c.RoomService.ListParticipants(ctx, req)
+	return c.roomService.ListParticipants(ctx, req)
 }
 
 func (c *RoomServiceClient) GetParticipant(ctx context.Context, req *livekit.RoomParticipantIdentity) (*livekit.ParticipantInfo, error) {
@@ -67,7 +69,7 @@ func (c *RoomServiceClient) GetParticipant(ctx context.Context, req *livekit.Roo
 		return nil, err
 	}
 
-	return c.RoomService.GetParticipant(ctx, req)
+	return c.roomService.GetParticipant(ctx, req)
 }
 
 func (c *RoomServiceClient) RemoveParticipant(ctx context.Context, req *livekit.RoomParticipantIdentity) (*livekit.RemoveParticipantResponse, error) {
@@ -76,7 +78,7 @@ func (c *RoomServiceClient) RemoveParticipant(ctx context.Context, req *livekit.
 		return nil, err
 	}
 
-	return c.RoomService.RemoveParticipant(ctx, req)
+	return c.roomService.RemoveParticipant(ctx, req)
 }
 
 func (c *RoomServiceClient) MutePublishedTrack(ctx context.Context, req *livekit.MuteRoomTrackRequest) (*livekit.MuteRoomTrackResponse, error) {
@@ -85,7 +87,7 @@ func (c *RoomServiceClient) MutePublishedTrack(ctx context.Context, req *livekit
 		return nil, err
 	}
 
-	return c.RoomService.MutePublishedTrack(ctx, req)
+	return c.roomService.MutePublishedTrack(ctx, req)
 }
 
 func (c *RoomServiceClient) UpdateParticipant(ctx context.Context, req *livekit.UpdateParticipantRequest) (*livekit.ParticipantInfo, error) {
@@ -93,7 +95,7 @@ func (c *RoomServiceClient) UpdateParticipant(ctx context.Context, req *livekit.
 	if err != nil {
 		return nil, err
 	}
-	return c.RoomService.UpdateParticipant(ctx, req)
+	return c.roomService.UpdateParticipant(ctx, req)
 }
 
 func (c *RoomServiceClient) UpdateSubscriptions(ctx context.Context, req *livekit.UpdateSubscriptionsRequest) (*livekit.UpdateSubscriptionsResponse, error) {
@@ -101,7 +103,7 @@ func (c *RoomServiceClient) UpdateSubscriptions(ctx context.Context, req *liveki
 	if err != nil {
 		return nil, err
 	}
-	return c.RoomService.UpdateSubscriptions(ctx, req)
+	return c.roomService.UpdateSubscriptions(ctx, req)
 }
 
 func (c *RoomServiceClient) UpdateRoomMetadata(ctx context.Context, req *livekit.UpdateRoomMetadataRequest) (*livekit.Room, error) {
@@ -109,7 +111,7 @@ func (c *RoomServiceClient) UpdateRoomMetadata(ctx context.Context, req *livekit
 	if err != nil {
 		return nil, err
 	}
-	return c.RoomService.UpdateRoomMetadata(ctx, req)
+	return c.roomService.UpdateRoomMetadata(ctx, req)
 }
 
 func (c *RoomServiceClient) SendData(ctx context.Context, req *livekit.SendDataRequest) (*livekit.SendDataResponse, error) {
@@ -117,7 +119,7 @@ func (c *RoomServiceClient) SendData(ctx context.Context, req *livekit.SendDataR
 	if err != nil {
 		return nil, err
 	}
-	return c.RoomService.SendData(ctx, req)
+	return c.roomService.SendData(ctx, req)
 }
 
 func (c *RoomServiceClient) CreateToken() *auth.AccessToken {
