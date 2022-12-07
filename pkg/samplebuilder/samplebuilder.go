@@ -307,13 +307,14 @@ func (s *SampleBuilder) Push(p *rtp.Packet) {
 			packet: p,
 		}
 		s.head = s.inc(s.head)
+		fmt.Println("CAP2", &s, s.cap())
 		return
 	}
 
 	if ((seqno - lastSeqno) & 0x8000) == 0 {
 		// packet in the future
 		count := seqno - lastSeqno - 1
-		fmt.Println("CAP", s, count, s.cap())
+		fmt.Println("CAP3", &s, count, s.cap())
 		if count >= s.cap() {
 			s.releaseAll()
 			s.Push(p)
@@ -340,7 +341,7 @@ func (s *SampleBuilder) Push(p *rtp.Packet) {
 
 	// packet is in the past
 	count := lastSeqno - seqno + 1
-	fmt.Println("CAP", s, count, s.cap())
+	fmt.Println("CAP", &s, count, s.cap())
 	if count >= s.cap() {
 		// too old
 		return
