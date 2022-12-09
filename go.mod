@@ -4,11 +4,10 @@ go 1.17
 
 require (
 	github.com/bep/debounce v1.2.1
-	github.com/go-logr/logr v1.2.3
 	github.com/go-logr/stdr v1.2.2
 	github.com/gorilla/websocket v1.5.0
 	github.com/livekit/mediatransportutil v0.0.0-20221007030528-7440725c362b
-	github.com/livekit/protocol v1.2.4
+	github.com/livekit/protocol v1.3.0
 	github.com/magefile/mage v1.14.0
 	github.com/pion/interceptor v0.1.12
 	github.com/pion/rtcp v1.2.10
@@ -22,8 +21,6 @@ require (
 	google.golang.org/protobuf v1.28.1
 )
 
-replace github.com/livekit/protocol => ../protocol
-
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
@@ -32,7 +29,7 @@ require (
 	github.com/eapache/channels v1.1.0 // indirect
 	github.com/eapache/queue v1.1.0 // indirect
 	github.com/frostbyte73/go-throttle v0.0.0-20210621200530-8018c891361d // indirect
-	github.com/go-logr/zapr v1.2.3 // indirect
+	github.com/go-logr/logr v1.2.3 // indirect
 	github.com/go-redis/redis/v8 v8.11.5 // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/google/uuid v1.3.0 // indirect
