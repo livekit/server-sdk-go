@@ -96,7 +96,7 @@ func (c *SignalClient) Join(urlPrefix string, token string, params *ConnectParam
 
 	c.pendingResponse = nil
 	if params.Reconnect {
-		logger.Info("reconnect received response", "response", res.String())
+		logger.Infow("reconnect received response", "response", res.String())
 		if res != nil {
 			if res.GetLeave() != nil {
 				return nil, fmt.Errorf("reconnect received left, reason: %s", res.GetLeave().GetReason())
@@ -295,7 +295,7 @@ func (c *SignalClient) readWorker() {
 		res, err := c.readResponse()
 		if err != nil {
 			if !isIgnoredWebsocketError(err) && !c.isClosed.Load() {
-				logger.Info("error while reading from signal client", "err", err)
+				logger.Infow("error while reading from signal client", "err", err)
 			}
 			return
 		}

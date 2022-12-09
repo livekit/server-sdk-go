@@ -398,7 +398,7 @@ func (s *LocalSampleTrack) writeWorker(provider SampleProvider, onComplete func(
 			return
 		}
 		if err != nil {
-			logger.Error(err, "could not get sample from provider")
+			logger.Errorw("could not get sample from provider", err)
 			return
 		}
 
@@ -411,7 +411,7 @@ func (s *LocalSampleTrack) writeWorker(provider SampleProvider, onComplete func(
 		}
 
 		if err := s.WriteSample(sample, opts); err != nil {
-			logger.Error(err, "could not write sample")
+			logger.Errorw("could not write sample", err)
 			return
 		}
 		// account for clock drift

@@ -183,7 +183,7 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 			return
 		}
 		if err := e.client.SendICECandidate(candidate.ToJSON(), livekit.SignalTarget_PUBLISHER); err != nil {
-			logger.Error(err, "could not send ICE candidates for publisher")
+			logger.Errorw("could not send ICE candidates for publisher", err)
 		}
 	})
 	e.subscriber.pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
@@ -192,7 +192,7 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 			return
 		}
 		if err := e.client.SendICECandidate(candidate.ToJSON(), livekit.SignalTarget_SUBSCRIBER); err != nil {
-			logger.Error(err, "could not send ICE candidates for subscriber")
+			logger.Errorw("could not send ICE candidates for subscriber", err)
 		}
 	})
 
@@ -203,11 +203,11 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 	primaryPC.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
 		switch state {
 		case webrtc.ICEConnectionStateConnected:
-			logger.Info("ICE connected")
+			logger.Infow("ICE connected")
 		case webrtc.ICEConnectionStateDisconnected:
-			logger.Info("ICE disconnected")
+			logger.Infow("ICE disconnected")
 		case webrtc.ICEConnectionStateFailed:
-			logger.Info("ICE failed")
+			logger.Infow("ICE failed")
 			e.handleDisconnect(false)
 		}
 	})
@@ -233,7 +233,7 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 
 	e.publisher.OnOffer = func(offer webrtc.SessionDescription) {
 		if err := e.client.SendOffer(offer); err != nil {
-			logger.Error(err, "could not send offer")
+			logger.Errorw("could not send offer", err)
 		}
 	}
 
@@ -262,9 +262,9 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 	// configure client
 	e.client.OnAnswer = func(sd webrtc.SessionDescription) {
 		if err := e.publisher.SetRemoteDescription(sd); err != nil {
-			logger.Error(err, "could not set remote description")
+			logger.Errorw("could not set remote description", err)
 		} else {
-			logger.Info("successfully set publisher answer")
+			logger.Infow("successfully set publisher answer")
 		}
 	}
 	e.client.OnTrickle = func(init webrtc.ICECandidateInit, target livekit.SignalTarget) {
@@ -275,13 +275,13 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 			err = e.subscriber.AddICECandidate(init)
 		}
 		if err != nil {
-			logger.Error(err, "could not add ICE candidate")
+			logger.Errorw("could not add ICE candidate", err)
 		}
 	}
 	e.client.OnOffer = func(sd webrtc.SessionDescription) {
-		logger.Info("received offer for subscriber")
+		logger.Infow("received offer for subscriber")
 		if err := e.subscriber.SetRemoteDescription(sd); err != nil {
-			logger.Error(err, "could not set remote description")
+			logger.Errorw("could not set remote description", err)
 			return
 		}
 
@@ -403,9 +403,9 @@ func (e *RTCEngine) handleDisconnect(fullReconnect bool) {
 				if reconnectCount == 0 && e.OnRestarting != nil {
 					e.OnRestarting()
 				}
-				logger.Info("restarting connection...", "reconnectCount", reconnectCount)
+				logger.Infow("restarting connection...", "reconnectCount", reconnectCount)
 				if err := e.restartConnection(); err != nil {
-					logger.Error(err, "restart connection failed")
+					logger.Errorw("restart connection failed", err)
 				} else {
 					return
 				}
@@ -413,9 +413,9 @@ func (e *RTCEngine) handleDisconnect(fullReconnect bool) {
 				if reconnectCount == 0 && e.OnResuming != nil {
 					e.OnResuming()
 				}
-				logger.Info("resuming connection...", "reconnectCount", reconnectCount)
+				logger.Infow("resuming connection...", "reconnectCount", reconnectCount)
 				if err := e.resumeConnection(); err != nil {
-					logger.Error(err, "resume connection failed")
+					logger.Errorw("resume connection failed", err)
 					if !errors.Is(err, ErrSignalError) {
 						fullReconnect = true
 					}
@@ -491,15 +491,15 @@ func (e *RTCEngine) restartConnection() error {
 func (e *RTCEngine) createPublisherAnswerAndSend() error {
 	answer, err := e.subscriber.pc.CreateAnswer(nil)
 	if err != nil {
-		logger.Error(err, "could not create answer")
+		logger.Errorw("could not create answer", err)
 		return err
 	}
 	if err := e.subscriber.pc.SetLocalDescription(answer); err != nil {
-		logger.Error(err, "could not set subscriber local description")
+		logger.Errorw("could not set subscriber local description", err)
 		return err
 	}
 	if err := e.client.SendAnswer(answer); err != nil {
-		logger.Error(err, "could not send answer for subscriber")
+		logger.Errorw("could not send answer for subscriber", err)
 		return err
 	}
 	return nil
@@ -509,7 +509,7 @@ func (e *RTCEngine) handleLeave(leave *livekit.LeaveRequest) {
 	if leave.GetCanReconnect() {
 		e.handleDisconnect(true)
 	} else {
-		logger.Info("Leave room", "reason", leave.GetReason())
+		logger.Infow("Leave room", "reason", leave.GetReason())
 		if e.OnDisconnected != nil {
 			e.OnDisconnected()
 		}
