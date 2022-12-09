@@ -439,7 +439,7 @@ func (r *Room) handleConnectionQualityUpdate(updates []*livekit.ConnectionQualit
 			if p != nil {
 				p.setConnectionQualityInfo(update)
 			} else {
-				logger.Info("could not find participant", "sid", update.ParticipantSid,
+				logger.Infow("could not find participant", "sid", update.ParticipantSid,
 					"localParticipant", r.LocalParticipant.SID())
 			}
 		}
@@ -469,7 +469,7 @@ func (r *Room) handleTrackMuted(msg *livekit.MuteTrackRequest) {
 func (r *Room) handleLocalTrackUnpublished(msg *livekit.TrackUnpublishedResponse) {
 	err := r.LocalParticipant.UnpublishTrack(msg.TrackSid)
 	if err != nil {
-		logger.Error(err, "could not unpublish track", "trackID", msg.TrackSid)
+		logger.Errorw("could not unpublish track", err, "trackID", msg.TrackSid)
 	}
 }
 

@@ -98,7 +98,7 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 
 	p.engine.publisher.Negotiate()
 
-	logger.Info("published track", "name", opts.Name, "source", opts.Source.String())
+	logger.Infow("published track", "name", opts.Name, "source", opts.Source.String())
 
 	return pub, nil
 }
@@ -195,7 +195,7 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalSampleTrack, opt
 
 	p.engine.publisher.Negotiate()
 
-	logger.Info("published simulcast track", "name", opts.Name, "source", opts.Source.String())
+	logger.Infow("published simulcast track", "name", opts.Name, "source", opts.Source.String())
 
 	return pub, nil
 }
