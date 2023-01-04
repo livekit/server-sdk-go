@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v3/pkg/media"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/atomic"
 
@@ -174,7 +175,7 @@ func TestForceTLS(t *testing.T) {
 			reconnected.Store(true)
 		},
 	}
-	pub, err := createAgent(t.Name()+"-"+strconv.Itoa(int(rand.Uint32())), pubCB, "publisher")
+	pub, err := createAgent(t.Name()+"-"+strconv.Itoa(int(rand.Uint32())), pubCB, "publisher-forcetls")
 	require.NoError(t, err)
 
 	// ensure publisher connected
@@ -212,4 +213,69 @@ func TestForceTLS(t *testing.T) {
 	}
 
 	pub.Disconnect()
+}
+
+func TestSubscribeMutedTrack(t *testing.T) {
+	pub, err := createAgent(t.Name(), nil, "publisher")
+	require.NoError(t, err)
+
+	videoTrackName := "video_of_pub1"
+	var trackLock sync.Mutex
+	var trackReceived atomic.Bool
+
+	var pubTrackMuted sync.WaitGroup
+	pubTrackMuted.Add(1)
+
+	pubMuteTrack := func(t *testing.T, room *Room, name string) *LocalTrackPublication {
+		track, err := NewLocalSampleTrack(webrtc.RTPCodecCapability{
+			MimeType:  webrtc.MimeTypeVP8,
+			ClockRate: 90000,
+		})
+		require.NoError(t, err)
+
+		track.OnBind(func() {
+			go func() {
+				defer pubTrackMuted.Done()
+				for i := 0; i < 10; i++ {
+					time.Sleep(50 * time.Millisecond)
+					track.WriteSample(media.Sample{Data: []byte("test"), Duration: 50 * time.Millisecond}, nil)
+				}
+			}()
+		})
+
+		localPub, err := room.LocalParticipant.PublishTrack(track, &TrackPublicationOptions{
+			Name: name,
+		})
+		require.NoError(t, err)
+		return localPub
+	}
+
+	localPub := pubMuteTrack(t, pub, videoTrackName)
+	require.Equal(t, localPub.Name(), videoTrackName)
+
+	localPub.SetMuted(true)
+	pubTrackMuted.Wait()
+
+	subCB := &RoomCallback{
+		ParticipantCallback: ParticipantCallback{
+			OnTrackSubscribed: func(track *webrtc.TrackRemote, publication *RemoteTrackPublication, rp *RemoteParticipant) {
+				trackLock.Lock()
+				trackReceived.Store(true)
+				require.Equal(t, rp.Name(), pub.LocalParticipant.Name())
+				require.Equal(t, publication.Name(), videoTrackName)
+				require.Equal(t, track.Kind(), webrtc.RTPCodecTypeVideo)
+				require.True(t, publication.IsMuted())
+				trackLock.Unlock()
+			},
+		},
+	}
+	sub, err := createAgent(t.Name(), subCB, "subscriber")
+	require.NoError(t, err)
+	serverInfo := sub.ServerInfo()
+	require.NotNil(t, serverInfo)
+	require.Equal(t, serverInfo.Edition, livekit.ServerInfo_Standard)
+	require.Eventually(t, func() bool { return trackReceived.Load() }, 5*time.Second, 100*time.Millisecond)
+
+	pub.Disconnect()
+	sub.Disconnect()
 }
