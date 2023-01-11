@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/url"
 	"sync"
 
@@ -86,7 +85,7 @@ func (c *SignalClient) Join(urlPrefix string, token string, params *ConnectParam
 	if err != nil {
 		errorMessage := err.Error()
 		if dialRes != nil {
-			if b, err := ioutil.ReadAll(dialRes.Body); err == nil && len(b) > 0 {
+			if b, err := io.ReadAll(dialRes.Body); err == nil && len(b) > 0 {
 				errorMessage = string(b)
 			}
 		}
