@@ -2,7 +2,6 @@ package lksdk
 
 import (
 	"sync"
-	"time"
 
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v3"
@@ -296,7 +295,7 @@ func (p *LocalTrackPublication) setSender(sender *webrtc.RTPSender) {
 				if rr, ok := packet.(*rtcp.ReceiverReport); ok {
 					for _, r := range rr.Reports {
 						rr.Reports = append(rr.Reports, r)
-						rtt, err := mediatransportutil.GetRttMs(&r, 0, time.Time{})
+						rtt, err := mediatransportutil.GetRttMsFromReceiverReportOnly(&r)
 						if err == nil && rtt != 0 && p.onRttUpdate != nil {
 							p.onRttUpdate(rtt)
 						}
