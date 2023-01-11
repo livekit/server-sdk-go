@@ -2,7 +2,6 @@ package lksdk
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 
 	"github.com/livekit/protocol/auth"
@@ -15,7 +14,6 @@ type RoomServiceClient struct {
 }
 
 func NewRoomServiceClient(url string, apiKey string, secretKey string) *RoomServiceClient {
-	fmt.Println("working?")
 	url = ToHttpURL(url)
 	client := livekit.NewRoomServiceProtobufClient(url, &http.Client{})
 	return &RoomServiceClient{
