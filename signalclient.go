@@ -81,9 +81,15 @@ func (c *SignalClient) Join(urlPrefix string, token string, params *ConnectParam
 	}
 
 	header := newHeaderWithToken(token)
-	conn, _, err := websocket.DefaultDialer.Dial(u.String(), header)
+	conn, dialRes, err := websocket.DefaultDialer.Dial(u.String(), header)
 	if err != nil {
-		return nil, fmt.Errorf("%w dial error: %s", ErrSignalError, err.Error())
+		errorMessage := err.Error()
+		if dialRes != nil {
+			if b, err := io.ReadAll(dialRes.Body); err == nil && len(b) > 0 {
+				errorMessage = string(b)
+			}
+		}
+		return nil, fmt.Errorf("%w dial error: %s", ErrSignalError, errorMessage)
 	}
 	c.isClosed.Store(false)
 	c.conn.Store(conn)
