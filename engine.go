@@ -33,6 +33,7 @@ type RTCEngine struct {
 	lossyDCSub         *webrtc.DataChannel
 	trackPublishedChan chan *livekit.TrackPublishedResponse
 	subscriberPrimary  bool
+	hasConnected       atomic.Bool
 	hasPublish         atomic.Bool
 	closed             atomic.Bool
 	reconnecting       atomic.Bool
@@ -119,6 +120,7 @@ func (e *RTCEngine) Join(url string, token string, params *ConnectParams) (*live
 	if err = e.waitUntilConnected(); err != nil {
 		return nil, err
 	}
+	e.hasConnected.Store(true)
 	return res, err
 }
 
@@ -387,7 +389,8 @@ func (e *RTCEngine) readDataPacket(msg webrtc.DataChannelMessage) (*livekit.Data
 }
 
 func (e *RTCEngine) handleDisconnect(fullReconnect bool) {
-	if e.closed.Load() {
+	// do not retry until fully connected
+	if e.closed.Load() || !e.hasConnected.Load() {
 		return
 	}
 
