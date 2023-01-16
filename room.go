@@ -128,7 +128,7 @@ func (r *Room) SID() string {
 	return r.sid
 }
 
-// Join should only be used with CreateRoom
+// Join - joins the room as with default permissions
 func (r *Room) Join(url string, info ConnectInfo, opts ...ConnectOption) error {
 	var params ConnectParams
 	for _, opt := range opts {
@@ -158,7 +158,7 @@ func (r *Room) Join(url string, info ConnectInfo, opts ...ConnectOption) error {
 	return r.JoinWithToken(url, token, opts...)
 }
 
-// JoinWithToken should only be used with CreateRoom
+// JoinWithToken - customize participant options by generating your own token
 func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 	params := &ConnectParams{
 		AutoSubscribe: true,
@@ -532,7 +532,7 @@ func (r *Room) Simulate(scenario SimulateScenario) {
 	case SimulateSignalReconnect:
 		r.engine.client.Close()
 	case SimulateForceTCP:
-		// pion not support active tcp candidate, skip
+		// pion does not support active tcp candidate, skip
 	case SimulateForceTLS:
 		req := &livekit.SignalRequest{
 			Message: &livekit.SignalRequest_Simulate{
