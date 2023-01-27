@@ -439,7 +439,7 @@ func (r *Room) handleConnectionQualityUpdate(updates []*livekit.ConnectionQualit
 			if p != nil {
 				p.setConnectionQualityInfo(update)
 			} else {
-				logger.Infow("could not find participant", "sid", update.ParticipantSid,
+				logger.Debugw("could not find participant", "sid", update.ParticipantSid,
 					"localParticipant", r.LocalParticipant.SID())
 			}
 		}
