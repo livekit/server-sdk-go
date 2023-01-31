@@ -225,6 +225,7 @@ func TestSubscribeMutedTrack(t *testing.T) {
 
 	var pubTrackMuted sync.WaitGroup
 	pubTrackMuted.Add(1)
+	require.NoError(t, pub.LocalParticipant.PublishData([]byte("test"), livekit.DataPacket_RELIABLE, nil))
 
 	pubMuteTrack := func(t *testing.T, room *Room, name string) *LocalTrackPublication {
 		track, err := NewLocalSampleTrack(webrtc.RTPCodecCapability{
@@ -238,7 +239,7 @@ func TestSubscribeMutedTrack(t *testing.T) {
 				defer pubTrackMuted.Done()
 				for i := 0; i < 10; i++ {
 					time.Sleep(50 * time.Millisecond)
-					track.WriteSample(media.Sample{Data: []byte("test"), Duration: 50 * time.Millisecond}, nil)
+					require.NoError(t, track.WriteSample(media.Sample{Data: []byte("test"), Duration: 50 * time.Millisecond}, nil))
 				}
 			}()
 		})
