@@ -104,8 +104,8 @@ func (p *RemoteParticipant) addSubscribedMediaTrack(track *webrtc.TrackRemote, t
 	pub.setReceiverAndTrack(receiver, track)
 
 	logger.Infow("track subscribed",
-		"participant", p.Identity(), "track", pub.sid,
-		"kind", pub.kind)
+		"participant", p.Identity(), "track", pub.sid.Load(),
+		"kind", pub.kind.Load())
 	p.Callback.OnTrackSubscribed(track, pub, p)
 	p.roomCallback.OnTrackSubscribed(track, pub, p)
 }
