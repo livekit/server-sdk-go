@@ -93,7 +93,7 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 
 	pub.setSender(transceiver.Sender())
 
-	pub.sid.Store(pubRes.Track.Sid)
+	pub.updateInfo(pubRes.Track)
 	p.addPublication(pub)
 
 	p.engine.publisher.Negotiate()
@@ -189,7 +189,6 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalSampleTrack, opt
 		st.SetTransceiver(transceiver)
 	}
 
-	pub.sid.Store(pubRes.Track.Sid)
 	pub.updateInfo(pubRes.Track)
 	p.addPublication(pub)
 
