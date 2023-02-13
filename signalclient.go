@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 
 	"github.com/gorilla/websocket"
@@ -17,8 +19,6 @@ import (
 )
 
 const PROTOCOL = 8
-
-var ErrSignalError = errors.New("signal error")
 
 type SignalClient struct {
 	conn            atomic.Value // *websocket.Conn
@@ -81,15 +81,31 @@ func (c *SignalClient) Join(urlPrefix string, token string, params *ConnectParam
 	}
 
 	header := newHeaderWithToken(token)
-	conn, dialRes, err := websocket.DefaultDialer.Dial(u.String(), header)
+	conn, _, err := websocket.DefaultDialer.Dial(u.String(), header)
 	if err != nil {
-		errorMessage := err.Error()
-		if dialRes != nil {
-			if b, err := io.ReadAll(dialRes.Body); err == nil && len(b) > 0 {
-				errorMessage = string(b)
+		// use validate endpoint to get the actual error
+		validateSuffix := strings.Replace(urlSuffix, "/rtc", "/rtc/validate", 1)
+
+		res, err := http.Get(ToHttpURL(urlPrefix) + validateSuffix)
+		if err != nil || res.StatusCode == http.StatusOK {
+			// no specific errors to return if validate succeeds
+			return nil, ErrCannotConnectSignal
+		} else {
+			var errString string
+			switch res.StatusCode {
+			case http.StatusUnauthorized:
+				errString = "unauthorized: "
+			case http.StatusNotFound:
+				errString = "not found: "
+			case http.StatusServiceUnavailable:
+				errString = "unavailable: "
 			}
+			body, err := io.ReadAll(res.Body)
+			if err == nil {
+				errString += string(body)
+			}
+			return nil, errors.New(errString)
 		}
-		return nil, fmt.Errorf("%w dial error: %s", ErrSignalError, errorMessage)
 	}
 	c.isClosed.Store(false)
 	c.conn.Store(conn)

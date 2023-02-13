@@ -1,7 +1,6 @@
 package lksdk
 
 import (
-	"errors"
 	"sync"
 	"time"
 
@@ -419,9 +418,7 @@ func (e *RTCEngine) handleDisconnect(fullReconnect bool) {
 				logger.Infow("resuming connection...", "reconnectCount", reconnectCount)
 				if err := e.resumeConnection(); err != nil {
 					logger.Errorw("resume connection failed", err)
-					if !errors.Is(err, ErrSignalError) {
-						fullReconnect = true
-					}
+					fullReconnect = true
 				} else {
 					return
 				}
