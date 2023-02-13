@@ -220,18 +220,16 @@ func TestSubscribeMutedTrack(t *testing.T) {
 	require.NoError(t, err)
 
 	videoTrackName := "video_of_pub1"
+	audioTrackName := "audio_of_pub1"
 	var trackLock sync.Mutex
-	var trackReceived atomic.Bool
+	var trackReceived atomic.Int32
 
 	var pubTrackMuted sync.WaitGroup
-	pubTrackMuted.Add(1)
 	require.NoError(t, pub.LocalParticipant.PublishData([]byte("test"), livekit.DataPacket_RELIABLE, nil))
 
-	pubMuteTrack := func(t *testing.T, room *Room, name string) *LocalTrackPublication {
-		track, err := NewLocalSampleTrack(webrtc.RTPCodecCapability{
-			MimeType:  webrtc.MimeTypeVP8,
-			ClockRate: 90000,
-		})
+	pubMuteTrack := func(t *testing.T, room *Room, name string, codec webrtc.RTPCodecCapability) *LocalTrackPublication {
+		pubTrackMuted.Add(1)
+		track, err := NewLocalSampleTrack(codec)
 		require.NoError(t, err)
 
 		track.OnBind(func() {
@@ -251,20 +249,33 @@ func TestSubscribeMutedTrack(t *testing.T) {
 		return localPub
 	}
 
-	localPub := pubMuteTrack(t, pub, videoTrackName)
-	require.Equal(t, localPub.Name(), videoTrackName)
+	localVideoPub := pubMuteTrack(t, pub, videoTrackName, webrtc.RTPCodecCapability{
+		MimeType:  webrtc.MimeTypeVP8,
+		ClockRate: 90000,
+	})
+	require.Equal(t, localVideoPub.Name(), videoTrackName)
 
-	localPub.SetMuted(true)
+	localAudioPub := pubMuteTrack(t, pub, audioTrackName, webrtc.RTPCodecCapability{
+		MimeType:  webrtc.MimeTypeOpus,
+		ClockRate: 48000,
+	})
+	require.Equal(t, localAudioPub.Name(), audioTrackName)
+
+	localVideoPub.SetMuted(true)
+	localAudioPub.SetMuted(true)
 	pubTrackMuted.Wait()
 
 	subCB := &RoomCallback{
 		ParticipantCallback: ParticipantCallback{
 			OnTrackSubscribed: func(track *webrtc.TrackRemote, publication *RemoteTrackPublication, rp *RemoteParticipant) {
 				trackLock.Lock()
-				trackReceived.Store(true)
+				trackReceived.Inc()
 				require.Equal(t, rp.Name(), pub.LocalParticipant.Name())
-				require.Equal(t, publication.Name(), videoTrackName)
-				require.Equal(t, track.Kind(), webrtc.RTPCodecTypeVideo)
+				if track.Kind() == webrtc.RTPCodecTypeAudio {
+					require.Equal(t, publication.Name(), audioTrackName)
+				} else {
+					require.Equal(t, publication.Name(), videoTrackName)
+				}
 				require.True(t, publication.IsMuted())
 				trackLock.Unlock()
 			},
@@ -275,7 +286,7 @@ func TestSubscribeMutedTrack(t *testing.T) {
 	serverInfo := sub.ServerInfo()
 	require.NotNil(t, serverInfo)
 	require.Equal(t, serverInfo.Edition, livekit.ServerInfo_Standard)
-	require.Eventually(t, func() bool { return trackReceived.Load() }, 5*time.Second, 100*time.Millisecond)
+	require.Eventually(t, func() bool { return trackReceived.Load() == 2 }, 5*time.Second, 100*time.Millisecond)
 
 	pub.Disconnect()
 	sub.Disconnect()
