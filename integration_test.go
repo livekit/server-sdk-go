@@ -122,6 +122,14 @@ func TestJoin(t *testing.T) {
 	sub.Disconnect()
 }
 
+func TestJoinError(t *testing.T) {
+	_, err := ConnectToRoomWithToken(host, "invalid", nil)
+	require.Error(t, err)
+
+	errString := err.Error()
+	require.Contains(t, errString, "unauthorized:")
+}
+
 func TestResume(t *testing.T) {
 	var reconnected atomic.Bool
 	pubCB := &RoomCallback{
