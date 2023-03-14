@@ -206,14 +206,10 @@ func (p *ReaderSampleProvider) NextSample() (media.Sample, error) {
 		if err != nil {
 			return sample, err
 		}
-		sampleCount := float64(pageHeader.GranulePosition - p.lastGranule)
 		p.lastGranule = pageHeader.GranulePosition
 
 		sample.Data = pageData
-		sample.Duration = time.Duration((sampleCount/48000)*1000) * time.Millisecond
-		if sample.Duration == 0 {
-			sample.Duration = defaultOpusFrameDuration
-		}
+		sample.Duration = defaultOpusFrameDuration
 	}
 
 	if p.FrameDuration > 0 {
