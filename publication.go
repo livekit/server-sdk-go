@@ -346,4 +346,5 @@ type TrackPublicationOptions struct {
 	VideoHeight int
 	// Opus only
 	DisableDTX bool
+	Stereo     bool
 }
