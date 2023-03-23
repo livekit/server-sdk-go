@@ -7,7 +7,7 @@ require (
 	github.com/go-logr/stdr v1.2.2
 	github.com/gorilla/websocket v1.5.0
 	github.com/livekit/mediatransportutil v0.0.0-20230130133657-96cfb115473a
-	github.com/livekit/protocol v1.5.0
+	github.com/livekit/protocol v1.5.1
 	github.com/magefile/mage v1.14.0
 	github.com/pion/interceptor v0.1.12
 	github.com/pion/rtcp v1.2.10
@@ -35,7 +35,7 @@ require (
 	github.com/jxskiss/base62 v1.1.0 // indirect
 	github.com/kr/pretty v0.3.0 // indirect
 	github.com/lithammer/shortuuid/v4 v4.0.0 // indirect
-	github.com/mackerelio/go-osstat v0.2.3 // indirect
+	github.com/mackerelio/go-osstat v0.2.4 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.1 // indirect
 	github.com/pion/datachannel v1.5.5 // indirect
 	github.com/pion/dtls/v2 v2.2.6 // indirect
@@ -59,7 +59,7 @@ require (
 	go.uber.org/zap v1.24.0 // indirect
 	golang.org/x/crypto v0.6.0 // indirect
 	golang.org/x/net v0.7.0 // indirect
-	golang.org/x/sys v0.5.0 // indirect
+	golang.org/x/sys v0.6.0 // indirect
 	golang.org/x/text v0.7.0 // indirect
 	google.golang.org/genproto v0.0.0-20230227214838-9b19f0bdc514 // indirect
 	google.golang.org/grpc v1.53.0 // indirect
