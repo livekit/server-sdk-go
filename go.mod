@@ -6,7 +6,7 @@ require (
 	github.com/bep/debounce v1.2.1
 	github.com/go-logr/stdr v1.2.2
 	github.com/gorilla/websocket v1.5.0
-	github.com/livekit/mediatransportutil v0.0.0-20230130133657-96cfb115473a
+	github.com/livekit/mediatransportutil v0.0.0-20230326055817-ed569ca13d26
 	github.com/livekit/protocol v1.5.1
 	github.com/magefile/mage v1.14.0
 	github.com/pion/interceptor v0.1.12
