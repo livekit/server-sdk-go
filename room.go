@@ -21,6 +21,10 @@ const (
 	SimulateSignalReconnect SimulateScenario = iota
 	SimulateForceTCP
 	SimulateForceTLS
+	SimulateSpeakerUpdate
+	SimulateMigration
+
+	SimulateSpeakerUpdateInterval = 5
 )
 
 type TrackPubCallback func(track Track, pub TrackPublication, participant *RemoteParticipant)
@@ -539,6 +543,28 @@ func (r *Room) Simulate(scenario SimulateScenario) {
 				Simulate: &livekit.SimulateScenario{
 					Scenario: &livekit.SimulateScenario_SwitchCandidateProtocol{
 						SwitchCandidateProtocol: livekit.CandidateProtocol_TLS,
+					},
+				},
+			},
+		}
+		r.engine.client.SendRequest(req)
+		r.engine.client.OnLeave(&livekit.LeaveRequest{CanReconnect: true, Reason: livekit.DisconnectReason_CLIENT_INITIATED})
+	case SimulateSpeakerUpdate:
+		r.engine.client.SendRequest(&livekit.SignalRequest{
+			Message: &livekit.SignalRequest_Simulate{
+				Simulate: &livekit.SimulateScenario{
+					Scenario: &livekit.SimulateScenario_SpeakerUpdate{
+						SpeakerUpdate: SimulateSpeakerUpdateInterval,
+					},
+				},
+			},
+		})
+	case SimulateMigration:
+		req := &livekit.SignalRequest{
+			Message: &livekit.SignalRequest_Simulate{
+				Simulate: &livekit.SimulateScenario{
+					Scenario: &livekit.SimulateScenario_Migration{
+						Migration: true,
 					},
 				},
 			},
