@@ -22,7 +22,6 @@ const (
 	SimulateForceTCP
 	SimulateForceTLS
 	SimulateSpeakerUpdate
-	SimulateMigration
 
 	SimulateSpeakerUpdateInterval = 5
 )
