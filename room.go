@@ -559,18 +559,6 @@ func (r *Room) Simulate(scenario SimulateScenario) {
 				},
 			},
 		})
-	case SimulateMigration:
-		req := &livekit.SignalRequest{
-			Message: &livekit.SignalRequest_Simulate{
-				Simulate: &livekit.SimulateScenario{
-					Scenario: &livekit.SimulateScenario_Migration{
-						Migration: true,
-					},
-				},
-			},
-		}
-		r.engine.client.SendRequest(req)
-		r.engine.client.OnLeave(&livekit.LeaveRequest{CanReconnect: true, Reason: livekit.DisconnectReason_CLIENT_INITIATED})
 	}
 }
 
