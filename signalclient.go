@@ -219,6 +219,14 @@ func (c *SignalClient) SendUpdateTrackSettings(settings *livekit.UpdateTrackSett
 	})
 }
 
+func (c *SignalClient) SendUpdateParticipantMetadata(metadata *livekit.UpdateParticipantMetadata) error {
+	return c.SendRequest(&livekit.SignalRequest{
+		Message: &livekit.SignalRequest_UpdateMetadata{
+			UpdateMetadata: metadata,
+		},
+	})
+}
+
 func (c *SignalClient) readResponse() (*livekit.SignalResponse, error) {
 	if c.isClosed.Load() {
 		return nil, io.EOF

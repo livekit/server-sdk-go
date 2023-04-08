@@ -265,6 +265,22 @@ func (p *LocalParticipant) GetPublisherPeerConnection() *webrtc.PeerConnection {
 	return p.engine.publisher.PeerConnection()
 }
 
+// SetName sets the name of the current participant.
+// updates will be performed only if the participant has canUpdateOwnMetadata grant
+func (p *LocalParticipant) SetName(name string) {
+	_ = p.engine.client.SendUpdateParticipantMetadata(&livekit.UpdateParticipantMetadata{
+		Name: name,
+	})
+}
+
+// SetMetadata sets the metadata of the current participant.
+// updates will be performed only if the participant has canUpdateOwnMetadata grant
+func (p *LocalParticipant) SetMetadata(metadata string) {
+	_ = p.engine.client.SendUpdateParticipantMetadata(&livekit.UpdateParticipantMetadata{
+		Metadata: metadata,
+	})
+}
+
 func (p *LocalParticipant) updateInfo(info *livekit.ParticipantInfo) {
 	p.baseParticipant.updateInfo(info, p)
 
