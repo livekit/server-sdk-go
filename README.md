@@ -1,11 +1,15 @@
+<!--BEGIN_BANNER_IMAGE--><!--END_BANNER_IMAGE-->
+
 # LiveKit Go SDK
 
+<!--BEGIN_DESCRIPTION-->
 This is the official Golang SDK to [LiveKit](https://docs.livekit.io). You would integrate this on your app's backend in order to
 
 -   Create access tokens
 -   Access LiveKit server-side APIs, giving you moderation capabilities
 -   Client SDK to interact as participant, publish & record room streams
 -   Receive [webhook](https://docs.livekit.io/guides/webhooks/) callbacks
+<!--END_DESCRIPTION-->
 
 ## Installation
 
@@ -234,3 +238,5 @@ func ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// consume WebhookEvent
 }
 ```
+
+<!--BEGIN_REPO_NAV--><!--END_REPO_NAV-->
