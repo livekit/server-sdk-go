@@ -1,15 +1,14 @@
-<!--BEGIN_BANNER_IMAGE--><!--END_BANNER_IMAGE-->
+<!--BEGIN_BANNER_IMAGE-->
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="/.github/banner_dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="/.github/banner_light.png">
+    <img style="width:100%;" alt="The LiveKit icon, the name of the repository and some sample code in the background." src="/.github/banner_light.png">
+  </picture>
+  <!--END_BANNER_IMAGE-->
 
 # LiveKit Go SDK
 
-<!--BEGIN_DESCRIPTION-->
-This is the official Golang SDK to [LiveKit](https://docs.livekit.io). You would integrate this on your app's backend in order to
-
--   Create access tokens
--   Access LiveKit server-side APIs, giving you moderation capabilities
--   Client SDK to interact as participant, publish & record room streams
--   Receive [webhook](https://docs.livekit.io/guides/webhooks/) callbacks
-<!--END_DESCRIPTION-->
+<!--BEGIN_DESCRIPTION-->Use this SDK to manage <a href="https://livekit.io/">LiveKit</a> rooms and create access tokens from your Go backend.<!--END_DESCRIPTION-->
 
 ## Installation
 
@@ -239,4 +238,13 @@ func ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-<!--BEGIN_REPO_NAV--><!--END_REPO_NAV-->
+<!--BEGIN_REPO_NAV-->
+<br/><table>
+<thead><tr><th colspan="2">LiveKit Repositories Map</th></tr></thead>
+<tbody>
+<tr><td>Core Infra</td><td><a href="https://github.com/livekit/livekit">livekit</a> · <a href="https://github.com/livekit/egress">egress</a> · <a href="https://github.com/livekit/ingress">ingress</a> · <a href="https://github.com/livekit/livekit-cli">livekit-cli</a></td></tr><tr></tr>
+<tr><td>Client SDKs</td><td><a href="https://github.com/livekit/components-js">Components</a> · <a href="https://github.com/livekit/client-sdk-js">JavaScript</a> · <a href="https://github.com/livekit/livekit-react">React</a> · <a href="https://github.com/livekit/client-sdk-swift">iOS</a> · <a href="https://github.com/livekit/client-sdk-android">Android</a> · <a href="https://github.com/livekit/client-sdk-flutter">Flutter</a> · <a href="https://github.com/livekit/client-sdk-unity-web">Unity (web)</a> · <a href="https://github.com/livekit/client-sdk-react-native">React Native (beta)</a></td></tr><tr></tr>
+<tr><td>Server SDKs</td><td><a href="https://github.com/livekit/server-sdk-js">Node.js</a> · <b>Golang</b> · <a href="https://github.com/livekit/server-sdk-ruby">Ruby</a> · <a href="https://github.com/livekit/server-sdk-kotlin">Java/Kotlin</a></td></tr>
+</tbody>
+</table>
+<!--END_REPO_NAV-->
