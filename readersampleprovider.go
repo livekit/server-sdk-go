@@ -40,8 +40,7 @@ type ReaderSampleProvider struct {
 	h264reader *h264reader.H264Reader
 
 	// for ogg
-	oggreader   *oggreader.OggReader
-	lastGranule uint64
+	oggreader *oggreader.OggReader
 }
 
 type ReaderSampleProviderOption func(*ReaderSampleProvider)
