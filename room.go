@@ -333,6 +333,11 @@ func (r *Room) handleDataReceived(userPacket *livekit.UserPacket) {
 
 func (r *Room) handleParticipantUpdate(participants []*livekit.ParticipantInfo) {
 	for _, pi := range participants {
+		if pi.Sid == r.LocalParticipant.SID() || pi.Identity == r.LocalParticipant.Identity() {
+			r.LocalParticipant.updateInfo(pi)
+			continue
+		}
+
 		p := r.GetParticipant(pi.Sid)
 		isNew := p == nil
 
