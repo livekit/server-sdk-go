@@ -47,6 +47,7 @@ type participantSynchronizer struct {
 
 type TrackSynchronizer struct {
 	sync.Mutex
+	sync *Synchronizer
 
 	trackID  string
 	nsPerRTP float64 // nanoseconds per unit increase in RTP timestamp
@@ -73,6 +74,7 @@ func NewSynchronizer(onFirstPacket func()) *Synchronizer {
 func (s *Synchronizer) AddTrack(track *webrtc.TrackRemote, identity string) *TrackSynchronizer {
 	t := &TrackSynchronizer{
 		trackID:        track.ID(),
+		sync:           s,
 		nsPerRTP:       float64(1000000000) / float64(track.Codec().ClockRate),
 		lastTSAdjusted: -1,
 	}
@@ -97,26 +99,18 @@ func (s *Synchronizer) AddTrack(track *webrtc.TrackRemote, identity string) *Tra
 }
 
 // firstPacketForTrack initializes offsets
-func (s *Synchronizer) FirstPacketForTrack(pkt *rtp.Packet) {
-	now := time.Now().UnixNano()
-
+func (s *Synchronizer) firstPacketForTrack(pkt *rtp.Packet, now int64) int64 {
 	s.Lock()
+	defer s.Unlock()
+
 	if s.firstPacket == 0 {
 		s.firstPacket = now
-		s.onFirstPacket()
+		if s.onFirstPacket != nil {
+			s.onFirstPacket()
+		}
 	}
-	p := s.psByTrack[pkt.SSRC]
-	s.Unlock()
 
-	p.Lock()
-	t := p.syncInfo[pkt.SSRC]
-	p.Unlock()
-
-	t.Lock()
-	t.startedAt = now
-	t.firstTS = int64(pkt.Timestamp)
-	t.ptsOffset = now - s.firstPacket
-	t.Unlock()
+	return s.firstPacket
 }
 
 func (s *Synchronizer) GetStartedAt() int64 {
@@ -210,6 +204,19 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport, pts time.Dura
 		}
 		t.Unlock()
 	}
+}
+
+func (t *TrackSynchronizer) FirstPacketForTrack(pkt *rtp.Packet) {
+	now := time.Now().UnixNano()
+
+	firstPacket := t.sync.firstPacketForTrack(pkt, now)
+
+	t.Lock()
+	t.startedAt = now
+	t.firstTS = int64(pkt.Timestamp)
+	t.ptsOffset = now - firstPacket
+	t.Unlock()
+
 }
 
 // resetOffsets resets this packet to <frameDuration> after the last packet
