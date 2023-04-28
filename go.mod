@@ -8,6 +8,7 @@ require (
 	github.com/gorilla/websocket v1.5.0
 	github.com/livekit/mediatransportutil v0.0.0-20230326055817-ed569ca13d26
 	github.com/livekit/protocol v1.5.5
+	github.com/livekit/psrpc v0.3.0
 	github.com/magefile/mage v1.14.0
 	github.com/pion/interceptor v0.1.12
 	github.com/pion/rtcp v1.2.10
@@ -35,8 +36,12 @@ require (
 	github.com/google/uuid v1.3.0 // indirect
 	github.com/jxskiss/base62 v1.1.0 // indirect
 	github.com/lithammer/shortuuid/v4 v4.0.0 // indirect
+	github.com/livekit/mageutil v0.0.0-20230125210925-54e8a70427c1 // indirect
 	github.com/mackerelio/go-osstat v0.2.4 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.4 // indirect
+	github.com/nats-io/nats.go v1.25.0 // indirect
+	github.com/nats-io/nkeys v0.4.4 // indirect
+	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/pion/datachannel v1.5.5 // indirect
 	github.com/pion/dtls/v2 v2.2.6 // indirect
 	github.com/pion/ice/v2 v2.3.2 // indirect
@@ -60,6 +65,7 @@ require (
 	golang.org/x/crypto v0.8.0 // indirect
 	golang.org/x/exp v0.0.0-20230420155640-133eef4313cb // indirect
 	golang.org/x/net v0.9.0 // indirect
+	golang.org/x/sync v0.1.0 // indirect
 	golang.org/x/sys v0.7.0 // indirect
 	golang.org/x/text v0.9.0 // indirect
 	google.golang.org/genproto v0.0.0-20230403163135-c38d8f061ccd // indirect
