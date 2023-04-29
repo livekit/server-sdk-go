@@ -13,4 +13,5 @@ var (
 	ErrCannotFindTrack          = errors.New("could not find the track")
 	ErrInvalidParameter         = errors.New("invalid parameter")
 	ErrCannotConnectSignal      = errors.New("could not establish signal connection")
+	ErrCannotDialSignal         = errors.New("could not dial signal connection")
 )

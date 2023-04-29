@@ -81,18 +81,21 @@ func (c *SignalClient) Join(urlPrefix string, token string, params *ConnectParam
 	}
 
 	header := newHeaderWithToken(token)
-	conn, _, err := websocket.DefaultDialer.Dial(u.String(), header)
+	conn, hresp, err := websocket.DefaultDialer.Dial(u.String(), header)
 	if err != nil {
+		logger.Errorw("error establishing signal connection", err, "httpResponse", hresp)
 		// use validate endpoint to get the actual error
 		validateSuffix := strings.Replace(urlSuffix, "/rtc", "/rtc/validate", 1)
 
-		res, err := http.Get(ToHttpURL(urlPrefix) + validateSuffix)
-		if err != nil || res.StatusCode == http.StatusOK {
+		hresp, err := http.Get(ToHttpURL(urlPrefix) + validateSuffix)
+		if err != nil {
+			return nil, ErrCannotDialSignal
+		} else if hresp.StatusCode == http.StatusOK {
 			// no specific errors to return if validate succeeds
 			return nil, ErrCannotConnectSignal
 		} else {
 			var errString string
-			switch res.StatusCode {
+			switch hresp.StatusCode {
 			case http.StatusUnauthorized:
 				errString = "unauthorized: "
 			case http.StatusNotFound:
@@ -100,7 +103,7 @@ func (c *SignalClient) Join(urlPrefix string, token string, params *ConnectParam
 			case http.StatusServiceUnavailable:
 				errString = "unavailable: "
 			}
-			body, err := io.ReadAll(res.Body)
+			body, err := io.ReadAll(hresp.Body)
 			if err == nil {
 				errString += string(body)
 			}
