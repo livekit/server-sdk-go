@@ -83,12 +83,14 @@ func (c *SignalClient) Join(urlPrefix string, token string, params *ConnectParam
 	header := newHeaderWithToken(token)
 	conn, hresp, err := websocket.DefaultDialer.Dial(u.String(), header)
 	if err != nil {
+		// TODO-REMOVE - logging to check if we can distinguish Dial error vs app error. Remove log below also after collecting some data
 		logger.Errorw("error establishing signal connection", err, "httpResponse", hresp)
 		// use validate endpoint to get the actual error
 		validateSuffix := strings.Replace(urlSuffix, "/rtc", "/rtc/validate", 1)
 
 		hresp, err := http.Get(ToHttpURL(urlPrefix) + validateSuffix)
 		if err != nil {
+			logger.Errorw("error getting validation", err, "httpResponse", hresp)
 			return nil, ErrCannotDialSignal
 		} else if hresp.StatusCode == http.StatusOK {
 			// no specific errors to return if validate succeeds
