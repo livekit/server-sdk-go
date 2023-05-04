@@ -176,12 +176,12 @@ func (s *SampleBuilder) dec(n uint16) uint16 {
 
 // isStart invokes the PartitionHeadChecker associted with s.
 func (s *SampleBuilder) isStart(p *rtp.Packet) bool {
-	return s.depacketizer.IsPartitionHead(p.Payload)
+	return len(p.Payload) == 0 || s.depacketizer.IsPartitionHead(p.Payload)
 }
 
 // isEnd invokes the partitionTailChecker associated with s.
 func (s *SampleBuilder) isEnd(p *rtp.Packet) bool {
-	return s.depacketizer.IsPartitionTail(p.Marker, p.Payload)
+	return len(p.Payload) == 0 || s.depacketizer.IsPartitionTail(p.Marker, p.Payload)
 }
 
 // release releases the last packet.
@@ -229,6 +229,7 @@ func (s *SampleBuilder) drop() (bool, uint32) {
 			s.packets[s.tail].packet.Timestamp != ts {
 			break
 		}
+
 		s.release(true)
 	}
 	if !s.lastTimestampValid {
