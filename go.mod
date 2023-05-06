@@ -7,7 +7,7 @@ require (
 	github.com/go-logr/stdr v1.2.2
 	github.com/gorilla/websocket v1.5.0
 	github.com/livekit/mediatransportutil v0.0.0-20230326055817-ed569ca13d26
-	github.com/livekit/protocol v1.5.5
+	github.com/livekit/protocol v1.5.6
 	github.com/livekit/psrpc v0.3.0
 	github.com/magefile/mage v1.14.0
 	github.com/pion/interceptor v0.1.16
@@ -18,7 +18,7 @@ require (
 	github.com/stretchr/testify v1.8.2
 	github.com/thoas/go-funk v0.9.3
 	github.com/twitchtv/twirp v8.1.3+incompatible
-	go.uber.org/atomic v1.10.0
+	go.uber.org/atomic v1.11.0
 	google.golang.org/protobuf v1.30.0
 )
 
@@ -55,20 +55,20 @@ require (
 	github.com/pion/turn/v2 v2.1.0 // indirect
 	github.com/pion/udp/v2 v2.0.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/prometheus/client_golang v1.15.0 // indirect
+	github.com/prometheus/client_golang v1.15.1 // indirect
 	github.com/prometheus/client_model v0.3.0 // indirect
 	github.com/prometheus/common v0.42.0 // indirect
 	github.com/prometheus/procfs v0.9.0 // indirect
-	github.com/redis/go-redis/v9 v9.0.3 // indirect
+	github.com/redis/go-redis/v9 v9.0.4 // indirect
 	go.uber.org/multierr v1.6.0 // indirect
 	go.uber.org/zap v1.24.0 // indirect
 	golang.org/x/crypto v0.8.0 // indirect
-	golang.org/x/exp v0.0.0-20230420155640-133eef4313cb // indirect
+	golang.org/x/exp v0.0.0-20230425010034-47ecfdc1ba53 // indirect
 	golang.org/x/net v0.9.0 // indirect
 	golang.org/x/sync v0.1.0 // indirect
 	golang.org/x/sys v0.7.0 // indirect
 	golang.org/x/text v0.9.0 // indirect
 	google.golang.org/genproto v0.0.0-20230403163135-c38d8f061ccd // indirect
-	google.golang.org/grpc v1.54.0 // indirect
+	google.golang.org/grpc v1.55.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
