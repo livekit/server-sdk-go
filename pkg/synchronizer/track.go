@@ -5,9 +5,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v3"
 
+	"github.com/livekit/mediatransportutil"
 	"github.com/livekit/protocol/logger"
 )
 
@@ -44,7 +46,7 @@ type TrackSynchronizer struct {
 	snOffset  uint16 // sequence number offset (increases with each blank frame inserted
 	ptsOffset int64  // presentation timestamp offset (used for a/v sync)
 
-	largeDrift time.Duration // track massive PTS drift, in case it's correct
+	lastPTSDrift time.Duration // track massive PTS drift, in case it's correct
 }
 
 func newTrackSynchronizer(s *Synchronizer, track *webrtc.TrackRemote) *TrackSynchronizer {
@@ -79,16 +81,12 @@ func (t *TrackSynchronizer) Initialize(pkt *rtp.Packet) {
 	t.Unlock()
 }
 
-// GetPTS will reset sequence numbers and/or offsets if necessary, and returns presentation timestamp.
-// Packets are expected to be in order.
+// GetPTS will reset sequence numbers and/or offsets if necessary. Packets are expected to be in order
 func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 	t.Lock()
 	defer t.Unlock()
 
-	ts, pts, valid, err := t.adjust(pkt)
-	if err != nil {
-		return 0, err
-	}
+	ts, pts, valid := t.adjust(pkt)
 
 	// update frame duration if this is a new frame and both packets are valid
 	if valid && t.lastValid && pkt.SequenceNumber == t.lastSN+1 {
@@ -96,7 +94,7 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 	}
 
 	// if past end time, return EOF
-	if t.maxPTS > 0 && pts > t.maxPTS {
+	if t.maxPTS > 0 && (pts > t.maxPTS || !valid) {
 		return 0, io.EOF
 	}
 
@@ -109,6 +107,7 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 	return pts, nil
 }
 
+// InsertFrame updates the timestamp and sequence number of the packet
 func (t *TrackSynchronizer) InsertFrame(pkt *rtp.Packet) time.Duration {
 	t.Lock()
 	defer t.Unlock()
@@ -117,6 +116,7 @@ func (t *TrackSynchronizer) InsertFrame(pkt *rtp.Packet) time.Duration {
 	return pts
 }
 
+// InsertFrameBefore updates the packet only if it is at least a frame duration before next
 func (t *TrackSynchronizer) InsertFrameBefore(pkt *rtp.Packet, next *rtp.Packet) (time.Duration, bool) {
 	t.Lock()
 	defer t.Unlock()
@@ -130,19 +130,22 @@ func (t *TrackSynchronizer) insertFrameBefore(pkt *rtp.Packet, next *rtp.Packet)
 	ts := t.lastTS + frameDurationRTP
 
 	if next != nil {
-		nextTS, _, _, err := t.adjust(next)
-		if err != nil || ts+frameDurationRTP > nextTS {
+		nextTS, _, _ := t.adjust(next)
+		if ts+frameDurationRTP > nextTS {
+			// too long, drop
 			return 0, false
 		}
 	}
 
-	frameDuration := time.Duration(float64(frameDurationRTP) * t.rtpDuration)
-	pts := t.lastPTS + frameDuration
-
+	// update packet
 	pkt.SequenceNumber = t.lastSN + 1
 	pkt.Timestamp = uint32(t.lastTS + frameDurationRTP)
 	t.snOffset++
 
+	frameDuration := time.Duration(float64(frameDurationRTP) * t.rtpDuration)
+	pts := t.lastPTS + frameDuration
+
+	// update previous values
 	t.lastTS = ts
 	t.lastSN = pkt.SequenceNumber
 	t.lastPTS = pts
@@ -151,7 +154,7 @@ func (t *TrackSynchronizer) insertFrameBefore(pkt *rtp.Packet, next *rtp.Packet)
 	return pts, true
 }
 
-func (t *TrackSynchronizer) adjust(pkt *rtp.Packet) (int64, time.Duration, bool, error) {
+func (t *TrackSynchronizer) adjust(pkt *rtp.Packet) (int64, time.Duration, bool) {
 	// adjust sequence number and reset if needed
 	valid := t.adjustSequenceNumber(pkt)
 
@@ -163,7 +166,7 @@ func (t *TrackSynchronizer) adjust(pkt *rtp.Packet) (int64, time.Duration, bool,
 
 	// use the previous pts if this packet has the same timestamp
 	if ts == t.lastTS {
-		return ts, t.lastPTS, t.lastValid, nil
+		return ts, t.lastPTS, t.lastValid
 	}
 
 	elapsed := t.getElapsed(ts)
@@ -171,11 +174,6 @@ func (t *TrackSynchronizer) adjust(pkt *rtp.Packet) (int64, time.Duration, bool,
 
 	// reset timestamps if needed
 	if !inDelta(elapsed, expected, maxPTSDrift) {
-		if t.maxPTS > 0 {
-			// EOS already sent, return EOF
-			return 0, 0, false, io.EOF
-		}
-
 		logger.Warnw("timestamping issue", nil,
 			"expected", time.Duration(expected),
 			"calculated", time.Duration(elapsed),
@@ -186,7 +184,7 @@ func (t *TrackSynchronizer) adjust(pkt *rtp.Packet) (int64, time.Duration, bool,
 		elapsed = t.getElapsed(ts)
 	}
 
-	return ts, time.Duration(elapsed + t.ptsOffset), valid, nil
+	return ts, time.Duration(elapsed + t.ptsOffset), valid
 }
 
 func (t *TrackSynchronizer) getElapsed(ts int64) int64 {
@@ -200,10 +198,9 @@ func (t *TrackSynchronizer) adjustSequenceNumber(pkt *rtp.Packet) bool {
 		pkt.SequenceNumber-t.lastSN > maxSNDropout &&
 		t.lastSN-pkt.SequenceNumber > maxSNDropout {
 
-		// sequence number reset
+		// reset
 		t.snOffset = t.lastSN + 1 - pkt.SequenceNumber
 		pkt.SequenceNumber = t.lastSN + 1
-
 		t.resetRTP(pkt)
 		return false
 	}
@@ -237,29 +234,46 @@ func (t *TrackSynchronizer) getFrameDurationRTP() int64 {
 	return t.defaultFrameDuration
 }
 
+func (t *TrackSynchronizer) getSenderReportPTS(pkt *rtcp.SenderReport) (time.Duration, bool) {
+	t.Lock()
+	defer t.Unlock()
+
+	ts := int64(pkt.RTPTime)
+	for ts < t.lastTS-(uint32Overflow/2) {
+		ts += uint32Overflow
+	}
+
+	elapsed := t.getElapsed(ts)
+	expected := time.Now().UnixNano() - t.startedAt
+
+	return time.Duration(elapsed + t.ptsOffset), inDelta(elapsed, expected, maxPTSDrift)
+}
+
 // onSenderReport handles pts adjustments for a track
-// func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport, pts time.Duration, ntpStart time.Time) {
-// 	expected := mediatransportutil.NtpTime(pkt.NTPTime).Time().Sub(ntpStart)
-// 	if pts != expected {
-// 		diff := expected - pts
-// 		apply := true
-// 		t.Lock()
-// 		if absGreater(diff, largePTSDrift) {
-// 			logger.Warnw("high pts drift", nil, "trackID", t.trackID, "pts", pts, "diff", diff)
-// 			if absGreater(diff, massivePTSDrift) {
-// 				// if it's the first time seeing a massive drift, ignore it
-// 				if t.largeDrift == 0 || absGreater(diff-t.largeDrift, largePTSDrift) {
-// 					t.largeDrift = diff
-// 					apply = false
-// 				}
-// 			}
-// 		}
-// 		if apply {
-// 			t.ptsOffset += int64(diff)
-// 		}
-// 		t.Unlock()
-// 	}
-// }
+func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport, pts time.Duration, ntpStart time.Time) {
+	t.Lock()
+	defer t.Unlock()
+
+	expected := mediatransportutil.NtpTime(pkt.NTPTime).Time().Sub(ntpStart)
+	if pts != expected {
+		drift := expected - pts
+		if absGreater(drift, largePTSDrift) {
+			logger.Warnw("high pts drift", nil, "trackID", t.trackID, "pts", pts, "drift", drift)
+			if absGreater(drift, massivePTSDrift) {
+				if t.lastPTSDrift == 0 || absGreater(drift-t.lastPTSDrift, largePTSDrift) {
+					t.lastPTSDrift = drift
+					return
+				}
+			}
+		}
+
+		t.ptsOffset += int64(drift)
+	}
+}
+
+func absGreater(a, b time.Duration) bool {
+	return a > b || a < -b
+}
 
 func inDelta(a, b, delta int64) bool {
 	if a > b {

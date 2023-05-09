@@ -6,12 +6,6 @@ import (
 
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v3"
-
-	"github.com/livekit/psrpc"
-)
-
-var (
-	ErrInvalidTimestamp = psrpc.NewErrorf(psrpc.Internal, "timestamping issue")
 )
 
 // a single Synchronizer is shared between all audio and video writers
@@ -34,7 +28,6 @@ func NewSynchronizer(onStarted func()) *Synchronizer {
 	}
 }
 
-// addTrack creates track sync info
 func (s *Synchronizer) AddTrack(track *webrtc.TrackRemote, identity string) *TrackSynchronizer {
 	t := newTrackSynchronizer(s, track)
 
@@ -81,19 +74,19 @@ func (s *Synchronizer) getOrSetStartedAt(now int64) int64 {
 
 // OnRTCP syncs a/v using sender reports
 func (s *Synchronizer) OnRTCP(packet rtcp.Packet) {
-	// switch pkt := packet.(type) {
-	// case *rtcp.SenderReport:
-	// 	s.Lock()
-	// 	p := s.psBySSRC[pkt.SSRC]
-	// 	endedAt := s.endedAt
-	// 	s.Unlock()
-	//
-	// 	if endedAt != 0 {
-	// 		return
-	// 	}
-	//
-	// 	p.onSenderReport(pkt)
-	// }
+	switch pkt := packet.(type) {
+	case *rtcp.SenderReport:
+		s.Lock()
+		p := s.psBySSRC[pkt.SSRC]
+		endedAt := s.endedAt
+		s.Unlock()
+
+		if endedAt != 0 {
+			return
+		}
+
+		p.onSenderReport(pkt)
+	}
 }
 
 func (s *Synchronizer) End() {
@@ -102,18 +95,19 @@ func (s *Synchronizer) End() {
 	s.Lock()
 	defer s.Unlock()
 
+	// find the earliest time we can stop all tracks
 	var maxOffset int64
 	for _, p := range s.psByIdentity {
 		if m := p.getMaxOffset(); m > maxOffset {
 			maxOffset = m
 		}
 	}
-
 	s.endedAt = endTime + maxOffset
 	maxPTS := time.Duration(s.endedAt - s.startedAt)
 
+	// drain all
 	for _, p := range s.psByIdentity {
-		p.setMaxPTS(maxPTS)
+		p.drain(maxPTS)
 	}
 }
 
