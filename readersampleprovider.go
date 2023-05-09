@@ -17,6 +17,7 @@ import (
 const (
 	// defaults to 30 fps
 	defaultH264FrameDuration = 33 * time.Millisecond
+	defaultOpusFrameDuration = 20 * time.Millisecond
 )
 
 // ReaderSampleProvider provides samples by reading from an io.ReadCloser implementation
@@ -40,7 +41,8 @@ type ReaderSampleProvider struct {
 	h264reader *h264reader.H264Reader
 
 	// for ogg
-	oggreader *oggreader.OggReader
+	oggreader   *oggreader.OggReader
+	lastGranule uint64
 }
 
 type ReaderSampleProviderOption func(*ReaderSampleProvider)
@@ -200,19 +202,18 @@ func (p *ReaderSampleProvider) NextSample() (media.Sample, error) {
 		sample.Duration = time.Duration(p.ivfTimebase*float64(delta)*1000) * time.Millisecond
 		p.lastTimestamp = header.Timestamp
 	case webrtc.MimeTypeOpus:
-		// TODO(theomonnom): Read next OpusPacket instead of the next page
-		data, _, err := p.oggreader.ParseNextPage()
+		pageData, pageHeader, err := p.oggreader.ParseNextPage()
 		if err != nil {
 			return sample, err
 		}
+		sampleCount := float64(pageHeader.GranulePosition - p.lastGranule)
+		p.lastGranule = pageHeader.GranulePosition
 
-		dur, err := ParseOpusPacketDuration(data)
-		if err != nil {
-			return sample, err
+		sample.Data = pageData
+		sample.Duration = time.Duration((sampleCount/48000)*1000) * time.Millisecond
+		if sample.Duration == 0 {
+			sample.Duration = defaultOpusFrameDuration
 		}
-
-		sample.Data = data
-		sample.Duration = dur
 	}
 
 	if p.FrameDuration > 0 {
