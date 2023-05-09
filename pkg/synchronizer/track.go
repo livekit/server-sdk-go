@@ -70,6 +70,7 @@ func newTrackSynchronizer(s *Synchronizer, track *webrtc.TrackRemote) *TrackSync
 	return t
 }
 
+// Initialize should be called as soon as the first packet is received
 func (t *TrackSynchronizer) Initialize(pkt *rtp.Packet) {
 	now := time.Now().UnixNano()
 	startedAt := t.sync.getOrSetStartedAt(now)
@@ -81,7 +82,8 @@ func (t *TrackSynchronizer) Initialize(pkt *rtp.Packet) {
 	t.Unlock()
 }
 
-// GetPTS will reset sequence numbers and/or offsets if necessary. Packets are expected to be in order
+// GetPTS will reset sequence numbers and/or offsets if necessary
+// Packets are expected to be in order
 func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 	t.Lock()
 	defer t.Unlock()
@@ -107,7 +109,8 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 	return pts, nil
 }
 
-// InsertFrame updates the timestamp and sequence number of the packet
+// InsertFrame is used to inject frames (usually blank) into the stream
+// It updates the timestamp and sequence number of the packet, as well as offsets for all future packets
 func (t *TrackSynchronizer) InsertFrame(pkt *rtp.Packet) time.Duration {
 	t.Lock()
 	defer t.Unlock()
@@ -116,7 +119,7 @@ func (t *TrackSynchronizer) InsertFrame(pkt *rtp.Packet) time.Duration {
 	return pts
 }
 
-// InsertFrameBefore updates the packet only if it is at least a frame duration before next
+// InsertFrameBefore updates the packet and offsets only if it is at least one frame duration before next
 func (t *TrackSynchronizer) InsertFrameBefore(pkt *rtp.Packet, next *rtp.Packet) (time.Duration, bool) {
 	t.Lock()
 	defer t.Unlock()
@@ -154,6 +157,7 @@ func (t *TrackSynchronizer) insertFrameBefore(pkt *rtp.Packet, next *rtp.Packet)
 	return pts, true
 }
 
+// adjust accounts for uint32 overflow, and will reset sequence numbers or rtp time if necessary
 func (t *TrackSynchronizer) adjust(pkt *rtp.Packet) (int64, time.Duration, bool) {
 	// adjust sequence number and reset if needed
 	valid := t.adjustSequenceNumber(pkt)
@@ -191,6 +195,7 @@ func (t *TrackSynchronizer) getElapsed(ts int64) int64 {
 	return int64(float64(ts-t.firstTS) * t.rtpDuration)
 }
 
+// adjustSequenceNumber resets offsets if there is a large gap in sequence numbers
 func (t *TrackSynchronizer) adjustSequenceNumber(pkt *rtp.Packet) bool {
 	pkt.SequenceNumber += t.snOffset
 
@@ -225,7 +230,7 @@ func (t *TrackSynchronizer) GetFrameDuration() time.Duration {
 	return time.Duration(float64(frameDurationRTP) * t.rtpDuration)
 }
 
-// getFrameDuration returns frame duration in RTP time
+// getFrameDurationRTP returns frame duration in RTP time
 func (t *TrackSynchronizer) getFrameDurationRTP() int64 {
 	if t.frameDuration != 0 {
 		return t.frameDuration
