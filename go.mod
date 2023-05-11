@@ -6,9 +6,8 @@ require (
 	github.com/bep/debounce v1.2.1
 	github.com/go-logr/stdr v1.2.2
 	github.com/gorilla/websocket v1.5.0
-	github.com/livekit/mediatransportutil v0.0.0-20230326055817-ed569ca13d26
+	github.com/livekit/mediatransportutil v0.0.0-20230511025422-058ebf6b48c9
 	github.com/livekit/protocol v1.5.6
-	github.com/livekit/psrpc v0.3.0
 	github.com/magefile/mage v1.14.0
 	github.com/pion/interceptor v0.1.16
 	github.com/pion/rtcp v1.2.10
@@ -37,6 +36,7 @@ require (
 	github.com/jxskiss/base62 v1.1.0 // indirect
 	github.com/lithammer/shortuuid/v4 v4.0.0 // indirect
 	github.com/livekit/mageutil v0.0.0-20230125210925-54e8a70427c1 // indirect
+	github.com/livekit/psrpc v0.3.0 // indirect
 	github.com/mackerelio/go-osstat v0.2.4 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.4 // indirect
 	github.com/nats-io/nats.go v1.25.0 // indirect
