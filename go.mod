@@ -9,7 +9,7 @@ require (
 	github.com/livekit/mediatransportutil v0.0.0-20230518201646-90e22cdc7407
 	github.com/livekit/protocol v1.5.7
 	github.com/magefile/mage v1.15.0
-	github.com/pion/interceptor v0.1.16
+	github.com/pion/interceptor v0.1.17
 	github.com/pion/rtcp v1.2.10
 	github.com/pion/rtp v1.7.13
 	github.com/pion/sdp/v3 v3.0.6
