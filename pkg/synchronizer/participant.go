@@ -30,7 +30,9 @@ func (p *participantSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 		return
 	}
 
-	p.tracks[pkt.SSRC].onSenderReport(pkt, p.ntpStart)
+	if t := p.tracks[pkt.SSRC]; t != nil {
+		t.onSenderReport(pkt, p.ntpStart)
+	}
 }
 
 func (p *participantSynchronizer) synchronizeTracks() {
