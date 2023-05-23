@@ -89,19 +89,19 @@ func (s *Synchronizer) OnRTCP(packet rtcp.Packet) {
 }
 
 func (s *Synchronizer) End() {
-	endTime := time.Now().UnixNano()
+	endTime := time.Now()
 
 	s.Lock()
 	defer s.Unlock()
 
 	// find the earliest time we can stop all tracks
-	var maxOffset int64
+	var maxOffset time.Duration
 	for _, p := range s.psByIdentity {
 		if m := p.getMaxOffset(); m > maxOffset {
 			maxOffset = m
 		}
 	}
-	s.endedAt = endTime + maxOffset
+	s.endedAt = endTime.Add(maxOffset).UnixNano()
 	maxPTS := time.Duration(s.endedAt - s.startedAt)
 
 	// drain all

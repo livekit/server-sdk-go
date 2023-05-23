@@ -1,6 +1,7 @@
 package synchronizer
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -16,8 +17,6 @@ const (
 
 func TestSynchronizer(t *testing.T) {
 	s := NewSynchronizer(nil)
-
-	// initialize
 	tt := newTrackTester(s)
 
 	// first frame (SN:100,101 PTS:0ms)
@@ -74,6 +73,9 @@ func TestSynchronizer(t *testing.T) {
 	tt.timestamp += 33333333
 	tt.testNextFrame(t) // (SN:136,137 PTS:875ms)
 	tt.testNextFrame(t) // (SN:138,139 PTS:916.7ms)
+
+	require.Equal(t, time.Duration(math.Round(1e9/24)), tt.ts.GetFrameDuration())
+
 }
 
 type trackTester struct {
@@ -92,6 +94,7 @@ func newTrackTester(s *Synchronizer) *trackTester {
 		expectedPTS: 0,
 	}
 
+	tt.ts.avgSampleDuration = 3750
 	tt.ts.Initialize(&rtp.Packet{
 		Header: rtp.Header{
 			SequenceNumber: tt.sn,
@@ -111,7 +114,7 @@ func (tt *trackTester) nextFrame() {
 	}
 }
 
-func (tt *trackTester) testNextFrame(t *testing.T) {
+func (tt *trackTester) testNextFrame(t require.TestingT) {
 	// new frame
 	tt.nextFrame()
 	tt.sn++
@@ -122,13 +125,13 @@ func (tt *trackTester) testNextFrame(t *testing.T) {
 	tt.testPacket(t)
 }
 
-func (tt *trackTester) testBlankFrame(t *testing.T) {
+func (tt *trackTester) testBlankFrame(t require.TestingT) {
 	tt.nextFrame()
 	pts := tt.ts.InsertFrame(&rtp.Packet{})
 	require.InDelta(t, tt.expectedPTS, pts, 1)
 }
 
-func (tt *trackTester) testPacket(t *testing.T) {
+func (tt *trackTester) testPacket(t require.TestingT) {
 	pts, err := tt.ts.GetPTS(&rtp.Packet{
 		Header: rtp.Header{
 			SequenceNumber: tt.sn,
