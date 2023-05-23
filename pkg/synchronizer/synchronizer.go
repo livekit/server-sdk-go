@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/pion/rtcp"
-	"github.com/pion/webrtc/v3"
 )
 
 // a single Synchronizer is shared between all audio and video writers
@@ -28,7 +27,7 @@ func NewSynchronizer(onStarted func()) *Synchronizer {
 	}
 }
 
-func (s *Synchronizer) AddTrack(track *webrtc.TrackRemote, identity string) *TrackSynchronizer {
+func (s *Synchronizer) AddTrack(track TrackRemote, identity string) *TrackSynchronizer {
 	t := newTrackSynchronizer(s, track)
 
 	s.Lock()
@@ -90,19 +89,19 @@ func (s *Synchronizer) OnRTCP(packet rtcp.Packet) {
 }
 
 func (s *Synchronizer) End() {
-	endTime := time.Now().UnixNano()
+	endTime := time.Now()
 
 	s.Lock()
 	defer s.Unlock()
 
 	// find the earliest time we can stop all tracks
-	var maxOffset int64
+	var maxOffset time.Duration
 	for _, p := range s.psByIdentity {
 		if m := p.getMaxOffset(); m > maxOffset {
 			maxOffset = m
 		}
 	}
-	s.endedAt = endTime + maxOffset
+	s.endedAt = endTime.Add(maxOffset).UnixNano()
 	maxPTS := time.Duration(s.endedAt - s.startedAt)
 
 	// drain all

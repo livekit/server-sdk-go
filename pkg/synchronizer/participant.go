@@ -7,7 +7,6 @@ import (
 	"github.com/pion/rtcp"
 
 	"github.com/livekit/mediatransportutil"
-	"github.com/livekit/protocol/logger"
 )
 
 // internal struct for managing sender reports
@@ -23,13 +22,6 @@ func (p *participantSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 	p.Lock()
 	defer p.Unlock()
 
-	t := p.tracks[pkt.SSRC]
-	pts, ok := t.getSenderReportPTS(pkt)
-	if !ok {
-		logger.Debugw("discarding sender report")
-		return
-	}
-
 	if p.ntpStart.IsZero() {
 		p.senderReports[pkt.SSRC] = pkt
 		if len(p.senderReports) == len(p.tracks) {
@@ -38,8 +30,9 @@ func (p *participantSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 		return
 	}
 
-	// tracks have already been synced, apply individually
-	t.onSenderReport(pkt, pts, p.ntpStart)
+	if t := p.tracks[pkt.SSRC]; t != nil {
+		t.onSenderReport(pkt, p.ntpStart)
+	}
 }
 
 func (p *participantSynchronizer) synchronizeTracks() {
@@ -50,7 +43,7 @@ func (p *participantSynchronizer) synchronizeTracks() {
 	var earliestStart time.Time
 	for ssrc, pkt := range p.senderReports {
 		t := p.tracks[ssrc]
-		pts, _ := t.getSenderReportPTS(pkt)
+		pts := t.getSenderReportPTS(pkt)
 		ntpStart := mediatransportutil.NtpTime(pkt.NTPTime).Time().Add(-pts)
 		if earliestStart.IsZero() || ntpStart.Before(earliestStart) {
 			earliestStart = ntpStart
@@ -64,14 +57,14 @@ func (p *participantSynchronizer) synchronizeTracks() {
 		t := p.tracks[ssrc]
 		if diff := startedAt.Sub(earliestStart); diff != 0 {
 			t.Lock()
-			t.ptsOffset += int64(diff)
+			t.ptsOffset += diff
 			t.Unlock()
 		}
 	}
 }
 
-func (p *participantSynchronizer) getMaxOffset() int64 {
-	var maxOffset int64
+func (p *participantSynchronizer) getMaxOffset() time.Duration {
+	var maxOffset time.Duration
 
 	p.Lock()
 	for _, t := range p.tracks {
