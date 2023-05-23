@@ -24,11 +24,7 @@ func (p *participantSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 	defer p.Unlock()
 
 	t := p.tracks[pkt.SSRC]
-	pts, ok := t.getSenderReportPTS(pkt)
-	if !ok {
-		logger.Debugw("discarding sender report")
-		return
-	}
+	pts, _ := t.getSenderReportPTS(pkt)
 
 	if p.ntpStart.IsZero() {
 		p.senderReports[pkt.SSRC] = pkt
@@ -37,6 +33,14 @@ func (p *participantSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 		}
 		return
 	}
+
+	logger.Debugw("Sender report",
+		"track", t.trackID,
+		"RTPTime", pkt.RTPTime,
+		"NTPTime", pkt.NTPTime,
+		"PTS", pts,
+		"StartedAt", mediatransportutil.NtpTime(pkt.NTPTime).Time().Sub(p.ntpStart),
+	)
 
 	// tracks have already been synced, apply individually
 	t.onSenderReport(pkt, pts, p.ntpStart)

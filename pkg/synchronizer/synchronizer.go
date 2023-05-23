@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/pion/rtcp"
-	"github.com/pion/webrtc/v3"
 )
 
 // a single Synchronizer is shared between all audio and video writers
@@ -28,7 +27,7 @@ func NewSynchronizer(onStarted func()) *Synchronizer {
 	}
 }
 
-func (s *Synchronizer) AddTrack(track *webrtc.TrackRemote, identity string) *TrackSynchronizer {
+func (s *Synchronizer) AddTrack(track TrackRemote, identity string) *TrackSynchronizer {
 	t := newTrackSynchronizer(s, track)
 
 	s.Lock()
