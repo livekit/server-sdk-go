@@ -52,8 +52,6 @@ type TrackSynchronizer struct {
 	// offsets
 	snOffset  uint16        // sequence number offset (increases with each blank frame inserted
 	ptsOffset time.Duration // presentation timestamp offset (used for a/v sync)
-
-	lastPTSDrift time.Duration // track massive PTS drift, in case it's correct
 }
 
 func newTrackSynchronizer(s *Synchronizer, track TrackRemote) *TrackSynchronizer {
