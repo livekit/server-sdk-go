@@ -233,6 +233,7 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 	})
 
 	e.publisher.OnOffer = func(offer webrtc.SessionDescription) {
+		e.hasPublish.Store(true)
 		if err := e.client.SendOffer(offer); err != nil {
 			logger.Errorw("could not send offer", err)
 		}
@@ -331,8 +332,6 @@ func (e *RTCEngine) ensurePublisherConnected(ensureDataReady bool) error {
 		return nil
 	}
 
-	e.hasPublish.Store(true)
-
 	e.publisher.Negotiate()
 
 	timeout := time.After(e.JoinTimeout)
@@ -418,7 +417,6 @@ func (e *RTCEngine) handleDisconnect(fullReconnect bool) {
 				logger.Infow("resuming connection...", "reconnectCount", reconnectCount)
 				if err := e.resumeConnection(); err != nil {
 					logger.Errorw("resume connection failed", err)
-					fullReconnect = true
 				} else {
 					return
 				}
