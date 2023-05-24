@@ -88,12 +88,19 @@ func (c *SignalClient) Join(urlPrefix string, token string, params *ConnectParam
 		// use validate endpoint to get the actual error
 		validateSuffix := strings.Replace(urlSuffix, "/rtc", "/rtc/validate", 1)
 
-		hresp, err := http.Get(ToHttpURL(urlPrefix) + validateSuffix)
+		validateReq, err1 := http.NewRequest(http.MethodGet, ToHttpURL(urlPrefix)+validateSuffix, nil)
+		if err1 != nil {
+			logger.Errorw("error creating validate request", err1)
+			return nil, ErrCannotDialSignal
+		}
+		validateReq.Header = header
+		hresp, err := http.DefaultClient.Do(validateReq)
 		if err != nil {
 			logger.Errorw("error getting validation", err, "httpResponse", hresp)
 			return nil, ErrCannotDialSignal
 		} else if hresp.StatusCode == http.StatusOK {
 			// no specific errors to return if validate succeeds
+			logger.Infow("validate succeeded")
 			return nil, ErrCannotConnectSignal
 		} else {
 			var errString string
