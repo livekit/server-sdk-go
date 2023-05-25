@@ -40,7 +40,7 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 		}
 	}
 
-	pub := NewLocalTrackPublication(kind, track, opts.Name, p.engine.client)
+	pub := NewLocalTrackPublication(kind, track, *opts, p.engine.client)
 	pub.OnRttUpdate(func(rtt uint32) {
 		p.engine.setRTT(rtt)
 	})
@@ -134,7 +134,7 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalSampleTrack, opt
 
 	mainTrack := tracks[len(tracks)-1]
 
-	pub := NewLocalTrackPublication(KindFromRTPType(mainTrack.Kind()), nil, opts.Name, p.engine.client)
+	pub := NewLocalTrackPublication(KindFromRTPType(mainTrack.Kind()), nil, *opts, p.engine.client)
 
 	var layers []*livekit.VideoLayer
 	for _, st := range tracks {

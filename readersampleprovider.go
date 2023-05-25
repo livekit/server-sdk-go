@@ -43,6 +43,8 @@ type ReaderSampleProvider struct {
 	// for ogg
 	oggreader   *oggreader.OggReader
 	lastGranule uint64
+
+	dontCloseOnUnbind bool
 }
 
 type ReaderSampleProviderOption func(*ReaderSampleProvider)
@@ -68,6 +70,12 @@ func ReaderTrackWithOnWriteComplete(f func()) func(provider *ReaderSampleProvide
 func ReaderTrackWithRTCPHandler(f func(rtcp.Packet)) func(provider *ReaderSampleProvider) {
 	return func(provider *ReaderSampleProvider) {
 		provider.trackOpts = append(provider.trackOpts, WithRTCPHandler(f))
+	}
+}
+
+func ReaderTrackDisableAutoClose() func(provider *ReaderSampleProvider) {
+	return func(provider *ReaderSampleProvider) {
+		provider.dontCloseOnUnbind = true
 	}
 }
 
@@ -137,6 +145,11 @@ func NewLocalReaderTrack(in io.ReadCloser, mime string, options ...ReaderSampleP
 }
 
 func (p *ReaderSampleProvider) OnBind() error {
+	// If we are not closing on unbind, don't do anything on rebind
+	if p.dontCloseOnUnbind && (p.ivfreader != nil || p.h264reader != nil || p.oggreader != nil) {
+		return nil
+	}
+
 	var err error
 	switch p.Mime {
 	case webrtc.MimeTypeH264:
@@ -160,7 +173,17 @@ func (p *ReaderSampleProvider) OnBind() error {
 }
 
 func (p *ReaderSampleProvider) OnUnbind() error {
-	return p.reader.Close()
+	if !p.dontCloseOnUnbind {
+		return p.Close()
+	}
+	return nil
+}
+
+func (p *ReaderSampleProvider) Close() error {
+	if p.reader != nil {
+		return p.reader.Close()
+	}
+	return nil
 }
 
 func (p *ReaderSampleProvider) CurrentAudioLevel() uint8 {

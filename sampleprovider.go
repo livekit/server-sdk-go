@@ -10,6 +10,7 @@ type SampleProvider interface {
 	NextSample() (media.Sample, error)
 	OnBind() error
 	OnUnbind() error
+	Close() error
 }
 
 type AudioSampleProvider interface {
@@ -26,6 +27,10 @@ func (p *BaseSampleProvider) OnBind() error {
 }
 
 func (p *BaseSampleProvider) OnUnbind() error {
+	return nil
+}
+
+func (p *BaseSampleProvider) Close() error {
 	return nil
 }
 

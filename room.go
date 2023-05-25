@@ -304,9 +304,8 @@ func (r *Room) handleRestarted(joinRes *livekit.JoinResponse) {
 
 	for _, pub := range localPubs {
 		if track := pub.TrackLocal(); track != nil {
-			r.LocalParticipant.PublishTrack(track, &TrackPublicationOptions{
-				Name: pub.Name(),
-			})
+			opt := pub.PublicationOptions()
+			r.LocalParticipant.PublishTrack(track, &opt)
 		}
 	}
 	r.callback.OnReconnected()

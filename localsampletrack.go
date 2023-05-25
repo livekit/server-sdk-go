@@ -338,6 +338,20 @@ func (s *LocalSampleTrack) WriteSample(sample media.Sample, opts *SampleWriteOpt
 	return nil
 }
 
+func (s *LocalSampleTrack) Close() error {
+	s.lock.Lock()
+	cancelWrite := s.cancelWrite
+	provider := s.provider
+	s.lock.Unlock()
+	if cancelWrite != nil {
+		cancelWrite()
+	}
+	if provider != nil {
+		provider.Close()
+	}
+	return nil
+}
+
 func (s *LocalSampleTrack) rtcpWorker(rtcpReader interceptor.RTCPReader) {
 	// read incoming rtcp packets, interceptors require this
 	b := make([]byte, rtpInboundMTU)
