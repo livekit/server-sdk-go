@@ -200,6 +200,34 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalSampleTrack, opt
 	return pub, nil
 }
 
+func (p *LocalParticipant) republishTracks() {
+	var localPubs []*LocalTrackPublication
+	p.tracks.Range(func(key, value interface{}) bool {
+		track := value.(*LocalTrackPublication)
+
+		if track.Track() != nil {
+			localPubs = append(localPubs, track)
+		}
+		p.tracks.Delete(key)
+		return true
+	})
+
+	for _, pub := range localPubs {
+		opt := pub.PublicationOptions()
+		if len(pub.simulcastTracks) > 0 {
+			var tracks []*LocalSampleTrack
+			for _, st := range pub.simulcastTracks {
+				tracks = append(tracks, st)
+			}
+			p.PublishSimulcastTrack(tracks, &opt)
+		} else if track := pub.TrackLocal(); track != nil {
+			p.PublishTrack(track, &opt)
+		} else {
+			logger.Warnw("could not republish track as no track local found", nil, "track", pub.SID())
+		}
+	}
+}
+
 func (p *LocalParticipant) PublishData(data []byte, kind livekit.DataPacket_Kind, destinationSids []string) error {
 	packet := &livekit.DataPacket{
 		Kind: kind,
@@ -248,6 +276,10 @@ func (p *LocalParticipant) UnpublishTrack(sid string) error {
 			}
 		}
 		p.engine.publisher.Negotiate()
+	}
+
+	if localTrack, ok := pub.track.(LocalTrackWithClose); ok {
+		localTrack.Close()
 	}
 
 	return err

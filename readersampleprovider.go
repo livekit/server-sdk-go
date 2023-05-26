@@ -43,8 +43,6 @@ type ReaderSampleProvider struct {
 	// for ogg
 	oggreader   *oggreader.OggReader
 	lastGranule uint64
-
-	dontCloseOnUnbind bool
 }
 
 type ReaderSampleProviderOption func(*ReaderSampleProvider)
@@ -70,12 +68,6 @@ func ReaderTrackWithOnWriteComplete(f func()) func(provider *ReaderSampleProvide
 func ReaderTrackWithRTCPHandler(f func(rtcp.Packet)) func(provider *ReaderSampleProvider) {
 	return func(provider *ReaderSampleProvider) {
 		provider.trackOpts = append(provider.trackOpts, WithRTCPHandler(f))
-	}
-}
-
-func ReaderTrackDisableAutoClose() func(provider *ReaderSampleProvider) {
-	return func(provider *ReaderSampleProvider) {
-		provider.dontCloseOnUnbind = true
 	}
 }
 
@@ -146,7 +138,7 @@ func NewLocalReaderTrack(in io.ReadCloser, mime string, options ...ReaderSampleP
 
 func (p *ReaderSampleProvider) OnBind() error {
 	// If we are not closing on unbind, don't do anything on rebind
-	if p.dontCloseOnUnbind && (p.ivfreader != nil || p.h264reader != nil || p.oggreader != nil) {
+	if p.ivfreader != nil || p.h264reader != nil || p.oggreader != nil {
 		return nil
 	}
 
@@ -173,9 +165,6 @@ func (p *ReaderSampleProvider) OnBind() error {
 }
 
 func (p *ReaderSampleProvider) OnUnbind() error {
-	if !p.dontCloseOnUnbind {
-		return p.Close()
-	}
 	return nil
 }
 

@@ -194,6 +194,21 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 func (r *Room) Disconnect() {
 	_ = r.engine.client.SendLeave()
 	r.engine.Close()
+
+	var localPubs []*LocalTrackPublication
+	r.LocalParticipant.tracks.Range(func(_, value interface{}) bool {
+		track := value.(*LocalTrackPublication)
+		if track.Track() != nil {
+			localPubs = append(localPubs, track)
+		}
+		return true
+	})
+
+	for _, pub := range localPubs {
+		if track, ok := pub.TrackLocal().(LocalTrackWithClose); ok && track != nil {
+			track.Close()
+		}
+	}
 }
 
 func (r *Room) GetParticipant(sid string) *RemoteParticipant {
@@ -292,22 +307,8 @@ func (r *Room) handleRestarted(joinRes *livekit.JoinResponse) {
 
 	r.handleParticipantUpdate(joinRes.OtherParticipants)
 
-	var localPubs []*LocalTrackPublication
-	r.LocalParticipant.tracks.Range(func(_, value interface{}) bool {
-		track := value.(*LocalTrackPublication)
+	r.LocalParticipant.republishTracks()
 
-		if track.Track() != nil {
-			localPubs = append(localPubs, track)
-		}
-		return true
-	})
-
-	for _, pub := range localPubs {
-		if track := pub.TrackLocal(); track != nil {
-			opt := pub.PublicationOptions()
-			r.LocalParticipant.PublishTrack(track, &opt)
-		}
-	}
 	r.callback.OnReconnected()
 }
 
