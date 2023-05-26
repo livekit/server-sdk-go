@@ -9,6 +9,11 @@ type Track interface {
 	ID() string
 }
 
+type LocalTrackWithClose interface {
+	webrtc.TrackLocal
+	Close() error
+}
+
 type TrackKind string
 
 const (

@@ -227,18 +227,24 @@ type LocalTrackPublication struct {
 	// set for simulcasted tracks
 	simulcastTracks map[livekit.VideoQuality]*LocalSampleTrack
 	onRttUpdate     func(uint32)
+	opts            TrackPublicationOptions
 }
 
-func NewLocalTrackPublication(kind TrackKind, track Track, name string, client *SignalClient) *LocalTrackPublication {
+func NewLocalTrackPublication(kind TrackKind, track Track, opts TrackPublicationOptions, client *SignalClient) *LocalTrackPublication {
 	pub := &LocalTrackPublication{
 		trackPublicationBase: trackPublicationBase{
 			track:  track,
 			client: client,
 		},
+		opts: opts,
 	}
 	pub.kind.Store(string(kind))
-	pub.name.Store(name)
+	pub.name.Store(opts.Name)
 	return pub
+}
+
+func (p *LocalTrackPublication) PublicationOptions() TrackPublicationOptions {
+	return p.opts
 }
 
 func (p *LocalTrackPublication) TrackLocal() webrtc.TrackLocal {
@@ -312,6 +318,16 @@ func (p *LocalTrackPublication) OnRttUpdate(cb func(uint32)) {
 	p.lock.Lock()
 	p.onRttUpdate = cb
 	p.lock.Unlock()
+}
+
+func (p *LocalTrackPublication) CloseTrack() {
+	for _, st := range p.simulcastTracks {
+		st.Close()
+	}
+
+	if localTrack, ok := p.track.(LocalTrackWithClose); ok {
+		localTrack.Close()
+	}
 }
 
 type SimulcastTrack struct {
