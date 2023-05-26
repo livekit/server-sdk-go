@@ -174,8 +174,6 @@ func (p *ReaderSampleProvider) OnBind() error {
 
 func (p *ReaderSampleProvider) OnUnbind() error {
 	if !p.dontCloseOnUnbind {
-		logger.Warnw(`Closing reader on unbind, this will cause the reader can't be rebinded when sdk restarting connection on connection failure
-		To avoid this, use ReaderTrackDisableAutoClose() option when creating track, and Call Track.Close() manually after unpulish the track OR disconnect from livekit`, nil)
 		return p.Close()
 	}
 	return nil
