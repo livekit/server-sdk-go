@@ -228,6 +228,21 @@ func (p *LocalParticipant) republishTracks() {
 	}
 }
 
+func (p *LocalParticipant) closeTracks() {
+	var localPubs []*LocalTrackPublication
+	p.tracks.Range(func(_, value interface{}) bool {
+		track := value.(*LocalTrackPublication)
+		if track.Track() != nil {
+			localPubs = append(localPubs, track)
+		}
+		return true
+	})
+
+	for _, pub := range localPubs {
+		pub.CloseTrack()
+	}
+}
+
 func (p *LocalParticipant) PublishData(data []byte, kind livekit.DataPacket_Kind, destinationSids []string) error {
 	packet := &livekit.DataPacket{
 		Kind: kind,

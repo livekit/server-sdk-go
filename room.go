@@ -195,18 +195,7 @@ func (r *Room) Disconnect() {
 	_ = r.engine.client.SendLeave()
 	r.engine.Close()
 
-	var localPubs []*LocalTrackPublication
-	r.LocalParticipant.tracks.Range(func(_, value interface{}) bool {
-		track := value.(*LocalTrackPublication)
-		if track.Track() != nil {
-			localPubs = append(localPubs, track)
-		}
-		return true
-	})
-
-	for _, pub := range localPubs {
-		pub.CloseTrack()
-	}
+	r.LocalParticipant.closeTracks()
 }
 
 func (r *Room) GetParticipant(sid string) *RemoteParticipant {
