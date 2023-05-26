@@ -278,9 +278,7 @@ func (p *LocalParticipant) UnpublishTrack(sid string) error {
 		p.engine.publisher.Negotiate()
 	}
 
-	if localTrack, ok := pub.track.(LocalTrackWithClose); ok {
-		localTrack.Close()
-	}
+	pub.CloseTrack()
 
 	return err
 }

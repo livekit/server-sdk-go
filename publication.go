@@ -320,6 +320,16 @@ func (p *LocalTrackPublication) OnRttUpdate(cb func(uint32)) {
 	p.lock.Unlock()
 }
 
+func (p *LocalTrackPublication) CloseTrack() {
+	for _, st := range p.simulcastTracks {
+		st.Close()
+	}
+
+	if localTrack, ok := p.track.(LocalTrackWithClose); ok {
+		localTrack.Close()
+	}
+}
+
 type SimulcastTrack struct {
 	trackLocal webrtc.TrackLocal
 	videoLayer *livekit.VideoLayer

@@ -205,9 +205,7 @@ func (r *Room) Disconnect() {
 	})
 
 	for _, pub := range localPubs {
-		if track, ok := pub.TrackLocal().(LocalTrackWithClose); ok && track != nil {
-			track.Close()
-		}
+		pub.CloseTrack()
 	}
 }
 
