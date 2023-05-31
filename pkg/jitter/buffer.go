@@ -135,7 +135,6 @@ func (b *Buffer) Push(pkt *rtp.Packet) {
 	p.prev = b.tail
 	b.tail.next = p
 	b.tail = p
-	return
 }
 
 func (b *Buffer) Pop(force bool) []*rtp.Packet {
