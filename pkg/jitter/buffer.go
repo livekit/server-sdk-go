@@ -37,14 +37,23 @@ type packet struct {
 func NewBuffer(depacketizer rtp.Depacketizer, clockRate uint32, maxLatency time.Duration, opts ...Option) *Buffer {
 	b := &Buffer{
 		depacketizer: depacketizer,
-		maxLate:      uint32(float64(maxLatency) / float64(time.Second) * float64(clockRate)),
 		clockRate:    clockRate,
+		maxLate:      uint32(float64(maxLatency) / float64(time.Second) * float64(clockRate)),
 		logger:       logger.LogRLogger(logr.Discard()),
 	}
 	for _, opt := range opts {
 		opt(b)
 	}
 	return b
+}
+
+func (b *Buffer) UpdateMaxLatency(maxLatency time.Duration) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	maxLate := uint32(float64(maxLatency) / float64(time.Second) * float64(b.clockRate))
+	b.minTS += b.maxLate - maxLate
+	b.maxLate = maxLate
 }
 
 func (b *Buffer) Push(pkt *rtp.Packet) {

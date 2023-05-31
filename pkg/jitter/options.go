@@ -2,7 +2,6 @@ package jitter
 
 import "github.com/livekit/protocol/logger"
 
-// An Option configures a SampleBuilder
 type Option func(b *Buffer)
 
 // WithPacketDroppedHandler sets a callback that's called when a packet
@@ -13,6 +12,7 @@ func WithPacketDroppedHandler(f func()) Option {
 	}
 }
 
+// WithLogger sets a logger which will log packets dropped
 func WithLogger(l logger.Logger) Option {
 	return func(b *Buffer) {
 		b.logger = l
