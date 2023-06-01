@@ -18,6 +18,7 @@ type Buffer struct {
 	logger          logger.Logger
 
 	mu          sync.Mutex
+	pool        *packet
 	initialized bool
 	prevSN      uint16
 	head        *packet
@@ -37,8 +38,8 @@ type packet struct {
 func NewBuffer(depacketizer rtp.Depacketizer, clockRate uint32, maxLatency time.Duration, opts ...Option) *Buffer {
 	b := &Buffer{
 		depacketizer: depacketizer,
-		clockRate:    clockRate,
 		maxLate:      uint32(float64(maxLatency) / float64(time.Second) * float64(clockRate)),
+		clockRate:    clockRate,
 		logger:       logger.LogRLogger(logr.Discard()),
 	}
 	for _, opt := range opts {
@@ -70,11 +71,7 @@ func (b *Buffer) Push(pkt *rtp.Packet) {
 	}
 
 	b.count++
-	p := &packet{
-		start:  start,
-		end:    end,
-		packet: pkt,
-	}
+	p := b.newPacket(start, end, pkt)
 
 	if b.tail == nil {
 		// list is empty
@@ -150,11 +147,10 @@ func (b *Buffer) Pop(force bool) []*rtp.Packet {
 
 func (b *Buffer) forcePop() []*rtp.Packet {
 	packets := make([]*rtp.Packet, 0, b.count)
-	for c := b.head; c != nil; c = c.next {
+	for c, next := b.head, (*packet)(nil); c != nil; c = next {
 		packets = append(packets, c.packet)
-		c.prev = nil
-		c.next = nil
-		c.packet = nil
+		next = c.next
+		b.free(c)
 	}
 	b.head = nil
 	b.tail = nil
@@ -204,7 +200,6 @@ func (b *Buffer) pop() []*rtp.Packet {
 				b.minTS += next.packet.Timestamp - c.packet.Timestamp - b.maxSampleSize
 			}
 			next.prev = nil
-			c.next = nil
 		}
 		if c == end {
 			b.head = next
@@ -214,6 +209,7 @@ func (b *Buffer) pop() []*rtp.Packet {
 			b.prevSN = c.packet.SequenceNumber
 			return packets
 		}
+		b.free(c)
 		c = next
 	}
 }
@@ -239,8 +235,7 @@ func (b *Buffer) drop() {
 					b.minTS += b.head.packet.Timestamp - c.packet.Timestamp - b.maxSampleSize
 				}
 			}
-			c.next = nil
-			c.packet = nil
+			b.free(c)
 
 			c = b.head
 			if c == nil {
@@ -255,6 +250,31 @@ func (b *Buffer) drop() {
 	if dropped && b.onPacketDropped != nil {
 		b.onPacketDropped()
 	}
+}
+
+func (b *Buffer) newPacket(start, end bool, pkt *rtp.Packet) *packet {
+	if b.pool == nil {
+		return &packet{
+			start:  start,
+			end:    end,
+			packet: pkt,
+		}
+	}
+
+	p := b.pool
+	b.pool = p.next
+	p.next = nil
+	p.start = start
+	p.end = end
+	p.packet = pkt
+	return p
+}
+
+func (b *Buffer) free(pkt *packet) {
+	pkt.prev = nil
+	pkt.packet = nil
+	pkt.next = b.pool
+	b.pool = pkt
 }
 
 func outsideRange(a, b uint16) bool {
