@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/bep/debounce"
+	"github.com/pion/dtls/v2"
 	"github.com/pion/interceptor"
 	"github.com/pion/interceptor/pkg/nack"
 	"github.com/pion/sdp/v3"
@@ -79,7 +80,10 @@ func NewPCTransport(configuration webrtc.Configuration) (*PCTransport, error) {
 		return nil, err
 	}
 
-	api := webrtc.NewAPI(webrtc.WithMediaEngine(m), webrtc.WithInterceptorRegistry(i))
+	se := webrtc.SettingEngine{}
+	se.SetSRTPProtectionProfiles(dtls.SRTP_AEAD_AES_128_GCM, dtls.SRTP_AES128_CM_HMAC_SHA1_80)
+
+	api := webrtc.NewAPI(webrtc.WithMediaEngine(m), webrtc.WithSettingEngine(se), webrtc.WithInterceptorRegistry(i))
 	pc, err := api.NewPeerConnection(configuration)
 	if err != nil {
 		return nil, err
