@@ -19,11 +19,11 @@ type Buffer struct {
 
 	mu          sync.Mutex
 	pool        *packet
+	size        int
 	initialized bool
 	prevSN      uint16
 	head        *packet
 	tail        *packet
-	count       int
 
 	maxSampleSize uint32
 	minTS         uint32
@@ -70,7 +70,6 @@ func (b *Buffer) Push(pkt *rtp.Packet) {
 		end = b.depacketizer.IsPartitionTail(pkt.Marker, pkt.Payload)
 	}
 
-	b.count++
 	p := b.newPacket(start, end, pkt)
 
 	if b.tail == nil {
@@ -146,15 +145,15 @@ func (b *Buffer) Pop(force bool) []*rtp.Packet {
 }
 
 func (b *Buffer) forcePop() []*rtp.Packet {
-	packets := make([]*rtp.Packet, 0, b.count)
-	for c, next := b.head, (*packet)(nil); c != nil; c = next {
-		packets = append(packets, c.packet)
+	packets := make([]*rtp.Packet, 0, b.size)
+	var next *packet
+	for c := b.head; c != nil; c = next {
 		next = c.next
+		packets = append(packets, c.packet)
 		b.free(c)
 	}
 	b.head = nil
 	b.tail = nil
-	b.count = 0
 	return packets
 }
 
@@ -189,11 +188,11 @@ func (b *Buffer) pop() []*rtp.Packet {
 		return nil
 	}
 
-	packets := make([]*rtp.Packet, 0, b.count)
-	for c := b.head; ; {
+	packets := make([]*rtp.Packet, 0, b.size)
+	var next *packet
+	for c := b.head; ; c = next {
+		next = c.next
 		packets = append(packets, c.packet)
-		b.count--
-		next := c.next
 		if next != nil {
 			if outsideRange(next.packet.SequenceNumber, c.packet.SequenceNumber) {
 				// adjust minTS to account for sequence number reset
@@ -202,15 +201,15 @@ func (b *Buffer) pop() []*rtp.Packet {
 			next.prev = nil
 		}
 		if c == end {
+			b.prevSN = c.packet.SequenceNumber
 			b.head = next
 			if next == nil {
 				b.tail = nil
 			}
-			b.prevSN = c.packet.SequenceNumber
+			b.free(c)
 			return packets
 		}
 		b.free(c)
-		c = next
 	}
 }
 
@@ -253,6 +252,7 @@ func (b *Buffer) drop() {
 }
 
 func (b *Buffer) newPacket(start, end bool, pkt *rtp.Packet) *packet {
+	b.size++
 	if b.pool == nil {
 		return &packet{
 			start:  start,
@@ -271,6 +271,7 @@ func (b *Buffer) newPacket(start, end bool, pkt *rtp.Packet) *packet {
 }
 
 func (b *Buffer) free(pkt *packet) {
+	b.size--
 	pkt.prev = nil
 	pkt.packet = nil
 	pkt.next = b.pool
