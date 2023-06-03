@@ -94,7 +94,7 @@ func newTrackTester(s *Synchronizer) *trackTester {
 		expectedPTS: 0,
 	}
 
-	tt.ts.avgSampleDuration = 3750
+	tt.ts.stats.AvgSampleDuration = 3750
 	tt.ts.Initialize(&rtp.Packet{
 		Header: rtp.Header{
 			SequenceNumber: tt.sn,
