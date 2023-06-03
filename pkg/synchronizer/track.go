@@ -59,6 +59,7 @@ func newTrackSynchronizer(s *Synchronizer, track TrackRemote) *TrackSynchronizer
 	t := &TrackSynchronizer{
 		sync:         s,
 		track:        track,
+		stats:        &TrackStats{},
 		rtpConverter: newRTPConverter(int64(track.Codec().ClockRate)),
 	}
 
