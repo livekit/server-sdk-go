@@ -11,7 +11,6 @@ import (
 	"github.com/pion/webrtc/v3"
 
 	"github.com/livekit/mediatransportutil"
-	"github.com/livekit/protocol/logger"
 )
 
 const (
@@ -29,13 +28,15 @@ type TrackRemote interface {
 
 type TrackSynchronizer struct {
 	sync.Mutex
-	sync   *Synchronizer
-	track  TrackRemote
-	logger logger.Logger
+	sync  *Synchronizer
+	track TrackRemote
 
-	// track info
-	rtpCalc           rtpCalc
-	avgSampleDuration float64
+	// track stats
+	stats        TrackStats
+	rtpConverter rtpConverter
+
+	// sender reports
+	lastSR uint32
 
 	// timing info
 	startedAt int64         // starting time in unix ns
@@ -56,19 +57,18 @@ type TrackSynchronizer struct {
 
 func newTrackSynchronizer(s *Synchronizer, track TrackRemote) *TrackSynchronizer {
 	t := &TrackSynchronizer{
-		sync:    s,
-		track:   track,
-		rtpCalc: newRTPCalc(int64(track.Codec().ClockRate)),
-		logger:  logger.GetLogger().WithValues("trackID", track.ID(), "kind", track.Kind().String()),
+		sync:         s,
+		track:        track,
+		rtpConverter: newRTPConverter(int64(track.Codec().ClockRate)),
 	}
 
 	switch track.Kind() {
 	case webrtc.RTPCodecTypeAudio:
 		// opus default packet size is 20ms
-		t.avgSampleDuration = float64(track.Codec().ClockRate) / 50
+		t.stats.AvgSampleDuration = float64(track.Codec().ClockRate) / 50
 	default:
 		// 30 fps for video
-		t.avgSampleDuration = float64(track.Codec().ClockRate) / 30
+		t.stats.AvgSampleDuration = float64(track.Codec().ClockRate) / 30
 	}
 
 	return t
@@ -97,7 +97,7 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 
 	// update frame duration if this is a new frame and both packets are valid
 	if valid && t.lastValid && pkt.SequenceNumber == t.lastSN+1 {
-		t.updateFrameDuration(ts)
+		t.stats.updateSampleDuration(ts - t.lastTS)
 	}
 
 	// if past end time, return EOF
@@ -129,7 +129,7 @@ func (t *TrackSynchronizer) adjust(pkt *rtp.Packet) (int64, time.Duration, bool)
 		// reset RTP timestamps
 		duration := (t.inserted + 1) * t.getFrameDurationRTP()
 		ts := t.lastTS + duration
-		pts := t.lastPTS + t.rtpCalc.toDuration(duration)
+		pts := t.lastPTS + t.rtpConverter.toDuration(duration)
 
 		t.firstTS += int64(pkt.Timestamp) - ts
 		return ts, pts, false
@@ -150,7 +150,7 @@ func (t *TrackSynchronizer) adjust(pkt *rtp.Packet) (int64, time.Duration, bool)
 }
 
 func (t *TrackSynchronizer) getElapsed(ts int64) time.Duration {
-	return t.rtpCalc.toDuration(ts - t.firstTS)
+	return t.rtpConverter.toDuration(ts - t.firstTS)
 }
 
 // InsertFrame is used to inject frames (usually blank) into the stream
@@ -190,15 +190,8 @@ func (t *TrackSynchronizer) insertFrameBefore(pkt *rtp.Packet, next *rtp.Packet)
 	pkt.SequenceNumber = t.lastSN + uint16(t.inserted)
 	pkt.Timestamp = uint32(ts)
 
-	pts := t.lastPTS + t.rtpCalc.toDuration(frameDurationRTP*t.inserted)
+	pts := t.lastPTS + t.rtpConverter.toDuration(frameDurationRTP*t.inserted)
 	return pts, true
-}
-
-func (t *TrackSynchronizer) updateFrameDuration(ts int64) {
-	duration := ts - t.lastTS
-	if duration > 1 {
-		t.avgSampleDuration = ewmaWeight*t.avgSampleDuration + (1-ewmaWeight)*float64(duration)
-	}
 }
 
 // GetFrameDuration returns frame duration in seconds
@@ -210,11 +203,11 @@ func (t *TrackSynchronizer) GetFrameDuration() time.Duration {
 	case webrtc.RTPCodecTypeAudio:
 		// round opus packets to 2.5ms
 		round := float64(t.track.Codec().ClockRate) / 400
-		return time.Duration(math.Round(t.avgSampleDuration/round)) * 2500 * time.Microsecond
+		return time.Duration(math.Round(t.stats.AvgSampleDuration/round)) * 2500 * time.Microsecond
 	default:
 		// round video to 1/3000th of a second
 		round := float64(t.track.Codec().ClockRate) / 3000
-		return time.Duration(math.Round(math.Round(t.avgSampleDuration/round) * 1e6 / 3))
+		return time.Duration(math.Round(math.Round(t.stats.AvgSampleDuration/round) * 1e6 / 3))
 	}
 }
 
@@ -224,12 +217,16 @@ func (t *TrackSynchronizer) getFrameDurationRTP() int64 {
 	case webrtc.RTPCodecTypeAudio:
 		// round opus packets to 2.5ms
 		round := float64(t.track.Codec().ClockRate) / 400
-		return int64(math.Round(t.avgSampleDuration/round) * round)
+		return int64(math.Round(t.stats.AvgSampleDuration/round) * round)
 	default:
 		// round video to 1/30th of a second
 		round := float64(t.track.Codec().ClockRate) / 3000
-		return int64(math.Round(t.avgSampleDuration/round) * round)
+		return int64(math.Round(t.stats.AvgSampleDuration/round) * round)
 	}
+}
+
+func (t *TrackSynchronizer) GetTrackStats() TrackStats {
+	return t.stats
 }
 
 func (t *TrackSynchronizer) getSenderReportPTS(pkt *rtcp.SenderReport) time.Duration {
@@ -253,19 +250,48 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport, ntpStart time
 	t.Lock()
 	defer t.Unlock()
 
+	// we receive every sender report twice
+	if pkt.RTPTime == t.lastSR {
+		return
+	}
+
 	pts := t.getSenderReportPTSLocked(pkt)
 	calculatedNTPStart := mediatransportutil.NtpTime(pkt.NTPTime).Time().Add(-pts)
 	drift := calculatedNTPStart.Sub(ntpStart)
-	t.logger.Debugw("Sender report", "drift", calculatedNTPStart.Sub(ntpStart))
+
 	t.ptsOffset += drift
+	t.lastSR = pkt.RTPTime
+	t.stats.updateDrift(drift)
 }
 
-type rtpCalc struct {
+type TrackStats struct {
+	AvgSampleDuration float64
+	AvgDrift          float64
+	MaxDrift          time.Duration
+}
+
+func (t TrackStats) updateDrift(drift time.Duration) {
+	if drift < 0 {
+		drift = -drift
+	}
+	t.AvgDrift = ewmaWeight*t.AvgDrift + (1-ewmaWeight)*float64(drift)
+	if drift > t.MaxDrift {
+		t.MaxDrift = drift
+	}
+}
+
+func (t TrackStats) updateSampleDuration(duration int64) {
+	if duration > 1 {
+		t.AvgSampleDuration = ewmaWeight*t.AvgSampleDuration + (1-ewmaWeight)*float64(duration)
+	}
+}
+
+type rtpConverter struct {
 	n float64
 	d float64
 }
 
-func newRTPCalc(clockRate int64) rtpCalc {
+func newRTPConverter(clockRate int64) rtpConverter {
 	n := int64(1000000000)
 	d := clockRate
 	for _, i := range []int64{10, 3, 2} {
@@ -275,9 +301,9 @@ func newRTPCalc(clockRate int64) rtpCalc {
 		}
 	}
 
-	return rtpCalc{n: float64(n), d: float64(d)}
+	return rtpConverter{n: float64(n), d: float64(d)}
 }
 
-func (c rtpCalc) toDuration(x int64) time.Duration {
-	return time.Duration(math.Round(float64(x) * c.n / c.d))
+func (c rtpConverter) toDuration(rtpDuration int64) time.Duration {
+	return time.Duration(math.Round(float64(rtpDuration) * c.n / c.d))
 }
