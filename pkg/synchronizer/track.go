@@ -32,7 +32,7 @@ type TrackSynchronizer struct {
 	track TrackRemote
 
 	// track stats
-	stats        TrackStats
+	stats        *TrackStats
 	rtpConverter rtpConverter
 
 	// sender reports
@@ -226,7 +226,7 @@ func (t *TrackSynchronizer) getFrameDurationRTP() int64 {
 }
 
 func (t *TrackSynchronizer) GetTrackStats() TrackStats {
-	return t.stats
+	return *t.stats
 }
 
 func (t *TrackSynchronizer) getSenderReportPTS(pkt *rtcp.SenderReport) time.Duration {
@@ -270,7 +270,7 @@ type TrackStats struct {
 	MaxDrift          time.Duration
 }
 
-func (t TrackStats) updateDrift(drift time.Duration) {
+func (t *TrackStats) updateDrift(drift time.Duration) {
 	if drift < 0 {
 		drift = -drift
 	}
@@ -280,7 +280,7 @@ func (t TrackStats) updateDrift(drift time.Duration) {
 	}
 }
 
-func (t TrackStats) updateSampleDuration(duration int64) {
+func (t *TrackStats) updateSampleDuration(duration int64) {
 	if duration > 1 {
 		t.AvgSampleDuration = ewmaWeight*t.AvgSampleDuration + (1-ewmaWeight)*float64(duration)
 	}
