@@ -4,11 +4,13 @@ go 1.18
 
 require (
 	github.com/bep/debounce v1.2.1
+	github.com/go-logr/logr v1.2.4
 	github.com/go-logr/stdr v1.2.2
 	github.com/gorilla/websocket v1.5.0
 	github.com/livekit/mediatransportutil v0.0.0-20230523035537-27577c4e1646
-	github.com/livekit/protocol v1.5.7
+	github.com/livekit/protocol v1.5.8-0.20230601212100-a186ecb11a98
 	github.com/magefile/mage v1.15.0
+	github.com/pion/dtls/v2 v2.2.7
 	github.com/pion/interceptor v0.1.17
 	github.com/pion/rtcp v1.2.10
 	github.com/pion/rtp v1.7.13
@@ -31,7 +33,6 @@ require (
 	github.com/frostbyte73/core v0.0.9 // indirect
 	github.com/gammazero/deque v0.2.1 // indirect
 	github.com/go-jose/go-jose/v3 v3.0.0 // indirect
-	github.com/go-logr/logr v1.2.4 // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/google/uuid v1.3.0 // indirect
 	github.com/jxskiss/base62 v1.1.0 // indirect
@@ -44,7 +45,6 @@ require (
 	github.com/nats-io/nkeys v0.4.4 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/pion/datachannel v1.5.5 // indirect
-	github.com/pion/dtls/v2 v2.2.7 // indirect
 	github.com/pion/ice/v2 v2.3.6 // indirect
 	github.com/pion/logging v0.2.2 // indirect
 	github.com/pion/mdns v0.0.7 // indirect
