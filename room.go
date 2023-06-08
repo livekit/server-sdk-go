@@ -314,10 +314,9 @@ func (r *Room) handleDataReceived(userPacket *livekit.UserPacket) {
 		return
 	}
 	p := r.GetParticipant(userPacket.ParticipantSid)
-	if p == nil {
-		return
+	if p != nil {
+		p.Callback.OnDataReceived(userPacket.Payload, p)
 	}
-	p.Callback.OnDataReceived(userPacket.Payload, p)
 	r.callback.OnDataReceived(userPacket.Payload, p)
 }
 
