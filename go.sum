@@ -65,8 +65,8 @@ github.com/lithammer/shortuuid/v4 v4.0.0 h1:QRbbVkfgNippHOS8PXDkti4NaWeyYfcBTHtw
 github.com/lithammer/shortuuid/v4 v4.0.0/go.mod h1:Zs8puNcrvf2rV9rTH51ZLLcj7ZXqQI3lv67aw4KiB1Y=
 github.com/livekit/mageutil v0.0.0-20230125210925-54e8a70427c1 h1:jm09419p0lqTkDaKb5iXdynYrzB84ErPPO4LbRASk58=
 github.com/livekit/mageutil v0.0.0-20230125210925-54e8a70427c1/go.mod h1:Rs3MhFwutWhGwmY1VQsygw28z5bWcnEYmS1OG9OxjOQ=
-github.com/livekit/mediatransportutil v0.0.0-20230523035537-27577c4e1646 h1:acGSGkWJdut7TUWozCDheHu4dwWFDqqRzv+SBbIY9Xo=
-github.com/livekit/mediatransportutil v0.0.0-20230523035537-27577c4e1646/go.mod h1:MRc0zSOSzXuFt0X218SgabzlaKevkvCckPgBEoHYc34=
+github.com/livekit/mediatransportutil v0.0.0-20230612070454-d5299b956135 h1:lWYbsondvqG69czxoACDwaJ/BoyD57BahCo70ZH+m4U=
+github.com/livekit/mediatransportutil v0.0.0-20230612070454-d5299b956135/go.mod h1:MRc0zSOSzXuFt0X218SgabzlaKevkvCckPgBEoHYc34=
 github.com/livekit/protocol v1.5.8-0.20230601212100-a186ecb11a98 h1:OkQu5+sAgOzLqcpOH9WV5UyWsEcNwfvyi1KmpmXCKb0=
 github.com/livekit/protocol v1.5.8-0.20230601212100-a186ecb11a98/go.mod h1:ZaOnsvP+JS4s7vI1UO+JVdBagvvLp/lBXDAl2hkDS0I=
 github.com/livekit/psrpc v0.3.0 h1:giBZsfM3CWA0oIYXofsMITbVQtyW7u/ES9sQmVspHPM=
