@@ -70,7 +70,7 @@ func (n *NackGeneratorInterceptor) BindRemoteStream(info *interceptor.StreamInfo
 		return reader
 	}
 
-	nackQueue := nack.NewNACKQueue()
+	nackQueue := nack.NewNACKQueue(nack.NackQueueParamsDefault)
 	n.lock.Lock()
 	n.nackQueues[info.SSRC] = nackQueue
 	n.lock.Unlock()
