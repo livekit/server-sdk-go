@@ -16,13 +16,13 @@ func TestJitterBuffer(t *testing.T) {
 	// ooo
 	b.Push(testTailPacket(5, 31))
 
-	require.Nil(t, b.Pop(false))
+	require.Len(t, b.Pop(false), 0)
 
 	b.Push(testPacket(3, 31))
 	b.Push(testHeadPacket(6, 32))
 	b.Push(testHeadPacket(1, 31))
 
-	require.Nil(t, b.Pop(false))
+	require.Len(t, b.Pop(false), 0)
 
 	b.Push(testPacket(2, 31))
 	b.Push(testPacket(4, 31))
@@ -44,106 +44,111 @@ func TestJitterBuffer(t *testing.T) {
 
 	require.Len(t, b.Pop(false), 2)
 
-	// sn jump (empty)
-	b.Push(testHeadPacket(4000, 34))
-	b.Push(testHeadPacket(4002, 35))
-	b.Push(testTailPacket(4001, 34))
+	// sn jump
+	ts := uint32(34)
+	for i := uint16(5000); i < 5058; i += 2 {
+		b.Push(testHeadPacket(i, ts))
+		b.Push(testTailPacket(i+1, ts))
+		ts++
+		require.Len(t, b.Pop(false), 0)
+	}
 
-	require.Len(t, b.Pop(false), 2)
-
-	// sn jump (not empty)
-	b.Push(testTailPacket(4003, 35))
-	b.Push(testHeadPacket(8000, 36))
-	b.Push(testTailPacket(8001, 36))
-
-	require.Len(t, b.Pop(false), 4)
-
-	// ooo sn jump (empty)
-	b.Push(testTailPacket(13001, 37))
-	b.Push(testHeadPacket(13000, 37))
-
-	require.Len(t, b.Pop(false), 2)
-
-	// ooo sn jump (not empty)
-	b.Push(testHeadPacket(13002, 38))
-	b.Push(testTailPacket(17001, 39))
-	b.Push(testHeadPacket(17000, 39))
-
-	require.Nil(t, b.Pop(false))
-
-	b.Push(testTailPacket(13003, 38))
-
-	require.Len(t, b.Pop(false), 4)
+	b.Push(testHeadPacket(5058, ts))
+	b.Push(testTailPacket(5059, ts))
+	require.Len(t, b.Pop(false), 60)
 
 	// sn wrap
-	b.Push(testHeadPacket(65533, 40))
-	b.Push(testTailPacket(65534, 40))
-	b.Push(testTailPacket(0, 41))
-	b.Push(testHeadPacket(65535, 41))
+	for i := uint16(65478); i > 65000; i += 2 {
+		b.Push(testHeadPacket(i, ts))
+		b.Push(testTailPacket(i+1, ts))
+		ts++
+	}
+	require.Len(t, b.Pop(false), 0)
 
-	require.Len(t, b.Pop(false), 4)
+	b.Push(testHeadPacket(0, ts))
+	b.Push(testTailPacket(1, ts))
+	ts++
+	require.Len(t, b.Pop(false), 60)
 	require.Equal(t, 0, onPacketDroppedCalled)
 
 	// dropped packets
-	b.Push(testHeadPacket(1, 42))
-	ts := uint32(73)
-	// push packets 60-89
-	for i := uint16(60); i < 90; i += 2 {
-		// waiting on packets 2-59
-		require.Nil(t, b.Pop(false))
+	b.Push(testHeadPacket(2, ts))
+	ts += 31
+	b.Push(testHeadPacket(64, ts))
+	b.Push(testTailPacket(65, ts))
+	ts++
 
-		b.Push(testHeadPacket(i, ts))
-		b.Push(testTailPacket(i+1, ts))
-		ts++
-	}
-
-	// packet 1 dropped, still waiting on packets 2-59
-	require.Nil(t, b.Pop(false))
+	require.Len(t, b.Pop(false), 0)
+	// packet 2 dropped
 	require.Equal(t, 1, onPacketDroppedCalled)
 
-	// push packets 90-119
-	for i := uint16(90); i < 120; i += 2 {
-		// still waiting on packets 2-59
-		require.Nil(t, b.Pop(false))
-
+	// push packets 66-126
+	for i := uint16(66); i < 122; i += 2 {
 		b.Push(testHeadPacket(i, ts))
 		b.Push(testTailPacket(i+1, ts))
 		ts++
+
+		// still waiting on packets 3-63
+		require.Len(t, b.Pop(false), 0)
 	}
 
-	// packets 2-59 would now be too old, consider them lost
+	b.Push(testHeadPacket(122, ts))
+	b.Push(testTailPacket(123, ts))
+
 	require.Len(t, b.Pop(false), 60)
+	// packets 3-63 lost
 	require.Equal(t, 2, onPacketDroppedCalled)
 
+	// ts wrap
+	ts = 4294967280
+	for i := uint16(15000); i < 15058; i += 2 {
+		b.Push(testHeadPacket(i, ts))
+		b.Push(testTailPacket(i+1, ts))
+		ts++
+		require.Len(t, b.Pop(false), 0)
+	}
+	b.Push(testHeadPacket(15058, ts))
+	b.Push(testTailPacket(15059, ts))
+	ts++
+	require.Len(t, b.Pop(false), 60)
+
 	// sn and ts jumps with drops
-	b.Push(testTailPacket(121, 104))
+	b.Push(testTailPacket(15061, ts))
 	b.Push(testHeadPacket(4000, 20000))
 	b.Push(testTailPacket(4001, 20000))
+	b.Push(testHeadPacket(15060, ts))
+	b.Push(testHeadPacket(15062, ts+1))
+	b.Push(testTailPacket(4003, 20001))
 
-	require.Nil(t, b.Pop(false))
+	require.Len(t, b.Pop(false), 2)
 
-	b.Push(testHeadPacket(120, 104))
+	ts = 20002
+	for i := uint16(4004); i < 4062; i += 2 {
+		b.Push(testHeadPacket(i, ts))
+		b.Push(testTailPacket(i+1, ts))
+		ts++
+		require.Len(t, b.Pop(false), 0)
+	}
 
-	require.Len(t, b.Pop(true), 4)
+	b.Push(testHeadPacket(4062, ts))
+	b.Push(testTailPacket(4063, ts))
+	ts++
 
-	b.Push(testHeadPacket(4002, 20001))
-	b.Push(testHeadPacket(4004, 20002))
-	b.Push(testTailPacket(4005, 20002))
-	b.Push(testHeadPacket(8000, 1000))
-	b.Push(testTailPacket(8001, 1001))
-	b.Push(testHeadPacket(8002, 1030))
-	b.Push(testTailPacket(8003, 1031))
-
-	require.Len(t, b.Pop(false), 4)
+	require.Len(t, b.Pop(false), 2)
+	// packet 15062 dropped
 	require.Equal(t, 3, onPacketDroppedCalled)
 
-	// ts wrap
-	b.Push(testHeadPacket(1000, 4294967295))
-	b.Push(testTailPacket(1001, 4294967295))
-	b.Push(testHeadPacket(1002, 0))
-	b.Push(testTailPacket(1003, 0))
+	b.Push(testHeadPacket(4062, ts))
+	b.Push(testTailPacket(4063, ts))
+	ts++
+	require.Len(t, b.Pop(false), 0)
 
-	require.Len(t, b.Pop(false), 4)
+	b.Push(testHeadPacket(4064, ts))
+	b.Push(testTailPacket(4065, ts))
+
+	// packet 4002 lost, 4003 dropped
+	require.Len(t, b.Pop(false), 58)
+	require.Equal(t, 4, onPacketDroppedCalled)
 }
 
 type testDepacketizer struct{}

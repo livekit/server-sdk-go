@@ -79,16 +79,24 @@ func (b *Buffer) Push(pkt *rtp.Packet) {
 
 	p := b.newPacket(start, end, padding, pkt)
 
-	beforePrev := before(pkt.SequenceNumber, b.prevSN)
+	beforePrev := before16(pkt.SequenceNumber, b.prevSN)
 	outsidePrevRange := outsideRange(pkt.SequenceNumber, b.prevSN)
 
-	// drop if packet comes before previously pushed packet
-	if b.initialized && beforePrev && !outsidePrevRange {
+	if !b.initialized {
+		if p.start && (b.head == nil || before16(pkt.SequenceNumber, b.head.packet.SequenceNumber)) {
+			// initialize on the first start packet
+			b.initialized = true
+			b.prevSN = pkt.SequenceNumber - 1
+			b.minTS = pkt.Timestamp - b.maxLate
+			p.reset = true
+		}
+	} else if beforePrev && !outsidePrevRange {
+		// drop if packet comes before previously pushed packet
 		if !p.padding {
 			b.logger.Debugw("packet dropped",
 				"sequence number", pkt.SequenceNumber,
 				"timestamp", pkt.Timestamp,
-				"reason", fmt.Sprintf("already pushed %v", b.prevSN),
+				"reason", fmt.Sprintf("too late (already pushed %v)", b.prevSN),
 			)
 			if b.onPacketDropped != nil {
 				b.onPacketDropped()
@@ -98,22 +106,17 @@ func (b *Buffer) Push(pkt *rtp.Packet) {
 	}
 
 	if b.tail == nil {
-		// list is empty
-		if !b.initialized {
-			b.initialized = true
-			p.reset = p.start
-		} else {
+		if !p.reset {
 			p.reset = p.start && outsidePrevRange
 		}
-
 		b.minTS = pkt.Timestamp - b.maxLate
 		b.head = p
 		b.tail = p
 		return
 	}
 
-	beforeHead := before(pkt.SequenceNumber, b.head.packet.SequenceNumber)
-	beforeTail := before(pkt.SequenceNumber, b.tail.packet.SequenceNumber)
+	beforeHead := before16(pkt.SequenceNumber, b.head.packet.SequenceNumber)
+	beforeTail := before16(pkt.SequenceNumber, b.tail.packet.SequenceNumber)
 	outsideHeadRange := outsideRange(pkt.SequenceNumber, b.head.packet.SequenceNumber)
 	outsideTailRange := outsideRange(pkt.SequenceNumber, b.tail.packet.SequenceNumber)
 
@@ -148,7 +151,7 @@ func (b *Buffer) Push(pkt *rtp.Packet) {
 	case outsideTailRange:
 		// insert (within head range)
 		for c := b.tail.prev; c != nil; c = c.prev {
-			if before(pkt.SequenceNumber, c.packet.SequenceNumber) || outsideRange(pkt.SequenceNumber, c.packet.SequenceNumber) {
+			if before16(pkt.SequenceNumber, c.packet.SequenceNumber) || outsideRange(pkt.SequenceNumber, c.packet.SequenceNumber) {
 				continue
 			}
 
@@ -169,7 +172,7 @@ func (b *Buffer) Push(pkt *rtp.Packet) {
 		// insert (within tail range)
 		for c := b.tail.prev; c != nil; c = c.prev {
 			outsideCRange := outsideRange(pkt.SequenceNumber, c.packet.SequenceNumber)
-			if before(pkt.SequenceNumber, c.packet.SequenceNumber) && !outsideCRange {
+			if before16(pkt.SequenceNumber, c.packet.SequenceNumber) && !outsideCRange {
 				continue
 			}
 
@@ -215,9 +218,12 @@ func (b *Buffer) forcePop() []*rtp.Packet {
 }
 
 func (b *Buffer) pop() []*rtp.Packet {
-	b.drop()
+	if !b.initialized {
+		return nil
+	}
 
-	if b.tail == nil {
+	b.drop()
+	if b.head == nil || !b.head.start {
 		return nil
 	}
 
@@ -225,8 +231,10 @@ func (b *Buffer) pop() []*rtp.Packet {
 	prevComplete := true
 	var end *packet
 	for c := b.head; c != nil; c = c.next {
-		// sequence number must be next, or a reset with a completed previous sample
-		if c.packet.SequenceNumber != prevSN+1 && (!prevComplete || !c.reset) {
+		// sequence number must be next
+		if c.packet.SequenceNumber != prevSN+1 &&
+			// or a reset which is about to reach its time limit
+			(!prevComplete || !c.reset || !before32(c.packet.Timestamp-b.maxSampleSize, b.minTS)) {
 			break
 		}
 		if prevComplete {
@@ -270,10 +278,44 @@ func (b *Buffer) pop() []*rtp.Packet {
 }
 
 func (b *Buffer) drop() {
+	if b.head == nil {
+		return
+	}
+
 	dropped := false
+
+	if b.head.packet.SequenceNumber != b.prevSN+1 &&
+		(b.head.start && before32(b.head.packet.Timestamp-b.maxSampleSize, b.minTS) ||
+			!b.head.start && before32(b.head.packet.Timestamp, b.minTS)) {
+		// lost packets will now be too old even if we receive them
+		// on sequence number reset, skip callback because we don't know if we lost any
+		if !b.head.reset {
+			b.logger.Debugw("packet dropped",
+				"sequence number", b.prevSN+1,
+				"count", b.head.packet.SequenceNumber-b.prevSN-1,
+				"reason", "lost",
+			)
+			dropped = true
+		}
+
+		for !b.head.start && before32(b.head.packet.Timestamp-b.maxSampleSize, b.minTS) {
+			dropped = true
+			b.logger.Debugw("packet dropped",
+				"sequence number", b.head.packet.SequenceNumber,
+				"timestamp", b.head.packet.Timestamp,
+				"reason", fmt.Sprintf("incomplete sample (minimum timestamp %v)", b.minTS),
+			)
+
+			b.dropHead()
+		}
+
+		b.prevSN = b.head.packet.SequenceNumber - 1
+	}
+
 	for c := b.head; c != nil; {
-		// check if timestamp is greater than minimum
-		if (c.packet.Timestamp-b.minTS)&0x80000000 == 0 {
+		// check if timestamp >= than minimum
+		if (c.start && before32(b.minTS, c.packet.Timestamp)) || (!c.start && !before32(c.packet.Timestamp, b.minTS)) {
+			// if !before32(c.packet.Timestamp, b.minTS) {
 			break
 		}
 
@@ -284,26 +326,10 @@ func (b *Buffer) drop() {
 			b.logger.Debugw("packet dropped",
 				"sequence number", c.packet.SequenceNumber,
 				"timestamp", c.packet.Timestamp,
-				"reason", fmt.Sprintf("minimum timestamp %v", b.minTS),
+				"reason", fmt.Sprintf("incomplete sample (minimum timestamp %v)", b.minTS),
 			)
 
-			b.head = c.next
-			if b.head == nil {
-				// list has been emptied
-				b.tail = nil
-				b.prevSN = c.packet.SequenceNumber
-				b.free(c)
-				break
-			}
-
-			b.head.prev = nil
-			if outsideRange(b.head.packet.SequenceNumber, c.packet.SequenceNumber) {
-				// adjust minTS to account for sequence number reset
-				b.minTS += b.head.packet.Timestamp - c.packet.Timestamp - b.maxSampleSize
-			}
-
-			b.prevSN = c.packet.SequenceNumber
-			b.free(c)
+			b.dropHead()
 			c = b.head
 
 			// break if head is part of a new sample
@@ -313,24 +339,26 @@ func (b *Buffer) drop() {
 		}
 	}
 
-	if b.head != nil &&
-		b.head.packet.SequenceNumber != b.prevSN+1 &&
-		b.head.packet.Timestamp-b.maxSampleSize <= b.minTS {
-		if !b.head.reset {
-			b.logger.Debugw("packet dropped",
-				"sequence number", b.prevSN+1,
-				"count", b.head.packet.SequenceNumber-b.prevSN-1,
-				"reason", "lost",
-			)
-			dropped = true
-		}
-		// lost packets will now be too old even if we receive them
-		b.prevSN = b.head.packet.SequenceNumber - 1
-	}
-
 	if dropped && b.onPacketDropped != nil {
 		b.onPacketDropped()
 	}
+}
+
+func (b *Buffer) dropHead() {
+	c := b.head
+	b.prevSN = c.packet.SequenceNumber
+
+	b.head = c.next
+	if b.head == nil {
+		b.tail = nil
+	} else {
+		b.head.prev = nil
+		if outsideRange(b.head.packet.SequenceNumber, c.packet.SequenceNumber) {
+			// adjust minTS to account for sequence number reset
+			b.minTS += b.head.packet.Timestamp - c.packet.Timestamp - b.maxSampleSize
+		}
+	}
+	b.free(c)
 }
 
 func (b *Buffer) newPacket(start, end, padding bool, pkt *rtp.Packet) *packet {
@@ -362,8 +390,16 @@ func (b *Buffer) free(pkt *packet) {
 	b.pool = pkt
 }
 
-func before(a, b uint16) bool {
+func before16(a, b uint16) bool {
 	return (b-a)&0x8000 == 0
+}
+
+func before32(a, b uint32) bool {
+	return (b-a)&0x80000000 == 0
+}
+
+func after32(a, b uint32) bool {
+	return (a-b)&0x80000000 == 0
 }
 
 func outsideRange(a, b uint16) bool {
