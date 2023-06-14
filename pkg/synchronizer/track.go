@@ -1,6 +1,7 @@
 package synchronizer
 
 import (
+	"errors"
 	"io"
 	"math"
 	"sync"
@@ -16,8 +17,11 @@ import (
 const (
 	ewmaWeight           = 0.9
 	maxSNDropout         = 3000 // max sequence number skip
+	uint32Half     int64 = 2147483648
 	uint32Overflow int64 = 4294967296
 )
+
+var ErrBackwardsPTS = errors.New("backwards pts")
 
 type TrackRemote interface {
 	ID() string
@@ -94,7 +98,9 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 	defer t.Unlock()
 
 	ts, pts, valid := t.adjust(pkt)
-	t.inserted = 0
+	if pts < t.lastPTS {
+		return 0, ErrBackwardsPTS
+	}
 
 	// update frame duration if this is a new frame and both packets are valid
 	if valid && t.lastValid && pkt.SequenceNumber == t.lastSN+1 {
@@ -111,6 +117,7 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 	t.lastSN = pkt.SequenceNumber
 	t.lastPTS = pts
 	t.lastValid = valid
+	t.inserted = 0
 
 	return pts, nil
 }
@@ -138,7 +145,7 @@ func (t *TrackSynchronizer) adjust(pkt *rtp.Packet) (int64, time.Duration, bool)
 
 	// adjust timestamp for uint32 wrap
 	ts := int64(pkt.Timestamp)
-	for ts < t.lastTS {
+	for ts < t.lastTS-uint32Half {
 		ts += uint32Overflow
 	}
 
