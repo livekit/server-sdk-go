@@ -65,13 +65,13 @@ func (b *Buffer) Push(pkt *rtp.Packet) {
 
 	var start, end, padding bool
 	if len(pkt.Payload) == 0 {
-		start = true
-		end = true
-		padding = true
 		// drop padding packets from the beginning of the stream
 		if !b.initialized {
 			return
 		}
+		start = true
+		end = true
+		padding = true
 	} else {
 		start = b.depacketizer.IsPartitionHead(pkt.Payload)
 		end = b.depacketizer.IsPartitionTail(pkt.Marker, pkt.Payload)
@@ -313,11 +313,19 @@ func (b *Buffer) drop() {
 		}
 	}
 
-	if b.head != nil && b.head.packet.SequenceNumber != b.prevSN+1 {
-		if b.head.packet.Timestamp-b.maxSampleSize <= b.minTS {
-			// lost packets will now be too old even if we receive them
-			b.prevSN = b.head.packet.SequenceNumber - 1
+	if b.head != nil &&
+		b.head.packet.SequenceNumber != b.prevSN+1 &&
+		b.head.packet.Timestamp-b.maxSampleSize <= b.minTS {
+		if !b.head.reset {
+			b.logger.Debugw("packet dropped",
+				"sequence number", b.prevSN+1,
+				"count", b.head.packet.SequenceNumber-b.prevSN-1,
+				"reason", "lost",
+			)
+			dropped = true
 		}
+		// lost packets will now be too old even if we receive them
+		b.prevSN = b.head.packet.SequenceNumber - 1
 	}
 
 	if dropped && b.onPacketDropped != nil {

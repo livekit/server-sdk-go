@@ -113,6 +113,7 @@ func TestJitterBuffer(t *testing.T) {
 
 	// packets 2-59 would now be too old, consider them lost
 	require.Len(t, b.Pop(false), 60)
+	require.Equal(t, 2, onPacketDroppedCalled)
 
 	// sn and ts jumps with drops
 	b.Push(testTailPacket(121, 104))
@@ -134,7 +135,7 @@ func TestJitterBuffer(t *testing.T) {
 	b.Push(testTailPacket(8003, 1031))
 
 	require.Len(t, b.Pop(false), 4)
-	require.Equal(t, 2, onPacketDroppedCalled)
+	require.Equal(t, 3, onPacketDroppedCalled)
 
 	// ts wrap
 	b.Push(testHeadPacket(1000, 4294967295))
