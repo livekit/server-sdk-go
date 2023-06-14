@@ -84,13 +84,15 @@ func (b *Buffer) Push(pkt *rtp.Packet) {
 
 	// drop if packet comes before previously pushed packet
 	if b.initialized && beforePrev && !outsidePrevRange {
-		b.logger.Debugw("packet dropped",
-			"sequence number", pkt.SequenceNumber,
-			"timestamp", pkt.Timestamp,
-			"reason", fmt.Sprintf("already pushed %v", b.prevSN),
-		)
-		if b.onPacketDropped != nil {
-			b.onPacketDropped()
+		if !p.padding {
+			b.logger.Debugw("packet dropped",
+				"sequence number", pkt.SequenceNumber,
+				"timestamp", pkt.Timestamp,
+				"reason", fmt.Sprintf("already pushed %v", b.prevSN),
+			)
+			if b.onPacketDropped != nil {
+				b.onPacketDropped()
+			}
 		}
 		return
 	}
