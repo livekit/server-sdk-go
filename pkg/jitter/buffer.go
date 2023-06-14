@@ -288,7 +288,7 @@ func (b *Buffer) drop() {
 		(b.head.start && before32(b.head.packet.Timestamp-b.maxSampleSize, b.minTS) ||
 			!b.head.start && before32(b.head.packet.Timestamp, b.minTS)) {
 		// lost packets will now be too old even if we receive them
-		// on sequence number reset, skip callback because we don't know if we lost any
+		// on sequence number reset, skip callback because we don't know whether we lost any
 		if !b.head.reset {
 			b.logger.Debugw("packet dropped",
 				"sequence number", b.prevSN+1,
@@ -315,7 +315,6 @@ func (b *Buffer) drop() {
 	for c := b.head; c != nil; {
 		// check if timestamp >= than minimum
 		if (c.start && before32(b.minTS, c.packet.Timestamp)) || (!c.start && !before32(c.packet.Timestamp, b.minTS)) {
-			// if !before32(c.packet.Timestamp, b.minTS) {
 			break
 		}
 
