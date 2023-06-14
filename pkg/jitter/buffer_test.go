@@ -13,7 +13,7 @@ func TestJitterBuffer(t *testing.T) {
 	onPacketDropped := func() { onPacketDroppedCalled++ }
 	b := NewBuffer(&testDepacketizer{}, 30, time.Second, WithPacketDroppedHandler(onPacketDropped))
 
-	// test out of order
+	// ooo
 	b.Push(testTailPacket(5, 31))
 
 	require.Nil(t, b.Pop(false))
@@ -33,38 +33,38 @@ func TestJitterBuffer(t *testing.T) {
 		require.Equal(t, uint16(i+1), pkt.SequenceNumber)
 	}
 
-	// test push and pop while not empty
+	// push and pop (not empty)
 	b.Push(testTailPacket(7, 32))
 
 	require.Len(t, b.Pop(false), 2)
 
-	// test push and pop while empty
+	// push and pop (empty)
 	b.Push(testHeadPacket(8, 33))
 	b.Push(testTailPacket(9, 33))
 
 	require.Len(t, b.Pop(false), 2)
 
-	// test sequence number jump while empty
+	// sn jump (empty)
 	b.Push(testHeadPacket(4000, 34))
 	b.Push(testHeadPacket(4002, 35))
 	b.Push(testTailPacket(4001, 34))
 
 	require.Len(t, b.Pop(false), 2)
 
-	// test sequence number jump while not empty
+	// sn jump (not empty)
 	b.Push(testTailPacket(4003, 35))
 	b.Push(testHeadPacket(8000, 36))
 	b.Push(testTailPacket(8001, 36))
 
 	require.Len(t, b.Pop(false), 4)
 
-	// test sequence jump out of order while empty
+	// ooo sn jump (empty)
 	b.Push(testTailPacket(13001, 37))
 	b.Push(testHeadPacket(13000, 37))
 
 	require.Len(t, b.Pop(false), 2)
 
-	// test sequence jump out of order while not empty
+	// ooo sn jump (not empty)
 	b.Push(testHeadPacket(13002, 38))
 	b.Push(testTailPacket(17001, 39))
 	b.Push(testHeadPacket(17000, 39))
@@ -75,7 +75,7 @@ func TestJitterBuffer(t *testing.T) {
 
 	require.Len(t, b.Pop(false), 4)
 
-	// test sequence number wrap
+	// sn wrap
 	b.Push(testHeadPacket(65533, 40))
 	b.Push(testTailPacket(65534, 40))
 	b.Push(testTailPacket(0, 41))
@@ -84,32 +84,50 @@ func TestJitterBuffer(t *testing.T) {
 	require.Len(t, b.Pop(false), 4)
 	require.Equal(t, 0, onPacketDroppedCalled)
 
-	// test dropped packet
+	// dropped packets
 	b.Push(testHeadPacket(1, 42))
-	b.Push(testHeadPacket(50, 73))
+	ts := uint32(73)
+	// push packets 60-89
+	for i := uint16(60); i < 90; i += 2 {
+		// waiting on packets 2-59
+		require.Nil(t, b.Pop(false))
 
+		b.Push(testHeadPacket(i, ts))
+		b.Push(testTailPacket(i+1, ts))
+		ts++
+	}
+
+	// packet 1 dropped, still waiting on packets 2-59
 	require.Nil(t, b.Pop(false))
 	require.Equal(t, 1, onPacketDroppedCalled)
 
-	b.Push(testTailPacket(51, 73))
+	// push packets 90-119
+	for i := uint16(90); i < 120; i += 2 {
+		// still waiting on packets 2-59
+		require.Nil(t, b.Pop(false))
 
-	require.Len(t, b.Pop(false), 2)
+		b.Push(testHeadPacket(i, ts))
+		b.Push(testTailPacket(i+1, ts))
+		ts++
+	}
 
-	// test sequence number and timestamp jump
-	b.Push(testTailPacket(53, 74))
-	b.Push(testHeadPacket(4000, 200))
+	// packets 2-59 would now be too old, consider them lost
+	require.Len(t, b.Pop(false), 60)
+
+	// sn and ts jumps with drops
+	b.Push(testTailPacket(121, 104))
+	b.Push(testHeadPacket(4000, 20000))
+	b.Push(testTailPacket(4001, 20000))
 
 	require.Nil(t, b.Pop(false))
 
-	b.Push(testHeadPacket(52, 74))
-	b.Push(testTailPacket(4001, 200))
+	b.Push(testHeadPacket(120, 104))
 
-	require.Len(t, b.Pop(false), 4)
+	require.Len(t, b.Pop(true), 4)
 
-	// test dropped packet with sequence number and timestamp jump
-	b.Push(testHeadPacket(4002, 201))
-	b.Push(testHeadPacket(4004, 202))
-	b.Push(testTailPacket(4005, 202))
+	b.Push(testHeadPacket(4002, 20001))
+	b.Push(testHeadPacket(4004, 20002))
+	b.Push(testTailPacket(4005, 20002))
 	b.Push(testHeadPacket(8000, 1000))
 	b.Push(testTailPacket(8001, 1001))
 	b.Push(testHeadPacket(8002, 1030))
@@ -118,7 +136,7 @@ func TestJitterBuffer(t *testing.T) {
 	require.Len(t, b.Pop(false), 4)
 	require.Equal(t, 2, onPacketDroppedCalled)
 
-	// test timestamp wrap
+	// ts wrap
 	b.Push(testHeadPacket(1000, 4294967295))
 	b.Push(testTailPacket(1001, 4294967295))
 	b.Push(testHeadPacket(1002, 0))
