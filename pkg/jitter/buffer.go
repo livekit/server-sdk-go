@@ -398,10 +398,6 @@ func before32(a, b uint32) bool {
 	return (b-a)&0x80000000 == 0
 }
 
-func after32(a, b uint32) bool {
-	return (a-b)&0x80000000 == 0
-}
-
 func outsideRange(a, b uint16) bool {
 	return a-b > 3000 && b-a > 3000
 }
