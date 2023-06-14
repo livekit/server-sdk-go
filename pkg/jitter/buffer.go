@@ -313,7 +313,7 @@ func (b *Buffer) drop() {
 		}
 	}
 
-	if b.head.packet.SequenceNumber != b.prevSN+1 {
+	if b.head != nil && b.head.packet.SequenceNumber != b.prevSN+1 {
 		if b.head.packet.Timestamp-b.maxSampleSize <= b.minTS {
 			// lost packets will now be too old even if we receive them
 			b.prevSN = b.head.packet.SequenceNumber - 1
