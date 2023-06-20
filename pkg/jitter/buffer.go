@@ -1,7 +1,6 @@
 package jitter
 
 import (
-	"fmt"
 	"sync"
 	"time"
 
@@ -16,6 +15,8 @@ type Buffer struct {
 	maxLate         uint32
 	clockRate       uint32
 	onPacketDropped func()
+	packetsDropped  int
+	packetsTotal    int
 	logger          logger.Logger
 
 	mu          sync.Mutex
@@ -63,6 +64,7 @@ func (b *Buffer) Push(pkt *rtp.Packet) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	b.packetsTotal++
 	var start, end, padding bool
 	if len(pkt.Payload) == 0 {
 		// drop padding packets from the beginning of the stream
@@ -93,10 +95,12 @@ func (b *Buffer) Push(pkt *rtp.Packet) {
 	} else if beforePrev && !outsidePrevRange {
 		// drop if packet comes before previously pushed packet
 		if !p.padding {
+			b.packetsDropped++
 			b.logger.Debugw("packet dropped",
 				"sequence number", pkt.SequenceNumber,
 				"timestamp", pkt.Timestamp,
-				"reason", fmt.Sprintf("too late (already pushed %v)", b.prevSN),
+				"reason", "too late",
+				"minimum sequence number", b.prevSN+1,
 			)
 			if b.onPacketDropped != nil {
 				b.onPacketDropped()
@@ -204,6 +208,13 @@ func (b *Buffer) Pop(force bool) []*rtp.Packet {
 	}
 }
 
+func (b *Buffer) PacketLoss() float64 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return float64(b.packetsDropped) / float64(b.packetsTotal)
+}
+
 func (b *Buffer) forcePop() []*rtp.Packet {
 	packets := make([]*rtp.Packet, 0, b.size)
 	var next *packet
@@ -290,6 +301,7 @@ func (b *Buffer) drop() {
 		// lost packets will now be too old even if we receive them
 		// on sequence number reset, skip callback because we don't know whether we lost any
 		if !b.head.reset {
+			b.packetsDropped++
 			b.logger.Debugw("packet dropped",
 				"sequence number", b.prevSN+1,
 				"count", b.head.packet.SequenceNumber-b.prevSN-1,
@@ -300,10 +312,12 @@ func (b *Buffer) drop() {
 
 		for !b.head.start && before32(b.head.packet.Timestamp-b.maxSampleSize, b.minTS) {
 			dropped = true
+			b.packetsDropped++
 			b.logger.Debugw("packet dropped",
 				"sequence number", b.head.packet.SequenceNumber,
 				"timestamp", b.head.packet.Timestamp,
-				"reason", fmt.Sprintf("incomplete sample (minimum timestamp %v)", b.minTS),
+				"reason", "incomplete sample",
+				"minimum timestamp", b.minTS,
 			)
 
 			b.dropHead()
@@ -322,12 +336,13 @@ func (b *Buffer) drop() {
 		dropped = true
 		timestamp := c.packet.Timestamp
 		for {
+			b.packetsDropped++
 			b.logger.Debugw("packet dropped",
 				"sequence number", c.packet.SequenceNumber,
 				"timestamp", c.packet.Timestamp,
-				"reason", fmt.Sprintf("incomplete sample (minimum timestamp %v)", b.minTS),
+				"reason", "incomplete sample",
+				"minimum timestamp", b.minTS,
 			)
-
 			b.dropHead()
 			c = b.head
 
