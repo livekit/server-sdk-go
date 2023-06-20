@@ -12,6 +12,7 @@ import (
 	"github.com/pion/webrtc/v3"
 
 	"github.com/livekit/mediatransportutil"
+	"github.com/livekit/protocol/logger"
 )
 
 const (
@@ -99,6 +100,14 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 
 	ts, pts, valid := t.adjust(pkt)
 	if pts < t.lastPTS {
+		logger.Warnw("backwards pts", ErrBackwardsPTS,
+			"timestamp", pkt.Timestamp,
+			"sequence number", pkt.SequenceNumber,
+			"pts", pts,
+			"last pts", t.lastPTS,
+			"last timestamp", t.lastTS,
+			"last sn", t.lastSN,
+		)
 		return 0, ErrBackwardsPTS
 	}
 
