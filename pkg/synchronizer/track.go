@@ -49,6 +49,7 @@ type TrackSynchronizer struct {
 	maxPTS    time.Duration // maximum valid PTS (set after EOS)
 
 	// previous packet info
+	backwards int
 	lastSN    uint16        // previous sequence number
 	lastTS    int64         // previous RTP timestamp
 	lastPTS   time.Duration // previous presentation timestamp
@@ -100,15 +101,24 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 
 	ts, pts, valid := t.adjust(pkt)
 	if pts < t.lastPTS {
-		logger.Warnw("backwards pts", ErrBackwardsPTS,
-			"timestamp", pkt.Timestamp,
-			"sequence number", pkt.SequenceNumber,
-			"pts", pts,
-			"last pts", t.lastPTS,
-			"last timestamp", t.lastTS,
-			"last sn", t.lastSN,
-		)
+		if t.backwards == 0 {
+			logger.Warnw("backwards pts", ErrBackwardsPTS,
+				"timestamp", pkt.Timestamp,
+				"sequence number", pkt.SequenceNumber,
+				"pts", pts,
+				"last pts", t.lastPTS,
+				"last timestamp", t.lastTS,
+				"last sn", t.lastSN,
+			)
+		}
+		t.backwards++
 		return 0, ErrBackwardsPTS
+	} else if t.backwards > 0 {
+		logger.Debugw("packet dropped",
+			"count", t.backwards,
+			"reason", "backwards pts",
+		)
+		t.backwards = 0
 	}
 
 	// update frame duration if this is a new frame and both packets are valid
