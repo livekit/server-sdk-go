@@ -22,6 +22,7 @@ const (
 	SimulateForceTCP
 	SimulateForceTLS
 	SimulateSpeakerUpdate
+	SimulateNodeFailure
 
 	SimulateSpeakerUpdateInterval = 5
 )
@@ -545,6 +546,16 @@ func (r *Room) Simulate(scenario SimulateScenario) {
 				Simulate: &livekit.SimulateScenario{
 					Scenario: &livekit.SimulateScenario_SpeakerUpdate{
 						SpeakerUpdate: SimulateSpeakerUpdateInterval,
+					},
+				},
+			},
+		})
+	case SimulateNodeFailure:
+		r.engine.client.SendRequest(&livekit.SignalRequest{
+			Message: &livekit.SignalRequest_Simulate{
+				Simulate: &livekit.SimulateScenario{
+					Scenario: &livekit.SimulateScenario_NodeFailure{
+						NodeFailure: true,
 					},
 				},
 			},
