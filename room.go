@@ -15,6 +15,8 @@ import (
 	"github.com/livekit/protocol/livekit"
 )
 
+// -----------------------------------------------
+
 type SimulateScenario int
 
 const (
@@ -22,7 +24,14 @@ const (
 	SimulateForceTCP
 	SimulateForceTLS
 	SimulateSpeakerUpdate
+	SimulateMigration
+	SimulateServerLeave
+	SimulateNodeFailure
+)
 
+// -----------------------------------------------
+
+const (
 	SimulateSpeakerUpdateInterval = 5
 )
 
@@ -545,6 +554,36 @@ func (r *Room) Simulate(scenario SimulateScenario) {
 				Simulate: &livekit.SimulateScenario{
 					Scenario: &livekit.SimulateScenario_SpeakerUpdate{
 						SpeakerUpdate: SimulateSpeakerUpdateInterval,
+					},
+				},
+			},
+		})
+	case SimulateMigration:
+		r.engine.client.SendRequest(&livekit.SignalRequest{
+			Message: &livekit.SignalRequest_Simulate{
+				Simulate: &livekit.SimulateScenario{
+					Scenario: &livekit.SimulateScenario_Migration{
+						Migration: true,
+					},
+				},
+			},
+		})
+	case SimulateServerLeave:
+		r.engine.client.SendRequest(&livekit.SignalRequest{
+			Message: &livekit.SignalRequest_Simulate{
+				Simulate: &livekit.SimulateScenario{
+					Scenario: &livekit.SimulateScenario_ServerLeave{
+						ServerLeave: true,
+					},
+				},
+			},
+		})
+	case SimulateNodeFailure:
+		r.engine.client.SendRequest(&livekit.SignalRequest{
+			Message: &livekit.SignalRequest_Simulate{
+				Simulate: &livekit.SimulateScenario{
+					Scenario: &livekit.SimulateScenario_NodeFailure{
+						NodeFailure: true,
 					},
 				},
 			},
