@@ -249,7 +249,7 @@ func (p *LocalParticipant) PublishData(data []byte, kind livekit.DataPacket_Kind
 		Value: &livekit.DataPacket_User{
 			User: &livekit.UserPacket{
 				// this is enforced on the server side, setting for completeness
-				ParticipantSid:  p.sid,
+				ParticipantSid:  p.SID(),
 				Payload:         data,
 				DestinationSids: destinationSids,
 			},
