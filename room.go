@@ -318,7 +318,7 @@ func (r *Room) handleResumed() {
 }
 
 func (r *Room) handleDataReceived(userPacket *livekit.UserPacket) {
-	if userPacket.ParticipantSid == r.LocalParticipant.sid {
+	if userPacket.ParticipantSid == r.LocalParticipant.SID() {
 		// if sent by itself, do not handle data
 		return
 	}
@@ -365,9 +365,10 @@ func (r *Room) handleParticipantDisconnect(p *RemoteParticipant) {
 func (r *Room) handleActiveSpeakerChange(speakers []*livekit.SpeakerInfo) {
 	var activeSpeakers []Participant
 	seenSids := make(map[string]bool)
+	localSID := r.LocalParticipant.SID()
 	for _, s := range speakers {
 		seenSids[s.Sid] = true
-		if s.Sid == r.LocalParticipant.sid {
+		if s.Sid == localSID {
 			r.LocalParticipant.setAudioLevel(s.Level)
 			r.LocalParticipant.setIsSpeaking(true)
 			activeSpeakers = append(activeSpeakers, r.LocalParticipant)
@@ -382,11 +383,11 @@ func (r *Room) handleActiveSpeakerChange(speakers []*livekit.SpeakerInfo) {
 		}
 	}
 
-	if !seenSids[r.LocalParticipant.sid] {
+	if !seenSids[localSID] {
 		r.LocalParticipant.setAudioLevel(0)
 	}
 	for _, rp := range r.GetParticipants() {
-		if !seenSids[rp.sid] {
+		if !seenSids[rp.SID()] {
 			rp.setAudioLevel(0)
 			rp.setIsSpeaking(false)
 		}
