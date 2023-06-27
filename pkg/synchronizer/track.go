@@ -17,6 +17,7 @@ import (
 
 const (
 	ewmaWeight           = 0.9
+	maxDrift             = time.Millisecond * 15
 	maxSNDropout         = 3000 // max sequence number skip
 	uint32Half     int64 = 2147483648
 	uint32Overflow int64 = 4294967296
@@ -286,9 +287,14 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport, ntpStart time
 	calculatedNTPStart := mediatransportutil.NtpTime(pkt.NTPTime).Time().Add(-pts)
 	drift := calculatedNTPStart.Sub(ntpStart)
 
+	t.stats.updateDrift(drift)
+	if drift > maxDrift {
+		drift = maxDrift
+	} else if drift < -maxDrift {
+		drift = -maxDrift
+	}
 	t.ptsOffset += drift
 	t.lastSR = pkt.RTPTime
-	t.stats.updateDrift(drift)
 }
 
 type TrackStats struct {
