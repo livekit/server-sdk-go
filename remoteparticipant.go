@@ -29,10 +29,6 @@ func (p *RemoteParticipant) updateInfo(pi *livekit.ParticipantInfo) {
 	p.baseParticipant.updateInfo(pi, p)
 	// update tracks
 	validPubs := make(map[string]TrackPublication)
-	p.tracks.Range(func(key, value interface{}) bool {
-		validPubs[key.(string)] = value.(TrackPublication)
-		return true
-	})
 	newPubs := make(map[string]TrackPublication)
 
 	for _, ti := range pi.Tracks {
@@ -120,17 +116,18 @@ func (p *RemoteParticipant) getPublication(trackSID string) *RemoteTrackPublicat
 func (p *RemoteParticipant) unpublishTrack(sid string, sendUnpublish bool) {
 	pub := p.getPublication(sid)
 	if pub == nil {
+		logger.Warnw("could not find track to unpublish", nil, "sid", sid)
 		return
 	}
 
 	p.lock.Lock()
-	defer p.lock.Unlock()
 	switch pub.Kind() {
 	case TrackKindAudio:
 		p.audioTracks.Delete(sid)
 	case TrackKindVideo:
 		p.videoTracks.Delete(sid)
 	}
+	p.lock.Unlock()
 
 	track := pub.TrackRemote()
 	if track != nil {
@@ -148,7 +145,6 @@ func (p *RemoteParticipant) WritePLI(ssrc webrtc.SSRC) {
 }
 
 func (p *RemoteParticipant) unpublishAllTracks() {
-
 	p.tracks.Range(func(_, value interface{}) bool {
 		pub := value.(TrackPublication)
 		if remoteTrack, ok := pub.Track().(*webrtc.TrackRemote); ok {
