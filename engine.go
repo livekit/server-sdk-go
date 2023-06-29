@@ -22,20 +22,21 @@ const (
 )
 
 type RTCEngine struct {
-	publisher          *PCTransport
-	subscriber         *PCTransport
-	client             *SignalClient
-	dclock             sync.RWMutex
-	reliableDC         *webrtc.DataChannel
-	lossyDC            *webrtc.DataChannel
-	reliableDCSub      *webrtc.DataChannel
-	lossyDCSub         *webrtc.DataChannel
-	trackPublishedChan chan *livekit.TrackPublishedResponse
-	subscriberPrimary  bool
-	hasConnected       atomic.Bool
-	hasPublish         atomic.Bool
-	closed             atomic.Bool
-	reconnecting       atomic.Bool
+	publisher             *PCTransport
+	subscriber            *PCTransport
+	client                *SignalClient
+	dclock                sync.RWMutex
+	reliableDC            *webrtc.DataChannel
+	lossyDC               *webrtc.DataChannel
+	reliableDCSub         *webrtc.DataChannel
+	lossyDCSub            *webrtc.DataChannel
+	trackPublishedChan    chan *livekit.TrackPublishedResponse
+	subscriberPrimary     bool
+	hasConnected          atomic.Bool
+	hasPublish            atomic.Bool
+	closed                atomic.Bool
+	reconnecting          atomic.Bool
+	requiresFullReconnect atomic.Bool
 
 	url        string
 	token      atomic.String
@@ -317,6 +318,7 @@ func (e *RTCEngine) waitUntilConnected() error {
 			return ErrConnectionTimeout
 		case <-time.After(10 * time.Millisecond):
 			if e.IsConnected() {
+				e.requiresFullReconnect.Store(false)
 				return nil
 			}
 		}
@@ -393,6 +395,9 @@ func (e *RTCEngine) handleDisconnect(fullReconnect bool) {
 	}
 
 	if !e.reconnecting.CompareAndSwap(false, true) {
+		if fullReconnect {
+			e.requiresFullReconnect.Store(true)
+		}
 		return
 	}
 
@@ -400,6 +405,9 @@ func (e *RTCEngine) handleDisconnect(fullReconnect bool) {
 		defer e.reconnecting.Store(false)
 		var reconnectCount int
 		for ; reconnectCount < maxReconnectCount; reconnectCount++ {
+			if e.requiresFullReconnect.Load() {
+				fullReconnect = true
+			}
 			if fullReconnect {
 				if reconnectCount == 0 && e.OnRestarting != nil {
 					e.OnRestarting()
