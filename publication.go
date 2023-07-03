@@ -269,7 +269,14 @@ func (p *LocalTrackPublication) SetMuted(muted bool) {
 	if p.isMuted.Swap(muted) == muted {
 		return
 	}
+
 	_ = p.client.SendMuteTrack(p.sid.Load(), muted)
+	if track := p.track; track != nil {
+		switch t := track.(type) {
+		case *LocalSampleTrack:
+			t.setMuted(muted)
+		}
+	}
 }
 
 func (p *LocalTrackPublication) addSimulcastTrack(st *LocalSampleTrack) {

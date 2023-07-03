@@ -51,6 +51,7 @@ type LocalSampleTrack struct {
 	videoLayer      *livekit.VideoLayer
 	onRTCP          func(rtcp.Packet)
 
+	muted       atomic.Bool
 	cancelWrite func()
 	provider    SampleProvider
 	onBind      func()
@@ -352,6 +353,10 @@ func (s *LocalSampleTrack) Close() error {
 	return nil
 }
 
+func (s *LocalSampleTrack) setMuted(muted bool) {
+	s.muted.Store(muted)
+}
+
 func (s *LocalSampleTrack) rtcpWorker(rtcpReader interceptor.RTCPReader) {
 	// read incoming rtcp packets, interceptors require this
 	b := make([]byte, rtpInboundMTU)
@@ -416,18 +421,21 @@ func (s *LocalSampleTrack) writeWorker(provider SampleProvider, onComplete func(
 			return
 		}
 
-		var opts *SampleWriteOptions
-		if isAudioProvider {
-			level := audioProvider.CurrentAudioLevel()
-			opts = &SampleWriteOptions{
-				AudioLevel: &level,
+		if !s.muted.Load() {
+			var opts *SampleWriteOptions
+			if isAudioProvider {
+				level := audioProvider.CurrentAudioLevel()
+				opts = &SampleWriteOptions{
+					AudioLevel: &level,
+				}
+			}
+
+			if err := s.WriteSample(sample, opts); err != nil {
+				logger.Errorw("could not write sample", err)
+				return
 			}
 		}
 
-		if err := s.WriteSample(sample, opts); err != nil {
-			logger.Errorw("could not write sample", err)
-			return
-		}
 		// account for clock drift
 		nextSampleTime = nextSampleTime.Add(sample.Duration)
 		sleepDuration := time.Until(nextSampleTime)
