@@ -313,7 +313,7 @@ func (b *Buffer) drop() {
 		count := 0
 		from := b.head.packet.SequenceNumber
 		ts := b.head.packet.Timestamp
-		for !b.head.start && before32(b.head.packet.Timestamp-b.maxSampleSize, b.minTS) {
+		for b.head != nil && !b.head.start && before32(b.head.packet.Timestamp-b.maxSampleSize, b.minTS) {
 			dropped = true
 			count++
 			b.packetsDropped++
