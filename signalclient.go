@@ -85,6 +85,11 @@ func (c *SignalClient) Join(urlPrefix string, token string, params *ConnectParam
 	if err != nil {
 		// TODO-REMOVE - logging to check if we can distinguish Dial error vs app error. Remove log below also after collecting some data
 		logger.Errorw("error establishing signal connection", err, "httpResponse", hresp)
+
+		if strings.HasSuffix(err.Error(), ":53: server misbehaving") {
+			// DNS issue, abort
+			return nil, ErrCannotDialSignal
+		}
 		// use validate endpoint to get the actual error
 		validateSuffix := strings.Replace(urlSuffix, "/rtc", "/rtc/validate", 1)
 
