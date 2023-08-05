@@ -15,6 +15,7 @@
 package lksdk
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -229,6 +230,25 @@ func (t *PCTransport) OnRemoteDescriptionSettled(f func() error) {
 	t.lock.Lock()
 	t.onRemoteDescriptionSettled = f
 	t.lock.Unlock()
+}
+
+func (t *PCTransport) GetSelectedCandidatePair() (*webrtc.ICECandidatePair, error) {
+	sctp := t.pc.SCTP()
+	if sctp == nil {
+		return nil, errors.New("no SCTP")
+	}
+
+	dtlsTransport := sctp.Transport()
+	if dtlsTransport == nil {
+		return nil, errors.New("no DTLS transport")
+	}
+
+	iceTransport := dtlsTransport.ICETransport()
+	if iceTransport == nil {
+		return nil, errors.New("no ICE transport")
+	}
+
+	return iceTransport.GetSelectedCandidatePair()
 }
 
 func (t *PCTransport) isRemoteOfferRestartICE(sd webrtc.SessionDescription) (string, bool, error) {

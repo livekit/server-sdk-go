@@ -20,6 +20,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -77,17 +78,17 @@ func (c *SignalClient) Join(urlPrefix string, token string, params *ConnectParam
 		return nil, ErrURLNotProvided
 	}
 	urlPrefix = ToWebsocketURL(urlPrefix)
-	urlSuffix := fmt.Sprintf("/rtc?protocol=%d&sdk=go&version=%s", PROTOCOL, Version)
+	urlSuffix := fmt.Sprintf("/rtc?protocol=%d&version=%s", PROTOCOL, Version)
 
 	if params.AutoSubscribe {
 		urlSuffix += "&auto_subscribe=1"
 	} else {
 		urlSuffix += "&auto_subscribe=0"
 	}
-
 	if params.Reconnect {
 		urlSuffix += "&reconnect=1"
 	}
+	urlSuffix += getStatsParamString()
 
 	u, err := url.Parse(urlPrefix + urlSuffix)
 	if err != nil {
@@ -381,4 +382,9 @@ func isIgnoredWebsocketError(err error) bool {
 	}
 
 	return websocket.IsCloseError(err, websocket.CloseAbnormalClosure, websocket.CloseGoingAway, websocket.CloseNormalClosure, websocket.CloseNoStatusReceived)
+}
+
+func getStatsParamString() string {
+	params := "&sdk=go&os=" + runtime.GOOS
+	return params
 }
