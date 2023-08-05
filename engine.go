@@ -189,6 +189,7 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 	if e.subscriber, err = NewPCTransport(configuration); err != nil {
 		return err
 	}
+	logger.Debugw("Using ICE servers", "servers", iceServers)
 
 	e.subscriberPrimary = res.SubscriberPrimary
 	e.subscriber.OnRemoteDescriptionSettled(e.createPublisherAnswerAndSend)
@@ -212,14 +213,18 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 		}
 	})
 
-	primaryPC := e.publisher.pc
+	primaryTransport := e.publisher
 	if res.SubscriberPrimary {
-		primaryPC = e.subscriber.pc
+		primaryTransport = e.subscriber
 	}
-	primaryPC.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
+	primaryTransport.pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
 		switch state {
 		case webrtc.ICEConnectionStateConnected:
-			logger.Infow("ICE connected")
+			var fields []interface{}
+			if pair, err := primaryTransport.GetSelectedCandidatePair(); err == nil {
+				fields = append(fields, "iceCandidatePair", pair)
+			}
+			logger.Infow("ICE connected", fields...)
 		case webrtc.ICEConnectionStateDisconnected:
 			logger.Infow("ICE disconnected")
 		case webrtc.ICEConnectionStateFailed:
