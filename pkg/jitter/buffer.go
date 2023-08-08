@@ -223,6 +223,14 @@ func (b *Buffer) Pop(force bool) []*rtp.Packet {
 	}
 }
 
+func (b *Buffer) PopSamples(force bool) [][]*rtp.Packet {
+	if force {
+		return b.forcePopSamples()
+	} else {
+		return b.popSamples()
+	}
+}
+
 func (b *Buffer) PacketLoss() float64 {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -232,12 +240,38 @@ func (b *Buffer) PacketLoss() float64 {
 
 func (b *Buffer) forcePop() []*rtp.Packet {
 	packets := make([]*rtp.Packet, 0, b.size)
+
 	var next *packet
 	for c := b.head; c != nil; c = next {
 		next = c.next
 		packets = append(packets, c.packet)
 		b.free(c)
 	}
+
+	b.head = nil
+	b.tail = nil
+	return packets
+}
+
+func (b *Buffer) forcePopSamples() [][]*rtp.Packet {
+	packets := make([][]*rtp.Packet, 0)
+	sample := make([]*rtp.Packet, 0)
+
+	var next *packet
+	for c := b.head; c != nil; c = next {
+		next = c.next
+		if c.start && len(sample) > 0 {
+			packets = append(packets, sample)
+			sample = make([]*rtp.Packet, 0)
+		}
+		sample = append(sample, c.packet)
+		if c.end {
+			packets = append(packets, sample)
+			sample = make([]*rtp.Packet, 0)
+		}
+		b.free(c)
+	}
+
 	b.head = nil
 	b.tail = nil
 	return packets
@@ -289,6 +323,71 @@ func (b *Buffer) pop() []*rtp.Packet {
 				b.minTS += next.packet.Timestamp - c.packet.Timestamp - b.maxSampleSize
 			}
 			next.prev = nil
+		}
+		if c == end {
+			b.prevSN = c.packet.SequenceNumber
+			b.head = next
+			if next == nil {
+				b.tail = nil
+			}
+			b.free(c)
+			return packets
+		}
+		b.free(c)
+	}
+}
+
+func (b *Buffer) popSamples() [][]*rtp.Packet {
+	if !b.initialized {
+		return nil
+	}
+
+	b.drop()
+	if b.head == nil || !b.head.start {
+		return nil
+	}
+
+	prevSN := b.prevSN
+	prevComplete := true
+	var end *packet
+	for c := b.head; c != nil; c = c.next {
+		// sequence number must be next
+		if c.packet.SequenceNumber != prevSN+1 &&
+			// or a reset which is about to reach its time limit
+			(!prevComplete || !c.reset || !before32(c.packet.Timestamp-b.maxSampleSize, b.minTS)) {
+			break
+		}
+		if prevComplete {
+			prevComplete = false
+		}
+		if c.end {
+			end = c
+			prevComplete = true
+		}
+		prevSN = c.packet.SequenceNumber
+	}
+	if end == nil {
+		return nil
+	}
+
+	packets := make([][]*rtp.Packet, 0)
+	sample := make([]*rtp.Packet, 0)
+	var next *packet
+	for c := b.head; ; c = next {
+		next = c.next
+		if !c.padding {
+			sample = append(sample, c.packet)
+		}
+		if next != nil {
+			if outsideRange(next.packet.SequenceNumber, c.packet.SequenceNumber) {
+				// adjust minTS to account for sequence number reset
+				b.minTS += next.packet.Timestamp - c.packet.Timestamp - b.maxSampleSize
+			}
+			next.prev = nil
+		}
+		if c.end {
+			packets = append(packets, sample)
+			sample = make([]*rtp.Packet, 0)
 		}
 		if c == end {
 			b.prevSN = c.packet.SequenceNumber

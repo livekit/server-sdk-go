@@ -152,17 +152,23 @@ func TestJitterBuffer(t *testing.T) {
 	// packet 15062 dropped
 	require.Equal(t, 3, onPacketDroppedCalled)
 
-	b.Push(testHeadPacket(4062, ts))
-	b.Push(testTailPacket(4063, ts))
-	ts++
-	require.Len(t, b.Pop(false), 0)
-
 	b.Push(testHeadPacket(4064, ts))
 	b.Push(testTailPacket(4065, ts))
+	ts++
 
 	// packet 4002 lost, 4003 dropped
-	require.Len(t, b.Pop(false), 58)
+	require.Len(t, b.Pop(false), 62)
 	require.Equal(t, 4, onPacketDroppedCalled)
+
+	// samples
+	b.Push(testHeadPacket(4066, ts))
+	b.Push(testTailPacket(4067, ts))
+	ts++
+	b.Push(testHeadPacket(4068, ts))
+	b.Push(testTailPacket(4069, ts))
+	ts++
+
+	require.Len(t, b.PopSamples(false), 2)
 }
 
 type testDepacketizer struct{}
