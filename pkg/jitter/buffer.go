@@ -287,25 +287,7 @@ func (b *Buffer) pop() []*rtp.Packet {
 		return nil
 	}
 
-	prevSN := b.prevSN
-	prevComplete := true
-	var end *packet
-	for c := b.head; c != nil; c = c.next {
-		// sequence number must be next
-		if c.packet.SequenceNumber != prevSN+1 &&
-			// or a reset which is about to reach its time limit
-			(!prevComplete || !c.reset || !before32(c.packet.Timestamp-b.maxSampleSize, b.minTS)) {
-			break
-		}
-		if prevComplete {
-			prevComplete = false
-		}
-		if c.end {
-			end = c
-			prevComplete = true
-		}
-		prevSN = c.packet.SequenceNumber
-	}
+	end := b.getEnd()
 	if end == nil {
 		return nil
 	}
@@ -347,25 +329,7 @@ func (b *Buffer) popSamples() [][]*rtp.Packet {
 		return nil
 	}
 
-	prevSN := b.prevSN
-	prevComplete := true
-	var end *packet
-	for c := b.head; c != nil; c = c.next {
-		// sequence number must be next
-		if c.packet.SequenceNumber != prevSN+1 &&
-			// or a reset which is about to reach its time limit
-			(!prevComplete || !c.reset || !before32(c.packet.Timestamp-b.maxSampleSize, b.minTS)) {
-			break
-		}
-		if prevComplete {
-			prevComplete = false
-		}
-		if c.end {
-			end = c
-			prevComplete = true
-		}
-		prevSN = c.packet.SequenceNumber
-	}
+	end := b.getEnd()
 	if end == nil {
 		return nil
 	}
@@ -400,6 +364,30 @@ func (b *Buffer) popSamples() [][]*rtp.Packet {
 		}
 		b.free(c)
 	}
+}
+
+func (b *Buffer) getEnd() *packet {
+	prevSN := b.prevSN
+	prevComplete := true
+	var end *packet
+	for c := b.head; c != nil; c = c.next {
+		// sequence number must be next
+		if c.packet.SequenceNumber != prevSN+1 &&
+			// or a reset which is about to reach its time limit
+			(!prevComplete || !c.reset || !before32(c.packet.Timestamp-b.maxSampleSize, b.minTS)) {
+			break
+		}
+		if prevComplete {
+			prevComplete = false
+		}
+		if c.end {
+			end = c
+			prevComplete = true
+		}
+		prevSN = c.packet.SequenceNumber
+	}
+
+	return end
 }
 
 func (b *Buffer) drop() {
