@@ -59,7 +59,7 @@ type TrackSynchronizer struct {
 	lastSR uint32
 
 	// timing info
-	startedAt int64         // starting time in unix ns
+	startedAt time.Time     // starting time
 	firstTS   int64         // first RTP timestamp received
 	maxPTS    time.Duration // maximum valid PTS (set after EOS)
 
@@ -102,7 +102,7 @@ func (t *TrackSynchronizer) Initialize(pkt *rtp.Packet) {
 	startedAt := t.sync.getOrSetStartedAt(now)
 
 	t.Lock()
-	t.startedAt = now
+	t.startedAt = time.Unix(0, startedAt)
 	t.firstTS = int64(pkt.Timestamp)
 	t.ptsOffset = time.Duration(now - startedAt)
 	t.Unlock()
@@ -169,11 +169,7 @@ func (t *TrackSynchronizer) adjust(pkt *rtp.Packet) (int64, time.Duration, bool)
 		pkt.SequenceNumber = t.lastSN + 1
 
 		// reset RTP timestamps
-		duration := (t.inserted + 1) * t.getFrameDurationRTP()
-		ts := t.lastTS + duration
-		pts := t.lastPTS + t.rtpConverter.toDuration(duration)
-
-		t.firstTS += int64(pkt.Timestamp) - ts
+		ts, pts := t.resetRTP(pkt)
 		return ts, pts, false
 	}
 
@@ -188,11 +184,27 @@ func (t *TrackSynchronizer) adjust(pkt *rtp.Packet) (int64, time.Duration, bool)
 		return ts, t.lastPTS, t.lastValid
 	}
 
-	return ts, t.getElapsed(ts) + t.ptsOffset, true
+	// sanity check
+	pts := t.getElapsed(ts) + t.ptsOffset
+	if pts > time.Since(t.startedAt)+time.Hour {
+		// reset RTP timestamps
+		ts, pts = t.resetRTP(pkt)
+		return ts, pts, false
+	}
+
+	return ts, pts, true
 }
 
 func (t *TrackSynchronizer) getElapsed(ts int64) time.Duration {
 	return t.rtpConverter.toDuration(ts - t.firstTS)
+}
+
+func (t *TrackSynchronizer) resetRTP(pkt *rtp.Packet) (int64, time.Duration) {
+	duration := (t.inserted + 1) * t.getFrameDurationRTP()
+	ts := t.lastTS + duration
+	pts := t.lastPTS + t.rtpConverter.toDuration(duration)
+	t.firstTS += int64(pkt.Timestamp) - ts
+	return ts, pts
 }
 
 // InsertFrame is used to inject frames (usually blank) into the stream
