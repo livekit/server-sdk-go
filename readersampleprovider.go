@@ -47,7 +47,7 @@ type ReaderSampleProvider struct {
 	reader io.ReadCloser
 
 	// for vp8/vp9
-	ivfreader     *ivfreader.IVFReader
+	ivfReader     *ivfreader.IVFReader
 	ivfTimebase   float64
 	lastTimestamp uint64
 
@@ -55,7 +55,7 @@ type ReaderSampleProvider struct {
 	h264reader *h264reader.H264Reader
 
 	// for ogg
-	oggreader   *oggreader.OggReader
+	oggReader   *oggreader.OggReader
 	lastGranule uint64
 }
 
@@ -105,14 +105,34 @@ func NewLocalFileTrack(file string, options ...ReaderSampleProviderOption) (*Loc
 	case ".h264":
 		mime = webrtc.MimeTypeH264
 	case ".ivf":
-		mime = webrtc.MimeTypeVP8
+		buf := make([]byte, 3)
+		_, err = fp.ReadAt(buf, 8)
+		if err != nil {
+			return nil, err
+		}
+		switch string(buf) {
+		case "VP8":
+			mime = webrtc.MimeTypeVP8
+		case "VP9":
+			mime = webrtc.MimeTypeVP9
+		default:
+			_ = fp.Close()
+			return nil, ErrCannotDetermineMime
+		}
+		_, _ = fp.Seek(0, 0)
 	case ".ogg":
 		mime = webrtc.MimeTypeOpus
 	default:
+		_ = fp.Close()
 		return nil, ErrCannotDetermineMime
 	}
 
-	return NewLocalReaderTrack(fp, mime, options...)
+	track, err := NewLocalReaderTrack(fp, mime, options...)
+	if err != nil {
+		_ = fp.Close()
+		return nil, err
+	}
+	return track, nil
 }
 
 // NewLocalReaderTrack uses io.ReadCloser interface to adapt to various ingress types
@@ -141,18 +161,18 @@ func NewLocalReaderTrack(in io.ReadCloser, mime string, options ...ReaderSampleP
 	if err != nil {
 		return nil, err
 	}
-
 	track.OnBind(func() {
 		if err := track.StartWrite(provider, provider.OnWriteComplete); err != nil {
 			logger.Errorw("Could not start writing", err)
 		}
 	})
+
 	return track, nil
 }
 
 func (p *ReaderSampleProvider) OnBind() error {
 	// If we are not closing on unbind, don't do anything on rebind
-	if p.ivfreader != nil || p.h264reader != nil || p.oggreader != nil {
+	if p.ivfReader != nil || p.h264reader != nil || p.oggReader != nil {
 		return nil
 	}
 
@@ -161,13 +181,13 @@ func (p *ReaderSampleProvider) OnBind() error {
 	case webrtc.MimeTypeH264:
 		p.h264reader, err = h264reader.NewReader(p.reader)
 	case webrtc.MimeTypeVP8, webrtc.MimeTypeVP9:
-		var ivfheader *ivfreader.IVFFileHeader
-		p.ivfreader, ivfheader, err = ivfreader.NewWith(p.reader)
+		var ivfHeader *ivfreader.IVFFileHeader
+		p.ivfReader, ivfHeader, err = ivfreader.NewWith(p.reader)
 		if err == nil {
-			p.ivfTimebase = float64(ivfheader.TimebaseNumerator) / float64(ivfheader.TimebaseDenominator)
+			p.ivfTimebase = float64(ivfHeader.TimebaseNumerator) / float64(ivfHeader.TimebaseDenominator)
 		}
 	case webrtc.MimeTypeOpus:
-		p.oggreader, _, err = oggreader.NewWith(p.reader)
+		p.oggReader, _, err = oggreader.NewWith(p.reader)
 	default:
 		err = ErrUnsupportedFileType
 	}
@@ -219,7 +239,7 @@ func (p *ReaderSampleProvider) NextSample() (media.Sample, error) {
 		}
 		sample.Duration = defaultH264FrameDuration
 	case webrtc.MimeTypeVP8, webrtc.MimeTypeVP9:
-		frame, header, err := p.ivfreader.ParseNextFrame()
+		frame, header, err := p.ivfReader.ParseNextFrame()
 		if err != nil {
 			return sample, err
 		}
@@ -228,7 +248,7 @@ func (p *ReaderSampleProvider) NextSample() (media.Sample, error) {
 		sample.Duration = time.Duration(p.ivfTimebase*float64(delta)*1000) * time.Millisecond
 		p.lastTimestamp = header.Timestamp
 	case webrtc.MimeTypeOpus:
-		pageData, pageHeader, err := p.oggreader.ParseNextPage()
+		pageData, pageHeader, err := p.oggReader.ParseNextPage()
 		if err != nil {
 			return sample, err
 		}
