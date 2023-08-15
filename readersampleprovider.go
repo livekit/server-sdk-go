@@ -130,7 +130,7 @@ func NewLocalReaderTrack(in io.ReadCloser, mime string, options ...ReaderSampleP
 
 	// check if mime type is supported
 	switch provider.Mime {
-	case webrtc.MimeTypeH264, webrtc.MimeTypeOpus, webrtc.MimeTypeVP8:
+	case webrtc.MimeTypeH264, webrtc.MimeTypeOpus, webrtc.MimeTypeVP8, webrtc.MimeTypeVP9:
 	// allow
 	default:
 		return nil, ErrUnsupportedFileType
