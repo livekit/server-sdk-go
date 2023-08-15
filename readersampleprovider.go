@@ -46,7 +46,7 @@ type ReaderSampleProvider struct {
 	// Allow various types of ingress
 	reader io.ReadCloser
 
-	// for vp8
+	// for vp8/vp9
 	ivfreader     *ivfreader.IVFReader
 	ivfTimebase   float64
 	lastTimestamp uint64
@@ -160,7 +160,7 @@ func (p *ReaderSampleProvider) OnBind() error {
 	switch p.Mime {
 	case webrtc.MimeTypeH264:
 		p.h264reader, err = h264reader.NewReader(p.reader)
-	case webrtc.MimeTypeVP8:
+	case webrtc.MimeTypeVP8, webrtc.MimeTypeVP9:
 		var ivfheader *ivfreader.IVFFileHeader
 		p.ivfreader, ivfheader, err = ivfreader.NewWith(p.reader)
 		if err == nil {
@@ -218,7 +218,7 @@ func (p *ReaderSampleProvider) NextSample() (media.Sample, error) {
 			return sample, nil
 		}
 		sample.Duration = defaultH264FrameDuration
-	case webrtc.MimeTypeVP8:
+	case webrtc.MimeTypeVP8, webrtc.MimeTypeVP9:
 		frame, header, err := p.ivfreader.ParseNextFrame()
 		if err != nil {
 			return sample, err
