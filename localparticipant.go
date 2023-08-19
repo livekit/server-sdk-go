@@ -257,30 +257,39 @@ func (p *LocalParticipant) closeTracks() {
 	}
 }
 
-func (p *LocalParticipant) PublishData(data []byte, kind livekit.DataPacket_Kind, destinationSids []string) error {
-	packet := &livekit.DataPacket{
+func (p *LocalParticipant) PublishDataPacket(userPacket *livekit.UserPacket, kind livekit.DataPacket_Kind) error {
+	if userPacket == nil {
+		return ErrInvalidParameter
+	}
+	dataPacket := &livekit.DataPacket{
 		Kind: kind,
 		Value: &livekit.DataPacket_User{
-			User: &livekit.UserPacket{
-				// this is enforced on the server side, setting for completeness
-				ParticipantSid:  p.SID(),
-				Payload:         data,
-				DestinationSids: destinationSids,
-			},
+			User: userPacket,
 		},
 	}
-
 	if err := p.engine.ensurePublisherConnected(true); err != nil {
 		return err
 	}
 
-	// encode packet
-	encoded, err := proto.Marshal(packet)
+	encoded, err := proto.Marshal(dataPacket)
 	if err != nil {
 		return err
 	}
 
-	return p.engine.GetDataChannel(kind).Send(encoded)
+	return p.engine.GetDataChannel(dataPacket.Kind).Send(encoded)
+}
+
+func (p *LocalParticipant) PublishData(
+	data []byte,
+	kind livekit.DataPacket_Kind,
+	destinationSids []string,
+) error {
+	packet := &livekit.UserPacket{
+		Payload:         data,
+		DestinationSids: destinationSids,
+	}
+
+	return p.PublishDataPacket(packet, kind)
 }
 
 func (p *LocalParticipant) UnpublishTrack(sid string) error {
