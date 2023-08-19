@@ -134,14 +134,13 @@ func (p *RemoteParticipant) unpublishTrack(sid string, sendUnpublish bool) {
 		return
 	}
 
-	p.lock.Lock()
 	switch pub.Kind() {
 	case TrackKindAudio:
 		p.audioTracks.Delete(sid)
 	case TrackKindVideo:
 		p.videoTracks.Delete(sid)
 	}
-	p.lock.Unlock()
+	p.tracks.Delete(sid)
 
 	track := pub.TrackRemote()
 	if track != nil {
