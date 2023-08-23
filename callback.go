@@ -15,8 +15,9 @@
 package lksdk
 
 import (
-	"github.com/livekit/protocol/livekit"
 	"github.com/pion/webrtc/v3"
+
+	"github.com/livekit/protocol/livekit"
 )
 
 type ParticipantCallback struct {
