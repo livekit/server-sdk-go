@@ -31,6 +31,7 @@ type Synchronizer struct {
 
 	psByIdentity map[string]*participantSynchronizer
 	psBySSRC     map[uint32]*participantSynchronizer
+	ssrcByID     map[string]uint32
 }
 
 func NewSynchronizer(onStarted func()) *Synchronizer {
@@ -38,6 +39,7 @@ func NewSynchronizer(onStarted func()) *Synchronizer {
 		onStarted:    onStarted,
 		psByIdentity: make(map[string]*participantSynchronizer),
 		psBySSRC:     make(map[uint32]*participantSynchronizer),
+		ssrcByID:     make(map[string]uint32),
 	}
 }
 
@@ -54,6 +56,7 @@ func (s *Synchronizer) AddTrack(track TrackRemote, identity string) *TrackSynchr
 		s.psByIdentity[identity] = p
 	}
 	ssrc := uint32(track.SSRC())
+	s.ssrcByID[track.ID()] = ssrc
 	s.psBySSRC[ssrc] = p
 	s.Unlock()
 
@@ -62,6 +65,26 @@ func (s *Synchronizer) AddTrack(track TrackRemote, identity string) *TrackSynchr
 	p.Unlock()
 
 	return t
+}
+
+func (s *Synchronizer) RemoveTrack(trackID string) {
+	s.Lock()
+	ssrc := s.ssrcByID[trackID]
+	p := s.psBySSRC[ssrc]
+	delete(s.ssrcByID, trackID)
+	delete(s.psBySSRC, ssrc)
+	s.Unlock()
+	if p == nil {
+		return
+	}
+
+	p.Lock()
+	if ts := p.tracks[ssrc]; ts != nil {
+		ts.sync = nil
+	}
+	delete(p.tracks, ssrc)
+	delete(p.senderReports, ssrc)
+	p.Unlock()
 }
 
 func (s *Synchronizer) GetStartedAt() int64 {
@@ -94,7 +117,7 @@ func (s *Synchronizer) OnRTCP(packet rtcp.Packet) {
 		endedAt := s.endedAt
 		s.Unlock()
 
-		if endedAt != 0 {
+		if endedAt != 0 || p == nil {
 			return
 		}
 
