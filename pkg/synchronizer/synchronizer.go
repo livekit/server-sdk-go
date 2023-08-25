@@ -64,6 +64,32 @@ func (s *Synchronizer) AddTrack(track TrackRemote, identity string) *TrackSynchr
 	return t
 }
 
+func (s *Synchronizer) RemoveTrack(trackID, identity string) {
+	s.Lock()
+	p := s.psByIdentity[identity]
+	s.Unlock()
+	if p == nil {
+		return
+	}
+
+	var trackSSRC uint32
+	p.Lock()
+	for ssrc, ts := range p.tracks {
+		if ts.track.ID() == trackID {
+			ts.sync = nil
+			trackSSRC = ssrc
+			delete(p.tracks, ssrc)
+			delete(p.senderReports, ssrc)
+			break
+		}
+	}
+	p.Unlock()
+
+	s.Lock()
+	delete(s.psBySSRC, trackSSRC)
+	s.Unlock()
+}
+
 func (s *Synchronizer) GetStartedAt() int64 {
 	s.RLock()
 	defer s.RUnlock()
@@ -94,7 +120,7 @@ func (s *Synchronizer) OnRTCP(packet rtcp.Packet) {
 		endedAt := s.endedAt
 		s.Unlock()
 
-		if endedAt != 0 {
+		if endedAt != 0 || p == nil {
 			return
 		}
 
