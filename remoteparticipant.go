@@ -40,7 +40,10 @@ func newRemoteParticipant(pi *livekit.ParticipantInfo, roomCallback *RoomCallbac
 }
 
 func (p *RemoteParticipant) updateInfo(pi *livekit.ParticipantInfo) {
-	p.baseParticipant.updateInfo(pi, p)
+	if !p.baseParticipant.updateInfo(pi, p) {
+		// not a valid update, could be due to older version
+		return
+	}
 	// update tracks
 	validPubs := make(map[string]TrackPublication)
 	newPubs := make(map[string]TrackPublication)

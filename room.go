@@ -350,19 +350,19 @@ func (r *Room) handleParticipantUpdate(participants []*livekit.ParticipantInfo) 
 			continue
 		}
 
-		p := r.GetParticipant(pi.Sid)
-		isNew := p == nil
+		rp := r.GetParticipant(pi.Sid)
+		isNew := rp == nil
 
 		if pi.State == livekit.ParticipantInfo_DISCONNECTED {
 			// remove
-			if p != nil {
-				r.handleParticipantDisconnect(p)
+			if rp != nil {
+				r.handleParticipantDisconnect(rp)
 			}
 		} else if isNew {
-			p = r.addRemoteParticipant(pi, true)
-			go r.callback.OnParticipantConnected(p)
+			rp = r.addRemoteParticipant(pi, true)
+			go r.callback.OnParticipantConnected(rp)
 		} else {
-			p.updateInfo(pi)
+			rp.updateInfo(pi)
 		}
 	}
 }
