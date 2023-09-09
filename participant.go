@@ -163,8 +163,13 @@ func (p *baseParticipant) setConnectionQualityInfo(info *livekit.ConnectionQuali
 	p.roomCallback.OnConnectionQualityChanged(info, p)
 }
 
-func (p *baseParticipant) updateInfo(pi *livekit.ParticipantInfo, participant Participant) {
+func (p *baseParticipant) updateInfo(pi *livekit.ParticipantInfo, participant Participant) bool {
 	p.lock.Lock()
+	if p.info != nil && p.info.Version > pi.Version {
+		// already updated with a later version
+		p.lock.Unlock()
+		return false
+	}
 	p.info = pi
 	p.identity = pi.Identity
 	p.sid = pi.Sid
@@ -177,6 +182,7 @@ func (p *baseParticipant) updateInfo(pi *livekit.ParticipantInfo, participant Pa
 		p.Callback.OnMetadataChanged(oldMetadata, participant)
 		p.roomCallback.OnMetadataChanged(oldMetadata, participant)
 	}
+	return true
 }
 
 func (p *baseParticipant) addPublication(publication TrackPublication) {
