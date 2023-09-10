@@ -47,6 +47,14 @@ func (c *EgressClient) StartRoomCompositeEgress(ctx context.Context, req *liveki
 	return c.egressClient.StartRoomCompositeEgress(ctx, req)
 }
 
+func (c *EgressClient) StartParticipantEgress(ctx context.Context, req *livekit.ParticipantEgressRequest) (*livekit.EgressInfo, error) {
+	ctx, err := c.withAuth(ctx, auth.VideoGrant{RoomRecord: true})
+	if err != nil {
+		return nil, err
+	}
+	return c.egressClient.StartParticipantEgress(ctx, req)
+}
+
 func (c *EgressClient) StartTrackCompositeEgress(ctx context.Context, req *livekit.TrackCompositeEgressRequest) (*livekit.EgressInfo, error) {
 	ctx, err := c.withAuth(ctx, auth.VideoGrant{RoomRecord: true})
 	if err != nil {
