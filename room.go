@@ -15,6 +15,7 @@
 package lksdk
 
 import (
+	"fmt"
 	"reflect"
 	"sort"
 	"strings"
@@ -344,6 +345,11 @@ func (r *Room) handleDataReceived(userPacket *livekit.UserPacket) {
 }
 
 func (r *Room) handleParticipantUpdate(participants []*livekit.ParticipantInfo) {
+	fmt.Println("participant update:")
+	for _, pi := range participants {
+		fmt.Printf("    " + pi.Identity + ": " + pi.State.String() + "\n")
+	}
+
 	for _, pi := range participants {
 		if pi.Sid == r.LocalParticipant.SID() || pi.Identity == r.LocalParticipant.Identity() {
 			r.LocalParticipant.updateInfo(pi)
@@ -368,11 +374,13 @@ func (r *Room) handleParticipantUpdate(participants []*livekit.ParticipantInfo) 
 }
 
 func (r *Room) handleParticipantDisconnect(p *RemoteParticipant) {
+	fmt.Println("handleParticipantDisconnect")
 	r.lock.Lock()
 	delete(r.participants, p.SID())
 	r.lock.Unlock()
 
 	p.unpublishAllTracks()
+	fmt.Println("OnParticipantDisconnected")
 	go r.callback.OnParticipantDisconnected(p)
 }
 
