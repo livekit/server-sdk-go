@@ -32,6 +32,7 @@ import (
 const (
 	ewmaWeight           = 0.9
 	maxDrift             = time.Millisecond * 15
+	maxTSDelay           = time.Minute
 	maxSNDropout         = 3000 // max sequence number skip
 	uint32Half     int64 = 2147483648
 	uint32Overflow int64 = 4294967296
@@ -186,7 +187,7 @@ func (t *TrackSynchronizer) adjust(pkt *rtp.Packet) (int64, time.Duration, bool)
 
 	// sanity check
 	pts := t.getElapsed(ts) + t.ptsOffset
-	if pts > time.Since(t.startedAt)+time.Hour {
+	if pts > time.Since(t.startedAt)+maxTSDelay {
 		// reset RTP timestamps
 		ts, pts = t.resetRTP(pkt)
 		return ts, pts, false
