@@ -179,9 +179,7 @@ func (e *RTCEngine) setRTT(rtt uint32) {
 func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 	iceServers := FromProtoIceServers(res.IceServers)
 	configuration := webrtc.Configuration{ICEServers: iceServers}
-	if res.GetClientConfiguration().GetForceRelay() == livekit.ClientConfigSetting_ENABLED {
-		configuration.ICETransportPolicy = webrtc.ICETransportPolicyRelay
-	}
+	configuration.ICETransportPolicy = webrtc.ICETransportPolicyRelay
 	var err error
 	if e.publisher, err = NewPCTransport(configuration); err != nil {
 		return err
@@ -306,7 +304,6 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 			logger.Errorw("could not set remote description", err)
 			return
 		}
-
 	}
 	return nil
 }
