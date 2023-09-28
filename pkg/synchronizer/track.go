@@ -32,7 +32,7 @@ import (
 const (
 	ewmaWeight           = 0.9
 	maxDrift             = time.Millisecond * 15
-	maxTSDelay           = time.Minute
+	maxTSDiff            = time.Minute
 	maxSNDropout         = 3000 // max sequence number skip
 	uint32Half     int64 = 2147483648
 	uint32Overflow int64 = 4294967296
@@ -65,12 +65,13 @@ type TrackSynchronizer struct {
 	maxPTS    time.Duration // maximum valid PTS (set after EOS)
 
 	// previous packet info
-	backwards int
-	lastSN    uint16        // previous sequence number
-	lastTS    int64         // previous RTP timestamp
-	lastPTS   time.Duration // previous presentation timestamp
-	lastValid bool          // previous packet did not cause a reset
-	inserted  int64         // number of frames inserted
+	backwards  int
+	lastPacket time.Time     // previous packet received
+	lastSN     uint16        // previous sequence number
+	lastTS     int64         // previous RTP timestamp
+	lastPTS    time.Duration // previous presentation timestamp
+	lastValid  bool          // previous packet did not cause a reset
+	inserted   int64         // number of frames inserted
 
 	// offsets
 	snOffset  uint16        // sequence number offset (increases with each blank frame inserted
@@ -148,6 +149,7 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 	}
 
 	// update previous values
+	t.lastPacket = time.Now()
 	t.lastTS = ts
 	t.lastSN = pkt.SequenceNumber
 	t.lastPTS = pts
@@ -170,6 +172,7 @@ func (t *TrackSynchronizer) adjust(pkt *rtp.Packet) (int64, time.Duration, bool)
 		pkt.SequenceNumber = t.lastSN + 1
 
 		// reset RTP timestamps
+		logger.Debugw("resetting track synchronizer", "reason", "SN gap", "lastSN", t.lastSN, "SN", pkt.SequenceNumber)
 		ts, pts := t.resetRTP(pkt)
 		return ts, pts, false
 	}
@@ -187,8 +190,9 @@ func (t *TrackSynchronizer) adjust(pkt *rtp.Packet) (int64, time.Duration, bool)
 
 	// sanity check
 	pts := t.getElapsed(ts) + t.ptsOffset
-	if pts > time.Since(t.startedAt)+maxTSDelay {
+	if expected := time.Since(t.startedAt.Add(t.ptsOffset)); pts > expected+maxTSDiff {
 		// reset RTP timestamps
+		logger.Debugw("resetting track synchronizer", "reason", "pts out of bounds", "pts", pts, "expected", expected)
 		ts, pts = t.resetRTP(pkt)
 		return ts, pts, false
 	}
@@ -201,7 +205,8 @@ func (t *TrackSynchronizer) getElapsed(ts int64) time.Duration {
 }
 
 func (t *TrackSynchronizer) resetRTP(pkt *rtp.Packet) (int64, time.Duration) {
-	duration := (t.inserted + 1) * t.getFrameDurationRTP()
+	frames := int64(time.Since(t.lastPacket) / t.GetFrameDuration())
+	duration := t.getFrameDurationRTP() * frames
 	ts := t.lastTS + duration
 	pts := t.lastPTS + t.rtpConverter.toDuration(duration)
 	t.firstTS += int64(pkt.Timestamp) - ts
@@ -347,8 +352,8 @@ func (t *TrackStats) updateSampleDuration(duration int64) {
 }
 
 type rtpConverter struct {
-	n float64
-	d float64
+	n uint64
+	d uint64
 }
 
 func newRTPConverter(clockRate int64) rtpConverter {
@@ -361,9 +366,9 @@ func newRTPConverter(clockRate int64) rtpConverter {
 		}
 	}
 
-	return rtpConverter{n: float64(n), d: float64(d)}
+	return rtpConverter{n: uint64(n), d: uint64(d)}
 }
 
 func (c rtpConverter) toDuration(rtpDuration int64) time.Duration {
-	return time.Duration(math.Round(float64(rtpDuration) * c.n / c.d))
+	return time.Duration(uint64(rtpDuration) * c.n / c.d)
 }
