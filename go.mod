@@ -11,9 +11,9 @@ require (
 	github.com/livekit/protocol v1.7.2
 	github.com/magefile/mage v1.15.0
 	github.com/pion/dtls/v2 v2.2.7
-	github.com/pion/interceptor v0.1.18
+	github.com/pion/interceptor v0.1.21
 	github.com/pion/rtcp v1.2.10
-	github.com/pion/rtp v1.8.1
+	github.com/pion/rtp v1.8.2
 	github.com/pion/sdp/v3 v3.0.6
 	github.com/pion/webrtc/v3 v3.2.20
 	github.com/stretchr/testify v1.8.4
