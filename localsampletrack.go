@@ -425,6 +425,9 @@ func (s *LocalSampleTrack) writeWorker(provider SampleProvider, onComplete func(
 
 	nextSampleTime := time.Now()
 	ticker := time.NewTicker(10 * time.Millisecond)
+	// issue 324
+	defer ticker.Stop()
+
 	for {
 		sample, err := provider.NextSample()
 		if err == io.EOF {
