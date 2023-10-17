@@ -183,10 +183,16 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 		configuration.ICETransportPolicy = webrtc.ICETransportPolicyRelay
 	}
 	var err error
-	if e.publisher, err = NewPCTransport(configuration); err != nil {
+	if e.publisher, err = NewPCTransport(PCTransportParams{
+		Configuration:        configuration,
+		RetransmitBufferSize: e.connParams.RetransmitBufferSize,
+	}); err != nil {
 		return err
 	}
-	if e.subscriber, err = NewPCTransport(configuration); err != nil {
+	if e.subscriber, err = NewPCTransport(PCTransportParams{
+		Configuration:        configuration,
+		RetransmitBufferSize: e.connParams.RetransmitBufferSize,
+	}); err != nil {
 		return err
 	}
 	logger.Debugw("Using ICE servers", "servers", iceServers)

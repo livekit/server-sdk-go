@@ -53,7 +53,13 @@ type PCTransport struct {
 	OnOffer func(description webrtc.SessionDescription)
 }
 
-func NewPCTransport(configuration webrtc.Configuration) (*PCTransport, error) {
+type PCTransportParams struct {
+	Configuration webrtc.Configuration
+
+	RetransmitBufferSize uint16
+}
+
+func NewPCTransport(params PCTransportParams) (*PCTransport, error) {
 	m := &webrtc.MediaEngine{}
 	if err := m.RegisterDefaultCodecs(); err != nil {
 		return nil, err
@@ -75,7 +81,11 @@ func NewPCTransport(configuration webrtc.Configuration) (*PCTransport, error) {
 
 	// nack interceptor
 	generator := &sdkinterceptor.NackGeneratorInterceptorFactory{}
-	responder, err := nack.NewResponderInterceptor()
+	var generatorOption []nack.ResponderOption
+	if params.RetransmitBufferSize > 0 {
+		generatorOption = append(generatorOption, nack.ResponderSize(params.RetransmitBufferSize))
+	}
+	responder, err := nack.NewResponderInterceptor(generatorOption...)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +109,7 @@ func NewPCTransport(configuration webrtc.Configuration) (*PCTransport, error) {
 	se.SetSRTPProtectionProfiles(dtls.SRTP_AEAD_AES_128_GCM, dtls.SRTP_AES128_CM_HMAC_SHA1_80)
 
 	api := webrtc.NewAPI(webrtc.WithMediaEngine(m), webrtc.WithSettingEngine(se), webrtc.WithInterceptorRegistry(i))
-	pc, err := api.NewPeerConnection(configuration)
+	pc, err := api.NewPeerConnection(params.Configuration)
 	if err != nil {
 		return nil, err
 	}
