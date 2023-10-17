@@ -65,6 +65,8 @@ type ConnectParams struct {
 	AutoSubscribe bool
 	Reconnect     bool
 	Callback      *RoomCallback
+
+	RetransmitBufferSize uint16
 }
 
 type ConnectOption func(*ConnectParams)
@@ -72,6 +74,14 @@ type ConnectOption func(*ConnectParams)
 func WithAutoSubscribe(val bool) ConnectOption {
 	return func(p *ConnectParams) {
 		p.AutoSubscribe = val
+	}
+}
+
+// Retransmit buffer size to reponse to nack request,
+// must be one of: 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768
+func WithRetransmitBufferSize(val uint16) ConnectOption {
+	return func(p *ConnectParams) {
+		p.RetransmitBufferSize = val
 	}
 }
 
