@@ -33,6 +33,11 @@ import (
 
 const (
 	negotiationFrequency = 150 * time.Millisecond
+
+	dtlsRetransmissionInterval = 100 * time.Millisecond
+	iceDisconnectedTimeout     = 10 * time.Second
+	iceFailedTimeout           = 5 * time.Second
+	iceKeepaliveInterval       = 2 * time.Second
 )
 
 // PCTransport is a wrapper around PeerConnection, with some helper methods
@@ -107,6 +112,8 @@ func NewPCTransport(params PCTransportParams) (*PCTransport, error) {
 
 	se := webrtc.SettingEngine{}
 	se.SetSRTPProtectionProfiles(dtls.SRTP_AEAD_AES_128_GCM, dtls.SRTP_AES128_CM_HMAC_SHA1_80)
+	se.SetDTLSRetransmissionInterval(dtlsRetransmissionInterval)
+	se.SetICETimeouts(iceDisconnectedTimeout, iceFailedTimeout, iceKeepaliveInterval)
 
 	api := webrtc.NewAPI(webrtc.WithMediaEngine(m), webrtc.WithSettingEngine(se), webrtc.WithInterceptorRegistry(i))
 	pc, err := api.NewPeerConnection(params.Configuration)
