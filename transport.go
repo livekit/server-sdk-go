@@ -35,7 +35,7 @@ const (
 	negotiationFrequency = 150 * time.Millisecond
 
 	dtlsRetransmissionInterval = 100 * time.Millisecond
-	iceDisconnectedTimeout     = 10 * time.Second // compatible for ice-lite with firefox client
+	iceDisconnectedTimeout     = 10 * time.Second
 	iceFailedTimeout           = 5 * time.Second
 	iceKeepaliveInterval       = 2 * time.Second
 )
