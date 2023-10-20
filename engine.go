@@ -312,7 +312,6 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 			logger.Errorw("could not set remote description", err)
 			return
 		}
-
 	}
 	return nil
 }
@@ -430,9 +429,15 @@ func (e *RTCEngine) handleDisconnect(fullReconnect bool) {
 		defer e.reconnecting.Store(false)
 		var reconnectCount int
 		for ; reconnectCount < maxReconnectCount; reconnectCount++ {
+			// already close. Do not reconnect
+			if e.closed.Load() {
+				break
+			}
+
 			if e.requiresFullReconnect.Load() {
 				fullReconnect = true
 			}
+
 			if fullReconnect {
 				if reconnectCount == 0 && e.OnRestarting != nil {
 					e.OnRestarting()
@@ -441,6 +446,20 @@ func (e *RTCEngine) handleDisconnect(fullReconnect bool) {
 				if err := e.restartConnection(); err != nil {
 					logger.Errorw("restart connection failed", err)
 				} else {
+					// Detect user-initiated shutdown after reconnecting. clean up again
+					if e.closed.Load() {
+						if e.client.IsStarted() {
+							e.client.SendLeave()
+						}
+						e.client.Close()
+						if e.publisher != nil {
+							e.publisher.Close()
+						}
+
+						if e.subscriber != nil {
+							e.subscriber.Close()
+						}
+					}
 					return
 				}
 			} else {
