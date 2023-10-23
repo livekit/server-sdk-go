@@ -142,14 +142,20 @@ func (e *RTCEngine) Close() {
 	if !e.closed.CompareAndSwap(false, true) {
 		return
 	}
-	if e.publisher != nil {
-		_ = e.publisher.Close()
-	}
-	if e.subscriber != nil {
-		_ = e.subscriber.Close()
-	}
 
-	e.client.Close()
+	go func() {
+		for e.reconnecting.Load() {
+			time.Sleep(50 * time.Millisecond)
+		}
+		if e.publisher != nil {
+			_ = e.publisher.Close()
+		}
+		if e.subscriber != nil {
+			_ = e.subscriber.Close()
+		}
+
+		e.client.Close()
+	}()
 }
 
 func (e *RTCEngine) IsConnected() bool {
@@ -428,8 +434,7 @@ func (e *RTCEngine) handleDisconnect(fullReconnect bool) {
 
 	go func() {
 		defer e.reconnecting.Store(false)
-		var reconnectCount int
-		for ; reconnectCount < maxReconnectCount; reconnectCount++ {
+		for reconnectCount := 0; reconnectCount < maxReconnectCount && !e.closed.Load(); reconnectCount++ {
 			if e.requiresFullReconnect.Load() {
 				fullReconnect = true
 			}
