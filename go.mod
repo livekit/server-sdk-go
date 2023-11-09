@@ -4,7 +4,7 @@ go 1.18
 
 require (
 	github.com/bep/debounce v1.2.1
-	github.com/go-logr/logr v1.2.4
+	github.com/go-logr/logr v1.3.0
 	github.com/go-logr/stdr v1.2.2
 	github.com/gorilla/websocket v1.5.1
 	github.com/livekit/mediatransportutil v0.0.0-20231017082622-43f077b4e60e
