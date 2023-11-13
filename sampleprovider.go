@@ -15,13 +15,14 @@
 package lksdk
 
 import (
+	"context"
 	"time"
 
 	"github.com/pion/webrtc/v3/pkg/media"
 )
 
 type SampleProvider interface {
-	NextSample() (media.Sample, error)
+	NextSample(context.Context) (media.Sample, error)
 	OnBind() error
 	OnUnbind() error
 	Close() error
@@ -62,7 +63,7 @@ func NewNullSampleProvider(bitrate uint32) *NullSampleProvider {
 	}
 }
 
-func (p *NullSampleProvider) NextSample() (media.Sample, error) {
+func (p *NullSampleProvider) NextSample(ctx context.Context) (media.Sample, error) {
 	return media.Sample{
 		Data:     make([]byte, p.BytesPerSample),
 		Duration: p.SampleDuration,

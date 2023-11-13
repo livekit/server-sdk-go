@@ -15,6 +15,7 @@
 package lksdk
 
 import (
+	"context"
 	"io"
 	"os"
 	"path/filepath"
@@ -213,7 +214,7 @@ func (p *ReaderSampleProvider) CurrentAudioLevel() uint8 {
 	return p.AudioLevel
 }
 
-func (p *ReaderSampleProvider) NextSample() (media.Sample, error) {
+func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, error) {
 	sample := media.Sample{}
 	switch p.Mime {
 	case webrtc.MimeTypeH264:

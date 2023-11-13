@@ -429,7 +429,7 @@ func (s *LocalSampleTrack) writeWorker(provider SampleProvider, onComplete func(
 	defer ticker.Stop()
 
 	for {
-		sample, err := provider.NextSample()
+		sample, err := provider.NextSample(ctx)
 		if err == io.EOF {
 			return
 		}
