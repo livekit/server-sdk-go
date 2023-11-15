@@ -166,6 +166,7 @@ func (s *LocalSampleTrack) Bind(t webrtc.TrackLocalContext) (webrtc.RTPCodecPara
 	}
 
 	s.lock.Lock()
+	s.ssrcAcked = false
 	s.ssrc = t.SSRC()
 	for _, ext := range t.HeaderExtensions() {
 		if ext.URI == sdp.AudioLevelURI {

@@ -219,7 +219,7 @@ func (p *LocalParticipant) republishTracks() {
 	p.tracks.Range(func(key, value interface{}) bool {
 		track := value.(*LocalTrackPublication)
 
-		if track.Track() != nil {
+		if track.Track() != nil || len(track.simulcastTracks) > 0 {
 			localPubs = append(localPubs, track)
 		}
 		p.tracks.Delete(key)
@@ -246,7 +246,7 @@ func (p *LocalParticipant) closeTracks() {
 	var localPubs []*LocalTrackPublication
 	p.tracks.Range(func(_, value interface{}) bool {
 		track := value.(*LocalTrackPublication)
-		if track.Track() != nil {
+		if track.Track() != nil || len(track.simulcastTracks) > 0 {
 			localPubs = append(localPubs, track)
 		}
 		return true
