@@ -14,6 +14,7 @@ require (
 	github.com/pion/interceptor v0.1.25
 	github.com/pion/rtcp v1.2.12
 	github.com/pion/rtp v1.8.3
+	github.com/pion/rtp/v2 v2.0.0
 	github.com/pion/sdp/v3 v3.0.6
 	github.com/pion/webrtc/v3 v3.2.23
 	github.com/stretchr/testify v1.8.4
