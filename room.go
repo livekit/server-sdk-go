@@ -127,7 +127,7 @@ func CreateRoom(callback *RoomCallback) *Room {
 	engine.OnResuming = r.handleResuming
 	engine.OnResumed = r.handleResumed
 	engine.client.OnLocalTrackUnpublished = r.handleLocalTrackUnpublished
-	engine.client.OnTrackMuted = r.handleTrackMuted
+	engine.client.OnTrackRemoteMuted = r.handleTrackRemoteMuted
 
 	return r
 }
@@ -484,12 +484,12 @@ func (r *Room) handleRoomUpdate(room *livekit.Room) {
 	go r.callback.OnRoomMetadataChanged(room.Metadata)
 }
 
-func (r *Room) handleTrackMuted(msg *livekit.MuteTrackRequest) {
+func (r *Room) handleTrackRemoteMuted(msg *livekit.MuteTrackRequest) {
 	for _, pub := range r.LocalParticipant.Tracks() {
 		if pub.SID() == msg.Sid {
 			localPub := pub.(*LocalTrackPublication)
 			// TODO: pause sending data because it'll be dropped by SFU
-			localPub.SetMuted(msg.Muted)
+			localPub.setMuted(msg.Muted, true)
 		}
 	}
 }

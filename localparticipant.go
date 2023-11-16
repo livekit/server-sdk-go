@@ -58,6 +58,7 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 	pub.OnRttUpdate(func(rtt uint32) {
 		p.engine.setRTT(rtt)
 	})
+	pub.onMuteChanged = p.onTrackMuted
 
 	req := &livekit.AddTrackRequest{
 		Cid:        track.ID(),
@@ -149,6 +150,7 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalSampleTrack, opt
 	mainTrack := tracks[len(tracks)-1]
 
 	pub := NewLocalTrackPublication(KindFromRTPType(mainTrack.Kind()), nil, *opts, p.engine.client)
+	pub.onMuteChanged = p.onTrackMuted
 
 	var layers []*livekit.VideoLayer
 	for _, st := range tracks {
@@ -359,16 +361,7 @@ func (p *LocalParticipant) updateInfo(info *livekit.ParticipantInfo) {
 			continue
 		}
 		if pub.IsMuted() != ti.Muted {
-			pub.SetMuted(ti.Muted)
-
-			// trigger callback
-			if ti.Muted {
-				p.Callback.OnTrackMuted(pub, p)
-				p.roomCallback.OnTrackMuted(pub, p)
-			} else if !ti.Muted {
-				p.Callback.OnTrackUnmuted(pub, p)
-				p.roomCallback.OnTrackUnmuted(pub, p)
-			}
+			_ = p.engine.client.SendMuteTrack(pub.SID(), pub.IsMuted())
 		}
 	}
 }
@@ -378,4 +371,14 @@ func (p *LocalParticipant) getLocalPublication(sid string) *LocalTrackPublicatio
 		return pub
 	}
 	return nil
+}
+
+func (p *LocalParticipant) onTrackMuted(pub *LocalTrackPublication, muted bool) {
+	if muted {
+		p.Callback.OnTrackMuted(pub, p)
+		p.roomCallback.OnTrackMuted(pub, p)
+	} else {
+		p.Callback.OnTrackUnmuted(pub, p)
+		p.roomCallback.OnTrackUnmuted(pub, p)
+	}
 }

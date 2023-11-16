@@ -242,6 +242,7 @@ type LocalTrackPublication struct {
 	simulcastTracks map[livekit.VideoQuality]*LocalSampleTrack
 	onRttUpdate     func(uint32)
 	opts            TrackPublicationOptions
+	onMuteChanged   func(*LocalTrackPublication, bool)
 }
 
 func NewLocalTrackPublication(kind TrackKind, track Track, opts TrackPublicationOptions, client *SignalClient) *LocalTrackPublication {
@@ -280,16 +281,26 @@ func (p *LocalTrackPublication) GetSimulcastTrack(quality livekit.VideoQuality) 
 }
 
 func (p *LocalTrackPublication) SetMuted(muted bool) {
+	p.setMuted(muted, false)
+}
+
+func (p *LocalTrackPublication) setMuted(muted bool, byRemote bool) {
 	if p.isMuted.Swap(muted) == muted {
 		return
 	}
 
-	_ = p.client.SendMuteTrack(p.sid.Load(), muted)
+	if !byRemote {
+		_ = p.client.SendMuteTrack(p.sid.Load(), muted)
+	}
 	if track := p.track; track != nil {
 		switch t := track.(type) {
 		case *LocalSampleTrack:
 			t.setMuted(muted)
 		}
+	}
+
+	if p.onMuteChanged != nil {
+		p.onMuteChanged(p, muted)
 	}
 }
 
