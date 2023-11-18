@@ -321,6 +321,7 @@ func (r *Room) handleRestarted(joinRes *livekit.JoinResponse) {
 	r.name = joinRes.Room.Name
 	r.sid = joinRes.Room.Sid
 	r.metadata = joinRes.Room.Metadata
+	r.serverInfo = joinRes.ServerInfo
 	r.lock.Unlock()
 
 	r.LocalParticipant.updateInfo(joinRes.Participant)
