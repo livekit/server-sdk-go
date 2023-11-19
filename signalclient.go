@@ -346,11 +346,12 @@ func (c *SignalClient) handleResponse(res *livekit.SignalResponse) {
 func (c *SignalClient) readWorker() {
 	defer func() {
 		c.isStarted.Store(false)
+		c.conn.Store((*websocket.Conn)(nil))
+		close(c.readerClosedCh)
+
 		if c.OnClose != nil {
 			c.OnClose()
 		}
-		c.conn.Store((*websocket.Conn)(nil))
-		close(c.readerClosedCh)
 	}()
 	if pending := c.pendingResponse; pending != nil {
 		c.handleResponse(pending)
