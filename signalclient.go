@@ -174,11 +174,15 @@ func (c *SignalClient) Join(urlPrefix string, token string, params *ConnectParam
 
 func (c *SignalClient) Close() {
 	isStarted := c.IsStarted()
-	if conn := c.websocketConn(); conn != nil {
+	conn := c.websocketConn()
+	if conn != nil {
 		_ = conn.Close()
 	}
 	if isStarted {
 		<-c.readerClosedCh
+	}
+	if conn != nil {
+		c.OnClose()
 	}
 }
 
@@ -348,10 +352,6 @@ func (c *SignalClient) readWorker() {
 		c.isStarted.Store(false)
 		c.conn.Store((*websocket.Conn)(nil))
 		close(c.readerClosedCh)
-
-		if c.OnClose != nil {
-			c.OnClose()
-		}
 	}()
 	if pending := c.pendingResponse; pending != nil {
 		c.handleResponse(pending)
