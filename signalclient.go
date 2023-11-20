@@ -36,11 +36,11 @@ import (
 const PROTOCOL = 8
 
 type SignalClient struct {
-	conn            atomic.Value // *websocket.Conn
+	conn            atomic.Pointer[websocket.Conn]
 	lock            sync.Mutex
-	isClosed        atomic.Bool
 	isStarted       atomic.Bool
 	pendingResponse *livekit.SignalResponse
+	readerClosedCh  chan struct{}
 
 	OnClose                 func()
 	OnAnswer                func(sd webrtc.SessionDescription)
@@ -66,7 +66,8 @@ func (c *SignalClient) Start() {
 	if c.isStarted.Swap(true) {
 		return
 	}
-	go c.readWorker()
+	c.readerClosedCh = make(chan struct{})
+	go c.readWorker(c.readerClosedCh)
 }
 
 func (c *SignalClient) IsStarted() bool {
@@ -139,7 +140,7 @@ func (c *SignalClient) Join(urlPrefix string, token string, params *ConnectParam
 			return nil, errors.New(errString)
 		}
 	}
-	c.isClosed.Store(false)
+	c.Close() // close previous conn, if any
 	c.conn.Store(conn)
 
 	// server should send join as soon as connected
@@ -172,11 +173,14 @@ func (c *SignalClient) Join(urlPrefix string, token string, params *ConnectParam
 }
 
 func (c *SignalClient) Close() {
-	if c.isClosed.Swap(true) {
-		return
-	}
-	if conn := c.websocketConn(); conn != nil {
+	isStarted := c.IsStarted()
+	readerClosedCh := c.readerClosedCh
+	conn := c.websocketConn()
+	if conn != nil {
 		_ = conn.Close()
+	}
+	if isStarted && readerClosedCh != nil {
+		<-readerClosedCh
 	}
 }
 
@@ -263,10 +267,6 @@ func (c *SignalClient) SendUpdateParticipantMetadata(metadata *livekit.UpdatePar
 }
 
 func (c *SignalClient) readResponse() (*livekit.SignalResponse, error) {
-	if c.isClosed.Load() {
-		return nil, io.EOF
-	}
-
 	conn := c.websocketConn()
 	if conn == nil {
 		return nil, errors.New("cannot read response before join")
@@ -345,9 +345,12 @@ func (c *SignalClient) handleResponse(res *livekit.SignalResponse) {
 	}
 }
 
-func (c *SignalClient) readWorker() {
+func (c *SignalClient) readWorker(readerClosedCh chan struct{}) {
 	defer func() {
 		c.isStarted.Store(false)
+		c.conn.Store(nil)
+		close(readerClosedCh)
+
 		if c.OnClose != nil {
 			c.OnClose()
 		}
@@ -356,10 +359,10 @@ func (c *SignalClient) readWorker() {
 		c.handleResponse(pending)
 		c.pendingResponse = nil
 	}
-	for !c.isClosed.Load() {
+	for {
 		res, err := c.readResponse()
 		if err != nil {
-			if !isIgnoredWebsocketError(err) && !c.isClosed.Load() {
+			if !isIgnoredWebsocketError(err) {
 				logger.Infow("error while reading from signal client", "err", err)
 			}
 			return
@@ -369,14 +372,7 @@ func (c *SignalClient) readWorker() {
 }
 
 func (c *SignalClient) websocketConn() *websocket.Conn {
-	obj := c.conn.Load()
-	if obj == nil {
-		return nil
-	}
-	if conn, ok := obj.(*websocket.Conn); ok {
-		return conn
-	}
-	return nil
+	return c.conn.Load()
 }
 
 func isIgnoredWebsocketError(err error) bool {
