@@ -376,7 +376,10 @@ func (c *SignalClient) websocketConn() *websocket.Conn {
 }
 
 func isIgnoredWebsocketError(err error) bool {
-	if err == nil || err == io.EOF {
+	if err == nil ||
+		err == io.EOF ||
+		strings.Contains(err.Error(), "use of closed network connection") ||
+		strings.Contains(err.Error(), "connection reset by peer") {
 		return true
 	}
 
