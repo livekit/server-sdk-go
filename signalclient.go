@@ -51,7 +51,7 @@ type SignalClient struct {
 	OnSpeakersChanged       func([]*livekit.SpeakerInfo)
 	OnConnectionQuality     func([]*livekit.ConnectionQualityInfo)
 	OnRoomUpdate            func(room *livekit.Room)
-	OnTrackMuted            func(request *livekit.MuteTrackRequest)
+	OnTrackRemoteMuted      func(request *livekit.MuteTrackRequest)
 	OnLocalTrackUnpublished func(response *livekit.TrackUnpublishedResponse)
 	OnTokenRefresh          func(refreshToken string)
 	OnLeave                 func(*livekit.LeaveRequest)
@@ -319,8 +319,8 @@ func (c *SignalClient) handleResponse(res *livekit.SignalResponse) {
 			c.OnLocalTrackPublished(msg.TrackPublished)
 		}
 	case *livekit.SignalResponse_Mute:
-		if c.OnTrackMuted != nil {
-			c.OnTrackMuted(msg.Mute)
+		if c.OnTrackRemoteMuted != nil {
+			c.OnTrackRemoteMuted(msg.Mute)
 		}
 	case *livekit.SignalResponse_ConnectionQuality:
 		if c.OnConnectionQuality != nil {
