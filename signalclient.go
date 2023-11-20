@@ -179,7 +179,7 @@ func (c *SignalClient) Close() {
 	if conn != nil {
 		_ = conn.Close()
 	}
-	if isStarted {
+	if isStarted && readerClosedCh != nil {
 		<-readerClosedCh
 	}
 }
