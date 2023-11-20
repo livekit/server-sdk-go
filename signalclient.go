@@ -181,9 +181,6 @@ func (c *SignalClient) Close() {
 	if isStarted {
 		<-c.readerClosedCh
 	}
-	if conn != nil && c.OnClose != nil {
-		c.OnClose()
-	}
 }
 
 func (c *SignalClient) SendICECandidate(candidate webrtc.ICECandidateInit, target livekit.SignalTarget) error {
@@ -352,6 +349,10 @@ func (c *SignalClient) readWorker() {
 		c.isStarted.Store(false)
 		c.conn.Store(nil)
 		close(c.readerClosedCh)
+
+		if c.OnClose != nil {
+			c.OnClose()
+		}
 	}()
 	if pending := c.pendingResponse; pending != nil {
 		c.handleResponse(pending)
