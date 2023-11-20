@@ -36,7 +36,7 @@ import (
 const PROTOCOL = 8
 
 type SignalClient struct {
-	conn            atomic.Value // *websocket.Conn
+	conn            atomic.Pointer[websocket.Conn]
 	lock            sync.Mutex
 	isStarted       atomic.Bool
 	pendingResponse *livekit.SignalResponse
@@ -350,7 +350,7 @@ func (c *SignalClient) handleResponse(res *livekit.SignalResponse) {
 func (c *SignalClient) readWorker() {
 	defer func() {
 		c.isStarted.Store(false)
-		c.conn.Store((*websocket.Conn)(nil))
+		c.conn.Store(nil)
 		close(c.readerClosedCh)
 	}()
 	if pending := c.pendingResponse; pending != nil {
@@ -370,14 +370,7 @@ func (c *SignalClient) readWorker() {
 }
 
 func (c *SignalClient) websocketConn() *websocket.Conn {
-	obj := c.conn.Load()
-	if obj == nil {
-		return nil
-	}
-	if conn, ok := obj.(*websocket.Conn); ok {
-		return conn
-	}
-	return nil
+	return c.conn.Load()
 }
 
 func isIgnoredWebsocketError(err error) bool {
