@@ -67,7 +67,7 @@ func (c *SignalClient) Start() {
 		return
 	}
 	c.readerClosedCh = make(chan struct{})
-	go c.readWorker()
+	go c.readWorker(c.readerClosedCh)
 }
 
 func (c *SignalClient) IsStarted() bool {
@@ -174,12 +174,13 @@ func (c *SignalClient) Join(urlPrefix string, token string, params *ConnectParam
 
 func (c *SignalClient) Close() {
 	isStarted := c.IsStarted()
+	readerClosedCh := c.readerClosedCh
 	conn := c.websocketConn()
 	if conn != nil {
 		_ = conn.Close()
 	}
 	if isStarted {
-		<-c.readerClosedCh
+		<-readerClosedCh
 	}
 }
 
@@ -344,11 +345,11 @@ func (c *SignalClient) handleResponse(res *livekit.SignalResponse) {
 	}
 }
 
-func (c *SignalClient) readWorker() {
+func (c *SignalClient) readWorker(readerClosedCh chan struct{}) {
 	defer func() {
 		c.isStarted.Store(false)
 		c.conn.Store(nil)
-		close(c.readerClosedCh)
+		close(readerClosedCh)
 
 		if c.OnClose != nil {
 			c.OnClose()
