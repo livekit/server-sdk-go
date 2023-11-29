@@ -192,6 +192,7 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 	if e.publisher, err = NewPCTransport(PCTransportParams{
 		Configuration:        configuration,
 		RetransmitBufferSize: e.connParams.RetransmitBufferSize,
+		Pacer:                e.connParams.Pacer,
 	}); err != nil {
 		return err
 	}

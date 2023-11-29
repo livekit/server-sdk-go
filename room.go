@@ -25,6 +25,7 @@ import (
 	"github.com/thoas/go-funk"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/livekit/mediatransportutil/pkg/pacer"
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
 )
@@ -67,6 +68,8 @@ type ConnectParams struct {
 	Callback      *RoomCallback
 
 	RetransmitBufferSize uint16
+
+	Pacer pacer.Factory
 }
 
 type ConnectOption func(*ConnectParams)
@@ -82,6 +85,12 @@ func WithAutoSubscribe(val bool) ConnectOption {
 func WithRetransmitBufferSize(val uint16) ConnectOption {
 	return func(p *ConnectParams) {
 		p.RetransmitBufferSize = val
+	}
+}
+
+func WithPacer(pacer pacer.Factory) ConnectOption {
+	return func(p *ConnectParams) {
+		p.Pacer = pacer
 	}
 }
 

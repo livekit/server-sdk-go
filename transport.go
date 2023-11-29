@@ -27,6 +27,7 @@ import (
 	"github.com/pion/sdp/v3"
 	"github.com/pion/webrtc/v3"
 
+	"github.com/livekit/mediatransportutil/pkg/pacer"
 	lksdp "github.com/livekit/protocol/sdp"
 	sdkinterceptor "github.com/livekit/server-sdk-go/pkg/interceptor"
 )
@@ -62,6 +63,7 @@ type PCTransportParams struct {
 	Configuration webrtc.Configuration
 
 	RetransmitBufferSize uint16
+	Pacer                pacer.Factory
 }
 
 func NewPCTransport(params PCTransportParams) (*PCTransport, error) {
@@ -97,6 +99,11 @@ func NewPCTransport(params PCTransportParams) (*PCTransport, error) {
 
 	m.RegisterFeedback(webrtc.RTCPFeedback{Type: "nack"}, webrtc.RTPCodecTypeVideo)
 	m.RegisterFeedback(webrtc.RTCPFeedback{Type: "nack", Parameter: "pli"}, webrtc.RTPCodecTypeVideo)
+
+	if params.Pacer != nil {
+		i.Add(sdkinterceptor.NewPacerInterceptorFactory(params.Pacer))
+	}
+
 	i.Add(responder)
 	i.Add(generator)
 
