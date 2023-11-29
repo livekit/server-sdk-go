@@ -91,7 +91,7 @@ func (pi *PacerInterceptor) BindLocalStream(stream *interceptor.StreamInfo, writ
 
 		pkt := &pacer.Packet{
 			Header:     &headCopy,
-			Payload:    payload,
+			Payload:    buf[n:pktSize],
 			Writer:     pacerWriter,
 			Pool:       pool,
 			PoolEntity: poolEntity,
