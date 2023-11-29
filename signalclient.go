@@ -99,8 +99,11 @@ func (c *SignalClient) Join(urlPrefix string, token string, params *ConnectParam
 	header := newHeaderWithToken(token)
 	conn, hresp, err := websocket.DefaultDialer.Dial(u.String(), header)
 	if err != nil {
-		// TODO-REMOVE - logging to check if we can distinguish Dial error vs app error. Remove log below also after collecting some data
-		logger.Errorw("error establishing signal connection", err, "httpResponse", hresp)
+		var fields []interface{}
+		if hresp != nil {
+			fields = append(fields, "status", hresp.StatusCode)
+		}
+		logger.Errorw("error establishing signal connection", err, fields...)
 
 		if strings.HasSuffix(err.Error(), ":53: server misbehaving") {
 			// DNS issue, abort
