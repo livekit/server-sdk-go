@@ -8,7 +8,7 @@ require (
 	github.com/go-logr/stdr v1.2.2
 	github.com/gorilla/websocket v1.5.1
 	github.com/livekit/mediatransportutil v0.0.0-20231128042044-05525c8278cb
-	github.com/livekit/protocol v1.9.1
+	github.com/livekit/protocol v1.9.2
 	github.com/magefile/mage v1.15.0
 	github.com/pion/dtls/v2 v2.2.8
 	github.com/pion/interceptor v0.1.25
@@ -40,7 +40,7 @@ require (
 	github.com/klauspost/cpuid/v2 v2.2.5 // indirect
 	github.com/lithammer/shortuuid/v4 v4.0.0 // indirect
 	github.com/livekit/mageutil v0.0.0-20230125210925-54e8a70427c1 // indirect
-	github.com/livekit/psrpc v0.5.1 // indirect
+	github.com/livekit/psrpc v0.5.2 // indirect
 	github.com/mackerelio/go-osstat v0.2.4 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.4 // indirect
 	github.com/nats-io/nats.go v1.31.0 // indirect
