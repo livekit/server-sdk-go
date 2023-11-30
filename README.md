@@ -210,6 +210,35 @@ In order to publish from non-file sources, you will have to implement your own `
 
 The SDK takes care of sending the samples to the room.
 
+### Using a pacer
+
+With video publishing, keyframes can be an order of magnitude larger than delta frames. 
+This size difference can cause a significant increase in bitrate when a keyframe is transmitted, leading to a surge in packet flow.
+Such spikes might result in packet loss at the forwarding layer. To maintain a consistent packet flow,
+you can enable the use of a [pacer](https://chromium.googlesource.com/external/webrtc/+/master/modules/pacing/g3doc/index.md).
+
+```go
+import "github.com/livekit/mediatransportutil/pkg/pacer"
+
+// Control total output bitrate to 10Mbps with 1s max latency
+pf := pacer.NewPacerFactory(
+	pacer.LeakyBucketPacer,
+	pacer.WithBitrate(10000000),
+	pacer.WithMaxLatency(time.Second),
+)
+
+room, err := lksdk.ConnectToRoom(host, lksdk.ConnectInfo{
+    APIKey:              apiKey,
+    APISecret:           apiSecret,
+    RoomName:            roomName,
+    ParticipantIdentity: identity,
+}, &lksdk.RoomCallback{
+    ParticipantCallback: lksdk.ParticipantCallback{
+        OnTrackSubscribed: onTrackSubscribed,
+    },
+}, lksdk.WithPacer(pf))
+```
+
 ## Receiving webhooks
 
 The Go SDK helps you to verify and decode webhook callbacks to ensure their authenticity.
