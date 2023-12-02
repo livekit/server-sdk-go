@@ -237,11 +237,11 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 			if pair, err := primaryTransport.GetSelectedCandidatePair(); err == nil {
 				fields = append(fields, "iceCandidatePair", pair)
 			}
-			logger.Infow("ICE connected", fields...)
+			logger.Debugw("ICE connected", fields...)
 		case webrtc.ICEConnectionStateDisconnected:
-			logger.Infow("ICE disconnected")
+			logger.Debugw("ICE disconnected")
 		case webrtc.ICEConnectionStateFailed:
-			logger.Infow("ICE failed")
+			logger.Debugw("ICE failed")
 			e.handleDisconnect(false)
 		}
 	})
@@ -299,7 +299,7 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 		if err := e.publisher.SetRemoteDescription(sd); err != nil {
 			logger.Errorw("could not set remote description", err)
 		} else {
-			logger.Infow("successfully set publisher answer")
+			logger.Debugw("successfully set publisher answer")
 		}
 	}
 	e.client.OnTrickle = func(init webrtc.ICECandidateInit, target livekit.SignalTarget) {
@@ -314,7 +314,7 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 		}
 	}
 	e.client.OnOffer = func(sd webrtc.SessionDescription) {
-		logger.Infow("received offer for subscriber")
+		logger.Debugw("received offer for subscriber")
 		if err := e.subscriber.SetRemoteDescription(sd); err != nil {
 			logger.Errorw("could not set remote description", err)
 			return
@@ -546,7 +546,10 @@ func (e *RTCEngine) handleLeave(leave *livekit.LeaveRequest) {
 	if leave.GetCanReconnect() {
 		e.handleDisconnect(true)
 	} else {
-		logger.Infow("Leave room", "reason", leave.GetReason())
+		logger.Infow("server initiated leave",
+			"reason", leave.GetReason(),
+			"canReconnect", leave.GetCanReconnect(),
+		)
 		if e.OnDisconnected != nil {
 			e.OnDisconnected()
 		}
