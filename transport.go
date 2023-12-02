@@ -148,12 +148,12 @@ func (t *PCTransport) onICEGatheringStateChange(state webrtc.ICEGathererState) {
 		t.lock.Lock()
 		if t.restartAfterGathering {
 			t.lock.Unlock()
-			logger.Infow("restarting ICE after ICE gathering")
+			logger.Debugw("restarting ICE after ICE gathering")
 			if err := t.createAndSendOffer(&webrtc.OfferOptions{ICERestart: true}); err != nil {
 				logger.Errorw("could not restart ICE", err)
 			}
 		} else if t.pendingRestartIceOffer != nil {
-			logger.Infow("accept remote restart ice offer after ICE gathering")
+			logger.Debugw("accept remote restart ice offer after ICE gathering")
 			offer := t.pendingRestartIceOffer
 			t.pendingRestartIceOffer = nil
 			t.lock.Unlock()
@@ -213,7 +213,7 @@ func (t *PCTransport) SetRemoteDescription(sd webrtc.SessionDescription) error {
 	}
 
 	if offerRestartICE && t.pc.ICEGatheringState() == webrtc.ICEGatheringStateGathering {
-		logger.Infow("remote offer restart ice while ice gathering")
+		logger.Debugw("remote offer restart ice while ice gathering")
 		t.pendingRestartIceOffer = &sd
 		t.lock.Unlock()
 		return nil
