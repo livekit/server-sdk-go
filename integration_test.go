@@ -24,12 +24,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/pkg/media"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/atomic"
 
 	"github.com/livekit/protocol/livekit"
+	"github.com/livekit/server-sdk-go/pkg/interceptor"
 )
 
 // The integration test of the SDK. can't run this test standalone, should be run with `mage test`
@@ -312,4 +314,37 @@ func TestSubscribeMutedTrack(t *testing.T) {
 
 	pub.Disconnect()
 	sub.Disconnect()
+}
+
+func TestLimitPayloadSize(t *testing.T) {
+	pub, err := createAgent(t.Name(), nil, "publisher")
+	require.NoError(t, err)
+
+	videoTrackName := "video_of_pub1"
+
+	localTrack, err := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{
+		MimeType:  webrtc.MimeTypeVP8,
+		ClockRate: 90000,
+	}, videoTrackName, videoTrackName)
+	require.NoError(t, err)
+
+	_, err = pub.LocalParticipant.PublishTrack(localTrack, &TrackPublicationOptions{Name: videoTrackName})
+	require.NoError(t, err)
+
+	// wait for track to be published
+	time.Sleep(500 * time.Millisecond)
+
+	rtpPkt := rtp.Packet{
+		Header: rtp.Header{
+			SequenceNumber: 1,
+			Timestamp:      1,
+		},
+		Payload: make([]byte, interceptor.MaxPayloadSize),
+	}
+	require.NoError(t, localTrack.WriteRTP(&rtpPkt))
+	rtpPkt.SequenceNumber++
+	rtpPkt.Payload = make([]byte, interceptor.MaxPayloadSize+1)
+	require.ErrorIs(t, localTrack.WriteRTP(&rtpPkt), interceptor.ErrPayloadSizeTooLarge)
+
+	pub.Disconnect()
 }
