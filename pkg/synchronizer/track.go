@@ -205,7 +205,7 @@ func (t *TrackSynchronizer) getElapsed(ts int64) time.Duration {
 }
 
 func (t *TrackSynchronizer) resetRTP(pkt *rtp.Packet) (int64, time.Duration) {
-	frames := int64(time.Since(t.lastPacket) / t.GetFrameDuration())
+	frames := int64(time.Since(t.lastPacket) / t.getFrameDuration())
 	duration := t.getFrameDurationRTP() * frames
 	ts := t.lastTS + duration
 	pts := t.lastPTS + t.rtpConverter.toDuration(duration)
@@ -259,6 +259,10 @@ func (t *TrackSynchronizer) GetFrameDuration() time.Duration {
 	t.Lock()
 	defer t.Unlock()
 
+	return t.getFrameDuration()
+}
+
+func (t *TrackSynchronizer) getFrameDuration() time.Duration {
 	switch t.track.Kind() {
 	case webrtc.RTPCodecTypeAudio:
 		// round opus packets to 2.5ms
