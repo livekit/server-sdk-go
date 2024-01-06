@@ -53,14 +53,14 @@ import (
 )
 
 func main() {
-	host := "host"
-	apiKey := "key"
-	apiSecret := "secret"
+	hostURL := "host-url"  // ex: https://project-123456.livekit.cloud
+	apiKey := "api-key"
+	apiSecret := "api-secret"
 
 	roomName := "myroom"
 	identity := "participantIdentity"
 
-    roomClient := lksdk.NewRoomServiceClient(host, apiKey, apiSecret)
+    roomClient := lksdk.NewRoomServiceClient(hostURL, apiKey, apiSecret)
 
     // create a new room
     room, _ := roomClient.CreateRoom(context.Background(), &livekit.CreateRoomRequest{
@@ -106,7 +106,7 @@ import (
 )
 
 func main() {
-  host := "<host>"
+  hostURL := "host-url"  // ex: https://project-123456.livekit.cloud
   apiKey := "api-key"
   apiSecret := "api-secret"
   roomName := "myroom"
@@ -116,7 +116,7 @@ func main() {
 	  OnTrackSubscribed: trackSubscribed
   	},
   }
-  room, err := lksdk.ConnectToRoom(host, lksdk.ConnectInfo{
+  room, err := lksdk.ConnectToRoom(hostURL, lksdk.ConnectInfo{
   	APIKey:              apiKey,
   	APISecret:           apiSecret,
   	RoomName:            roomName,
@@ -212,7 +212,7 @@ The SDK takes care of sending the samples to the room.
 
 ### Using a pacer
 
-With video publishing, keyframes can be an order of magnitude larger than delta frames. 
+With video publishing, keyframes can be an order of magnitude larger than delta frames.
 This size difference can cause a significant increase in bitrate when a keyframe is transmitted, leading to a surge in packet flow.
 Such spikes might result in packet loss at the forwarding layer. To maintain a consistent packet flow,
 you can enable the use of a [pacer](https://chromium.googlesource.com/external/webrtc/+/master/modules/pacing/g3doc/index.md).
@@ -227,7 +227,7 @@ pf := pacer.NewPacerFactory(
 	pacer.WithMaxLatency(time.Second),
 )
 
-room, err := lksdk.ConnectToRoom(host, lksdk.ConnectInfo{
+room, err := lksdk.ConnectToRoom(hostURL, lksdk.ConnectInfo{
     APIKey:              apiKey,
     APISecret:           apiSecret,
     RoomName:            roomName,
