@@ -387,6 +387,7 @@ func (s *LocalSampleTrack) rtcpWorker(rtcpReader interceptor.RTCPReader) {
 
 		pkts, err := rtcp.Unmarshal(b[:i])
 		if err != nil {
+			logger.Warnw("could not unmarshal rtcp", err)
 			return
 		}
 		for _, packet := range pkts {

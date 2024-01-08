@@ -55,6 +55,7 @@ type PCTransport struct {
 	nackGenerator             *sdkinterceptor.NackGeneratorInterceptorFactory
 
 	onRemoteDescriptionSettled func() error
+	onRTTUpdate                func(rtt uint32)
 
 	OnOffer func(description webrtc.SessionDescription)
 }
@@ -64,6 +65,7 @@ type PCTransportParams struct {
 
 	RetransmitBufferSize uint16
 	Pacer                pacer.Factory
+	OnRTTUpdate          func(rtt uint32)
 }
 
 func NewPCTransport(params PCTransportParams) (*PCTransport, error) {
@@ -85,6 +87,11 @@ func NewPCTransport(params PCTransportParams) (*PCTransport, error) {
 	}
 
 	i := &interceptor.Registry{}
+
+	t := &PCTransport{
+		debouncedNegotiate: debounce.New(negotiationFrequency),
+		onRTTUpdate:        params.OnRTTUpdate,
+	}
 
 	// nack interceptor
 	generator := &sdkinterceptor.NackGeneratorInterceptorFactory{}
@@ -119,6 +126,10 @@ func NewPCTransport(params PCTransportParams) (*PCTransport, error) {
 
 	i.Add(sdkinterceptor.NewLimitSizeInterceptorFactory())
 
+	if params.OnRTTUpdate != nil {
+		i.Add(sdkinterceptor.NewRTTInterceptorFactory(t.handleRTTUpdate))
+	}
+
 	se := webrtc.SettingEngine{}
 	se.SetSRTPProtectionProfiles(dtls.SRTP_AEAD_AES_128_GCM, dtls.SRTP_AES128_CM_HMAC_SHA1_80)
 	se.SetDTLSRetransmissionInterval(dtlsRetransmissionInterval)
@@ -130,15 +141,20 @@ func NewPCTransport(params PCTransportParams) (*PCTransport, error) {
 		return nil, err
 	}
 
-	t := &PCTransport{
-		pc:                 pc,
-		debouncedNegotiate: debounce.New(negotiationFrequency),
-		nackGenerator:      generator,
-	}
+	t.pc = pc
+	t.nackGenerator = generator
 
 	pc.OnICEGatheringStateChange(t.onICEGatheringStateChange)
 
 	return t, nil
+}
+
+func (t *PCTransport) handleRTTUpdate(rtt uint32) {
+	t.SetRTT(rtt)
+
+	if t.onRTTUpdate != nil {
+		t.onRTTUpdate(rtt)
+	}
 }
 
 func (t *PCTransport) onICEGatheringStateChange(state webrtc.ICEGathererState) {
