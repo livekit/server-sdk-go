@@ -55,9 +55,6 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 	}
 
 	pub := NewLocalTrackPublication(kind, track, *opts, p.engine.client)
-	pub.OnRttUpdate(func(rtt uint32) {
-		p.engine.setRTT(rtt)
-	})
 	pub.onMuteChanged = p.onTrackMuted
 
 	req := &livekit.AddTrackRequest{
@@ -107,7 +104,9 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 		return nil, err
 	}
 
-	pub.setSender(transceiver.Sender())
+	// LocalSampleTrack will consume rtcp packets so we don't need to consume again
+	_, isSampleTrack := track.(*LocalSampleTrack)
+	pub.setSender(transceiver.Sender(), !isSampleTrack)
 
 	pub.updateInfo(pubRes.Track)
 	p.addPublication(pub)
@@ -196,7 +195,7 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalSampleTrack, opt
 				return nil, err
 			}
 			sender = transceiver.Sender()
-			pub.setSender(sender)
+			pub.setSender(sender, false)
 		} else {
 			if err = sender.AddEncoding(st); err != nil {
 				return nil, err

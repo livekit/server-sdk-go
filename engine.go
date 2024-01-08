@@ -173,10 +173,6 @@ func (e *RTCEngine) TrackPublishedChan() <-chan *livekit.TrackPublishedResponse 
 }
 
 func (e *RTCEngine) setRTT(rtt uint32) {
-	if pc := e.publisher; pc != nil {
-		pc.SetRTT(rtt)
-	}
-
 	if pc := e.subscriber; pc != nil {
 		pc.SetRTT(rtt)
 	}
@@ -193,6 +189,7 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 		Configuration:        configuration,
 		RetransmitBufferSize: e.connParams.RetransmitBufferSize,
 		Pacer:                e.connParams.Pacer,
+		OnRTTUpdate:          e.setRTT,
 	}); err != nil {
 		return err
 	}
