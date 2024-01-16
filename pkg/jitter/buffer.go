@@ -15,7 +15,6 @@
 package jitter
 
 import (
-	"fmt"
 	"sync"
 	"time"
 
@@ -111,12 +110,6 @@ func (b *Buffer) Push(pkt *rtp.Packet) {
 		// drop if packet comes before previously pushed packet
 		if !p.padding {
 			b.packetsDropped++
-			b.logger.Debugw("packet dropped",
-				"sequence number", pkt.SequenceNumber,
-				"timestamp", pkt.Timestamp,
-				"reason", "too late",
-				"minimum sequence number", b.prevSN+1,
-			)
 			if b.onPacketDropped != nil {
 				b.onPacketDropped()
 			}
@@ -404,29 +397,13 @@ func (b *Buffer) drop() {
 		// on sequence number reset, skip callback because we don't know whether we lost any
 		if !b.head.reset {
 			b.packetsDropped++
-			b.logger.Debugw("packet dropped",
-				"sequence number", formatSN(b.prevSN+1, b.head.packet.SequenceNumber-1),
-				"reason", "lost",
-			)
 			dropped = true
 		}
 
-		count := 0
-		from := b.head.packet.SequenceNumber
-		ts := b.head.packet.Timestamp
 		for b.head != nil && !b.head.start && before32(b.head.packet.Timestamp-b.maxSampleSize, b.minTS) {
 			dropped = true
-			count++
 			b.packetsDropped++
 			b.dropHead()
-		}
-		if count > 0 {
-			b.logger.Debugw("packet dropped",
-				"sequence number", formatSN(from, b.head.packet.SequenceNumber-1),
-				"timestamp", ts,
-				"reason", "incomplete sample",
-				"minimum timestamp", b.minTS,
-			)
 		}
 
 		b.prevSN = b.head.packet.SequenceNumber - 1
@@ -441,7 +418,6 @@ func (b *Buffer) drop() {
 		// drop all packets within this sample
 		dropped = true
 		count := 0
-		from := c.packet.SequenceNumber
 		ts := c.packet.Timestamp
 		for {
 			b.packetsDropped++
@@ -454,13 +430,6 @@ func (b *Buffer) drop() {
 				break
 			}
 		}
-
-		b.logger.Debugw("packet dropped",
-			"sequence number", formatSN(from, b.head.packet.SequenceNumber-1),
-			"timestamp", ts,
-			"reason", "incomplete sample",
-			"minimum timestamp", b.minTS,
-		)
 	}
 
 	if dropped && b.onPacketDropped != nil {
@@ -524,12 +493,4 @@ func before32(a, b uint32) bool {
 
 func outsideRange(a, b uint16) bool {
 	return a-b > 3000 && b-a > 3000
-}
-
-func formatSN(from, to uint16) string {
-	if from == to {
-		return fmt.Sprint(from)
-	} else {
-		return fmt.Sprintf("%d-%d", from, to)
-	}
 }
