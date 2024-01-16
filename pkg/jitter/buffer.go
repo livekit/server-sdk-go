@@ -15,7 +15,6 @@
 package jitter
 
 import (
-	"fmt"
 	"sync"
 	"time"
 
@@ -494,12 +493,4 @@ func before32(a, b uint32) bool {
 
 func outsideRange(a, b uint16) bool {
 	return a-b > 3000 && b-a > 3000
-}
-
-func formatSN(from, to uint16) string {
-	if from == to {
-		return fmt.Sprint(from)
-	} else {
-		return fmt.Sprintf("%d-%d", from, to)
-	}
 }
