@@ -53,12 +53,23 @@ const (
 type TrackPubCallback func(track Track, pub TrackPublication, participant *RemoteParticipant)
 type PubCallback func(pub TrackPublication, participant *RemoteParticipant)
 
+type ParticipantKind int
+
+const (
+	ParticipantStandard = ParticipantKind(livekit.ParticipantInfo_STANDARD)
+	ParticipantIngress  = ParticipantKind(livekit.ParticipantInfo_INGRESS)
+	ParticipantEgress   = ParticipantKind(livekit.ParticipantInfo_EGRESS)
+	ParticipantSIP      = ParticipantKind(livekit.ParticipantInfo_SIP)
+	ParticipantAgent    = ParticipantKind(livekit.ParticipantInfo_AGENT)
+)
+
 type ConnectInfo struct {
 	APIKey              string
 	APISecret           string
 	RoomName            string
 	ParticipantName     string
 	ParticipantIdentity string
+	ParticipantKind     ParticipantKind
 	ParticipantMetadata string
 }
 
@@ -193,7 +204,8 @@ func (r *Room) Join(url string, info ConnectInfo, opts ...ConnectOption) error {
 	at.AddGrant(grant).
 		SetIdentity(info.ParticipantIdentity).
 		SetMetadata(info.ParticipantMetadata).
-		SetName(info.ParticipantName)
+		SetName(info.ParticipantName).
+		SetKind(livekit.ParticipantInfo_Kind(info.ParticipantKind))
 
 	token, err := at.ToJWT()
 	if err != nil {
