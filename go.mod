@@ -7,7 +7,7 @@ require (
 	github.com/go-logr/logr v1.4.1
 	github.com/go-logr/stdr v1.2.2
 	github.com/gorilla/websocket v1.5.1
-	github.com/livekit/mediatransportutil v0.0.0-20231130090133-bd1456add80a
+	github.com/livekit/mediatransportutil v0.0.0-20231213075826-cccbf2b93d3f
 	github.com/livekit/protocol v1.9.4
 	github.com/magefile/mage v1.15.0
 	github.com/pion/dtls/v2 v2.2.8
