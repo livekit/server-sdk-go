@@ -178,8 +178,8 @@ if err != nil {
 }
 if _, err = room.LocalParticipant.PublishTrack(track, &lksdk.TrackPublicationOptions{
 	Name: file,
-	Width: videoWidth,
-	Height: videoHeight,
+	VideoWidth: videoWidth,
+	VideoHeight: videoHeight,
 }); err != nil {
     return err
 }
