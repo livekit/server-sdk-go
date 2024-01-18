@@ -426,7 +426,7 @@ func (b *Buffer) drop() {
 			c = b.head
 
 			// break if head is part of a new sample
-			if b.head.packet.Timestamp != ts {
+			if b.head == nil || b.head.packet.Timestamp != ts {
 				break
 			}
 		}
