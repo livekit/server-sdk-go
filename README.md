@@ -113,7 +113,7 @@ func main() {
   identity := "botuser"
   roomCB := &lksdk.RoomCallback{
 	ParticipantCallback: lksdk.ParticipantCallback{
-	  OnTrackSubscribed: trackSubscribed
+	  OnTrackSubscribed: trackSubscribed,
   	},
   }
   room, err := lksdk.ConnectToRoom(hostURL, lksdk.ConnectInfo{
