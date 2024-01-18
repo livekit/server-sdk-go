@@ -209,16 +209,27 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 			// done
 			return
 		}
-		if err := e.client.SendICECandidate(candidate.ToJSON(), livekit.SignalTarget_PUBLISHER); err != nil {
+		init := candidate.ToJSON()
+		logger.Debugw("local ICE candidate",
+			"target", livekit.SignalTarget_PUBLISHER,
+			"candidate", init.Candidate,
+		)
+		if err := e.client.SendICECandidate(init, livekit.SignalTarget_PUBLISHER); err != nil {
 			logger.Errorw("could not send ICE candidates for publisher", err)
 		}
+
 	})
 	e.subscriber.pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
 		if candidate == nil {
 			// done
 			return
 		}
-		if err := e.client.SendICECandidate(candidate.ToJSON(), livekit.SignalTarget_SUBSCRIBER); err != nil {
+		init := candidate.ToJSON()
+		logger.Debugw("local ICE candidate",
+			"target", livekit.SignalTarget_SUBSCRIBER,
+			"candidate", init.Candidate,
+		)
+		if err := e.client.SendICECandidate(init, livekit.SignalTarget_SUBSCRIBER); err != nil {
 			logger.Errorw("could not send ICE candidates for subscriber", err)
 		}
 	})
@@ -301,6 +312,10 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 	}
 	e.client.OnTrickle = func(init webrtc.ICECandidateInit, target livekit.SignalTarget) {
 		var err error
+		logger.Debugw("remote ICE candidate",
+			"target", target,
+			"candidate", init.Candidate,
+		)
 		if target == livekit.SignalTarget_PUBLISHER {
 			err = e.publisher.AddICECandidate(init)
 		} else if target == livekit.SignalTarget_SUBSCRIBER {
