@@ -65,7 +65,7 @@ func createAgent(roomName string, callback *RoomCallback, name string) (*Room, e
 }
 
 func pubNullTrack(t *testing.T, room *Room, name string) *LocalTrackPublication {
-	track, err := NewLocalSampleTrack(webrtc.RTPCodecCapability{
+	track, err := NewLocalTrack(webrtc.RTPCodecCapability{
 		MimeType:  webrtc.MimeTypeOpus,
 		Channels:  2,
 		ClockRate: 48000,
@@ -253,7 +253,7 @@ func TestSubscribeMutedTrack(t *testing.T) {
 
 	pubMuteTrack := func(t *testing.T, room *Room, name string, codec webrtc.RTPCodecCapability) *LocalTrackPublication {
 		pubTrackMuted.Add(1)
-		track, err := NewLocalSampleTrack(codec)
+		track, err := NewLocalTrack(codec)
 		require.NoError(t, err)
 
 		track.OnBind(func() {

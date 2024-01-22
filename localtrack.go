@@ -43,11 +43,11 @@ type SampleWriteOptions struct {
 	AudioLevel *uint8
 }
 
-// LocalSampleTrack is a local track that simplifies writing samples.
+// LocalTrack is a local track that simplifies writing samples.
 // It handles timing and publishing of things, so as long as a SampleProvider is provided, the class takes care of
 // publishing tracks at the right frequency
 // This extends webrtc.TrackLocalStaticSample, and adds the ability to write RTP extensions
-type LocalSampleTrack struct {
+type LocalTrack struct {
 	packetizer      rtp.Packetizer
 	sequencer       rtp.Sequencer
 	transceiver     *webrtc.RTPTransceiver
@@ -73,26 +73,28 @@ type LocalSampleTrack struct {
 	// notify when sample provider responds with EOF
 	onWriteComplete func()
 }
+type LocalSampleTrack = LocalTrack
 
-type LocalSampleTrackOptions func(s *LocalSampleTrack)
+type LocalTrackOptions func(s *LocalTrack)
+type LocalSampleTrackOptions = LocalTrackOptions
 
 // WithSimulcast marks the current track for simulcasting.
 // In order to use simulcast, simulcastID must be identical across all layers
-func WithSimulcast(simulcastID string, layer *livekit.VideoLayer) LocalSampleTrackOptions {
-	return func(s *LocalSampleTrack) {
+func WithSimulcast(simulcastID string, layer *livekit.VideoLayer) LocalTrackOptions {
+	return func(s *LocalTrack) {
 		s.videoLayer = layer
 		s.simulcastID = simulcastID
 	}
 }
 
-func WithRTCPHandler(cb func(rtcp.Packet)) LocalSampleTrackOptions {
-	return func(s *LocalSampleTrack) {
+func WithRTCPHandler(cb func(rtcp.Packet)) LocalTrackOptions {
+	return func(s *LocalTrack) {
 		s.onRTCP = cb
 	}
 }
 
-func NewLocalSampleTrack(c webrtc.RTPCodecCapability, opts ...LocalSampleTrackOptions) (*LocalSampleTrack, error) {
-	s := &LocalSampleTrack{}
+func NewLocalTrack(c webrtc.RTPCodecCapability, opts ...LocalTrackOptions) (*LocalTrack, error) {
+	s := &LocalTrack{}
 	for _, o := range opts {
 		o(s)
 	}
@@ -121,7 +123,11 @@ func NewLocalSampleTrack(c webrtc.RTPCodecCapability, opts ...LocalSampleTrackOp
 	return s, nil
 }
 
-func (s *LocalSampleTrack) SetTransceiver(transceiver *webrtc.RTPTransceiver) {
+func NewLocalSampleTrack(c webrtc.RTPCodecCapability, opts ...LocalTrackOptions) (*LocalTrack, error) {
+	return NewLocalTrack(c, opts...)
+}
+
+func (s *LocalTrack) SetTransceiver(transceiver *webrtc.RTPTransceiver) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -131,30 +137,30 @@ func (s *LocalSampleTrack) SetTransceiver(transceiver *webrtc.RTPTransceiver) {
 // ID is the unique identifier for this Track. This should be unique for the
 // stream, but doesn't have to globally unique. A common example would be 'audio' or 'video'
 // and StreamID would be 'desktop' or 'webcam'
-func (s *LocalSampleTrack) ID() string { return s.rtpTrack.ID() }
+func (s *LocalTrack) ID() string { return s.rtpTrack.ID() }
 
 // RID is the RTP stream identifier.
-func (s *LocalSampleTrack) RID() string {
+func (s *LocalTrack) RID() string {
 	return s.rtpTrack.RID()
 }
 
 // StreamID is the group this track belongs too. This must be unique
-func (s *LocalSampleTrack) StreamID() string { return s.rtpTrack.StreamID() }
+func (s *LocalTrack) StreamID() string { return s.rtpTrack.StreamID() }
 
 // Kind controls if this TrackLocal is audio or video
-func (s *LocalSampleTrack) Kind() webrtc.RTPCodecType { return s.rtpTrack.Kind() }
+func (s *LocalTrack) Kind() webrtc.RTPCodecType { return s.rtpTrack.Kind() }
 
 // Codec gets the Codec of the track
-func (s *LocalSampleTrack) Codec() webrtc.RTPCodecCapability {
+func (s *LocalTrack) Codec() webrtc.RTPCodecCapability {
 	return s.rtpTrack.Codec()
 }
 
-func (s *LocalSampleTrack) IsBound() bool {
+func (s *LocalTrack) IsBound() bool {
 	return s.bound.Load()
 }
 
 // Bind is an interface for TrackLocal, not for external consumption
-func (s *LocalSampleTrack) Bind(t webrtc.TrackLocalContext) (webrtc.RTPCodecParameters, error) {
+func (s *LocalTrack) Bind(t webrtc.TrackLocalContext) (webrtc.RTPCodecParameters, error) {
 	codec, err := s.rtpTrack.Bind(t)
 	if err != nil {
 		return codec, err
@@ -212,7 +218,7 @@ func (s *LocalSampleTrack) Bind(t webrtc.TrackLocalContext) (webrtc.RTPCodecPara
 }
 
 // Unbind is an interface for TrackLocal, not for external consumption
-func (s *LocalSampleTrack) Unbind(t webrtc.TrackLocalContext) error {
+func (s *LocalTrack) Unbind(t webrtc.TrackLocalContext) error {
 	s.lock.Lock()
 	provider := s.provider
 	onUnbind := s.onUnbind
@@ -238,7 +244,7 @@ func (s *LocalSampleTrack) Unbind(t webrtc.TrackLocalContext) error {
 	return err
 }
 
-func (s *LocalSampleTrack) StartWrite(provider SampleProvider, onComplete func()) error {
+func (s *LocalTrack) StartWrite(provider SampleProvider, onComplete func()) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	if s.provider == provider {
@@ -265,20 +271,20 @@ func (s *LocalSampleTrack) StartWrite(provider SampleProvider, onComplete func()
 }
 
 // OnBind sets a callback to be called when the track has been negotiated for publishing and bound to a peer connection
-func (s *LocalSampleTrack) OnBind(f func()) {
+func (s *LocalTrack) OnBind(f func()) {
 	s.lock.Lock()
 	s.onBind = f
 	s.lock.Unlock()
 }
 
 // OnUnbind sets a callback to be called after the track is removed from a peer connection
-func (s *LocalSampleTrack) OnUnbind(f func()) {
+func (s *LocalTrack) OnUnbind(f func()) {
 	s.lock.Lock()
 	s.onUnbind = f
 	s.lock.Unlock()
 }
 
-func (s *LocalSampleTrack) WriteRTP(p *rtp.Packet, opts *SampleWriteOptions) error {
+func (s *LocalTrack) WriteRTP(p *rtp.Packet, opts *SampleWriteOptions) error {
 	s.lock.RLock()
 	transceiver := s.transceiver
 	ssrcAcked := s.ssrcAcked
@@ -316,7 +322,7 @@ func (s *LocalSampleTrack) WriteRTP(p *rtp.Packet, opts *SampleWriteOptions) err
 	return s.rtpTrack.WriteRTP(p)
 }
 
-func (s *LocalSampleTrack) WriteSample(sample media.Sample, opts *SampleWriteOptions) error {
+func (s *LocalTrack) WriteSample(sample media.Sample, opts *SampleWriteOptions) error {
 	s.lock.RLock()
 	p := s.packetizer
 	clockRate := s.clockRate
@@ -357,7 +363,7 @@ func (s *LocalSampleTrack) WriteSample(sample media.Sample, opts *SampleWriteOpt
 	return nil
 }
 
-func (s *LocalSampleTrack) Close() error {
+func (s *LocalTrack) Close() error {
 	s.lock.Lock()
 	cancelWrite := s.cancelWrite
 	provider := s.provider
@@ -371,11 +377,11 @@ func (s *LocalSampleTrack) Close() error {
 	return nil
 }
 
-func (s *LocalSampleTrack) setMuted(muted bool) {
+func (s *LocalTrack) setMuted(muted bool) {
 	s.muted.Store(muted)
 }
 
-func (s *LocalSampleTrack) rtcpWorker(rtcpReader interceptor.RTCPReader) {
+func (s *LocalTrack) rtcpWorker(rtcpReader interceptor.RTCPReader) {
 	// read incoming rtcp packets, interceptors require this
 	b := make([]byte, rtpInboundMTU)
 	rtcpCB := s.onRTCP
@@ -414,7 +420,7 @@ func (s *LocalSampleTrack) rtcpWorker(rtcpReader interceptor.RTCPReader) {
 	}
 }
 
-func (s *LocalSampleTrack) writeWorker(provider SampleProvider, onComplete func()) {
+func (s *LocalTrack) writeWorker(provider SampleProvider, onComplete func()) {
 	if s.cancelWrite != nil {
 		s.cancelWrite()
 	}
