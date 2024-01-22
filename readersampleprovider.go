@@ -42,7 +42,7 @@ type ReaderSampleProvider struct {
 	FrameDuration   time.Duration
 	OnWriteComplete func()
 	AudioLevel      uint8
-	trackOpts       []LocalSampleTrackOptions
+	trackOpts       []LocalTrackOptions
 
 	// Allow various types of ingress
 	reader io.ReadCloser
@@ -86,14 +86,14 @@ func ReaderTrackWithRTCPHandler(f func(rtcp.Packet)) func(provider *ReaderSample
 	}
 }
 
-func ReaderTrackWithSampleOptions(opts ...LocalSampleTrackOptions) func(provider *ReaderSampleProvider) {
+func ReaderTrackWithSampleOptions(opts ...LocalTrackOptions) func(provider *ReaderSampleProvider) {
 	return func(provider *ReaderSampleProvider) {
 		provider.trackOpts = append(provider.trackOpts, opts...)
 	}
 }
 
 // NewLocalFileTrack creates an *os.File reader for NewLocalReaderTrack
-func NewLocalFileTrack(file string, options ...ReaderSampleProviderOption) (*LocalSampleTrack, error) {
+func NewLocalFileTrack(file string, options ...ReaderSampleProviderOption) (*LocalTrack, error) {
 	// File health check
 	var err error
 	if _, err = os.Stat(file); err != nil {
@@ -144,7 +144,7 @@ func NewLocalFileTrack(file string, options ...ReaderSampleProviderOption) (*Loc
 
 // NewLocalReaderTrack uses io.ReadCloser interface to adapt to various ingress types
 // - mime: has to be one of webrtc.MimeType... (e.g. webrtc.MimeTypeOpus)
-func NewLocalReaderTrack(in io.ReadCloser, mime string, options ...ReaderSampleProviderOption) (*LocalSampleTrack, error) {
+func NewLocalReaderTrack(in io.ReadCloser, mime string, options ...ReaderSampleProviderOption) (*LocalTrack, error) {
 	provider := &ReaderSampleProvider{
 		Mime:   mime,
 		reader: in,
@@ -164,7 +164,7 @@ func NewLocalReaderTrack(in io.ReadCloser, mime string, options ...ReaderSampleP
 	}
 
 	// Create sample track & bind handler
-	track, err := NewLocalSampleTrack(webrtc.RTPCodecCapability{MimeType: provider.Mime}, provider.trackOpts...)
+	track, err := NewLocalTrack(webrtc.RTPCodecCapability{MimeType: provider.Mime}, provider.trackOpts...)
 	if err != nil {
 		return nil, err
 	}

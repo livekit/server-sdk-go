@@ -104,8 +104,8 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 		return nil, err
 	}
 
-	// LocalSampleTrack will consume rtcp packets so we don't need to consume again
-	_, isSampleTrack := track.(*LocalSampleTrack)
+	// LocalTrack will consume rtcp packets so we don't need to consume again
+	_, isSampleTrack := track.(*LocalTrack)
 	pub.setSender(transceiver.Sender(), !isSampleTrack)
 
 	pub.updateInfo(pubRes.Track)
@@ -119,7 +119,7 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 }
 
 // PublishSimulcastTrack publishes up to three layers to the server
-func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalSampleTrack, opts *TrackPublicationOptions) (*LocalTrackPublication, error) {
+func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *TrackPublicationOptions) (*LocalTrackPublication, error) {
 	if len(tracks) == 0 {
 		return nil, nil
 	}
@@ -230,7 +230,7 @@ func (p *LocalParticipant) republishTracks() {
 	for _, pub := range localPubs {
 		opt := pub.PublicationOptions()
 		if len(pub.simulcastTracks) > 0 {
-			var tracks []*LocalSampleTrack
+			var tracks []*LocalTrack
 			for _, st := range pub.simulcastTracks {
 				tracks = append(tracks, st)
 			}
