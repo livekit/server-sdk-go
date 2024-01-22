@@ -278,12 +278,48 @@ func (s *LocalSampleTrack) OnUnbind(f func()) {
 	s.lock.Unlock()
 }
 
+func (s *LocalSampleTrack) WriteRTP(p *rtp.Packet, opts *SampleWriteOptions) error {
+	s.lock.RLock()
+	transceiver := s.transceiver
+	ssrcAcked := s.ssrcAcked
+	s.lock.RUnlock()
+
+	if s.audioLevelID != 0 && opts != nil && opts.AudioLevel != nil {
+		ext := rtp.AudioLevelExtension{
+			Level: *opts.AudioLevel,
+		}
+		data, err := ext.Marshal()
+		if err != nil {
+			return err
+		}
+		if err := p.Header.SetExtension(s.audioLevelID, data); err != nil {
+			return err
+		}
+	}
+
+	if s.RID() != "" && transceiver != nil && transceiver.Mid() != "" && !ssrcAcked {
+		if s.sdesMidID != 0 {
+			midValue := transceiver.Mid()
+			if err := p.Header.SetExtension(s.sdesMidID, []byte(midValue)); err != nil {
+				return err
+			}
+		}
+
+		if s.sdesRtpStreamID != 0 {
+			ridValue := s.RID()
+			if err := p.Header.SetExtension(s.sdesRtpStreamID, []byte(ridValue)); err != nil {
+				return err
+			}
+		}
+	}
+
+	return s.rtpTrack.WriteRTP(p)
+}
+
 func (s *LocalSampleTrack) WriteSample(sample media.Sample, opts *SampleWriteOptions) error {
 	s.lock.RLock()
 	p := s.packetizer
 	clockRate := s.clockRate
-	transceiver := s.transceiver
-	ssrcAcked := s.ssrcAcked
 	s.lock.RUnlock()
 
 	if p == nil {
@@ -309,40 +345,7 @@ func (s *LocalSampleTrack) WriteSample(sample media.Sample, opts *SampleWriteOpt
 
 	var writeErrs []error
 	for _, p := range packets {
-		if s.audioLevelID != 0 && opts != nil && opts.AudioLevel != nil {
-			ext := rtp.AudioLevelExtension{
-				Level: *opts.AudioLevel,
-			}
-			data, err := ext.Marshal()
-			if err != nil {
-				writeErrs = append(writeErrs, err)
-				continue
-			}
-			if err := p.Header.SetExtension(s.audioLevelID, data); err != nil {
-				writeErrs = append(writeErrs, err)
-				continue
-			}
-		}
-
-		if s.RID() != "" && transceiver != nil && transceiver.Mid() != "" && !ssrcAcked {
-			if s.sdesMidID != 0 {
-				midValue := transceiver.Mid()
-				if err := p.Header.SetExtension(s.sdesMidID, []byte(midValue)); err != nil {
-					writeErrs = append(writeErrs, err)
-					continue
-				}
-			}
-
-			if s.sdesRtpStreamID != 0 {
-				ridValue := s.RID()
-				if err := p.Header.SetExtension(s.sdesRtpStreamID, []byte(ridValue)); err != nil {
-					writeErrs = append(writeErrs, err)
-					continue
-				}
-			}
-		}
-
-		if err := s.rtpTrack.WriteRTP(p); err != nil {
+		if err := s.WriteRTP(p, opts); err != nil {
 			writeErrs = append(writeErrs, err)
 		}
 	}
