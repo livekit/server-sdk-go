@@ -120,39 +120,3 @@ func (s *SIPClient) CreateSIPParticipant(ctx context.Context, in *livekit.Create
 	}
 	return s.sipClient.CreateSIPParticipant(ctx, in)
 }
-
-func (s *SIPClient) SendSIPParticipantDTMF(ctx context.Context, in *livekit.SendSIPParticipantDTMFRequest) (*livekit.SIPParticipantDTMFInfo, error) {
-	if in == nil {
-		return nil, ErrInvalidParameter
-	}
-
-	ctx, err := s.withAuth(ctx, auth.VideoGrant{})
-	if err != nil {
-		return nil, err
-	}
-	return s.sipClient.SendSIPParticipantDTMF(ctx, in)
-}
-
-func (s *SIPClient) ListSIPParticipant(ctx context.Context, in *livekit.ListSIPParticipantRequest) (*livekit.ListSIPParticipantResponse, error) {
-	if in == nil {
-		return nil, ErrInvalidParameter
-	}
-
-	ctx, err := s.withAuth(ctx, auth.VideoGrant{})
-	if err != nil {
-		return nil, err
-	}
-	return s.sipClient.ListSIPParticipant(ctx, in)
-}
-
-func (s *SIPClient) DeleteSIPParticipant(ctx context.Context, in *livekit.DeleteSIPParticipantRequest) (*livekit.SIPParticipantInfo, error) {
-	if in == nil {
-		return nil, ErrInvalidParameter
-	}
-
-	ctx, err := s.withAuth(ctx, auth.VideoGrant{})
-	if err != nil {
-		return nil, err
-	}
-	return s.sipClient.DeleteSIPParticipant(ctx, in)
-}
