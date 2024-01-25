@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	"go.uber.org/atomic"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/livekit/protocol/livekit"
 )
@@ -26,6 +27,7 @@ type Participant interface {
 	SID() string
 	Identity() string
 	Name() string
+	Kind() livekit.ParticipantInfo_Kind
 	IsSpeaking() bool
 	AudioLevel() float32
 	Tracks() []TrackPublication
@@ -34,6 +36,7 @@ type Participant interface {
 	IsScreenShareEnabled() bool
 	Metadata() string
 	GetTrack(source livekit.TrackSource) TrackPublication
+	Permissions() *livekit.ParticipantPermission
 
 	setAudioLevel(level float32)
 	setIsSpeaking(speaking bool)
@@ -91,10 +94,26 @@ func (p *baseParticipant) Name() string {
 	return p.name
 }
 
+func (p *baseParticipant) Kind() livekit.ParticipantInfo_Kind {
+	p.lock.RLock()
+	defer p.lock.RUnlock()
+	return p.info.GetKind()
+}
+
 func (p *baseParticipant) Metadata() string {
 	p.lock.RLock()
 	defer p.lock.RUnlock()
 	return p.metadata
+}
+
+func (p *baseParticipant) Permissions() *livekit.ParticipantPermission {
+	p.lock.RLock()
+	defer p.lock.RUnlock()
+	perm := p.info.GetPermission()
+	if perm != nil {
+		return proto.Clone(perm).(*livekit.ParticipantPermission)
+	}
+	return nil
 }
 
 func (p *baseParticipant) IsSpeaking() bool {
