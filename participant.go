@@ -34,6 +34,7 @@ type Participant interface {
 	IsCameraEnabled() bool
 	IsMicrophoneEnabled() bool
 	IsScreenShareEnabled() bool
+	IsScreenShareAudioEnabled() bool
 	Metadata() string
 	GetTrack(source livekit.TrackSource) TrackPublication
 	Permissions() *livekit.ParticipantPermission
@@ -159,6 +160,11 @@ func (p *baseParticipant) IsMicrophoneEnabled() bool {
 
 func (p *baseParticipant) IsScreenShareEnabled() bool {
 	pub := p.GetTrack(livekit.TrackSource_SCREEN_SHARE)
+	return pub != nil && !pub.IsMuted()
+}
+
+func (p *baseParticipant) IsScreenShareAudioEnabled() bool {
+	pub := p.GetTrack(livekit.TrackSource_SCREEN_SHARE_AUDIO)
 	return pub != nil && !pub.IsMuted()
 }
 
