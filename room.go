@@ -124,8 +124,8 @@ type Room struct {
 	lock sync.RWMutex
 }
 
-// CreateRoom can be used to update callbacks before calling Join
-func CreateRoom(callback *RoomCallback) *Room {
+// NewRoom can be used to update callbacks before calling Join
+func NewRoom(callback *RoomCallback) *Room {
 	engine := NewRTCEngine()
 	r := &Room{
 		engine:             engine,
@@ -157,7 +157,7 @@ func CreateRoom(callback *RoomCallback) *Room {
 
 // ConnectToRoom creates and joins the room
 func ConnectToRoom(url string, info ConnectInfo, callback *RoomCallback, opts ...ConnectOption) (*Room, error) {
-	room := CreateRoom(callback)
+	room := NewRoom(callback)
 	err := room.Join(url, info, opts...)
 	if err != nil {
 		return nil, err
@@ -167,7 +167,7 @@ func ConnectToRoom(url string, info ConnectInfo, callback *RoomCallback, opts ..
 
 // ConnectToRoomWithToken creates and joins the room
 func ConnectToRoomWithToken(url, token string, callback *RoomCallback, opts ...ConnectOption) (*Room, error) {
-	room := CreateRoom(callback)
+	room := NewRoom(callback)
 	err := room.JoinWithToken(url, token, opts...)
 	if err != nil {
 		return nil, err
@@ -500,7 +500,7 @@ func (r *Room) handleRoomUpdate(room *livekit.Room) {
 }
 
 func (r *Room) handleTrackRemoteMuted(msg *livekit.MuteTrackRequest) {
-	for _, pub := range r.LocalParticipant.Tracks() {
+	for _, pub := range r.LocalParticipant.TrackPublications() {
 		if pub.SID() == msg.Sid {
 			localPub := pub.(*LocalTrackPublication)
 			// TODO: pause sending data because it'll be dropped by SFU
@@ -526,7 +526,7 @@ func (r *Room) sendSyncState() {
 	var trackSids []string
 	sendUnsub := r.engine.connParams.AutoSubscribe
 	for _, rp := range r.GetRemoteParticipants() {
-		for _, t := range rp.Tracks() {
+		for _, t := range rp.TrackPublications() {
 			if t.IsSubscribed() != sendUnsub {
 				trackSids = append(trackSids, t.SID())
 			}
@@ -534,7 +534,7 @@ func (r *Room) sendSyncState() {
 	}
 
 	var publishedTracks []*livekit.TrackPublishedResponse
-	for _, t := range r.LocalParticipant.Tracks() {
+	for _, t := range r.LocalParticipant.TrackPublications() {
 		if t.Track() != nil {
 			publishedTracks = append(publishedTracks, &livekit.TrackPublishedResponse{
 				Cid:   t.Track().ID(),

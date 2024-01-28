@@ -30,7 +30,7 @@ type Participant interface {
 	Kind() ParticipantKind
 	IsSpeaking() bool
 	AudioLevel() float32
-	Tracks() []TrackPublication
+	TrackPublications() []TrackPublication
 	IsCameraEnabled() bool
 	IsMicrophoneEnabled() bool
 	IsScreenShareEnabled() bool
@@ -125,7 +125,7 @@ func (p *baseParticipant) AudioLevel() float32 {
 	return float32(p.audioLevel.Load())
 }
 
-func (p *baseParticipant) Tracks() []TrackPublication {
+func (p *baseParticipant) TrackPublications() []TrackPublication {
 	tracks := make([]TrackPublication, 0)
 	p.tracks.Range(func(_, value interface{}) bool {
 		track := value.(TrackPublication)
