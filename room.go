@@ -22,7 +22,7 @@ import (
 
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v3"
-	"github.com/thoas/go-funk"
+	"golang.org/x/exp/maps"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/livekit/mediatransportutil/pkg/pacer"
@@ -456,7 +456,7 @@ func (r *Room) handleSpeakersChange(speakerUpdates []*livekit.SpeakerInfo) {
 		}
 	}
 
-	activeSpeakers := funk.Values(speakerMap).([]Participant)
+	activeSpeakers := maps.Values(speakerMap)
 	sort.Slice(activeSpeakers, func(i, j int) bool {
 		return activeSpeakers[i].AudioLevel() > activeSpeakers[j].AudioLevel()
 	})
