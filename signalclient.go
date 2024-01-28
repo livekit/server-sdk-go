@@ -33,7 +33,7 @@ import (
 	"github.com/livekit/protocol/livekit"
 )
 
-const PROTOCOL = 8
+const PROTOCOL = 12
 
 type SignalClient struct {
 	conn            atomic.Pointer[websocket.Conn]
@@ -74,7 +74,47 @@ func (c *SignalClient) IsStarted() bool {
 	return c.isStarted.Load()
 }
 
-func (c *SignalClient) Join(urlPrefix string, token string, params *ConnectParams) (*livekit.JoinResponse, error) {
+func (c *SignalClient) Join(urlPrefix string, token string, params connectParams) (*livekit.JoinResponse, error) {
+	res, err := c.connect(urlPrefix, token, params)
+	if err != nil {
+		return nil, err
+	}
+
+	join := res.GetJoin()
+	if join == nil {
+		return nil, fmt.Errorf("unexpected response: %v", res.Message)
+	}
+
+	return join, nil
+}
+
+// Reconnect starts a new WebSocket connection to the server, passing in reconnect=1
+// when successful, it'll return a ReconnectResponse; older versions of the server will not send back a ReconnectResponse
+func (c *SignalClient) Reconnect(urlPrefix string, token string, params connectParams) (*livekit.ReconnectResponse, error) {
+	params.Reconnect = true
+	res, err := c.connect(urlPrefix, token, params)
+	if err != nil {
+		return nil, err
+	}
+
+	c.pendingResponse = nil
+	logger.Debugw("reconnect received response", "response", res.String())
+	if res != nil {
+		switch msg := res.Message.(type) {
+		case *livekit.SignalResponse_Reconnect:
+			return msg.Reconnect, nil
+		case *livekit.SignalResponse_Leave:
+			if c.OnLeave != nil {
+				c.OnLeave(msg.Leave)
+			}
+			return nil, fmt.Errorf("reconnect received left, reason: %s", msg.Leave.GetReason())
+		}
+		c.pendingResponse = res
+	}
+	return nil, nil
+}
+
+func (c *SignalClient) connect(urlPrefix string, token string, params connectParams) (*livekit.SignalResponse, error) {
 	if urlPrefix == "" {
 		return nil, ErrURLNotProvided
 	}
@@ -152,27 +192,7 @@ func (c *SignalClient) Join(urlPrefix string, token string, params *ConnectParam
 		return nil, err
 	}
 
-	c.pendingResponse = nil
-	if params.Reconnect {
-		logger.Debugw("reconnect received response", "response", res.String())
-		if res != nil {
-			if res.GetLeave() != nil {
-				if c.OnLeave != nil {
-					c.OnLeave(res.GetLeave())
-				}
-				return nil, fmt.Errorf("reconnect received left, reason: %s", res.GetLeave().GetReason())
-			}
-			c.pendingResponse = res
-		}
-		return nil, nil
-	}
-
-	join := res.GetJoin()
-	if join == nil {
-		return nil, fmt.Errorf("unexpected response: %v", res.Message)
-	}
-
-	return join, nil
+	return res, nil
 }
 
 func (c *SignalClient) Close() {

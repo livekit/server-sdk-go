@@ -54,23 +54,22 @@ type RTCEngine struct {
 
 	url        string
 	token      atomic.String
-	connParams *ConnectParams
+	connParams *connectParams
 
 	JoinTimeout time.Duration
 
 	// callbacks
-	OnDisconnected          func()
-	OnMediaTrack            func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver)
-	OnParticipantUpdate     func([]*livekit.ParticipantInfo)
-	OnActiveSpeakersChanged func([]*livekit.SpeakerInfo)
-	OnSpeakersChanged       func([]*livekit.SpeakerInfo)
-	OnDataReceived          func(userPacket *livekit.UserPacket)
-	OnConnectionQuality     func([]*livekit.ConnectionQualityInfo)
-	OnRoomUpdate            func(room *livekit.Room)
-	OnRestarting            func()
-	OnRestarted             func(*livekit.JoinResponse)
-	OnResuming              func()
-	OnResumed               func()
+	OnDisconnected      func()
+	OnMediaTrack        func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver)
+	OnParticipantUpdate func([]*livekit.ParticipantInfo)
+	OnSpeakersChanged   func([]*livekit.SpeakerInfo)
+	OnDataReceived      func(userPacket *livekit.UserPacket)
+	OnConnectionQuality func([]*livekit.ConnectionQualityInfo)
+	OnRoomUpdate        func(room *livekit.Room)
+	OnRestarting        func()
+	OnRestarted         func(*livekit.JoinResponse)
+	OnResuming          func()
+	OnResumed           func()
 }
 
 func NewRTCEngine() *RTCEngine {
@@ -110,8 +109,8 @@ func NewRTCEngine() *RTCEngine {
 	return e
 }
 
-func (e *RTCEngine) Join(url string, token string, params *ConnectParams) (*livekit.JoinResponse, error) {
-	res, err := e.client.Join(url, token, params)
+func (e *RTCEngine) Join(url string, token string, params *connectParams) (*livekit.JoinResponse, error) {
+	res, err := e.client.Join(url, token, *params)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +119,8 @@ func (e *RTCEngine) Join(url string, token string, params *ConnectParams) (*live
 	e.token.Store(token)
 	e.connParams = params
 
-	if err = e.configure(res); err != nil {
+	err = e.configure(res.IceServers, res.ClientConfiguration, proto.Bool(res.SubscriberPrimary))
+	if err != nil {
 		return nil, err
 	}
 
@@ -178,12 +178,27 @@ func (e *RTCEngine) setRTT(rtt uint32) {
 	}
 }
 
-func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
-	iceServers := FromProtoIceServers(res.IceServers)
-	configuration := webrtc.Configuration{ICEServers: iceServers}
-	if res.GetClientConfiguration().GetForceRelay() == livekit.ClientConfigSetting_ENABLED {
+func (e *RTCEngine) configure(
+	iceServers []*livekit.ICEServer,
+	clientConfig *livekit.ClientConfiguration,
+	subscriberPrimary *bool) error {
+	rtcICEServers := FromProtoIceServers(iceServers)
+	configuration := webrtc.Configuration{ICEServers: rtcICEServers}
+	if clientConfig != nil &&
+		clientConfig.GetForceRelay() == livekit.ClientConfigSetting_ENABLED {
 		configuration.ICETransportPolicy = webrtc.ICETransportPolicyRelay
 	}
+
+	// remove previous transport
+	if e.publisher != nil {
+		e.publisher.Close()
+		e.publisher = nil
+	}
+	if e.subscriber != nil {
+		e.subscriber.Close()
+		e.subscriber = nil
+	}
+
 	var err error
 	if e.publisher, err = NewPCTransport(PCTransportParams{
 		Configuration:        configuration,
@@ -201,7 +216,9 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 	}
 	logger.Debugw("Using ICE servers", "servers", iceServers)
 
-	e.subscriberPrimary = res.SubscriberPrimary
+	if subscriberPrimary != nil {
+		e.subscriberPrimary = *subscriberPrimary
+	}
 	e.subscriber.OnRemoteDescriptionSettled(e.createPublisherAnswerAndSend)
 
 	e.publisher.pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
@@ -235,7 +252,7 @@ func (e *RTCEngine) configure(res *livekit.JoinResponse) error {
 	})
 
 	primaryTransport := e.publisher
-	if res.SubscriberPrimary {
+	if e.subscriberPrimary {
 		primaryTransport = e.subscriber
 	}
 	primaryTransport.pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
@@ -411,10 +428,6 @@ func (e *RTCEngine) handleDataPacket(msg webrtc.DataChannelMessage) {
 		return
 	}
 	switch msg := packet.Value.(type) {
-	case *livekit.DataPacket_Speaker:
-		if e.OnActiveSpeakersChanged != nil {
-			e.OnActiveSpeakersChanged(msg.Speaker.Speakers)
-		}
 	case *livekit.DataPacket_User:
 		if e.OnDataReceived != nil {
 			e.OnDataReceived(msg.User)
@@ -489,11 +502,17 @@ func (e *RTCEngine) handleDisconnect(fullReconnect bool) {
 }
 
 func (e *RTCEngine) resumeConnection() error {
-	_, err := e.client.Join(e.url, e.token.Load(), &ConnectParams{Reconnect: true})
+	reconnect, err := e.client.Reconnect(e.url, e.token.Load(), *e.connParams)
 	if err != nil {
 		return err
 	}
 
+	if reconnect != nil {
+		err := e.configure(reconnect.IceServers, reconnect.ClientConfiguration, nil)
+		if err != nil {
+			return err
+		}
+	}
 	e.client.Start()
 
 	// send offer if publisher enabled

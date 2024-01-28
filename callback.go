@@ -34,7 +34,7 @@ type ParticipantCallback struct {
 	OnTrackSubscriptionFailed func(sid string, rp *RemoteParticipant)
 	OnTrackPublished          func(publication *RemoteTrackPublication, rp *RemoteParticipant)
 	OnTrackUnpublished        func(publication *RemoteTrackPublication, rp *RemoteParticipant)
-	OnDataReceived            func(data []byte, rp *RemoteParticipant)
+	OnDataReceived            func(data []byte, params DataReceiveParams)
 }
 
 func NewParticipantCallback() *ParticipantCallback {
@@ -49,7 +49,7 @@ func NewParticipantCallback() *ParticipantCallback {
 		OnTrackSubscriptionFailed:  func(sid string, rp *RemoteParticipant) {},
 		OnTrackPublished:           func(publication *RemoteTrackPublication, rp *RemoteParticipant) {},
 		OnTrackUnpublished:         func(publication *RemoteTrackPublication, rp *RemoteParticipant) {},
-		OnDataReceived:             func(data []byte, rp *RemoteParticipant) {},
+		OnDataReceived:             func(data []byte, params DataReceiveParams) {},
 	}
 }
 

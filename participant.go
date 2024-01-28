@@ -27,7 +27,7 @@ type Participant interface {
 	SID() string
 	Identity() string
 	Name() string
-	Kind() livekit.ParticipantInfo_Kind
+	Kind() ParticipantKind
 	IsSpeaking() bool
 	AudioLevel() float32
 	Tracks() []TrackPublication
@@ -36,7 +36,7 @@ type Participant interface {
 	IsScreenShareEnabled() bool
 	IsScreenShareAudioEnabled() bool
 	Metadata() string
-	GetTrack(source livekit.TrackSource) TrackPublication
+	GetTrackPublication(source livekit.TrackSource) TrackPublication
 	Permissions() *livekit.ParticipantPermission
 
 	setAudioLevel(level float32)
@@ -95,10 +95,10 @@ func (p *baseParticipant) Name() string {
 	return p.name
 }
 
-func (p *baseParticipant) Kind() livekit.ParticipantInfo_Kind {
+func (p *baseParticipant) Kind() ParticipantKind {
 	p.lock.RLock()
 	defer p.lock.RUnlock()
-	return p.info.GetKind()
+	return ParticipantKind(p.info.GetKind())
 }
 
 func (p *baseParticipant) Metadata() string {
@@ -135,7 +135,7 @@ func (p *baseParticipant) Tracks() []TrackPublication {
 	return tracks
 }
 
-func (p *baseParticipant) GetTrack(source livekit.TrackSource) TrackPublication {
+func (p *baseParticipant) GetTrackPublication(source livekit.TrackSource) TrackPublication {
 	var pub TrackPublication
 	p.tracks.Range(func(_, value interface{}) bool {
 		trackPub := value.(TrackPublication)
@@ -149,22 +149,22 @@ func (p *baseParticipant) GetTrack(source livekit.TrackSource) TrackPublication 
 }
 
 func (p *baseParticipant) IsCameraEnabled() bool {
-	pub := p.GetTrack(livekit.TrackSource_CAMERA)
+	pub := p.GetTrackPublication(livekit.TrackSource_CAMERA)
 	return pub != nil && !pub.IsMuted()
 }
 
 func (p *baseParticipant) IsMicrophoneEnabled() bool {
-	pub := p.GetTrack(livekit.TrackSource_MICROPHONE)
+	pub := p.GetTrackPublication(livekit.TrackSource_MICROPHONE)
 	return pub != nil && !pub.IsMuted()
 }
 
 func (p *baseParticipant) IsScreenShareEnabled() bool {
-	pub := p.GetTrack(livekit.TrackSource_SCREEN_SHARE)
+	pub := p.GetTrackPublication(livekit.TrackSource_SCREEN_SHARE)
 	return pub != nil && !pub.IsMuted()
 }
 
 func (p *baseParticipant) IsScreenShareAudioEnabled() bool {
-	pub := p.GetTrack(livekit.TrackSource_SCREEN_SHARE_AUDIO)
+	pub := p.GetTrackPublication(livekit.TrackSource_SCREEN_SHARE_AUDIO)
 	return pub != nil && !pub.IsMuted()
 }
 
@@ -201,9 +201,10 @@ func (p *baseParticipant) updateInfo(pi *livekit.ParticipantInfo, participant Pa
 	p.name = pi.Name
 	oldMetadata := p.metadata
 	p.metadata = pi.Metadata
+	hasChanged := oldMetadata != p.metadata
 	p.lock.Unlock()
 
-	if oldMetadata != p.metadata {
+	if hasChanged {
 		p.Callback.OnMetadataChanged(oldMetadata, participant)
 		p.roomCallback.OnMetadataChanged(oldMetadata, participant)
 	}

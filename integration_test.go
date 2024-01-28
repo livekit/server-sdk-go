@@ -102,7 +102,7 @@ func TestJoin(t *testing.T) {
 
 	subCB := &RoomCallback{
 		ParticipantCallback: ParticipantCallback{
-			OnDataReceived: func(data []byte, rp *RemoteParticipant) {
+			OnDataReceived: func(data []byte, params DataReceiveParams) {
 				dataLock.Lock()
 				receivedData = string(data)
 				dataLock.Unlock()
@@ -123,7 +123,7 @@ func TestJoin(t *testing.T) {
 	require.NotNil(t, serverInfo)
 	require.Equal(t, serverInfo.Edition, livekit.ServerInfo_Standard)
 
-	pub.LocalParticipant.PublishData([]byte("test"), livekit.DataPacket_RELIABLE, nil)
+	pub.LocalParticipant.PublishData([]byte("test"), WithDataPublishReliable(true))
 	localPub := pubNullTrack(t, pub, audioTrackName)
 	require.Equal(t, localPub.Name(), audioTrackName)
 
@@ -203,7 +203,7 @@ func TestForceTLS(t *testing.T) {
 	require.NoError(t, err)
 
 	// ensure publisher connected
-	pub.LocalParticipant.PublishData([]byte("test"), livekit.DataPacket_RELIABLE, nil)
+	pub.LocalParticipant.PublishData([]byte("test"), WithDataPublishReliable(true))
 
 	pub.Simulate(SimulateForceTLS)
 	require.Eventually(t, func() bool { return reconnected.Load() && pub.engine.ensurePublisherConnected(true) == nil }, 15*time.Second, 100*time.Millisecond)
@@ -249,7 +249,7 @@ func TestSubscribeMutedTrack(t *testing.T) {
 	var trackReceived atomic.Int32
 
 	var pubTrackMuted sync.WaitGroup
-	require.NoError(t, pub.LocalParticipant.PublishData([]byte("test"), livekit.DataPacket_RELIABLE, nil))
+	require.NoError(t, pub.LocalParticipant.PublishData([]byte("test"), WithDataPublishReliable(true)))
 
 	pubMuteTrack := func(t *testing.T, room *Room, name string, codec webrtc.RTPCodecCapability) *LocalTrackPublication {
 		pubTrackMuted.Add(1)
