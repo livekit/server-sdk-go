@@ -251,9 +251,7 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 
 func (r *Room) Disconnect() {
 	_ = r.engine.client.SendLeave()
-	r.engine.Close()
-
-	r.LocalParticipant.closeTracks()
+	r.cleanup()
 }
 
 func (r *Room) GetParticipantByIdentity(identity string) *RemoteParticipant {
@@ -347,7 +345,8 @@ func (r *Room) handleMediaTrack(track *webrtc.TrackRemote, receiver *webrtc.RTPR
 
 func (r *Room) handleDisconnect() {
 	r.callback.OnDisconnected()
-	r.engine.Close()
+
+	r.cleanup()
 }
 
 func (r *Room) handleRestarting() {
@@ -568,6 +567,16 @@ func (r *Room) sendSyncState() {
 		PublishTracks: publishedTracks,
 		DataChannels:  dataChannels,
 	})
+}
+
+func (r *Room) cleanup() {
+	r.engine.Close()
+	r.LocalParticipant.closeTracks()
+	r.lock.Lock()
+	if r.sid == "" {
+		close(r.sidReady)
+	}
+	r.lock.Unlock()
 }
 
 func (r *Room) Simulate(scenario SimulateScenario) {
