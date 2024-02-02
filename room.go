@@ -236,9 +236,7 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 	r.serverInfo = joinRes.ServerInfo
 	r.lock.Unlock()
 
-	if joinRes.Room.Sid != "" {
-		close(r.sidReady)
-	}
+	r.setSid(joinRes.Room.Sid, false)
 
 	r.LocalParticipant.updateInfo(joinRes.Participant)
 
@@ -488,11 +486,8 @@ func (r *Room) handleRoomUpdate(room *livekit.Room) {
 		metadataChanged = true
 		r.metadata = room.Metadata
 	}
-	if r.sid == "" && room.Sid != "" {
-		r.sid = room.Sid
-		close(r.sidReady)
-	}
 	r.lock.Unlock()
+	r.setSid(room.Sid, false)
 	if metadataChanged {
 		go r.callback.OnRoomMetadataChanged(room.Metadata)
 	}
@@ -572,9 +567,19 @@ func (r *Room) sendSyncState() {
 func (r *Room) cleanup() {
 	r.engine.Close()
 	r.LocalParticipant.closeTracks()
+	r.setSid("", true)
+}
+
+func (r *Room) setSid(sid string, allowEmpty bool) {
 	r.lock.Lock()
-	if r.sid == "" {
-		close(r.sidReady)
+	r.sid = sid
+	if sid != "" || allowEmpty {
+		select {
+		case <-r.sidReady:
+		// already closed
+		default:
+			close(r.sidReady)
+		}
 	}
 	r.lock.Unlock()
 }
