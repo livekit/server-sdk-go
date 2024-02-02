@@ -15,6 +15,7 @@
 package lksdk
 
 import (
+	"errors"
 	"sync"
 
 	"github.com/pion/rtcp"
@@ -119,8 +120,10 @@ type RemoteTrackPublication struct {
 	disabled bool
 
 	// preferred video dimensions to subscribe
-	videoWidth  uint32
-	videoHeight uint32
+	videoWidth  *uint32
+	videoHeight *uint32
+	// preferred video quality to subscribe
+	videoQuality *livekit.VideoQuality
 }
 
 func (p *RemoteTrackPublication) TrackRemote() *webrtc.TrackRemote {
@@ -170,11 +173,23 @@ func (p *RemoteTrackPublication) SetEnabled(enabled bool) {
 
 func (p *RemoteTrackPublication) SetVideoDimensions(width uint32, height uint32) {
 	p.lock.Lock()
-	p.videoWidth = width
-	p.videoHeight = height
+	p.videoWidth = &width
+	p.videoHeight = &height
 	p.lock.Unlock()
 
 	p.updateSettings()
+}
+
+func (p *RemoteTrackPublication) SetVideoQuality(quality livekit.VideoQuality) error {
+	if quality == livekit.VideoQuality_OFF {
+		return errors.New("cannot set video quality to OFF")
+	}
+	p.lock.Lock()
+	p.videoQuality = &quality
+	p.lock.Unlock()
+
+	p.updateSettings()
+	return nil
 }
 
 func (p *RemoteTrackPublication) OnRTCP(cb func(rtcp.Packet)) {
@@ -184,15 +199,21 @@ func (p *RemoteTrackPublication) OnRTCP(cb func(rtcp.Packet)) {
 }
 
 func (p *RemoteTrackPublication) updateSettings() {
-	p.lock.Lock()
+	p.lock.RLock()
 	settings := &livekit.UpdateTrackSettings{
 		TrackSids: []string{p.SID()},
 		Disabled:  p.disabled,
-		Quality:   livekit.VideoQuality_HIGH,
-		Width:     p.videoWidth,
-		Height:    p.videoHeight,
+		// default to high
+		Quality: livekit.VideoQuality_HIGH,
 	}
-	p.lock.Unlock()
+	if p.videoWidth != nil && p.videoHeight != nil {
+		settings.Width = *p.videoWidth
+		settings.Height = *p.videoHeight
+	}
+	if p.videoQuality != nil {
+		settings.Quality = *p.videoQuality
+	}
+	p.lock.RUnlock()
 
 	if err := p.client.SendUpdateTrackSettings(settings); err != nil {
 		logger.Errorw("could not send track settings", err, "trackID", p.SID())
@@ -377,4 +398,7 @@ type TrackPublicationOptions struct {
 	// Opus only
 	DisableDTX bool
 	Stereo     bool
+	// which stream the track belongs to, used to group tracks together.
+	// if not specified, server will infer it from track source to bundle camera/microphone, screenshare/audio together
+	Stream string
 }

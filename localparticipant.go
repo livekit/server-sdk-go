@@ -66,6 +66,7 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 		Height:     uint32(opts.VideoHeight),
 		DisableDtx: opts.DisableDTX,
 		Stereo:     opts.Stereo,
+		Stream:     opts.Stream,
 	}
 	if kind == TrackKindVideo {
 		// single layer
@@ -258,16 +259,32 @@ func (p *LocalParticipant) closeTracks() {
 	}
 }
 
-func (p *LocalParticipant) PublishDataPacket(userPacket *livekit.UserPacket, kind livekit.DataPacket_Kind) error {
-	if userPacket == nil {
-		return ErrInvalidParameter
+func (p *LocalParticipant) PublishData(
+	payload []byte,
+	opts ...DataPublishOption,
+) error {
+	options := &dataPublishOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+	packet := &livekit.UserPacket{
+		Payload:               payload,
+		DestinationIdentities: options.DestinationIdentities,
+	}
+	if options.Topic != "" {
+		packet.Topic = proto.String(options.Topic)
 	}
 	dataPacket := &livekit.DataPacket{
-		Kind: kind,
 		Value: &livekit.DataPacket_User{
-			User: userPacket,
+			User: packet,
 		},
 	}
+	if options.Reliable {
+		dataPacket.Kind = livekit.DataPacket_RELIABLE
+	} else {
+		dataPacket.Kind = livekit.DataPacket_LOSSY
+	}
+
 	if err := p.engine.ensurePublisherConnected(true); err != nil {
 		return err
 	}
@@ -278,19 +295,6 @@ func (p *LocalParticipant) PublishDataPacket(userPacket *livekit.UserPacket, kin
 	}
 
 	return p.engine.GetDataChannel(dataPacket.Kind).Send(encoded)
-}
-
-func (p *LocalParticipant) PublishData(
-	data []byte,
-	kind livekit.DataPacket_Kind,
-	destinationSids []string,
-) error {
-	packet := &livekit.UserPacket{
-		Payload:         data,
-		DestinationSids: destinationSids,
-	}
-
-	return p.PublishDataPacket(packet, kind)
 }
 
 func (p *LocalParticipant) UnpublishTrack(sid string) error {

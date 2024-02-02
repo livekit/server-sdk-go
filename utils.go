@@ -19,7 +19,6 @@ import (
 	"strings"
 
 	"github.com/pion/webrtc/v3"
-	"github.com/thoas/go-funk"
 
 	"github.com/livekit/protocol/livekit"
 )
@@ -64,14 +63,18 @@ func FromProtoTrickle(trickle *livekit.TrickleRequest) webrtc.ICECandidateInit {
 }
 
 func FromProtoIceServers(iceservers []*livekit.ICEServer) []webrtc.ICEServer {
-	servers := funk.Map(iceservers, func(server *livekit.ICEServer) webrtc.ICEServer {
-		return webrtc.ICEServer{
+	if iceservers == nil {
+		return nil
+	}
+	servers := make([]webrtc.ICEServer, 0, len(iceservers))
+	for _, server := range iceservers {
+		servers = append(servers, webrtc.ICEServer{
 			URLs:       server.Urls,
 			Username:   server.Username,
 			Credential: server.Credential,
-		}
-	})
-	return servers.([]webrtc.ICEServer)
+		})
+	}
+	return servers
 }
 
 func ToHttpURL(url string) string {

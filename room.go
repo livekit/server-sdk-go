@@ -22,7 +22,7 @@ import (
 
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v3"
-	"github.com/thoas/go-funk"
+	"golang.org/x/exp/maps"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/livekit/mediatransportutil/pkg/pacer"
@@ -73,20 +73,20 @@ type ConnectInfo struct {
 	ParticipantMetadata string
 }
 
-type ConnectParams struct {
+// not exposed to users. clients should use ConnectOption
+type connectParams struct {
 	AutoSubscribe bool
 	Reconnect     bool
-	Callback      *RoomCallback
 
 	RetransmitBufferSize uint16
 
 	Pacer pacer.Factory
 }
 
-type ConnectOption func(*ConnectParams)
+type ConnectOption func(*connectParams)
 
 func WithAutoSubscribe(val bool) ConnectOption {
-	return func(p *ConnectParams) {
+	return func(p *connectParams) {
 		p.AutoSubscribe = val
 	}
 }
@@ -94,13 +94,13 @@ func WithAutoSubscribe(val bool) ConnectOption {
 // Retransmit buffer size to reponse to nack request,
 // must be one of: 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768
 func WithRetransmitBufferSize(val uint16) ConnectOption {
-	return func(p *ConnectParams) {
+	return func(p *connectParams) {
 		p.RetransmitBufferSize = val
 	}
 }
 
 func WithPacer(pacer pacer.Factory) ConnectOption {
-	return func(p *ConnectParams) {
+	return func(p *connectParams) {
 		p.Pacer = pacer
 	}
 }
@@ -113,22 +113,26 @@ type Room struct {
 	name             string
 	LocalParticipant *LocalParticipant
 	callback         *RoomCallback
+	sidReady         chan struct{}
 
-	participants   map[string]*RemoteParticipant
-	metadata       string
-	activeSpeakers []Participant
-	serverInfo     *livekit.ServerInfo
+	remoteParticipants map[livekit.ParticipantIdentity]*RemoteParticipant
+	sidToIdentity      map[livekit.ParticipantID]livekit.ParticipantIdentity
+	metadata           string
+	activeSpeakers     []Participant
+	serverInfo         *livekit.ServerInfo
 
 	lock sync.RWMutex
 }
 
-// CreateRoom can be used to update callbacks before calling Join
-func CreateRoom(callback *RoomCallback) *Room {
+// NewRoom can be used to update callbacks before calling Join
+func NewRoom(callback *RoomCallback) *Room {
 	engine := NewRTCEngine()
 	r := &Room{
-		engine:       engine,
-		participants: make(map[string]*RemoteParticipant),
-		callback:     NewRoomCallback(),
+		engine:             engine,
+		remoteParticipants: make(map[livekit.ParticipantIdentity]*RemoteParticipant),
+		sidToIdentity:      make(map[livekit.ParticipantID]livekit.ParticipantIdentity),
+		callback:           NewRoomCallback(),
+		sidReady:           make(chan struct{}),
 	}
 	r.callback.Merge(callback)
 	r.LocalParticipant = newLocalParticipant(engine, r.callback)
@@ -137,7 +141,6 @@ func CreateRoom(callback *RoomCallback) *Room {
 	engine.OnMediaTrack = r.handleMediaTrack
 	engine.OnDisconnected = r.handleDisconnect
 	engine.OnParticipantUpdate = r.handleParticipantUpdate
-	engine.OnActiveSpeakersChanged = r.handleActiveSpeakerChange
 	engine.OnSpeakersChanged = r.handleSpeakersChange
 	engine.OnDataReceived = r.handleDataReceived
 	engine.OnConnectionQuality = r.handleConnectionQualityUpdate
@@ -154,7 +157,7 @@ func CreateRoom(callback *RoomCallback) *Room {
 
 // ConnectToRoom creates and joins the room
 func ConnectToRoom(url string, info ConnectInfo, callback *RoomCallback, opts ...ConnectOption) (*Room, error) {
-	room := CreateRoom(callback)
+	room := NewRoom(callback)
 	err := room.Join(url, info, opts...)
 	if err != nil {
 		return nil, err
@@ -164,7 +167,7 @@ func ConnectToRoom(url string, info ConnectInfo, callback *RoomCallback, opts ..
 
 // ConnectToRoomWithToken creates and joins the room
 func ConnectToRoomWithToken(url, token string, callback *RoomCallback, opts ...ConnectOption) (*Room, error) {
-	room := CreateRoom(callback)
+	room := NewRoom(callback)
 	err := room.JoinWithToken(url, token, opts...)
 	if err != nil {
 		return nil, err
@@ -179,6 +182,7 @@ func (r *Room) Name() string {
 }
 
 func (r *Room) SID() string {
+	<-r.sidReady
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 	return r.sid
@@ -186,13 +190,9 @@ func (r *Room) SID() string {
 
 // Join - joins the room as with default permissions
 func (r *Room) Join(url string, info ConnectInfo, opts ...ConnectOption) error {
-	var params ConnectParams
+	var params connectParams
 	for _, opt := range opts {
 		opt(&params)
-	}
-
-	if params.Callback != nil {
-		r.callback.Merge(params.Callback)
 	}
 
 	// generate token
@@ -217,7 +217,7 @@ func (r *Room) Join(url string, info ConnectInfo, opts ...ConnectOption) error {
 
 // JoinWithToken - customize participant options by generating your own token
 func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
-	params := &ConnectParams{
+	params := &connectParams{
 		AutoSubscribe: true,
 	}
 	for _, opt := range opts {
@@ -236,6 +236,8 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 	r.serverInfo = joinRes.ServerInfo
 	r.lock.Unlock()
 
+	r.setSid(joinRes.Room.Sid, false)
+
 	r.LocalParticipant.updateInfo(joinRes.Participant)
 
 	for _, pi := range joinRes.OtherParticipants {
@@ -247,24 +249,32 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 
 func (r *Room) Disconnect() {
 	_ = r.engine.client.SendLeave()
-	r.engine.Close()
-
-	r.LocalParticipant.closeTracks()
+	r.cleanup()
 }
 
-func (r *Room) GetParticipant(sid string) *RemoteParticipant {
+func (r *Room) GetParticipantByIdentity(identity string) *RemoteParticipant {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 
-	return r.participants[sid]
+	return r.remoteParticipants[livekit.ParticipantIdentity(identity)]
 }
 
-func (r *Room) GetParticipants() []*RemoteParticipant {
+func (r *Room) GetParticipantBySID(sid string) *RemoteParticipant {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
+	if identity, ok := r.sidToIdentity[livekit.ParticipantID(sid)]; ok {
+		return r.remoteParticipants[identity]
+	}
+	return nil
+}
+
+func (r *Room) GetRemoteParticipants() []*RemoteParticipant {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 
 	var participants []*RemoteParticipant
-	for _, rp := range r.participants {
+	for _, rp := range r.remoteParticipants {
 		participants = append(participants, rp)
 	}
 	return participants
@@ -290,10 +300,11 @@ func (r *Room) ServerInfo() *livekit.ServerInfo {
 
 func (r *Room) addRemoteParticipant(pi *livekit.ParticipantInfo, updateExisting bool) *RemoteParticipant {
 	r.lock.Lock()
-	rp, ok := r.participants[pi.Sid]
+	rp, ok := r.remoteParticipants[livekit.ParticipantIdentity(pi.Identity)]
 	if ok {
 		if updateExisting {
 			rp.updateInfo(pi)
+			r.sidToIdentity[livekit.ParticipantID(pi.Sid)] = livekit.ParticipantIdentity(pi.Identity)
 		}
 		r.lock.Unlock()
 		return rp
@@ -305,7 +316,8 @@ func (r *Room) addRemoteParticipant(pi *livekit.ParticipantInfo, updateExisting 
 		}
 		_ = r.engine.subscriber.pc.WriteRTCP(pli)
 	})
-	r.participants[pi.Sid] = rp
+	r.remoteParticipants[livekit.ParticipantIdentity(pi.Identity)] = rp
+	r.sidToIdentity[livekit.ParticipantID(pi.Sid)] = livekit.ParticipantIdentity(pi.Identity)
 	r.lock.Unlock()
 
 	return rp
@@ -313,36 +325,38 @@ func (r *Room) addRemoteParticipant(pi *livekit.ParticipantInfo, updateExisting 
 
 func (r *Room) handleMediaTrack(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
 	// ensure we have the participant
-	participantID, trackID := unpackStreamID(track.StreamID())
-	if trackID == "" {
-		trackID = track.ID()
+	participantID, streamID := unpackStreamID(track.StreamID())
+	trackID := track.ID()
+
+	if strings.HasPrefix(streamID, "TR_") {
+		// backwards compatibility
+		trackID = streamID
 	}
 
-	rp := r.addRemoteParticipant(&livekit.ParticipantInfo{
-		Sid: participantID,
-	}, false)
+	rp := r.GetParticipantBySID(participantID)
+	if rp == nil {
+		logger.Errorw("could not find participant", nil, "participantID", participantID)
+		return
+	}
 	rp.addSubscribedMediaTrack(track, trackID, receiver)
 }
 
 func (r *Room) handleDisconnect() {
 	r.callback.OnDisconnected()
-	r.engine.Close()
+
+	r.cleanup()
 }
 
 func (r *Room) handleRestarting() {
 	r.callback.OnReconnecting()
 
-	for _, rp := range r.GetParticipants() {
+	for _, rp := range r.GetRemoteParticipants() {
 		r.handleParticipantDisconnect(rp)
 	}
 }
 
 func (r *Room) handleRestarted(joinRes *livekit.JoinResponse) {
-	r.lock.Lock()
-	r.name = joinRes.Room.Name
-	r.sid = joinRes.Room.Sid
-	r.metadata = joinRes.Room.Metadata
-	r.lock.Unlock()
+	r.handleRoomUpdate(joinRes.Room)
 
 	r.LocalParticipant.updateInfo(joinRes.Participant)
 
@@ -363,15 +377,20 @@ func (r *Room) handleResumed() {
 }
 
 func (r *Room) handleDataReceived(userPacket *livekit.UserPacket) {
-	if userPacket.ParticipantSid == r.LocalParticipant.SID() {
+	if userPacket.ParticipantIdentity == r.LocalParticipant.Identity() {
 		// if sent by itself, do not handle data
 		return
 	}
-	p := r.GetParticipant(userPacket.ParticipantSid)
-	if p != nil {
-		p.Callback.OnDataReceived(userPacket.Payload, p)
+	p := r.GetParticipantByIdentity(userPacket.ParticipantIdentity)
+	params := DataReceiveParams{
+		Topic:          userPacket.GetTopic(),
+		SenderIdentity: userPacket.ParticipantIdentity,
 	}
-	r.callback.OnDataReceived(userPacket.Payload, p)
+	if p != nil {
+		params.Sender = p
+		p.Callback.OnDataReceived(userPacket.Payload, params)
+	}
+	r.callback.OnDataReceived(userPacket.Payload, params)
 }
 
 func (r *Room) handleParticipantUpdate(participants []*livekit.ParticipantInfo) {
@@ -381,7 +400,7 @@ func (r *Room) handleParticipantUpdate(participants []*livekit.ParticipantInfo) 
 			continue
 		}
 
-		rp := r.GetParticipant(pi.Sid)
+		rp := r.GetParticipantByIdentity(pi.Identity)
 		isNew := rp == nil
 
 		if pi.State == livekit.ParticipantInfo_DISCONNECTED {
@@ -400,47 +419,12 @@ func (r *Room) handleParticipantUpdate(participants []*livekit.ParticipantInfo) 
 
 func (r *Room) handleParticipantDisconnect(p *RemoteParticipant) {
 	r.lock.Lock()
-	delete(r.participants, p.SID())
+	delete(r.remoteParticipants, livekit.ParticipantIdentity(p.Identity()))
+	delete(r.sidToIdentity, livekit.ParticipantID(p.SID()))
 	r.lock.Unlock()
 
 	p.unpublishAllTracks()
 	go r.callback.OnParticipantDisconnected(p)
-}
-
-func (r *Room) handleActiveSpeakerChange(speakers []*livekit.SpeakerInfo) {
-	var activeSpeakers []Participant
-	seenSids := make(map[string]bool)
-	localSID := r.LocalParticipant.SID()
-	for _, s := range speakers {
-		seenSids[s.Sid] = true
-		if s.Sid == localSID {
-			r.LocalParticipant.setAudioLevel(s.Level)
-			r.LocalParticipant.setIsSpeaking(true)
-			activeSpeakers = append(activeSpeakers, r.LocalParticipant)
-		} else {
-			p := r.GetParticipant(s.Sid)
-			if p == nil {
-				continue
-			}
-			p.setAudioLevel(s.Level)
-			p.setIsSpeaking(true)
-			activeSpeakers = append(activeSpeakers, p)
-		}
-	}
-
-	if !seenSids[localSID] {
-		r.LocalParticipant.setAudioLevel(0)
-	}
-	for _, rp := range r.GetParticipants() {
-		if !seenSids[rp.SID()] {
-			rp.setAudioLevel(0)
-			rp.setIsSpeaking(false)
-		}
-	}
-	r.lock.Lock()
-	r.activeSpeakers = activeSpeakers
-	r.lock.Unlock()
-	go r.callback.OnActiveSpeakersChanged(activeSpeakers)
 }
 
 func (r *Room) handleSpeakersChange(speakerUpdates []*livekit.SpeakerInfo) {
@@ -453,7 +437,7 @@ func (r *Room) handleSpeakersChange(speakerUpdates []*livekit.SpeakerInfo) {
 		if info.Sid == r.LocalParticipant.SID() {
 			participant = r.LocalParticipant
 		} else {
-			participant = r.GetParticipant(info.Sid)
+			participant = r.GetParticipantBySID(info.Sid)
 		}
 		if reflect.ValueOf(participant).IsNil() {
 			continue
@@ -469,7 +453,7 @@ func (r *Room) handleSpeakersChange(speakerUpdates []*livekit.SpeakerInfo) {
 		}
 	}
 
-	activeSpeakers := funk.Values(speakerMap).([]Participant)
+	activeSpeakers := maps.Values(speakerMap)
 	sort.Slice(activeSpeakers, func(i, j int) bool {
 		return activeSpeakers[i].AudioLevel() > activeSpeakers[j].AudioLevel()
 	})
@@ -484,7 +468,7 @@ func (r *Room) handleConnectionQualityUpdate(updates []*livekit.ConnectionQualit
 		if update.ParticipantSid == r.LocalParticipant.SID() {
 			r.LocalParticipant.setConnectionQualityInfo(update)
 		} else {
-			p := r.GetParticipant(update.ParticipantSid)
+			p := r.GetParticipantBySID(update.ParticipantSid)
 			if p != nil {
 				p.setConnectionQualityInfo(update)
 			} else {
@@ -496,17 +480,21 @@ func (r *Room) handleConnectionQualityUpdate(updates []*livekit.ConnectionQualit
 }
 
 func (r *Room) handleRoomUpdate(room *livekit.Room) {
-	if r.Metadata() == room.Metadata {
-		return
-	}
+	metadataChanged := false
 	r.lock.Lock()
-	r.metadata = room.Metadata
+	if r.metadata != room.Metadata {
+		metadataChanged = true
+		r.metadata = room.Metadata
+	}
 	r.lock.Unlock()
-	go r.callback.OnRoomMetadataChanged(room.Metadata)
+	r.setSid(room.Sid, false)
+	if metadataChanged {
+		go r.callback.OnRoomMetadataChanged(room.Metadata)
+	}
 }
 
 func (r *Room) handleTrackRemoteMuted(msg *livekit.MuteTrackRequest) {
-	for _, pub := range r.LocalParticipant.Tracks() {
+	for _, pub := range r.LocalParticipant.TrackPublications() {
 		if pub.SID() == msg.Sid {
 			localPub := pub.(*LocalTrackPublication)
 			// TODO: pause sending data because it'll be dropped by SFU
@@ -531,8 +519,8 @@ func (r *Room) sendSyncState() {
 
 	var trackSids []string
 	sendUnsub := r.engine.connParams.AutoSubscribe
-	for _, rp := range r.GetParticipants() {
-		for _, t := range rp.Tracks() {
+	for _, rp := range r.GetRemoteParticipants() {
+		for _, t := range rp.TrackPublications() {
 			if t.IsSubscribed() != sendUnsub {
 				trackSids = append(trackSids, t.SID())
 			}
@@ -540,7 +528,7 @@ func (r *Room) sendSyncState() {
 	}
 
 	var publishedTracks []*livekit.TrackPublishedResponse
-	for _, t := range r.LocalParticipant.Tracks() {
+	for _, t := range r.LocalParticipant.TrackPublications() {
 		if t.Track() != nil {
 			publishedTracks = append(publishedTracks, &livekit.TrackPublishedResponse{
 				Cid:   t.Track().ID(),
@@ -574,6 +562,26 @@ func (r *Room) sendSyncState() {
 		PublishTracks: publishedTracks,
 		DataChannels:  dataChannels,
 	})
+}
+
+func (r *Room) cleanup() {
+	r.engine.Close()
+	r.LocalParticipant.closeTracks()
+	r.setSid("", true)
+}
+
+func (r *Room) setSid(sid string, allowEmpty bool) {
+	r.lock.Lock()
+	r.sid = sid
+	if sid != "" || allowEmpty {
+		select {
+		case <-r.sidReady:
+		// already closed
+		default:
+			close(r.sidReady)
+		}
+	}
+	r.lock.Unlock()
 }
 
 func (r *Room) Simulate(scenario SimulateScenario) {
