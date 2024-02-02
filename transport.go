@@ -29,7 +29,7 @@ import (
 
 	"github.com/livekit/mediatransportutil/pkg/pacer"
 	lksdp "github.com/livekit/protocol/sdp"
-	sdkinterceptor "github.com/livekit/server-sdk-go/pkg/interceptor"
+	sdkinterceptor "github.com/livekit/server-sdk-go/v2/pkg/interceptor"
 )
 
 const (
