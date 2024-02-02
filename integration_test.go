@@ -31,7 +31,7 @@ import (
 	"go.uber.org/atomic"
 
 	"github.com/livekit/protocol/livekit"
-	"github.com/livekit/server-sdk-go/pkg/interceptor"
+	"github.com/livekit/server-sdk-go/v2/pkg/interceptor"
 )
 
 // The integration test of the SDK. can't run this test standalone, should be run with `mage test`
