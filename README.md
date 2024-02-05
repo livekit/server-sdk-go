@@ -14,6 +14,10 @@
 Use this SDK to manage <a href="https://livekit.io/">LiveKit</a> rooms and create access tokens from your Go backend.
 <!--END_DESCRIPTION-->
 
+[!NOTE]
+
+Version 2 of the <platform> SDK contains a small set of breaking changes. Read the [migration guide](https://docs.livekit.io/guides/migrate-from-v1/) for a detailed overview of what has changed.
+
 ## Installation
 
 ```shell
