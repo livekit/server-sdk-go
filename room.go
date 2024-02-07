@@ -20,6 +20,8 @@ import (
 	"strings"
 	"sync"
 
+	"log/slog"
+
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v3"
 	"github.com/thoas/go-funk"
@@ -249,12 +251,14 @@ func (r *Room) GetParticipant(sid string) *RemoteParticipant {
 
 func (r *Room) GetParticipants() []*RemoteParticipant {
 	r.lock.RLock()
+	slog.Info("####### LKSDK: GOT LOCK GetParticipants()")
 	defer r.lock.RUnlock()
 
 	var participants []*RemoteParticipant
 	for _, rp := range r.participants {
 		participants = append(participants, rp)
 	}
+	slog.Info("####### LKSDK: RELEASE LOCK GetParticipants()")
 	return participants
 }
 
