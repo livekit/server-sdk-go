@@ -231,7 +231,6 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 
 	r.lock.Lock()
 	r.name = joinRes.Room.Name
-	r.sid = joinRes.Room.Sid
 	r.metadata = joinRes.Room.Metadata
 	r.serverInfo = joinRes.ServerInfo
 	r.lock.Unlock()
@@ -572,12 +571,12 @@ func (r *Room) cleanup() {
 
 func (r *Room) setSid(sid string, allowEmpty bool) {
 	r.lock.Lock()
-	r.sid = sid
 	if sid != "" || allowEmpty {
 		select {
 		case <-r.sidReady:
 		// already closed
 		default:
+			r.sid = sid
 			close(r.sidReady)
 		}
 	}
