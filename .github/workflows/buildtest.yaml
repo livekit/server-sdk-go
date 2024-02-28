@@ -59,7 +59,7 @@ jobs:
           args: build
 
       - name: Static Check
-        uses: amarpal/staticcheck-action
+        uses: amarpal/staticcheck-action@master
         with:
           install-go: false
 
