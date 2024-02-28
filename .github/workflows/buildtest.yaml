@@ -59,9 +59,8 @@ jobs:
           args: build
 
       - name: Static Check
-        uses: dominikh/staticcheck-action@v1.3.0
+        uses: amarpal/staticcheck-action
         with:
-          version: "v0.3.3"
           install-go: false
 
       - name: Mage Test
