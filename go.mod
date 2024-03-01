@@ -8,7 +8,7 @@ require (
 	github.com/go-logr/stdr v1.2.2
 	github.com/gorilla/websocket v1.5.1
 	github.com/livekit/mediatransportutil v0.0.0-20240206082112-9bf41dcbce76
-	github.com/livekit/protocol v1.10.0
+	github.com/livekit/protocol v1.10.1
 	github.com/magefile/mage v1.15.0
 	github.com/pion/dtls/v2 v2.2.10
 	github.com/pion/interceptor v0.1.25
@@ -32,7 +32,7 @@ require (
 	github.com/eapache/queue v1.1.0 // indirect
 	github.com/frostbyte73/core v0.0.10 // indirect
 	github.com/gammazero/deque v0.2.1 // indirect
-	github.com/go-jose/go-jose/v3 v3.0.1 // indirect
+	github.com/go-jose/go-jose/v3 v3.0.2 // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/jxskiss/base62 v1.1.0 // indirect
@@ -42,7 +42,6 @@ require (
 	github.com/livekit/mageutil v0.0.0-20230125210925-54e8a70427c1 // indirect
 	github.com/livekit/psrpc v0.5.3-0.20240227154351-b7f99eaaf7b3 // indirect
 	github.com/mackerelio/go-osstat v0.2.4 // indirect
-	github.com/matttproud/golang_protobuf_extensions/v2 v2.0.0 // indirect
 	github.com/nats-io/nats.go v1.31.0 // indirect
 	github.com/nats-io/nkeys v0.4.6 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
@@ -57,9 +56,9 @@ require (
 	github.com/pion/transport/v2 v2.2.4 // indirect
 	github.com/pion/turn/v2 v2.1.3 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/prometheus/client_golang v1.18.0 // indirect
+	github.com/prometheus/client_golang v1.19.0 // indirect
 	github.com/prometheus/client_model v0.5.0 // indirect
-	github.com/prometheus/common v0.45.0 // indirect
+	github.com/prometheus/common v0.48.0 // indirect
 	github.com/prometheus/procfs v0.12.0 // indirect
 	github.com/puzpuzpuz/xsync v1.5.2 // indirect
 	github.com/redis/go-redis/v9 v9.5.1 // indirect
