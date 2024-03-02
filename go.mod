@@ -7,12 +7,12 @@ require (
 	github.com/go-logr/logr v1.4.1
 	github.com/go-logr/stdr v1.2.2
 	github.com/gorilla/websocket v1.5.1
-	github.com/livekit/mediatransportutil v0.0.0-20240206082112-9bf41dcbce76
+	github.com/livekit/mediatransportutil v0.0.0-20240302142739-1c3dd691a1b8
 	github.com/livekit/protocol v1.10.0
 	github.com/magefile/mage v1.15.0
 	github.com/pion/dtls/v2 v2.2.10
 	github.com/pion/interceptor v0.1.25
-	github.com/pion/rtcp v1.2.13
+	github.com/pion/rtcp v1.2.14
 	github.com/pion/rtp v1.8.3
 	github.com/pion/sdp/v3 v3.0.6
 	github.com/pion/webrtc/v3 v3.2.28

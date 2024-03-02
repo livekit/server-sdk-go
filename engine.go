@@ -205,6 +205,7 @@ func (e *RTCEngine) configure(
 		RetransmitBufferSize: e.connParams.RetransmitBufferSize,
 		Pacer:                e.connParams.Pacer,
 		OnRTTUpdate:          e.setRTT,
+		IsSender:             true,
 	}); err != nil {
 		return err
 	}

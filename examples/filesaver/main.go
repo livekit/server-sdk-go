@@ -30,6 +30,7 @@ import (
 	"github.com/pion/webrtc/v3/pkg/media/ivfwriter"
 	"github.com/pion/webrtc/v3/pkg/media/oggwriter"
 
+	"github.com/livekit/protocol/logger"
 	lksdk "github.com/livekit/server-sdk-go/v2"
 	"github.com/livekit/server-sdk-go/v2/pkg/samplebuilder"
 )
@@ -47,6 +48,8 @@ func init() {
 }
 
 func main() {
+	logger.InitFromConfig(&logger.Config{Level: "debug"}, "filesaver")
+	lksdk.SetLogger(logger.GetLogger())
 	flag.Parse()
 	if host == "" || apiKey == "" || apiSecret == "" || roomName == "" || identity == "" {
 		fmt.Println("invalid arguments.")
