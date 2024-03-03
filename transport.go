@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bep/debounce"
@@ -27,6 +28,7 @@ import (
 	"github.com/pion/sdp/v3"
 	"github.com/pion/webrtc/v3"
 
+	lkinterceptor "github.com/livekit/mediatransportutil/pkg/interceptor"
 	"github.com/livekit/mediatransportutil/pkg/pacer"
 	lksdp "github.com/livekit/protocol/sdp"
 	sdkinterceptor "github.com/livekit/server-sdk-go/v2/pkg/interceptor"
@@ -53,6 +55,7 @@ type PCTransport struct {
 	pendingRestartIceOffer    *webrtc.SessionDescription
 	restartAfterGathering     bool
 	nackGenerator             *sdkinterceptor.NackGeneratorInterceptorFactory
+	rttFromXR                 atomic.Bool
 
 	onRemoteDescriptionSettled func() error
 	onRTTUpdate                func(rtt uint32)
@@ -66,6 +69,7 @@ type PCTransportParams struct {
 	RetransmitBufferSize uint16
 	Pacer                pacer.Factory
 	OnRTTUpdate          func(rtt uint32)
+	IsSender             bool
 }
 
 func NewPCTransport(params PCTransportParams) (*PCTransport, error) {
@@ -129,6 +133,18 @@ func NewPCTransport(params PCTransportParams) (*PCTransport, error) {
 	if params.OnRTTUpdate != nil {
 		i.Add(sdkinterceptor.NewRTTInterceptorFactory(t.handleRTTUpdate))
 	}
+
+	var onXRRtt func(rtt uint32)
+	if params.IsSender {
+		// publisher only responds to XR request for sfu to measure RTT
+		onXRRtt = func(rtt uint32) {}
+	} else {
+		onXRRtt = func(rtt uint32) {
+			t.rttFromXR.Store(true)
+			t.setRTT(rtt)
+		}
+	}
+	i.Add(lkinterceptor.NewRTTFromXRFactory(onXRRtt))
 
 	se := webrtc.SettingEngine{}
 	se.SetSRTPProtectionProfiles(dtls.SRTP_AEAD_AES_128_GCM, dtls.SRTP_AES128_CM_HMAC_SHA1_80)
@@ -208,6 +224,12 @@ func (t *PCTransport) Close() error {
 }
 
 func (t *PCTransport) SetRTT(rtt uint32) {
+	if !t.rttFromXR.Load() {
+		t.setRTT(rtt)
+	}
+}
+
+func (t *PCTransport) setRTT(rtt uint32) {
 	if g := t.nackGenerator; g != nil {
 		g.SetRTT(rtt)
 	}
