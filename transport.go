@@ -141,7 +141,7 @@ func NewPCTransport(params PCTransportParams) (*PCTransport, error) {
 	} else {
 		onXRRtt = func(rtt uint32) {
 			t.rttFromXR.Store(true)
-			t.SetRTT(rtt)
+			t.setRTT(rtt)
 		}
 	}
 	i.Add(lkinterceptor.NewRTTFromXRFactory(onXRRtt))
