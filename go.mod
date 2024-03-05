@@ -20,7 +20,7 @@ require (
 	github.com/twitchtv/twirp v8.1.3+incompatible
 	go.uber.org/atomic v1.11.0
 	golang.org/x/exp v0.0.0-20240222234643-814bf88cf225
-	google.golang.org/protobuf v1.32.0
+	google.golang.org/protobuf v1.33.0
 )
 
 require (
