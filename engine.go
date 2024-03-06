@@ -398,7 +398,7 @@ func (e *RTCEngine) GetDataChannelSub(kind livekit.DataPacket_Kind) *webrtc.Data
 
 func (e *RTCEngine) waitUntilConnected() error {
 	timeout := time.After(e.JoinTimeout)
-	ticker := time.NewTicker(0)
+	ticker := time.NewTimer(0)
 	defer ticker.Stop()
 	for {
 		select {
@@ -424,7 +424,7 @@ func (e *RTCEngine) ensurePublisherConnected(ensureDataReady bool) error {
 	}
 
 	timeout := time.After(e.JoinTimeout)
-	ticker := time.NewTicker(0)
+	ticker := time.NewTimer(0)
 	defer ticker.Stop()
 	var negotiated bool
 	for {
