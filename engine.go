@@ -398,53 +398,50 @@ func (e *RTCEngine) GetDataChannelSub(kind livekit.DataPacket_Kind) *webrtc.Data
 
 func (e *RTCEngine) waitUntilConnected() error {
 	timeout := time.After(e.JoinTimeout)
+	ticker := time.NewTicker(0)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-timeout:
 			return ErrConnectionTimeout
-		case <-time.After(10 * time.Millisecond):
+		case <-ticker.C:
 			if e.IsConnected() {
 				e.requiresFullReconnect.Store(false)
 				return nil
 			}
+			ticker.Reset(10 * time.Millisecond)
 		}
 	}
 }
 
 func (e *RTCEngine) ensurePublisherConnected(ensureDataReady bool) error {
 	e.pclock.Lock()
-	for e.publisher == nil || e.subscriber == nil {
-		e.pclock.Unlock()
-		if err := e.waitUntilConnected(); err != nil {
-			return err
-		}
-		e.pclock.Lock()
-	}
-	if !e.subscriberPrimary {
-		e.pclock.Unlock()
-		return nil
-	}
-
-	if e.publisher.IsConnected() && (!ensureDataReady || e.dataPubChannelReady()) {
-		e.pclock.Unlock()
-		return nil
-	}
-
-	e.publisher.Negotiate()
-	publisher := e.publisher
+	subscriberPrimary := e.subscriberPrimary
 	e.pclock.Unlock()
 
+	if !subscriberPrimary {
+		return e.waitUntilConnected()
+	}
+
 	timeout := time.After(e.JoinTimeout)
+	ticker := time.NewTicker(0)
+	defer ticker.Stop()
+	var negotiated bool
 	for {
 		select {
 		case <-timeout:
 			return ErrConnectionTimeout
-		case <-time.After(10 * time.Millisecond):
-			if publisher.IsConnected() {
-				if !ensureDataReady || e.dataPubChannelReady() {
+		case <-ticker.C:
+			if publisher, ok := e.Publisher(); ok {
+				if publisher.IsConnected() && (!ensureDataReady || e.dataPubChannelReady()) {
 					return nil
 				}
+				if !negotiated {
+					publisher.Negotiate()
+					negotiated = true
+				}
 			}
+			ticker.Reset(10 * time.Millisecond)
 		}
 	}
 }
@@ -554,12 +551,14 @@ func (e *RTCEngine) resumeConnection() error {
 
 	// send offer if publisher enabled
 	e.pclock.Lock()
-	if !e.subscriberPrimary || e.hasPublish.Load() {
-		e.publisher.createAndSendOffer(&webrtc.OfferOptions{
+	sendOffer := !e.subscriberPrimary || e.hasPublish.Load()
+	publisher := e.publisher
+	e.pclock.Unlock()
+	if sendOffer {
+		publisher.createAndSendOffer(&webrtc.OfferOptions{
 			ICERestart: true,
 		})
 	}
-	e.pclock.Unlock()
 
 	if err = e.waitUntilConnected(); err != nil {
 		return err
@@ -576,15 +575,6 @@ func (e *RTCEngine) restartConnection() error {
 		e.client.SendLeave()
 	}
 	e.client.Close()
-
-	e.pclock.Lock()
-	if e.publisher != nil {
-		e.publisher.Close()
-	}
-	if e.subscriber != nil {
-		e.subscriber.Close()
-	}
-	e.pclock.Unlock()
 
 	res, err := e.Join(e.url, e.token.Load(), e.connParams)
 	if err != nil {
