@@ -199,8 +199,6 @@ func (e *RTCEngine) setRTT(rtt uint32) {
 	}
 }
 
-var n int
-
 func (e *RTCEngine) configure(
 	iceServers []*livekit.ICEServer,
 	clientConfig *livekit.ClientConfiguration,
@@ -214,10 +212,6 @@ func (e *RTCEngine) configure(
 
 	e.pclock.Lock()
 	defer e.pclock.Unlock()
-
-	if subscriberPrimary != nil {
-		e.subscriberPrimary = *subscriberPrimary
-	}
 
 	// remove previous transport
 	if e.publisher != nil {
@@ -247,6 +241,9 @@ func (e *RTCEngine) configure(
 	}
 	logger.Debugw("Using ICE servers", "servers", iceServers)
 
+	if subscriberPrimary != nil {
+		e.subscriberPrimary = *subscriberPrimary
+	}
 	e.subscriber.OnRemoteDescriptionSettled(e.createPublisherAnswerAndSend)
 
 	e.publisher.pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
