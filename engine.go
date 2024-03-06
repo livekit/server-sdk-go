@@ -36,6 +36,7 @@ const (
 )
 
 type RTCEngine struct {
+	pclock                sync.Mutex
 	publisher             *PCTransport
 	subscriber            *PCTransport
 	client                *SignalClient
@@ -128,7 +129,9 @@ func (e *RTCEngine) Join(url string, token string, params *connectParams) (*live
 
 	// send offer
 	if !res.SubscriberPrimary {
+		e.pclock.Lock()
 		e.publisher.Negotiate()
+		e.pclock.Unlock()
 	}
 
 	if err = e.waitUntilConnected(); err != nil {
@@ -147,18 +150,24 @@ func (e *RTCEngine) Close() {
 		for e.reconnecting.Load() {
 			time.Sleep(50 * time.Millisecond)
 		}
+
+		e.pclock.Lock()
 		if e.publisher != nil {
 			_ = e.publisher.Close()
 		}
 		if e.subscriber != nil {
 			_ = e.subscriber.Close()
 		}
+		e.pclock.Unlock()
 
 		e.client.Close()
 	}()
 }
 
 func (e *RTCEngine) IsConnected() bool {
+	e.pclock.Lock()
+	defer e.pclock.Unlock()
+
 	if e.publisher == nil || e.subscriber == nil {
 		return false
 	}
@@ -166,6 +175,18 @@ func (e *RTCEngine) IsConnected() bool {
 		return e.subscriber.IsConnected()
 	}
 	return e.publisher.IsConnected()
+}
+
+func (e *RTCEngine) Publisher() (*PCTransport, bool) {
+	e.pclock.Lock()
+	defer e.pclock.Unlock()
+	return e.publisher, e.publisher != nil
+}
+
+func (e *RTCEngine) Subscriber() (*PCTransport, bool) {
+	e.pclock.Lock()
+	defer e.pclock.Unlock()
+	return e.subscriber, e.subscriber != nil
 }
 
 func (e *RTCEngine) TrackPublishedChan() <-chan *livekit.TrackPublishedResponse {
@@ -188,6 +209,9 @@ func (e *RTCEngine) configure(
 		clientConfig.GetForceRelay() == livekit.ClientConfigSetting_ENABLED {
 		configuration.ICETransportPolicy = webrtc.ICETransportPolicyRelay
 	}
+
+	e.pclock.Lock()
+	defer e.pclock.Unlock()
 
 	// remove previous transport
 	if e.publisher != nil {
@@ -374,41 +398,49 @@ func (e *RTCEngine) GetDataChannelSub(kind livekit.DataPacket_Kind) *webrtc.Data
 
 func (e *RTCEngine) waitUntilConnected() error {
 	timeout := time.After(e.JoinTimeout)
+	ticker := time.NewTimer(0)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-timeout:
 			return ErrConnectionTimeout
-		case <-time.After(10 * time.Millisecond):
+		case <-ticker.C:
 			if e.IsConnected() {
 				e.requiresFullReconnect.Store(false)
 				return nil
 			}
+			ticker.Reset(10 * time.Millisecond)
 		}
 	}
 }
 
 func (e *RTCEngine) ensurePublisherConnected(ensureDataReady bool) error {
-	if !e.subscriberPrimary {
+	e.pclock.Lock()
+	subscriberPrimary := e.subscriberPrimary
+	e.pclock.Unlock()
+	if !subscriberPrimary {
 		return e.waitUntilConnected()
 	}
 
-	if e.publisher.IsConnected() && (!ensureDataReady || e.dataPubChannelReady()) {
-		return nil
-	}
-
-	e.publisher.Negotiate()
-
 	timeout := time.After(e.JoinTimeout)
+	ticker := time.NewTimer(0)
+	defer ticker.Stop()
+	var negotiated bool
 	for {
 		select {
 		case <-timeout:
 			return ErrConnectionTimeout
-		case <-time.After(10 * time.Millisecond):
-			if e.publisher.IsConnected() {
-				if !ensureDataReady || e.dataPubChannelReady() {
+		case <-ticker.C:
+			if publisher, ok := e.Publisher(); ok {
+				if publisher.IsConnected() && (!ensureDataReady || e.dataPubChannelReady()) {
 					return nil
 				}
+				if !negotiated {
+					publisher.Negotiate()
+					negotiated = true
+				}
 			}
+			ticker.Reset(10 * time.Millisecond)
 		}
 	}
 }
@@ -517,8 +549,12 @@ func (e *RTCEngine) resumeConnection() error {
 	e.client.Start()
 
 	// send offer if publisher enabled
-	if !e.subscriberPrimary || e.hasPublish.Load() {
-		e.publisher.createAndSendOffer(&webrtc.OfferOptions{
+	e.pclock.Lock()
+	sendOffer := !e.subscriberPrimary || e.hasPublish.Load()
+	publisher := e.publisher
+	e.pclock.Unlock()
+	if sendOffer {
+		publisher.createAndSendOffer(&webrtc.OfferOptions{
 			ICERestart: true,
 		})
 	}
@@ -538,13 +574,6 @@ func (e *RTCEngine) restartConnection() error {
 		e.client.SendLeave()
 	}
 	e.client.Close()
-	if e.publisher != nil {
-		e.publisher.Close()
-	}
-
-	if e.subscriber != nil {
-		e.subscriber.Close()
-	}
 
 	res, err := e.Join(e.url, e.token.Load(), e.connParams)
 	if err != nil {

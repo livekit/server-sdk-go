@@ -313,7 +313,9 @@ func (r *Room) addRemoteParticipant(pi *livekit.ParticipantInfo, updateExisting 
 		pli := []rtcp.Packet{
 			&rtcp.PictureLossIndication{SenderSSRC: uint32(ssrc), MediaSSRC: uint32(ssrc)},
 		}
-		_ = r.engine.subscriber.pc.WriteRTCP(pli)
+		if subscriber, ok := r.engine.Subscriber(); ok {
+			_ = subscriber.pc.WriteRTCP(pli)
+		}
 	})
 	r.remoteParticipants[livekit.ParticipantIdentity(pi.Identity)] = rp
 	r.sidToIdentity[livekit.ParticipantID(pi.Sid)] = livekit.ParticipantIdentity(pi.Identity)
@@ -510,11 +512,12 @@ func (r *Room) handleLocalTrackUnpublished(msg *livekit.TrackUnpublishedResponse
 }
 
 func (r *Room) sendSyncState() {
-	if r.engine.subscriber == nil || r.engine.subscriber.pc.RemoteDescription() == nil {
+	subscriber, ok := r.engine.Subscriber()
+	if !ok || subscriber.pc.RemoteDescription() == nil {
 		return
 	}
 
-	previousSdp := r.engine.subscriber.pc.LocalDescription()
+	previousSdp := subscriber.pc.LocalDescription()
 
 	var trackSids []string
 	sendUnsub := r.engine.connParams.AutoSubscribe

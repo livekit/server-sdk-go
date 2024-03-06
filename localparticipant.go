@@ -97,8 +97,13 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 		return nil, ErrTrackPublishTimeout
 	}
 
+	publisher, ok := p.engine.Publisher()
+	if !ok {
+		return nil, ErrNoPeerConnection
+	}
+
 	// add transceivers
-	transceiver, err := p.engine.publisher.PeerConnection().AddTransceiverFromTrack(track, webrtc.RTPTransceiverInit{
+	transceiver, err := publisher.PeerConnection().AddTransceiverFromTrack(track, webrtc.RTPTransceiverInit{
 		Direction: webrtc.RTPTransceiverDirectionSendonly,
 	})
 	if err != nil {
@@ -112,7 +117,7 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 	pub.updateInfo(pubRes.Track)
 	p.addPublication(pub)
 
-	p.engine.publisher.Negotiate()
+	publisher.Negotiate()
 
 	logger.Infow("published track", "name", opts.Name, "source", opts.Source.String())
 
@@ -183,8 +188,13 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *Tra
 		return nil, ErrTrackPublishTimeout
 	}
 
+	publisher, ok := p.engine.Publisher()
+	if !ok {
+		return nil, ErrNoPeerConnection
+	}
+
 	// add transceivers
-	publishPC := p.engine.publisher.PeerConnection()
+	publishPC := publisher.PeerConnection()
 	var transceiver *webrtc.RTPTransceiver
 	var sender *webrtc.RTPSender
 	for idx, st := range tracks {
@@ -209,7 +219,7 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *Tra
 	pub.updateInfo(pubRes.Track)
 	p.addPublication(pub)
 
-	p.engine.publisher.Negotiate()
+	publisher.Negotiate()
 
 	logger.Infow("published simulcast track", "name", opts.Name, "source", opts.Source.String())
 
@@ -312,13 +322,17 @@ func (p *LocalParticipant) UnpublishTrack(sid string) error {
 
 	var err error
 	if localTrack, ok := pub.track.(webrtc.TrackLocal); ok {
-		for _, sender := range p.engine.publisher.pc.GetSenders() {
+		publisher, ok := p.engine.Publisher()
+		if !ok {
+			return ErrNoPeerConnection
+		}
+		for _, sender := range publisher.pc.GetSenders() {
 			if sender.Track() == localTrack {
-				err = p.engine.publisher.pc.RemoveTrack(sender)
+				err = publisher.pc.RemoveTrack(sender)
 				break
 			}
 		}
-		p.engine.publisher.Negotiate()
+		publisher.Negotiate()
 	}
 
 	pub.CloseTrack()
@@ -329,13 +343,19 @@ func (p *LocalParticipant) UnpublishTrack(sid string) error {
 // GetSubscriberPeerConnection is a power-user API that gives access to the underlying subscriber peer connection
 // subscribed tracks are received using this PeerConnection
 func (p *LocalParticipant) GetSubscriberPeerConnection() *webrtc.PeerConnection {
-	return p.engine.subscriber.PeerConnection()
+	if subscriber, ok := p.engine.Subscriber(); ok {
+		return subscriber.PeerConnection()
+	}
+	return nil
 }
 
 // GetPublisherPeerConnection is a power-user API that gives access to the underlying publisher peer connection
 // local tracks are published to server via this PeerConnection
 func (p *LocalParticipant) GetPublisherPeerConnection() *webrtc.PeerConnection {
-	return p.engine.publisher.PeerConnection()
+	if publisher, ok := p.engine.Publisher(); ok {
+		return publisher.PeerConnection()
+	}
+	return nil
 }
 
 // SetName sets the name of the current participant.
