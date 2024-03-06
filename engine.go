@@ -418,7 +418,6 @@ func (e *RTCEngine) ensurePublisherConnected(ensureDataReady bool) error {
 	e.pclock.Lock()
 	subscriberPrimary := e.subscriberPrimary
 	e.pclock.Unlock()
-
 	if !subscriberPrimary {
 		return e.waitUntilConnected()
 	}
