@@ -413,17 +413,16 @@ func (e *RTCEngine) waitUntilConnected() error {
 
 func (e *RTCEngine) ensurePublisherConnected(ensureDataReady bool) error {
 	e.pclock.Lock()
-	if !e.subscriberPrimary {
-		e.pclock.Unlock()
-		return e.waitUntilConnected()
-	}
-
 	for e.publisher == nil || e.subscriber == nil {
 		e.pclock.Unlock()
 		if err := e.waitUntilConnected(); err != nil {
 			return err
 		}
 		e.pclock.Lock()
+	}
+	if !e.subscriberPrimary {
+		e.pclock.Unlock()
+		return nil
 	}
 
 	if e.publisher.IsConnected() && (!ensureDataReady || e.dataPubChannelReady()) {
@@ -432,6 +431,7 @@ func (e *RTCEngine) ensurePublisherConnected(ensureDataReady bool) error {
 	}
 
 	e.publisher.Negotiate()
+	publisher := e.publisher
 	e.pclock.Unlock()
 
 	timeout := time.After(e.JoinTimeout)
@@ -440,7 +440,7 @@ func (e *RTCEngine) ensurePublisherConnected(ensureDataReady bool) error {
 		case <-timeout:
 			return ErrConnectionTimeout
 		case <-time.After(10 * time.Millisecond):
-			if e.publisher.IsConnected() {
+			if publisher.IsConnected() {
 				if !ensureDataReady || e.dataPubChannelReady() {
 					return nil
 				}
