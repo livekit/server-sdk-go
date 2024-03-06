@@ -129,9 +129,11 @@ func (e *RTCEngine) Join(url string, token string, params *connectParams) (*live
 
 	// send offer
 	if !res.SubscriberPrimary {
-		e.pclock.Lock()
-		e.publisher.Negotiate()
-		e.pclock.Unlock()
+		if publisher, ok := e.Publisher(); ok {
+			publisher.Negotiate()
+		} else {
+			return nil, ErrNoPeerConnection
+		}
 	}
 
 	if err = e.waitUntilConnected(); err != nil {
@@ -151,14 +153,12 @@ func (e *RTCEngine) Close() {
 			time.Sleep(50 * time.Millisecond)
 		}
 
-		e.pclock.Lock()
-		if e.publisher != nil {
-			_ = e.publisher.Close()
+		if publisher, ok := e.Publisher(); ok {
+			_ = publisher.Close()
 		}
-		if e.subscriber != nil {
-			_ = e.subscriber.Close()
+		if subscriber, ok := e.Subscriber(); ok {
+			_ = subscriber.Close()
 		}
-		e.pclock.Unlock()
 
 		e.client.Close()
 	}()
@@ -194,8 +194,8 @@ func (e *RTCEngine) TrackPublishedChan() <-chan *livekit.TrackPublishedResponse 
 }
 
 func (e *RTCEngine) setRTT(rtt uint32) {
-	if pc := e.subscriber; pc != nil {
-		pc.SetRTT(rtt)
+	if subscriber, ok := e.Subscriber(); ok {
+		subscriber.SetRTT(rtt)
 	}
 }
 
