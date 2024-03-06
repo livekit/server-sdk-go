@@ -16,7 +16,9 @@ package lksdk
 
 import (
 	"context"
+	"errors"
 	"io"
+	"math/rand"
 	"strings"
 	"sync"
 	"time"
@@ -39,6 +41,11 @@ const (
 	rtpInboundMTU  = 1500
 )
 
+var (
+	errInvalidDurationSample = errors.New("invalid duration sample")
+	errOutOfOrderSample      = errors.New("out-of-order sample")
+)
+
 type SampleWriteOptions struct {
 	AudioLevel *uint8
 }
@@ -48,22 +55,23 @@ type SampleWriteOptions struct {
 // publishing tracks at the right frequency
 // This extends webrtc.TrackLocalStaticSample, and adds the ability to write RTP extensions
 type LocalTrack struct {
-	packetizer      rtp.Packetizer
-	sequencer       rtp.Sequencer
-	transceiver     *webrtc.RTPTransceiver
-	rtpTrack        *webrtc.TrackLocalStaticRTP
-	ssrc            webrtc.SSRC
-	ssrcAcked       bool
-	clockRate       float64
-	bound           atomic.Bool
-	lock            sync.RWMutex
-	audioLevelID    uint8
-	sdesMidID       uint8
-	sdesRtpStreamID uint8
-	lastTS          time.Time
-	simulcastID     string
-	videoLayer      *livekit.VideoLayer
-	onRTCP          func(rtcp.Packet)
+	packetizer       rtp.Packetizer
+	sequencer        rtp.Sequencer
+	transceiver      *webrtc.RTPTransceiver
+	rtpTrack         *webrtc.TrackLocalStaticRTP
+	ssrc             webrtc.SSRC
+	ssrcAcked        bool
+	clockRate        float64
+	bound            atomic.Bool
+	lock             sync.RWMutex
+	audioLevelID     uint8
+	sdesMidID        uint8
+	sdesRtpStreamID  uint8
+	lastTS           time.Time
+	lastRTPTimestamp uint32
+	simulcastID      string
+	videoLayer       *livekit.VideoLayer
+	onRTCP           func(rtcp.Packet)
 
 	muted       atomic.Bool
 	cancelWrite func()
@@ -323,13 +331,100 @@ func (s *LocalTrack) WriteRTP(p *rtp.Packet, opts *SampleWriteOptions) error {
 }
 
 func (s *LocalTrack) WriteSample(sample media.Sample, opts *SampleWriteOptions) error {
-	s.lock.RLock()
-	p := s.packetizer
-	clockRate := s.clockRate
-	s.lock.RUnlock()
-
-	if p == nil {
+	s.lock.Lock()
+	if s.packetizer == nil {
+		s.lock.Unlock()
 		return nil
+	}
+
+	//
+	// A few different cases for time stamp
+	//   1. Publishers sending too fast, like from a file or some other source which has faster than real time data.
+	//   2. Publishing after a long gap.
+	//
+	// Publishers could provide one or more of
+	//   1. Timestamp -> wall clock time
+	//   2. Duration -> duration of given sample
+	//   3. PacketTimestamp -> RTP packet time stamp
+	//   4. PrevDroppedPackets -> number of dropped packets before this sample
+	//
+	// The goal here is to calculate RTP time stamp of provided sample.
+	// Priority of what is used (eevn if multiple are provided)
+	//   1. PacketTimestamp
+	//   2. Timestamp
+	//   3. Duration
+	//
+	sampleDurationSeconds := sample.Duration.Seconds()
+	elapsedDurationSeconds := float64(sample.PrevDroppedPackets+1) * sampleDurationSeconds // +1 to include given sample
+	elapsedDurationSamples := uint32(elapsedDurationSeconds * s.clockRate)
+	currentRTPTimestamp := uint32(0)
+	if s.lastRTPTimestamp == 0 {
+		// first sample, NOTE: 0 is a valid time stamp, but chances of it are 1 / (1 << 32)
+
+		// negative duration is invalid
+		if sampleDurationSeconds < 0.0 {
+			s.lock.Unlock()
+			return errInvalidDurationSample
+		}
+
+		if sample.PacketTimestamp != 0 {
+			s.lastRTPTimestamp = sample.PacketTimestamp - elapsedDurationSamples
+			currentRTPTimestamp = sample.PacketTimestamp
+		} else {
+			// start with a random one
+			s.lastRTPTimestamp = uint32(rand.Intn(1<<30)) + uint32(1<<31) // in third quartile of timestamp space
+			currentRTPTimestamp = s.lastRTPTimestamp + elapsedDurationSamples
+		}
+
+		s.lastTS = sample.Timestamp
+	} else {
+		// reject samples that move backward in time
+		switch {
+		case sample.PacketTimestamp != 0:
+			if (sample.PacketTimestamp - s.lastRTPTimestamp) > (1 << 31) {
+				s.lock.Unlock()
+				return errOutOfOrderSample
+			}
+
+			currentRTPTimestamp = sample.PacketTimestamp
+
+		case !sample.Timestamp.IsZero():
+			if !s.lastTS.IsZero() && sample.Timestamp.Before(s.lastTS) {
+				s.lock.Unlock()
+				return errOutOfOrderSample
+			}
+
+			if s.lastTS.IsZero() {
+				// negative duration is invalid
+				if sampleDurationSeconds < 0.0 {
+					s.lock.Unlock()
+					return errInvalidDurationSample
+				}
+
+				s.lastTS = sample.Timestamp.Add(time.Duration(-elapsedDurationSeconds * float64(time.Second)))
+			}
+
+			currentRTPTimestamp = s.lastRTPTimestamp + uint32(sample.Timestamp.Sub(s.lastTS).Seconds()*s.clockRate)
+		}
+	}
+
+	if currentRTPTimestamp == 0 {
+		// PacketTimestamp AND Timestamp not in sample, use Duration
+		if sampleDurationSeconds < 0.0 {
+			s.lock.Unlock()
+			return errInvalidDurationSample
+		}
+
+		// assume all dropped packets have the given Duration
+		currentRTPTimestamp = s.lastRTPTimestamp + elapsedDurationSamples
+	}
+
+	samples := currentRTPTimestamp - s.lastRTPTimestamp
+	if samples < elapsedDurationSamples {
+		// possible that wall clock time based samplse are sent too close,
+		// lower bound Duration if necessary
+		samples = elapsedDurationSamples
+		currentRTPTimestamp = s.lastRTPTimestamp + elapsedDurationSamples
 	}
 
 	// skip packets by the number of previously dropped packets
@@ -337,17 +432,18 @@ func (s *LocalTrack) WriteSample(sample media.Sample, opts *SampleWriteOptions) 
 		s.sequencer.NextSequenceNumber()
 	}
 
-	// calculate / interpolate duration when supplied duration is invalid
-	if sample.Duration.Nanoseconds() < 0 {
-		sample.Duration = sample.Timestamp.Sub(s.lastTS)
-		s.lastTS = sample.Timestamp
+	samplesPerPacket := samples / uint32(sample.PrevDroppedPackets+1)
+	if sample.PrevDroppedPackets > 0 {
+		s.packetizer.SkipSamples(samplesPerPacket * uint32(sample.PrevDroppedPackets))
 	}
 
-	samples := uint32(sample.Duration.Seconds() * clockRate)
-	if sample.PrevDroppedPackets > 0 {
-		p.SkipSamples(samples * uint32(sample.PrevDroppedPackets))
+	packets := s.packetizer.Packetize(sample.Data, samplesPerPacket)
+
+	if !s.lastTS.IsZero() {
+		s.lastTS = s.lastTS.Add(time.Duration(float64(samples) / s.clockRate * float64(time.Second)))
 	}
-	packets := p.Packetize(sample.Data, samples)
+	s.lastRTPTimestamp = currentRTPTimestamp
+	s.lock.Unlock()
 
 	var writeErrs []error
 	for _, p := range packets {
@@ -436,7 +532,6 @@ func (s *LocalTrack) writeWorker(provider SampleProvider, onComplete func()) {
 
 	nextSampleTime := time.Now()
 	ticker := time.NewTicker(10 * time.Millisecond)
-	// issue 324
 	defer ticker.Stop()
 
 	for {
