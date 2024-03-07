@@ -396,22 +396,36 @@ func (e *RTCEngine) GetDataChannelSub(kind livekit.DataPacket_Kind) *webrtc.Data
 	return e.lossyDCSub
 }
 
-func (e *RTCEngine) waitUntilConnected() error {
-	timeout := time.After(e.JoinTimeout)
+func waitUntilConnected(d time.Duration, cond func() bool) error {
+	if cond() {
+		return nil
+	}
+
+	timeout := time.NewTimer(d)
+	defer timeout.Stop()
 	ticker := time.NewTimer(0)
 	defer ticker.Stop()
 	for {
 		select {
-		case <-timeout:
+		case <-timeout.C:
 			return ErrConnectionTimeout
 		case <-ticker.C:
-			if e.IsConnected() {
-				e.requiresFullReconnect.Store(false)
+			if cond() {
 				return nil
 			}
 			ticker.Reset(10 * time.Millisecond)
 		}
 	}
+}
+
+func (e *RTCEngine) waitUntilConnected() error {
+	return waitUntilConnected(e.JoinTimeout, func() bool {
+		if e.IsConnected() {
+			e.requiresFullReconnect.Store(false)
+			return true
+		}
+		return false
+	})
 }
 
 func (e *RTCEngine) ensurePublisherConnected(ensureDataReady bool) error {
@@ -422,27 +436,19 @@ func (e *RTCEngine) ensurePublisherConnected(ensureDataReady bool) error {
 		return e.waitUntilConnected()
 	}
 
-	timeout := time.After(e.JoinTimeout)
-	ticker := time.NewTimer(0)
-	defer ticker.Stop()
 	var negotiated bool
-	for {
-		select {
-		case <-timeout:
-			return ErrConnectionTimeout
-		case <-ticker.C:
-			if publisher, ok := e.Publisher(); ok {
-				if publisher.IsConnected() && (!ensureDataReady || e.dataPubChannelReady()) {
-					return nil
-				}
-				if !negotiated {
-					publisher.Negotiate()
-					negotiated = true
-				}
+	return waitUntilConnected(e.JoinTimeout, func() bool {
+		if publisher, ok := e.Publisher(); ok {
+			if publisher.IsConnected() && (!ensureDataReady || e.dataPubChannelReady()) {
+				return true
 			}
-			ticker.Reset(10 * time.Millisecond)
+			if !negotiated {
+				publisher.Negotiate()
+				negotiated = true
+			}
 		}
-	}
+		return false
+	})
 }
 
 func (e *RTCEngine) dataPubChannelReady() bool {
