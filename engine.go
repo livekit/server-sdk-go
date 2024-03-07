@@ -396,8 +396,8 @@ func (e *RTCEngine) GetDataChannelSub(kind livekit.DataPacket_Kind) *webrtc.Data
 	return e.lossyDCSub
 }
 
-func waitUntilConnected(d time.Duration, cond func() bool) error {
-	if cond() {
+func waitUntilConnected(d time.Duration, test func() bool) error {
+	if test() {
 		return nil
 	}
 
@@ -410,7 +410,7 @@ func waitUntilConnected(d time.Duration, cond func() bool) error {
 		case <-timeout.C:
 			return ErrConnectionTimeout
 		case <-ticker.C:
-			if cond() {
+			if test() {
 				return nil
 			}
 			ticker.Reset(10 * time.Millisecond)
