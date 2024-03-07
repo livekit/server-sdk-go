@@ -403,7 +403,7 @@ func waitUntilConnected(d time.Duration, test func() bool) error {
 
 	timeout := time.NewTimer(d)
 	defer timeout.Stop()
-	ticker := time.NewTimer(0)
+	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		select {
@@ -413,7 +413,6 @@ func waitUntilConnected(d time.Duration, test func() bool) error {
 			if test() {
 				return nil
 			}
-			ticker.Reset(10 * time.Millisecond)
 		}
 	}
 }
