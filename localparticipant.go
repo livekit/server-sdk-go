@@ -269,32 +269,7 @@ func (p *LocalParticipant) closeTracks() {
 	}
 }
 
-func (p *LocalParticipant) PublishData(
-	payload []byte,
-	opts ...DataPublishOption,
-) error {
-	options := &dataPublishOptions{}
-	for _, opt := range opts {
-		opt(options)
-	}
-	packet := &livekit.UserPacket{
-		Payload:               payload,
-		DestinationIdentities: options.DestinationIdentities,
-	}
-	if options.Topic != "" {
-		packet.Topic = proto.String(options.Topic)
-	}
-	dataPacket := &livekit.DataPacket{
-		Value: &livekit.DataPacket_User{
-			User: packet,
-		},
-	}
-	if options.Reliable {
-		dataPacket.Kind = livekit.DataPacket_RELIABLE
-	} else {
-		dataPacket.Kind = livekit.DataPacket_LOSSY
-	}
-
+func (p *LocalParticipant) publishData(kind livekit.DataPacket_Kind, dataPacket *livekit.DataPacket) error {
 	if err := p.engine.ensurePublisherConnected(true); err != nil {
 		return err
 	}
@@ -304,7 +279,97 @@ func (p *LocalParticipant) PublishData(
 		return err
 	}
 
-	return p.engine.GetDataChannel(dataPacket.Kind).Send(encoded)
+	return p.engine.GetDataChannel(kind).Send(encoded)
+}
+
+// PublishData sends custom user data via WebRTC data channel.
+//
+// By default, the message can be received by all participants in a room,
+// see WithDataPublishDestination for choosing specific participants.
+//
+// Messages are sent via a LOSSY channel by default, see WithDataPublishReliable for sending reliable data.
+//
+// Deprecated: Use PublishDataPacket with UserData instead. Note that it sends reliable packets by default.
+func (p *LocalParticipant) PublishData(payload []byte, opts ...DataPublishOption) error {
+	options := &dataPublishOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+	if options.Reliable == nil {
+		// Old logic sends packets as lossy by default.
+		opts = append(opts, WithDataPublishReliable(false))
+	}
+	return p.PublishDataPacket(UserData(payload), opts...)
+}
+
+type DataPacket interface {
+	ToProto() *livekit.DataPacket
+}
+
+// Compile-time assertion for all supported data packet types.
+var (
+	_ DataPacket = (*UserDataPacket)(nil)
+	_ DataPacket = (*livekit.SipDTMF)(nil) // implemented in the protocol package
+)
+
+// UserData is a custom user data that can be sent via WebRTC.
+func UserData(data []byte) *UserDataPacket {
+	return &UserDataPacket{Payload: data}
+}
+
+// UserDataPacket is a custom user data that can be sent via WebRTC on a custom topic.
+type UserDataPacket struct {
+	Payload []byte
+	Topic   string // optional
+}
+
+// ToProto implements DataPacket.
+func (p *UserDataPacket) ToProto() *livekit.DataPacket {
+	var topic *string
+	if p.Topic != "" {
+		topic = proto.String(p.Topic)
+	}
+	return &livekit.DataPacket{Value: &livekit.DataPacket_User{
+		User: &livekit.UserPacket{
+			Payload: p.Payload,
+			Topic:   topic,
+		},
+	}}
+}
+
+// PublishDataPacket sends a packet via a WebRTC data channel. UserData can be used for sending custom user data.
+//
+// By default, the message can be received by all participants in a room,
+// see WithDataPublishDestination for choosing specific participants.
+//
+// Messages are sent via a RELIABLE channel, see WithDataPublishReliable for sending lossy data.
+func (p *LocalParticipant) PublishDataPacket(pck DataPacket, opts ...DataPublishOption) error {
+	options := &dataPublishOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+	dataPacket := pck.ToProto()
+	if options.Topic != "" {
+		if u, ok := dataPacket.Value.(*livekit.DataPacket_User); ok && u.User != nil {
+			u.User.Topic = proto.String(options.Topic)
+		}
+	}
+	// New logic sends packets as reliable by default.
+	// This matches the default value of Kind on protobuf level.
+	kind := livekit.DataPacket_RELIABLE
+	if options.Reliable != nil && !*options.Reliable {
+		kind = livekit.DataPacket_LOSSY
+	}
+	//lint:ignore SA1019 backward compatibility
+	dataPacket.Kind = kind
+
+	dataPacket.DestinationIdentities = options.DestinationIdentities
+	if u, ok := dataPacket.Value.(*livekit.DataPacket_User); ok && u.User != nil {
+		//lint:ignore SA1019 backward compatibility
+		u.User.DestinationIdentities = options.DestinationIdentities
+	}
+
+	return p.publishData(kind, dataPacket)
 }
 
 func (p *LocalParticipant) UnpublishTrack(sid string) error {

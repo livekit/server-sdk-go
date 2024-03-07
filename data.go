@@ -1,7 +1,7 @@
 package lksdk
 
 type dataPublishOptions struct {
-	Reliable              bool
+	Reliable              *bool
 	DestinationIdentities []string
 	Topic                 string
 }
@@ -9,7 +9,7 @@ type dataPublishOptions struct {
 type DataReceiveParams struct {
 	Sender         *RemoteParticipant
 	SenderIdentity string
-	Topic          string
+	Topic          string // Deprecated: Use UserDataPacket.Topic
 }
 
 type DataPublishOption func(*dataPublishOptions)
@@ -22,7 +22,7 @@ func WithDataPublishTopic(topic string) DataPublishOption {
 
 func WithDataPublishReliable(reliable bool) DataPublishOption {
 	return func(o *dataPublishOptions) {
-		o.Reliable = reliable
+		o.Reliable = &reliable
 	}
 }
 

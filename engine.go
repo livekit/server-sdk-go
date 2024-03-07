@@ -64,7 +64,8 @@ type RTCEngine struct {
 	OnMediaTrack        func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver)
 	OnParticipantUpdate func([]*livekit.ParticipantInfo)
 	OnSpeakersChanged   func([]*livekit.SpeakerInfo)
-	OnDataReceived      func(userPacket *livekit.UserPacket)
+	OnDataReceived      func(userPacket *livekit.UserPacket) // Deprecated: Use OnDataPacket instead
+	OnDataPacket        func(identity string, dataPacket DataPacket)
 	OnConnectionQuality func([]*livekit.ConnectionQualityInfo)
 	OnRoomUpdate        func(room *livekit.Room)
 	OnRestarting        func()
@@ -460,10 +461,34 @@ func (e *RTCEngine) handleDataPacket(msg webrtc.DataChannelMessage) {
 	if err != nil {
 		return
 	}
+	identity := packet.ParticipantIdentity
 	switch msg := packet.Value.(type) {
 	case *livekit.DataPacket_User:
-		if e.OnDataReceived != nil {
-			e.OnDataReceived(msg.User)
+		m := msg.User
+		//lint:ignore SA1019 backward compatibility
+		if ptr := &m.ParticipantIdentity; *ptr == "" {
+			*ptr = identity
+		}
+		//lint:ignore SA1019 backward compatibility
+		if ptr := &m.DestinationIdentities; len(*ptr) == 0 {
+			*ptr = packet.DestinationIdentities
+		}
+		if onDataReceived := e.OnDataReceived; onDataReceived != nil {
+			onDataReceived(m)
+		}
+		if e.OnDataPacket != nil {
+			if identity == "" {
+				//lint:ignore SA1019 backward compatibility
+				identity = m.ParticipantIdentity
+			}
+			e.OnDataPacket(identity, &UserDataPacket{
+				Payload: m.Payload,
+				Topic:   m.GetTopic(),
+			})
+		}
+	case *livekit.DataPacket_SipDtmf:
+		if e.OnDataPacket != nil {
+			e.OnDataPacket(identity, msg.SipDtmf)
 		}
 	}
 }
