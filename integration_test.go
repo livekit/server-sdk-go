@@ -31,6 +31,7 @@ import (
 	"go.uber.org/atomic"
 
 	"github.com/livekit/protocol/livekit"
+
 	"github.com/livekit/server-sdk-go/v2/pkg/interceptor"
 )
 
@@ -93,8 +94,10 @@ func TestJoin(t *testing.T) {
 	pub, err := createAgent(t.Name(), nil, "publisher")
 	require.NoError(t, err)
 
-	var dataLock sync.Mutex
-	var receivedData string
+	var (
+		dataLock     sync.Mutex
+		receivedData string
+	)
 
 	audioTrackName := "audio_of_pub1"
 	var trackLock sync.Mutex
@@ -102,10 +105,13 @@ func TestJoin(t *testing.T) {
 
 	subCB := &RoomCallback{
 		ParticipantCallback: ParticipantCallback{
-			OnDataReceived: func(data []byte, params DataReceiveParams) {
-				dataLock.Lock()
-				receivedData = string(data)
-				dataLock.Unlock()
+			OnDataPacket: func(data DataPacket, params DataReceiveParams) {
+				switch data := data.(type) {
+				case *UserDataPacket:
+					dataLock.Lock()
+					receivedData = string(data.Payload)
+					dataLock.Unlock()
+				}
 			},
 			OnTrackSubscribed: func(track *webrtc.TrackRemote, publication *RemoteTrackPublication, rp *RemoteParticipant) {
 				trackLock.Lock()
@@ -123,7 +129,8 @@ func TestJoin(t *testing.T) {
 	require.NotNil(t, serverInfo)
 	require.Equal(t, serverInfo.Edition, livekit.ServerInfo_Standard)
 
-	pub.LocalParticipant.PublishData([]byte("test"), WithDataPublishReliable(true))
+	pub.LocalParticipant.PublishDataPacket(UserData([]byte("test")))
+	pub.LocalParticipant.PublishDataPacket(&livekit.SipDTMF{Digit: "#"})
 	localPub := pubNullTrack(t, pub, audioTrackName)
 	require.Equal(t, localPub.Name(), audioTrackName)
 
@@ -203,7 +210,7 @@ func TestForceTLS(t *testing.T) {
 	require.NoError(t, err)
 
 	// ensure publisher connected
-	pub.LocalParticipant.PublishData([]byte("test"), WithDataPublishReliable(true))
+	pub.LocalParticipant.PublishDataPacket(UserData([]byte("test")))
 
 	pub.Simulate(SimulateForceTLS)
 	require.Eventually(t, func() bool { return reconnected.Load() && pub.engine.ensurePublisherConnected(true) == nil }, 15*time.Second, 100*time.Millisecond)
@@ -249,7 +256,7 @@ func TestSubscribeMutedTrack(t *testing.T) {
 	var trackReceived atomic.Int32
 
 	var pubTrackMuted sync.WaitGroup
-	require.NoError(t, pub.LocalParticipant.PublishData([]byte("test"), WithDataPublishReliable(true)))
+	require.NoError(t, pub.LocalParticipant.PublishDataPacket(UserData([]byte("test"))))
 
 	pubMuteTrack := func(t *testing.T, room *Room, name string, codec webrtc.RTPCodecCapability) *LocalTrackPublication {
 		pubTrackMuted.Add(1)
