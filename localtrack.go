@@ -423,11 +423,16 @@ func (s *LocalTrack) WriteSample(sample media.Sample, opts *SampleWriteOptions) 
 	}
 
 	samples := currentRTPTimestamp - s.lastRTPTimestamp
+	skippedSamples := uint32(0)
 	if samples < elapsedDurationSamples {
 		// possible that wall clock time based samplse are sent too close,
 		// lower bound Duration if necessary
 		samples = elapsedDurationSamples
 		currentRTPTimestamp = s.lastRTPTimestamp + elapsedDurationSamples
+	} else if samples > elapsedDurationSamples {
+		// writing a sample after a gap
+		skippedSamples = samples - elapsedDurationSamples
+		samples = elapsedDurationSamples
 	}
 
 	// skip packets by the number of previously dropped packets
@@ -438,6 +443,9 @@ func (s *LocalTrack) WriteSample(sample media.Sample, opts *SampleWriteOptions) 
 	samplesPerPacket := samples / uint32(sample.PrevDroppedPackets+1)
 	if sample.PrevDroppedPackets > 0 {
 		s.packetizer.SkipSamples(samplesPerPacket * uint32(sample.PrevDroppedPackets))
+	}
+	if skippedSamples != 0 {
+		s.packetizer.SkipSamples(skippedSamples)
 	}
 
 	packets := s.packetizer.Packetize(sample.Data, samplesPerPacket)
