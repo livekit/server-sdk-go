@@ -377,6 +377,9 @@ func (s *LocalTrack) WriteSample(sample media.Sample, opts *SampleWriteOptions) 
 		}
 
 		s.lastTS = sample.Timestamp
+		if !s.lastTS.IsZero() {
+			s.lastTS = s.lastTS.Add(time.Duration(-elapsedDurationSeconds * float64(time.Second)))
+		}
 	} else {
 		// reject samples that move backward in time
 		switch {
@@ -439,9 +442,7 @@ func (s *LocalTrack) WriteSample(sample media.Sample, opts *SampleWriteOptions) 
 
 	packets := s.packetizer.Packetize(sample.Data, samplesPerPacket)
 
-	if !s.lastTS.IsZero() {
-		s.lastTS = s.lastTS.Add(time.Duration(float64(samples) / s.clockRate * float64(time.Second)))
-	}
+	s.lastTS = sample.Timestamp
 	s.lastRTPTimestamp = currentRTPTimestamp
 	s.lock.Unlock()
 
