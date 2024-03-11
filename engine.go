@@ -584,9 +584,11 @@ func (e *RTCEngine) resumeConnection() error {
 	publisher := e.publisher
 	e.pclock.Unlock()
 	if sendOffer {
-		publisher.createAndSendOffer(&webrtc.OfferOptions{
+		if err := publisher.createAndSendOffer(&webrtc.OfferOptions{
 			ICERestart: true,
-		})
+		}); err != nil {
+			return err
+		}
 	}
 
 	if err = e.waitUntilConnected(); err != nil {
