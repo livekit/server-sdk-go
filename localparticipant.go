@@ -289,15 +289,11 @@ func (p *LocalParticipant) publishData(kind livekit.DataPacket_Kind, dataPacket 
 //
 // Messages are sent via a LOSSY channel by default, see WithDataPublishReliable for sending reliable data.
 //
-// Deprecated: Use PublishDataPacket with UserData instead. Note that it sends reliable packets by default.
+// Deprecated: Use PublishDataPacket with UserData instead.
 func (p *LocalParticipant) PublishData(payload []byte, opts ...DataPublishOption) error {
 	options := &dataPublishOptions{}
 	for _, opt := range opts {
 		opt(options)
-	}
-	if options.Reliable == nil {
-		// Old logic sends packets as lossy by default.
-		opts = append(opts, WithDataPublishReliable(false))
 	}
 	return p.PublishDataPacket(UserData(payload), opts...)
 }
@@ -342,7 +338,7 @@ func (p *UserDataPacket) ToProto() *livekit.DataPacket {
 // By default, the message can be received by all participants in a room,
 // see WithDataPublishDestination for choosing specific participants.
 //
-// Messages are sent via a RELIABLE channel, see WithDataPublishReliable for sending lossy data.
+// Messages are sent via UDP and offer no delivery guarantees, see WithDataPublishReliable for sending data reliably (with retries).
 func (p *LocalParticipant) PublishDataPacket(pck DataPacket, opts ...DataPublishOption) error {
 	options := &dataPublishOptions{}
 	for _, opt := range opts {
@@ -354,11 +350,11 @@ func (p *LocalParticipant) PublishDataPacket(pck DataPacket, opts ...DataPublish
 			u.User.Topic = proto.String(options.Topic)
 		}
 	}
-	// New logic sends packets as reliable by default.
+
 	// This matches the default value of Kind on protobuf level.
-	kind := livekit.DataPacket_RELIABLE
-	if options.Reliable != nil && !*options.Reliable {
-		kind = livekit.DataPacket_LOSSY
+	kind := livekit.DataPacket_LOSSY
+	if options.Reliable != nil && *options.Reliable {
+		kind = livekit.DataPacket_RELIABLE
 	}
 	//lint:ignore SA1019 backward compatibility
 	dataPacket.Kind = kind
