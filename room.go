@@ -342,8 +342,9 @@ func (r *Room) handleMediaTrack(track *webrtc.TrackRemote, receiver *webrtc.RTPR
 	rp.addSubscribedMediaTrack(track, trackID, receiver)
 }
 
-func (r *Room) handleDisconnect() {
+func (r *Room) handleDisconnect(reason DisconnectionReason) {
 	r.callback.OnDisconnected()
+	r.callback.OnDisconnectedWithReason(reason)
 
 	r.cleanup()
 }

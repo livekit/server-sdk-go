@@ -94,8 +94,16 @@ func (cb *ParticipantCallback) Merge(other *ParticipantCallback) {
 	}
 }
 
+type DisconnectionReason string
+
+const (
+	LeaveRequested DisconnectionReason = "leave requested by room"
+	Failed         DisconnectionReason = "connection to room failed"
+)
+
 type RoomCallback struct {
 	OnDisconnected            func()
+	OnDisconnectedWithReason  func(reason DisconnectionReason)
 	OnParticipantConnected    func(*RemoteParticipant)
 	OnParticipantDisconnected func(*RemoteParticipant)
 	OnActiveSpeakersChanged   func([]Participant)
@@ -113,6 +121,7 @@ func NewRoomCallback() *RoomCallback {
 		ParticipantCallback: *pc,
 
 		OnDisconnected:            func() {},
+		OnDisconnectedWithReason:  func(reason DisconnectionReason) {},
 		OnParticipantConnected:    func(participant *RemoteParticipant) {},
 		OnParticipantDisconnected: func(participant *RemoteParticipant) {},
 		OnActiveSpeakersChanged:   func(participants []Participant) {},
@@ -129,6 +138,9 @@ func (cb *RoomCallback) Merge(other *RoomCallback) {
 
 	if other.OnDisconnected != nil {
 		cb.OnDisconnected = other.OnDisconnected
+	}
+	if other.OnDisconnectedWithReason != nil {
+		cb.OnDisconnectedWithReason = other.OnDisconnectedWithReason
 	}
 	if other.OnParticipantConnected != nil {
 		cb.OnParticipantConnected = other.OnParticipantConnected
