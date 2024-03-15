@@ -60,7 +60,7 @@ type RTCEngine struct {
 	JoinTimeout time.Duration
 
 	// callbacks
-	OnDisconnected      func()
+	OnDisconnected      func(reason DisconnectionReason)
 	OnMediaTrack        func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver)
 	OnParticipantUpdate func([]*livekit.ParticipantInfo)
 	OnSpeakersChanged   func([]*livekit.SpeakerInfo)
@@ -529,7 +529,7 @@ func (e *RTCEngine) handleDisconnect(fullReconnect bool) {
 		}
 
 		if e.OnDisconnected != nil {
-			e.OnDisconnected()
+			e.OnDisconnected(Failed)
 		}
 	}()
 }
@@ -612,7 +612,7 @@ func (e *RTCEngine) handleLeave(leave *livekit.LeaveRequest) {
 			"canReconnect", leave.GetCanReconnect(),
 		)
 		if e.OnDisconnected != nil {
-			e.OnDisconnected()
+			e.OnDisconnected(LeaveRequested)
 		}
 	}
 }
