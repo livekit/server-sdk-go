@@ -119,7 +119,7 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 
 	publisher.Negotiate()
 
-	logger.Infow("published track", "name", opts.Name, "source", opts.Source.String())
+	logger.Infow("published track", "name", opts.Name, "source", opts.Source.String(), "trackID", pubRes.Track.Sid)
 
 	return pub, nil
 }
@@ -221,7 +221,7 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *Tra
 
 	publisher.Negotiate()
 
-	logger.Infow("published simulcast track", "name", opts.Name, "source", opts.Source.String())
+	logger.Infow("published simulcast track", "name", opts.Name, "source", opts.Source.String(), "trackID", pubRes.Track.Sid)
 
 	return pub, nil
 }
@@ -397,6 +397,8 @@ func (p *LocalParticipant) UnpublishTrack(sid string) error {
 	}
 
 	pub.CloseTrack()
+
+	logger.Infow("unpublished track", "name", pub.Name, "sid", sid)
 
 	return err
 }
