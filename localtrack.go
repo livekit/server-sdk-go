@@ -75,6 +75,7 @@ type LocalTrack struct {
 
 	muted       atomic.Bool
 	cancelWrite func()
+	writeClosed chan struct{}
 	provider    SampleProvider
 	onBind      func()
 	onUnbind    func()
@@ -526,16 +527,22 @@ func (s *LocalTrack) rtcpWorker(rtcpReader interceptor.RTCPReader) {
 }
 
 func (s *LocalTrack) writeWorker(provider SampleProvider, onComplete func()) {
+	s.lock.Lock()
 	if s.cancelWrite != nil {
 		s.cancelWrite()
+		// wait for previous write to finish to prevent multi-threaded provider reading
+		<-s.writeClosed
 	}
+
 	var ctx context.Context
-	s.lock.Lock()
 	ctx, s.cancelWrite = context.WithCancel(context.Background())
+	writeClosed := make(chan struct{})
+	s.writeClosed = writeClosed
 	s.lock.Unlock()
 	if onComplete != nil {
 		defer onComplete()
 	}
+	defer close(writeClosed)
 
 	audioProvider, isAudioProvider := provider.(AudioSampleProvider)
 
@@ -544,6 +551,7 @@ func (s *LocalTrack) writeWorker(provider SampleProvider, onComplete func()) {
 	defer ticker.Stop()
 
 	for {
+		// Be mindful that NextSample is not thread-safe
 		sample, err := provider.NextSample(ctx)
 		if err == io.EOF {
 			return
