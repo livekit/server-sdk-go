@@ -398,7 +398,7 @@ func (p *LocalParticipant) UnpublishTrack(sid string) error {
 
 	pub.CloseTrack()
 
-	logger.Infow("unpublished track", "name", pub.Name, "sid", sid)
+	logger.Infow("unpublished track", "name", pub.Name(), "sid", sid)
 
 	return err
 }
