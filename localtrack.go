@@ -64,6 +64,7 @@ type LocalTrack struct {
 	clockRate        float64
 	bound            atomic.Bool
 	lock             sync.RWMutex
+	writeStartupLock sync.Mutex
 	audioLevelID     uint8
 	sdesMidID        uint8
 	sdesRtpStreamID  uint8
@@ -527,18 +528,26 @@ func (s *LocalTrack) rtcpWorker(rtcpReader interceptor.RTCPReader) {
 }
 
 func (s *LocalTrack) writeWorker(provider SampleProvider, onComplete func()) {
-	s.lock.Lock()
-	if s.cancelWrite != nil {
-		s.cancelWrite()
+	s.writeStartupLock.Lock()
+
+	s.lock.RLock()
+	previousCancel := s.cancelWrite
+	previousWriteClosed := s.writeClosed
+	s.lock.RUnlock()
+
+	if previousCancel != nil {
+		previousCancel()
 		// wait for previous write to finish to prevent multi-threaded provider reading
-		<-s.writeClosed
+		<-previousWriteClosed
 	}
 
+	s.lock.Lock()
 	var ctx context.Context
 	ctx, s.cancelWrite = context.WithCancel(context.Background())
 	writeClosed := make(chan struct{})
 	s.writeClosed = writeClosed
 	s.lock.Unlock()
+	s.writeStartupLock.Unlock()
 	if onComplete != nil {
 		defer onComplete()
 	}
