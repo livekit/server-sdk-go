@@ -210,7 +210,8 @@ if _, err = room.LocalParticipant.PublishTrack(track, &lksdk.TrackPublicationOpt
 }
 ```
 
-For a full working example, refer to [join.go](https://github.com/livekit/livekit-cli/blob/main/cmd/livekit-cli/join.go) in livekit-cli.
+For a full working example, refer to [filesender](https://github.com/livekit/server-sdk-go/blob/main/examples/filesender). This
+eaxmple sends all audio/video files in the current directory.
 
 ### Publish from other sources
 
@@ -246,6 +247,14 @@ room, err := lksdk.ConnectToRoom(hostURL, lksdk.ConnectInfo{
     },
 }, lksdk.WithPacer(pf))
 ```
+
+## Receiving tracks from Room
+
+With the Go SDK, you can accept media from the room.
+
+For a full working example, refer to [filesaver](https://github.com/livekit/server-sdk-go/blob/main/examples/filesaver). This
+eaxmple saves the audio/video in the LiveKit room to the local disk.
+
 
 ## Receiving webhooks
 

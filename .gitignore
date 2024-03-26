@@ -11,6 +11,11 @@
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 
+# Media files
+*.h264
+*.ivf
+*.ogg
+
 .idea/
 docs/
 bin/
