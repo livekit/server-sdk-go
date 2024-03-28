@@ -403,10 +403,13 @@ func (b *Buffer) drop() {
 		for b.head != nil && !b.head.start && before32(b.head.packet.Timestamp-b.maxSampleSize, b.minTS) {
 			dropped = true
 			b.packetsDropped++
+			b.prevSN = b.head.packet.SequenceNumber - 1
 			b.dropHead()
 		}
 
-		b.prevSN = b.head.packet.SequenceNumber - 1
+		if b.head != nil {
+			b.prevSN = b.head.packet.SequenceNumber - 1
+		}
 	}
 
 	for c := b.head; c != nil; {
