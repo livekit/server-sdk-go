@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v3"
 	"golang.org/x/exp/maps"
@@ -81,6 +82,8 @@ type connectParams struct {
 	RetransmitBufferSize uint16
 
 	Pacer pacer.Factory
+
+	Interceptors []interceptor.Factory
 }
 
 type ConnectOption func(*connectParams)
@@ -102,6 +105,12 @@ func WithRetransmitBufferSize(val uint16) ConnectOption {
 func WithPacer(pacer pacer.Factory) ConnectOption {
 	return func(p *connectParams) {
 		p.Pacer = pacer
+	}
+}
+
+func WithInterceptors(interceptors []interceptor.Factory) ConnectOption {
+	return func(p *connectParams) {
+		p.Interceptors = interceptors
 	}
 }
 

@@ -229,6 +229,7 @@ func (e *RTCEngine) configure(
 		Configuration:        configuration,
 		RetransmitBufferSize: e.connParams.RetransmitBufferSize,
 		Pacer:                e.connParams.Pacer,
+		Interceptors:         e.connParams.Interceptors,
 		OnRTTUpdate:          e.setRTT,
 		IsSender:             true,
 	}); err != nil {
