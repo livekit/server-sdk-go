@@ -14,8 +14,8 @@ require (
 	github.com/pion/interceptor v0.1.25
 	github.com/pion/rtcp v1.2.14
 	github.com/pion/rtp v1.8.3
-	github.com/pion/sdp/v3 v3.0.6
-	github.com/pion/webrtc/v3 v3.2.28
+	github.com/pion/sdp/v3 v3.0.8
+	github.com/pion/webrtc/v3 v3.2.29
 	github.com/stretchr/testify v1.9.0
 	github.com/twitchtv/twirp v8.1.3+incompatible
 	go.uber.org/atomic v1.11.0
