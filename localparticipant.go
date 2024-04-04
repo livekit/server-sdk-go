@@ -139,9 +139,12 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *Tra
 		}
 	}
 
+	tracksCopy := make([]*LocalTrack, len(tracks))
+	copy(tracksCopy, tracks)
+
 	// tracks should be low to high
-	sort.Slice(tracks, func(i, j int) bool {
-		return tracks[i].videoLayer.Width < tracks[j].videoLayer.Width
+	sort.Slice(tracksCopy, func(i, j int) bool {
+		return tracksCopy[i].videoLayer.Width < tracksCopy[j].videoLayer.Width
 	})
 
 	if opts == nil {
@@ -152,13 +155,13 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *Tra
 		opts.Source = livekit.TrackSource_CAMERA
 	}
 
-	mainTrack := tracks[len(tracks)-1]
+	mainTrack := tracksCopy[len(tracksCopy)-1]
 
 	pub := NewLocalTrackPublication(KindFromRTPType(mainTrack.Kind()), nil, *opts, p.engine.client)
 	pub.onMuteChanged = p.onTrackMuted
 
 	var layers []*livekit.VideoLayer
-	for _, st := range tracks {
+	for _, st := range tracksCopy {
 		layers = append(layers, st.videoLayer)
 	}
 	err := p.engine.client.SendRequest(&livekit.SignalRequest{
@@ -197,7 +200,7 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *Tra
 	publishPC := publisher.PeerConnection()
 	var transceiver *webrtc.RTPTransceiver
 	var sender *webrtc.RTPSender
-	for idx, st := range tracks {
+	for idx, st := range tracksCopy {
 		if idx == 0 {
 			transceiver, err = publishPC.AddTransceiverFromTrack(st, webrtc.RTPTransceiverInit{
 				Direction: webrtc.RTPTransceiverDirectionSendonly,
