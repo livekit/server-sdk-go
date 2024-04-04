@@ -24,6 +24,7 @@ import (
 	"time"
 
 	lksdk "github.com/livekit/server-sdk-go/v2"
+	"github.com/pion/webrtc/v3"
 )
 
 var (
@@ -49,7 +50,7 @@ func main() {
 		APISecret:           apiSecret,
 		RoomName:            roomName,
 		ParticipantIdentity: identity,
-	}, &lksdk.RoomCallback{}, lksdk.WithAutoSubscribe(false))
+	}, &lksdk.RoomCallback{}, lksdk.WithAutoSubscribe(false), lksdk.WithICETransportPolicy(webrtc.ICETransportPolicyRelay))
 	if err != nil {
 		panic(err)
 	}
