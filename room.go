@@ -84,6 +84,8 @@ type connectParams struct {
 	Pacer pacer.Factory
 
 	Interceptors []interceptor.Factory
+
+	ICETransportPolicy webrtc.ICETransportPolicy
 }
 
 type ConnectOption func(*connectParams)
@@ -111,6 +113,12 @@ func WithPacer(pacer pacer.Factory) ConnectOption {
 func WithInterceptors(interceptors []interceptor.Factory) ConnectOption {
 	return func(p *connectParams) {
 		p.Interceptors = interceptors
+	}
+}
+
+func WithICETransportPolicy(iceTransportPolicy webrtc.ICETransportPolicy) ConnectOption {
+	return func(p *connectParams) {
+		p.ICETransportPolicy = iceTransportPolicy
 	}
 }
 
