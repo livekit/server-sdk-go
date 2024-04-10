@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"runtime"
@@ -36,6 +37,7 @@ import (
 const PROTOCOL = 12
 
 type SignalClient struct {
+	log             *slog.Logger
 	conn            atomic.Pointer[websocket.Conn]
 	lock            sync.Mutex
 	isStarted       atomic.Bool
@@ -58,7 +60,7 @@ type SignalClient struct {
 }
 
 func NewSignalClient() *SignalClient {
-	c := &SignalClient{}
+	c := &SignalClient{log: getLogger()}
 	return c
 }
 
@@ -98,7 +100,7 @@ func (c *SignalClient) Reconnect(urlPrefix string, token string, params connectP
 	}
 
 	c.pendingResponse = nil
-	logger.Debugw("reconnect received response", "response", res.String())
+	c.log.Debug("reconnect received response", "response", res.String())
 	if res != nil {
 		switch msg := res.Message.(type) {
 		case *livekit.SignalResponse_Reconnect:
@@ -139,11 +141,12 @@ func (c *SignalClient) connect(urlPrefix string, token string, params connectPar
 	header := newHeaderWithToken(token)
 	conn, hresp, err := websocket.DefaultDialer.Dial(u.String(), header)
 	if err != nil {
-		var fields []interface{}
+		var fields []any
+		fields = append(fields, "error", err)
 		if hresp != nil {
 			fields = append(fields, "status", hresp.StatusCode)
 		}
-		logger.Errorw("error establishing signal connection", err, fields...)
+		c.log.Error("error establishing signal connection", fields...)
 
 		if strings.HasSuffix(err.Error(), ":53: server misbehaving") {
 			// DNS issue, abort
@@ -154,17 +157,17 @@ func (c *SignalClient) connect(urlPrefix string, token string, params connectPar
 
 		validateReq, err1 := http.NewRequest(http.MethodGet, ToHttpURL(urlPrefix)+validateSuffix, nil)
 		if err1 != nil {
-			logger.Errorw("error creating validate request", err1)
+			c.log.Error("error creating validate request", "error", err1)
 			return nil, ErrCannotDialSignal
 		}
 		validateReq.Header = header
 		hresp, err := http.DefaultClient.Do(validateReq)
 		if err != nil {
-			logger.Errorw("error getting validation", err, "httpResponse", hresp)
+			c.log.Error("error getting validation", "error", err, "httpResponse", hresp)
 			return nil, ErrCannotDialSignal
 		} else if hresp.StatusCode == http.StatusOK {
 			// no specific errors to return if validate succeeds
-			logger.Infow("validate succeeded")
+			c.log.Info("validate succeeded")
 			return nil, ErrCannotConnectSignal
 		} else {
 			var errString string
@@ -386,7 +389,7 @@ func (c *SignalClient) readWorker(readerClosedCh chan struct{}) {
 		res, err := c.readResponse()
 		if err != nil {
 			if !isIgnoredWebsocketError(err) {
-				logger.Infow("error while reading from signal client", "err", err)
+				c.log.Info("error while reading from signal client", "error", err)
 			}
 			return
 		}

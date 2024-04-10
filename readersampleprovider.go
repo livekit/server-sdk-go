@@ -145,6 +145,7 @@ func NewLocalFileTrack(file string, options ...ReaderSampleProviderOption) (*Loc
 // NewLocalReaderTrack uses io.ReadCloser interface to adapt to various ingress types
 // - mime: has to be one of webrtc.MimeType... (e.g. webrtc.MimeTypeOpus)
 func NewLocalReaderTrack(in io.ReadCloser, mime string, options ...ReaderSampleProviderOption) (*LocalTrack, error) {
+	log := getLogger()
 	provider := &ReaderSampleProvider{
 		Mime:   mime,
 		reader: in,
@@ -170,7 +171,7 @@ func NewLocalReaderTrack(in io.ReadCloser, mime string, options ...ReaderSampleP
 	}
 	track.OnBind(func() {
 		if err := track.StartWrite(provider, provider.OnWriteComplete); err != nil {
-			logger.Errorw("Could not start writing", err)
+			log.Error("Could not start writing", "error", err)
 		}
 	})
 

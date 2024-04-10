@@ -15,6 +15,7 @@
 package lksdk
 
 import (
+	"log/slog"
 	"reflect"
 	"sort"
 	"strings"
@@ -125,6 +126,7 @@ func WithICETransportPolicy(iceTransportPolicy webrtc.ICETransportPolicy) Connec
 type PLIWriter func(webrtc.SSRC)
 
 type Room struct {
+	log              *slog.Logger
 	engine           *RTCEngine
 	sid              string
 	name             string
@@ -145,6 +147,7 @@ type Room struct {
 func NewRoom(callback *RoomCallback) *Room {
 	engine := NewRTCEngine()
 	r := &Room{
+		log:                getLogger(),
 		engine:             engine,
 		remoteParticipants: make(map[livekit.ParticipantIdentity]*RemoteParticipant),
 		sidToIdentity:      make(map[livekit.ParticipantID]livekit.ParticipantIdentity),
@@ -190,6 +193,12 @@ func ConnectToRoomWithToken(url, token string, callback *RoomCallback, opts ...C
 		return nil, err
 	}
 	return room, nil
+}
+
+func (r *Room) SetLogger(log *slog.Logger) {
+	r.log = log
+	r.engine.SetLogger(log)
+	r.LocalParticipant.SetLogger(log)
 }
 
 func (r *Room) Name() string {
@@ -353,7 +362,7 @@ func (r *Room) handleMediaTrack(track *webrtc.TrackRemote, receiver *webrtc.RTPR
 
 	rp := r.GetParticipantBySID(participantID)
 	if rp == nil {
-		logger.Errorw("could not find participant", nil, "participantID", participantID)
+		r.log.Error("could not find participant", "participantID", participantID)
 		return
 	}
 	rp.addSubscribedMediaTrack(track, trackID, receiver)
@@ -498,7 +507,7 @@ func (r *Room) handleConnectionQualityUpdate(updates []*livekit.ConnectionQualit
 			if p != nil {
 				p.setConnectionQualityInfo(update)
 			} else {
-				logger.Debugw("could not find participant", "sid", update.ParticipantSid,
+				r.log.Debug("could not find participant", "sid", update.ParticipantSid,
 					"localParticipant", r.LocalParticipant.SID())
 			}
 		}
@@ -532,7 +541,7 @@ func (r *Room) handleTrackRemoteMuted(msg *livekit.MuteTrackRequest) {
 func (r *Room) handleLocalTrackUnpublished(msg *livekit.TrackUnpublishedResponse) {
 	err := r.LocalParticipant.UnpublishTrack(msg.TrackSid)
 	if err != nil {
-		logger.Errorw("could not unpublish track", err, "trackID", msg.TrackSid)
+		r.log.Error("could not unpublish track", "error", err, "trackID", msg.TrackSid)
 	}
 }
 

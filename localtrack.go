@@ -496,6 +496,7 @@ func (s *LocalTrack) setMuted(muted bool) {
 }
 
 func (s *LocalTrack) rtcpWorker(rtcpReader interceptor.RTCPReader) {
+	log := getLogger()
 	// read incoming rtcp packets, interceptors require this
 	b := make([]byte, rtpInboundMTU)
 	rtcpCB := s.onRTCP
@@ -510,7 +511,7 @@ func (s *LocalTrack) rtcpWorker(rtcpReader interceptor.RTCPReader) {
 
 		pkts, err := rtcp.Unmarshal(b[:i])
 		if err != nil {
-			logger.Warnw("could not unmarshal rtcp", err)
+			log.Warn("could not unmarshal rtcp", "error", err)
 			return
 		}
 		for _, packet := range pkts {
@@ -535,6 +536,7 @@ func (s *LocalTrack) rtcpWorker(rtcpReader interceptor.RTCPReader) {
 }
 
 func (s *LocalTrack) writeWorker(provider SampleProvider, onComplete func()) {
+	log := getLogger()
 	s.writeStartupLock.Lock()
 
 	s.lock.RLock()
@@ -573,7 +575,7 @@ func (s *LocalTrack) writeWorker(provider SampleProvider, onComplete func()) {
 			return
 		}
 		if err != nil {
-			logger.Errorw("could not get sample from provider", err)
+			log.Error("could not get sample from provider", "error", err)
 			return
 		}
 
@@ -587,7 +589,7 @@ func (s *LocalTrack) writeWorker(provider SampleProvider, onComplete func()) {
 			}
 
 			if err := s.WriteSample(sample, opts); err != nil {
-				logger.Errorw("could not write sample", err)
+				log.Error("could not write sample", "error", err)
 				return
 			}
 		}

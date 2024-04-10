@@ -79,7 +79,7 @@ func pubNullTrack(t *testing.T, room *Room, name string) *LocalTrackPublication 
 
 	track.OnBind(func() {
 		if err := track.StartWrite(provider, func() {}); err != nil {
-			logger.Errorw("Could not start writing", err)
+			room.log.Error("Could not start writing", "error", err)
 		}
 	})
 
@@ -185,7 +185,7 @@ func TestResume(t *testing.T) {
 	pub.Simulate(SimulateSignalReconnect)
 	require.Eventually(t, func() bool { return reconnected.Load() }, 5*time.Second, 100*time.Millisecond)
 
-	logger.Infow("reconnected")
+	getLogger().Info("reconnected")
 
 	localPub := pubNullTrack(t, pub, audioTrackName)
 	require.Equal(t, localPub.Name(), audioTrackName)
@@ -215,7 +215,7 @@ func TestForceTLS(t *testing.T) {
 	pub.Simulate(SimulateForceTLS)
 	require.Eventually(t, func() bool { return reconnected.Load() && pub.engine.ensurePublisherConnected(true) == nil }, 15*time.Second, 100*time.Millisecond)
 
-	logger.Infow("reconnected")
+	getLogger().Info("reconnected")
 
 	getSelectedPair := func(pc *webrtc.PeerConnection) (*webrtc.ICECandidatePair, error) {
 		sctp := pc.SCTP()

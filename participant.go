@@ -15,6 +15,7 @@
 package lksdk
 
 import (
+	"log/slog"
 	"sync"
 
 	"go.uber.org/atomic"
@@ -45,6 +46,7 @@ type Participant interface {
 }
 
 type baseParticipant struct {
+	log               *slog.Logger
 	sid               string
 	identity          string
 	name              string
@@ -65,6 +67,7 @@ type baseParticipant struct {
 
 func newBaseParticipant(roomCallback *RoomCallback) *baseParticipant {
 	p := &baseParticipant{
+		log:          getLogger(),
 		audioTracks:  &sync.Map{},
 		videoTracks:  &sync.Map{},
 		tracks:       &sync.Map{},
@@ -75,6 +78,10 @@ func newBaseParticipant(roomCallback *RoomCallback) *baseParticipant {
 	p.setAudioLevel(0)
 	p.setIsSpeaking(false)
 	return p
+}
+
+func (p *baseParticipant) SetLogger(log *slog.Logger) {
+	p.log = log
 }
 
 func (p *baseParticipant) SID() string {
