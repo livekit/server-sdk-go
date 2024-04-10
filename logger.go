@@ -15,17 +15,28 @@
 package lksdk
 
 import (
-	"log"
-
-	"github.com/go-logr/stdr"
+	"log/slog"
 
 	protoLogger "github.com/livekit/protocol/logger"
 )
 
-var logger protoLogger.Logger = protoLogger.LogRLogger(stdr.New(log.Default()))
+var globalLog *slog.Logger
+
+func getLogger() *slog.Logger {
+	if globalLog != nil {
+		return globalLog
+	}
+	return slog.Default()
+}
 
 // SetLogger overrides default logger. To use a [logr](https://github.com/go-logr/logr) compatible logger,
-// pass in SetLogger(logger.LogRLogger(logRLogger))
+// pass in SetLogger(logger.LogRLogger(logRLogger)).
+//
+// If no logger is set, slog.Default will be used.
 func SetLogger(l protoLogger.Logger) {
-	logger = l
+	if l == nil {
+		globalLog = nil
+		return
+	}
+	globalLog = slog.New(protoLogger.ToSlogHandler(l))
 }

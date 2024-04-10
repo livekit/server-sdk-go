@@ -15,10 +15,10 @@
 package jitter
 
 import (
+	"log/slog"
 	"sync"
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/pion/rtp"
 
 	"github.com/livekit/protocol/logger"
@@ -31,7 +31,7 @@ type Buffer struct {
 	onPacketDropped func()
 	packetsDropped  int
 	packetsTotal    int
-	logger          logger.Logger
+	logger          *slog.Logger
 
 	mu          sync.Mutex
 	pool        *packet
@@ -57,7 +57,7 @@ func NewBuffer(depacketizer rtp.Depacketizer, clockRate uint32, maxLatency time.
 		depacketizer: depacketizer,
 		maxLate:      uint32(float64(maxLatency) / float64(time.Second) * float64(clockRate)),
 		clockRate:    clockRate,
-		logger:       logger.LogRLogger(logr.Discard()),
+		logger:       slog.New(logger.NewSlogDiscard()),
 	}
 	for _, opt := range opts {
 		opt(b)

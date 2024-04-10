@@ -14,7 +14,11 @@
 
 package jitter
 
-import "github.com/livekit/protocol/logger"
+import (
+	"log/slog"
+
+	"github.com/livekit/protocol/logger"
+)
 
 type Option func(b *Buffer)
 
@@ -28,6 +32,13 @@ func WithPacketDroppedHandler(f func()) Option {
 
 // WithLogger sets a logger which will log packets dropped
 func WithLogger(l logger.Logger) Option {
+	return func(b *Buffer) {
+		b.logger = slog.New(logger.ToSlogHandler(l))
+	}
+}
+
+// WithSlog sets a slog logger which will log packets dropped
+func WithSlog(l *slog.Logger) Option {
 	return func(b *Buffer) {
 		b.logger = l
 	}

@@ -116,7 +116,7 @@ func (p *RemoteParticipant) addSubscribedMediaTrack(track *webrtc.TrackRemote, t
 	}
 	pub.setReceiverAndTrack(receiver, track)
 
-	logger.Infow("track subscribed",
+	p.log.Info("track subscribed",
 		"participant", p.Identity(), "track", pub.sid.Load(),
 		"kind", pub.kind.Load())
 	p.Callback.OnTrackSubscribed(track, pub, p)
@@ -133,7 +133,7 @@ func (p *RemoteParticipant) getPublication(trackSID string) *RemoteTrackPublicat
 func (p *RemoteParticipant) unpublishTrack(sid string, sendUnpublish bool) {
 	pub := p.getPublication(sid)
 	if pub == nil {
-		logger.Warnw("could not find track to unpublish", nil, "sid", sid)
+		p.log.Warn("could not find track to unpublish", "sid", sid)
 		return
 	}
 

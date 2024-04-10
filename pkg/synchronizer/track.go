@@ -17,6 +17,7 @@ package synchronizer
 import (
 	"errors"
 	"io"
+	"log/slog"
 	"math"
 	"sync"
 	"time"
@@ -26,7 +27,6 @@ import (
 	"github.com/pion/webrtc/v3"
 
 	"github.com/livekit/mediatransportutil"
-	"github.com/livekit/protocol/logger"
 )
 
 const (
@@ -113,13 +113,14 @@ func (t *TrackSynchronizer) Initialize(pkt *rtp.Packet) {
 // GetPTS will reset sequence numbers and/or offsets if necessary
 // Packets are expected to be in order
 func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
+	log := slog.Default()
 	t.Lock()
 	defer t.Unlock()
 
 	ts, pts, valid := t.adjust(pkt)
 	if pts < t.lastPTS {
 		if t.backwards == 0 {
-			logger.Warnw("backwards pts", ErrBackwardsPTS,
+			log.Warn("backwards pts", "error", ErrBackwardsPTS,
 				"timestamp", pkt.Timestamp,
 				"sequence number", pkt.SequenceNumber,
 				"pts", pts,
@@ -131,7 +132,7 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 		t.backwards++
 		return 0, ErrBackwardsPTS
 	} else if t.backwards > 0 {
-		logger.Debugw("packet dropped",
+		log.Debug("packet dropped",
 			"count", t.backwards,
 			"reason", "backwards pts",
 		)
@@ -161,6 +162,7 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 
 // adjust accounts for uint32 overflow, and will reset sequence numbers or rtp time if necessary
 func (t *TrackSynchronizer) adjust(pkt *rtp.Packet) (int64, time.Duration, bool) {
+	log := slog.Default()
 	// adjust sequence number and reset if needed
 	pkt.SequenceNumber += t.snOffset
 	if t.lastTS != 0 &&
@@ -172,7 +174,7 @@ func (t *TrackSynchronizer) adjust(pkt *rtp.Packet) (int64, time.Duration, bool)
 		pkt.SequenceNumber = t.lastSN + 1
 
 		// reset RTP timestamps
-		logger.Debugw("resetting track synchronizer", "reason", "SN gap", "lastSN", t.lastSN, "SN", pkt.SequenceNumber)
+		log.Debug("resetting track synchronizer", "reason", "SN gap", "lastSN", t.lastSN, "SN", pkt.SequenceNumber)
 		ts, pts := t.resetRTP(pkt)
 		return ts, pts, false
 	}
@@ -192,7 +194,7 @@ func (t *TrackSynchronizer) adjust(pkt *rtp.Packet) (int64, time.Duration, bool)
 	pts := t.getElapsed(ts) + t.ptsOffset
 	if expected := time.Since(t.startedAt.Add(t.ptsOffset)); pts > expected+maxTSDiff {
 		// reset RTP timestamps
-		logger.Debugw("resetting track synchronizer", "reason", "pts out of bounds", "pts", pts, "expected", expected)
+		log.Debug("resetting track synchronizer", "reason", "pts out of bounds", "pts", pts, "expected", expected)
 		ts, pts = t.resetRTP(pkt)
 		return ts, pts, false
 	}

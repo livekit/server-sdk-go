@@ -17,6 +17,7 @@ package lksdk
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -32,6 +33,7 @@ import (
 	lkinterceptor "github.com/livekit/mediatransportutil/pkg/interceptor"
 	"github.com/livekit/mediatransportutil/pkg/pacer"
 	lksdp "github.com/livekit/protocol/sdp"
+
 	sdkinterceptor "github.com/livekit/server-sdk-go/v2/pkg/interceptor"
 )
 
@@ -46,7 +48,8 @@ const (
 
 // PCTransport is a wrapper around PeerConnection, with some helper methods
 type PCTransport struct {
-	pc *webrtc.PeerConnection
+	log *slog.Logger
+	pc  *webrtc.PeerConnection
 
 	lock                      sync.Mutex
 	pendingCandidates         []webrtc.ICECandidateInit
@@ -65,6 +68,7 @@ type PCTransport struct {
 }
 
 type PCTransportParams struct {
+	Logger        *slog.Logger
 	Configuration webrtc.Configuration
 
 	RetransmitBufferSize uint16
@@ -128,6 +132,9 @@ func (t *PCTransport) registerDefaultInterceptors(params PCTransportParams, i *i
 }
 
 func NewPCTransport(params PCTransportParams) (*PCTransport, error) {
+	if params.Logger == nil {
+		params.Logger = getLogger()
+	}
 	m := &webrtc.MediaEngine{}
 	if err := m.RegisterDefaultCodecs(); err != nil {
 		return nil, err
@@ -148,6 +155,7 @@ func NewPCTransport(params PCTransportParams) (*PCTransport, error) {
 	i := &interceptor.Registry{}
 
 	t := &PCTransport{
+		log:                params.Logger,
 		debouncedNegotiate: debounce.New(negotiationFrequency),
 		onRTTUpdate:        params.OnRTTUpdate,
 	}
@@ -211,17 +219,17 @@ func (t *PCTransport) onICEGatheringStateChange(state webrtc.ICEGathererState) {
 		t.lock.Lock()
 		if t.restartAfterGathering {
 			t.lock.Unlock()
-			logger.Debugw("restarting ICE after ICE gathering")
+			t.log.Debug("restarting ICE after ICE gathering")
 			if err := t.createAndSendOffer(&webrtc.OfferOptions{ICERestart: true}); err != nil {
-				logger.Errorw("could not restart ICE", err)
+				t.log.Error("could not restart ICE", "error", err)
 			}
 		} else if t.pendingRestartIceOffer != nil {
-			logger.Debugw("accept remote restart ice offer after ICE gathering")
+			t.log.Debug("accept remote restart ice offer after ICE gathering")
 			offer := t.pendingRestartIceOffer
 			t.pendingRestartIceOffer = nil
 			t.lock.Unlock()
 			if err := t.SetRemoteDescription(*offer); err != nil {
-				logger.Errorw("could not accept remote restart ICE offer", err)
+				t.log.Error("could not accept remote restart ICE offer", "error", err)
 			}
 		} else {
 			t.lock.Unlock()
@@ -275,14 +283,14 @@ func (t *PCTransport) SetRemoteDescription(sd webrtc.SessionDescription) error {
 		var err error
 		iceCredential, offerRestartICE, err = t.isRemoteOfferRestartICE(sd)
 		if err != nil {
-			logger.Errorw("check remote offer restart ICE failed", err)
+			t.log.Error("check remote offer restart ICE failed", "error", err)
 			t.lock.Unlock()
 			return err
 		}
 	}
 
 	if offerRestartICE && t.pc.ICEGatheringState() == webrtc.ICEGatheringStateGathering {
-		logger.Debugw("remote offer restart ice while ice gathering")
+		t.log.Debug("remote offer restart ice while ice gathering")
 		t.pendingRestartIceOffer = &sd
 		t.lock.Unlock()
 		return nil
@@ -379,7 +387,7 @@ func (t *PCTransport) createAndSendOffer(options *webrtc.OfferOptions) error {
 			t.restartAfterGathering = true
 			return nil
 		}
-		logger.Debugw("restarting ICE")
+		t.log.Debug("restarting ICE")
 	}
 	if t.pc.SignalingState() == webrtc.SignalingStateHaveLocalOffer {
 		if iceRestart {
@@ -395,15 +403,15 @@ func (t *PCTransport) createAndSendOffer(options *webrtc.OfferOptions) error {
 		}
 	}
 
-	logger.Debugw("starting to negotiate")
+	t.log.Debug("starting to negotiate")
 	offer, err := t.pc.CreateOffer(options)
-	logger.Debugw("create offer", "offer", offer.SDP)
+	t.log.Debug("create offer", "offer", offer.SDP)
 	if err != nil {
-		logger.Errorw("could not negotiate", err)
+		t.log.Error("could not negotiate", "error", err)
 		return err
 	}
 	if err := t.pc.SetLocalDescription(offer); err != nil {
-		logger.Errorw("could not set local description", err)
+		t.log.Error("could not set local description", "error", err)
 		return err
 	}
 	t.restartAfterGathering = false

@@ -199,6 +199,7 @@ func (p *RemoteTrackPublication) OnRTCP(cb func(rtcp.Packet)) {
 }
 
 func (p *RemoteTrackPublication) updateSettings() {
+	log := getLogger()
 	p.lock.RLock()
 	settings := &livekit.UpdateTrackSettings{
 		TrackSids: []string{p.SID()},
@@ -216,7 +217,7 @@ func (p *RemoteTrackPublication) updateSettings() {
 	p.lock.RUnlock()
 
 	if err := p.client.SendUpdateTrackSettings(settings); err != nil {
-		logger.Errorw("could not send track settings", err, "trackID", p.SID())
+		log.Error("could not send track settings", "error", err, "trackID", p.SID())
 	}
 }
 
