@@ -316,13 +316,14 @@ func (r *Room) ServerInfo() *livekit.ServerInfo {
 
 func (r *Room) addRemoteParticipant(pi *livekit.ParticipantInfo, updateExisting bool) *RemoteParticipant {
 	r.lock.Lock()
+	defer r.lock.Unlock()
 	rp, ok := r.remoteParticipants[livekit.ParticipantIdentity(pi.Identity)]
 	if ok {
 		if updateExisting {
 			rp.updateInfo(pi)
 			r.sidToIdentity[livekit.ParticipantID(pi.Sid)] = livekit.ParticipantIdentity(pi.Identity)
 		}
-		r.lock.Unlock()
+
 		return rp
 	}
 
@@ -336,8 +337,6 @@ func (r *Room) addRemoteParticipant(pi *livekit.ParticipantInfo, updateExisting 
 	})
 	r.remoteParticipants[livekit.ParticipantIdentity(pi.Identity)] = rp
 	r.sidToIdentity[livekit.ParticipantID(pi.Sid)] = livekit.ParticipantIdentity(pi.Identity)
-	r.lock.Unlock()
-
 	return rp
 }
 
@@ -438,7 +437,15 @@ func (r *Room) handleParticipantUpdate(participants []*livekit.ParticipantInfo) 
 			rp = r.addRemoteParticipant(pi, true)
 			go r.callback.OnParticipantConnected(rp)
 		} else {
+			oldSid := livekit.ParticipantID(rp.SID())
 			rp.updateInfo(pi)
+			newSid := livekit.ParticipantID(rp.SID())
+			if oldSid != newSid {
+				r.lock.Lock()
+				delete(r.sidToIdentity, oldSid)
+				r.sidToIdentity[newSid] = livekit.ParticipantIdentity(rp.Identity())
+				r.lock.Unlock()
+			}
 		}
 	}
 }
