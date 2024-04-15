@@ -29,6 +29,8 @@ import (
 
 var Default = Build
 
+const livekitServerVersion = "v1.5" // TODO: switch to latest when the issue is resolved
+
 func Build() error {
 	fmt.Println("building...")
 	cmd := exec.Command("go", "build", ".")
@@ -122,7 +124,7 @@ logging:
 	for p := 30000; p <= 30020; p++ {
 		parameters = append(parameters, fmt.Sprintf("-p%d:%d/udp", p, p))
 	}
-	parameters = append(parameters, []string{`--name`, `livekit-server`, `livekit/livekit-server`}...)
+	parameters = append(parameters, []string{`--name`, `livekit-server`, `livekit/livekit-server:` + livekitServerVersion}...)
 	if addresses, _ := getLocalIPAddresses(); len(addresses) > 0 {
 		fmt.Println("set node ip", addresses[0])
 		parameters = append(parameters, `--node-ip`, addresses[0])
