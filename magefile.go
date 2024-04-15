@@ -29,7 +29,7 @@ import (
 
 var Default = Build
 
-const livekitServerVersion = "v1.5" // TODO: switch to latest when the issue is resolved
+const livekitServerVersion = "master"
 
 func Build() error {
 	fmt.Println("building...")
