@@ -15,7 +15,9 @@
 package synchronizer
 
 import (
+	"fmt"
 	"math"
+	"math/rand"
 	"testing"
 	"time"
 
@@ -24,14 +26,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const (
-	frameDurationRTP = 3750                    // 24 fps at 90k clock rate
-	frameDurationPTS = time.Duration(41666666) // 1/24 of a second
-)
-
 func TestSynchronizer(t *testing.T) {
 	s := NewSynchronizer(nil)
-	tt := newTrackTester(s)
+	tt := newTrackTester(s, webrtc.RTPCodecTypeVideo)
 
 	// first frame (SN:100,101 PTS:0ms)
 	tt.testPacket(t)
@@ -89,8 +86,31 @@ func TestSynchronizer(t *testing.T) {
 	tt.testNextFrame(t) // (SN:138,139 PTS:916.7ms)
 
 	require.Equal(t, time.Duration(math.Round(1e9/24)), tt.ts.GetFrameDuration())
-
 }
+
+// func TestMultipleTracks(t *testing.T) {
+// 	s := NewSynchronizer(nil)
+// 	tt1 := newTrackTester(s)
+// 	tt2 := newTrackTester(s)
+//
+// 	// first frame
+// 	tt1.testPacket(t)
+// 	tt1.sn++
+// 	tt1.testPacket(t)
+// 	tt2.testPacket(t)
+// 	tt2.sn++
+// 	tt2.testPacket(t)
+//
+// 	// next frame
+// 	tt1.testNextFrame(t)
+// 	tt2.testNextFrame(t)
+//
+// 	// sequence number jump
+// 	tt1.sn += 4000
+// 	tt2.sn += 4000
+// 	tt1.testNextFrame(t)
+// 	tt2.testNextFrame(t)
+// }
 
 type trackTester struct {
 	i           int
@@ -98,17 +118,31 @@ type trackTester struct {
 	sn          uint16
 	timestamp   uint32
 	expectedPTS time.Duration
+
+	frameDurationRTP uint32
+	frameDurationPTS time.Duration
 }
 
-func newTrackTester(s *Synchronizer) *trackTester {
+func newTrackTester(s *Synchronizer, kind webrtc.RTPCodecType) *trackTester {
+	track := newFakeTrack(kind)
 	tt := &trackTester{
-		ts:          s.AddTrack(&fakeTrack{}, "fake"),
+		ts:          s.AddTrack(track, "fake"),
 		sn:          100,
 		timestamp:   10000,
 		expectedPTS: 0,
 	}
 
-	tt.ts.stats.AvgSampleDuration = 3750
+	if kind == webrtc.RTPCodecTypeAudio {
+		// 20ms audio frames
+		tt.frameDurationRTP = 960
+		tt.frameDurationPTS = time.Duration(20000000)
+	} else {
+		// 24 fps
+		tt.frameDurationRTP = 3750
+		tt.frameDurationPTS = time.Duration(41666666)
+	}
+
+	tt.ts.stats.AvgSampleDuration = float64(tt.frameDurationRTP)
 	tt.ts.Initialize(&rtp.Packet{
 		Header: rtp.Header{
 			SequenceNumber: tt.sn,
@@ -120,8 +154,8 @@ func newTrackTester(s *Synchronizer) *trackTester {
 }
 
 func (tt *trackTester) nextFrame() {
-	tt.timestamp += frameDurationRTP
-	tt.expectedPTS += frameDurationPTS
+	tt.timestamp += tt.frameDurationRTP
+	tt.expectedPTS += tt.frameDurationPTS
 	tt.i++
 	if tt.i%3 != 1 {
 		tt.expectedPTS += time.Duration(00000001)
@@ -156,25 +190,46 @@ func (tt *trackTester) testPacket(t require.TestingT) {
 	require.InDelta(t, tt.expectedPTS, pts, 1)
 }
 
-type fakeTrack struct{}
+type fakeTrack struct {
+	trackID string
+	kind    webrtc.RTPCodecType
+	ssrc    webrtc.SSRC
+}
+
+func newFakeTrack(kind webrtc.RTPCodecType) *fakeTrack {
+	return &fakeTrack{
+		trackID: fmt.Sprintf("track_%d", rand.Intn(100)),
+		kind:    kind,
+		ssrc:    webrtc.SSRC(rand.Uint32()),
+	}
+}
 
 func (t *fakeTrack) ID() string {
-	return "trackID"
+	return t.trackID
 }
 
 func (t *fakeTrack) Codec() webrtc.RTPCodecParameters {
-	return webrtc.RTPCodecParameters{
-		RTPCodecCapability: webrtc.RTPCodecCapability{
-			MimeType:  "video/vp8",
-			ClockRate: 90000,
-		},
+	if t.kind == webrtc.RTPCodecTypeAudio {
+		return webrtc.RTPCodecParameters{
+			RTPCodecCapability: webrtc.RTPCodecCapability{
+				MimeType:  "audio/opus",
+				ClockRate: 48000,
+			},
+		}
+	} else {
+		return webrtc.RTPCodecParameters{
+			RTPCodecCapability: webrtc.RTPCodecCapability{
+				MimeType:  "video/vp8",
+				ClockRate: 90000,
+			},
+		}
 	}
 }
 
 func (t *fakeTrack) Kind() webrtc.RTPCodecType {
-	return webrtc.RTPCodecTypeVideo
+	return t.kind
 }
 
 func (t *fakeTrack) SSRC() webrtc.SSRC {
-	return 1234
+	return t.ssrc
 }
