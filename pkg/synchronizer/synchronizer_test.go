@@ -36,32 +36,32 @@ func TestSynchronizer(t *testing.T) {
 	tt.testPacket(t)
 
 	// next frame
-	tt.testNextFrame(t) // (SN:102,103 PTS:41.7ms)
+	tt.testNextFrame(t, true) // (SN:102,103 PTS:41.7ms)
 
 	// sequence number jump
 	tt.sn += 4000
-	tt.testNextFrame(t) // (SN:104,105 PTS:83.3ms)
+	tt.testNextFrame(t, true) // (SN:104,105 PTS:83.3ms)
 
 	// dropped packets
-	tt.nextFrame() // (SN:- PTS:125ms)
-	tt.nextFrame() // (SN:- PTS:166.7ms)
+	tt.expectNextFrame(true) // (SN:- PTS:125ms)
+	tt.expectNextFrame(true) // (SN:- PTS:166.7ms)
 	tt.sn += 6
-	tt.testNextFrame(t) // (SN:112,113 PTS: 208.3ms)
+	tt.testNextFrame(t, true) // (SN:112,113 PTS: 208.3ms)
 
 	// sequence number and timestamp jump
 	tt.sn += 6000
 	tt.timestamp += 1234567
-	tt.testNextFrame(t) // (SN:114,115 PTS: 250ms)
+	tt.testNextFrame(t, true) // (SN:114,115 PTS: 250ms)
 
 	// normal frames
-	tt.testNextFrame(t) // (SN:116,117 PTS:291.7ms)
-	tt.testNextFrame(t) // (SN:118,119 PTS:333.3ms)
+	tt.testNextFrame(t, true) // (SN:116,117 PTS:291.7ms)
+	tt.testNextFrame(t, true) // (SN:118,119 PTS:333.3ms)
 
 	// sequence number and timestamp jump
 	tt.sn += 5000
 	tt.timestamp += 7654321
-	tt.testNextFrame(t) // (SN:120,121 PTS:375ms)
-	tt.testNextFrame(t) // (SN:122,123 PTS:416.7ms)
+	tt.testNextFrame(t, true) // (SN:120,121 PTS:375ms)
+	tt.testNextFrame(t, true) // (SN:122,123 PTS:416.7ms)
 
 	// mute
 	tt.testBlankFrame(t) // (SN:124 PTS:458.3ms)
@@ -70,8 +70,8 @@ func TestSynchronizer(t *testing.T) {
 	tt.testBlankFrame(t) // (SN:127 PTS:583.3ms)
 
 	// unmute
-	tt.testNextFrame(t) // (SN:128,129 PTS:625ms)
-	tt.testNextFrame(t) // (SN:130,131 PTS:666.7ms)
+	tt.testNextFrame(t, true) // (SN:128,129 PTS:625ms)
+	tt.testNextFrame(t, true) // (SN:130,131 PTS:666.7ms)
 
 	// mute
 	tt.testBlankFrame(t) // (SN:132 PTS:708.3ms)
@@ -82,35 +82,36 @@ func TestSynchronizer(t *testing.T) {
 	// unmute with sequence number and timestamp jump
 	tt.sn += 3333
 	tt.timestamp += 33333333
-	tt.testNextFrame(t) // (SN:136,137 PTS:875ms)
-	tt.testNextFrame(t) // (SN:138,139 PTS:916.7ms)
+	tt.testNextFrame(t, true) // (SN:136,137 PTS:875ms)
+	tt.testNextFrame(t, true) // (SN:138,139 PTS:916.7ms)
 
 	require.Equal(t, time.Duration(math.Round(1e9/24)), tt.ts.GetFrameDuration())
 }
 
-// func TestMultipleTracks(t *testing.T) {
-// 	s := NewSynchronizer(nil)
-// 	tt1 := newTrackTester(s)
-// 	tt2 := newTrackTester(s)
-//
-// 	// first frame
-// 	tt1.testPacket(t)
-// 	tt1.sn++
-// 	tt1.testPacket(t)
-// 	tt2.testPacket(t)
-// 	tt2.sn++
-// 	tt2.testPacket(t)
-//
-// 	// next frame
-// 	tt1.testNextFrame(t)
-// 	tt2.testNextFrame(t)
-//
-// 	// sequence number jump
-// 	tt1.sn += 4000
-// 	tt2.sn += 4000
-// 	tt1.testNextFrame(t)
-// 	tt2.testNextFrame(t)
-// }
+func TestMultipleTracks(t *testing.T) {
+	s := NewSynchronizer(nil)
+	tt1 := newTrackTester(s, webrtc.RTPCodecTypeAudio)
+	// one second of audio only
+	for i := 0; i < 50; i++ {
+		tt1.testNextFrame(t, true)
+	}
+
+	tt2 := newTrackTester(s, webrtc.RTPCodecTypeVideo)
+	tt2.initializeLate(t, time.Second)
+
+	// one second of audio and video
+	for i := 0; i < 600; i++ {
+		time.Sleep(time.Microsecond * 1660)
+		if i%12 == 0 {
+			// 50 audio frames
+			tt1.testNextFrame(t, false)
+		}
+		if i%25 == 0 {
+			// 24 video frames
+			tt2.testNextFrame(t, false)
+		}
+	}
+}
 
 type trackTester struct {
 	i           int
@@ -126,18 +127,19 @@ type trackTester struct {
 func newTrackTester(s *Synchronizer, kind webrtc.RTPCodecType) *trackTester {
 	track := newFakeTrack(kind)
 	tt := &trackTester{
-		ts:          s.AddTrack(track, "fake"),
-		sn:          100,
-		timestamp:   10000,
-		expectedPTS: 0,
+		ts: s.AddTrack(track, "fake"),
 	}
 
 	if kind == webrtc.RTPCodecTypeAudio {
 		// 20ms audio frames
+		tt.sn = 55555
+		tt.timestamp = 55555555
 		tt.frameDurationRTP = 960
 		tt.frameDurationPTS = time.Duration(20000000)
 	} else {
 		// 24 fps
+		tt.sn = 100
+		tt.timestamp = 10000
 		tt.frameDurationRTP = 3750
 		tt.frameDurationPTS = time.Duration(41666666)
 	}
@@ -153,18 +155,21 @@ func newTrackTester(s *Synchronizer, kind webrtc.RTPCodecType) *trackTester {
 	return tt
 }
 
-func (tt *trackTester) nextFrame() {
+func (tt *trackTester) expectNextFrame(sleep bool) {
 	tt.timestamp += tt.frameDurationRTP
 	tt.expectedPTS += tt.frameDurationPTS
+	if sleep {
+		time.Sleep(tt.frameDurationPTS)
+	}
 	tt.i++
-	if tt.i%3 != 1 {
-		tt.expectedPTS += time.Duration(00000001)
+	if tt.frameDurationRTP == 3750 && tt.i%3 != 1 {
+		tt.expectedPTS += time.Duration(1)
 	}
 }
 
-func (tt *trackTester) testNextFrame(t require.TestingT) {
+func (tt *trackTester) testNextFrame(t require.TestingT, sleep bool) {
 	// new frame
-	tt.nextFrame()
+	tt.expectNextFrame(sleep)
 	tt.sn++
 	tt.testPacket(t)
 
@@ -174,9 +179,22 @@ func (tt *trackTester) testNextFrame(t require.TestingT) {
 }
 
 func (tt *trackTester) testBlankFrame(t require.TestingT) {
-	tt.nextFrame()
+	tt.expectNextFrame(true)
 	pts := tt.ts.InsertFrame(&rtp.Packet{})
 	require.InDelta(t, tt.expectedPTS, pts, 1)
+}
+
+func (tt *trackTester) initializeLate(t require.TestingT, estimatedPTS time.Duration) {
+	pts, err := tt.ts.GetPTS(&rtp.Packet{
+		Header: rtp.Header{
+			SequenceNumber: tt.sn,
+			Timestamp:      tt.timestamp,
+		},
+	})
+	require.NoError(t, err)
+	fmt.Println(tt.sn, tt.timestamp, tt.expectedPTS, pts)
+	require.InDelta(t, estimatedPTS, pts, 100000000)
+	tt.expectedPTS = pts
 }
 
 func (tt *trackTester) testPacket(t require.TestingT) {
@@ -187,6 +205,7 @@ func (tt *trackTester) testPacket(t require.TestingT) {
 		},
 	})
 	require.NoError(t, err)
+	fmt.Println(tt.sn, tt.timestamp, tt.expectedPTS, pts)
 	require.InDelta(t, tt.expectedPTS, pts, 1)
 }
 
