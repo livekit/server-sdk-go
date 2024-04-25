@@ -89,17 +89,26 @@ func TestSynchronizer(t *testing.T) {
 }
 
 func TestMultipleTracks(t *testing.T) {
+	audioOnlyDuration := time.Minute
+	if testing.Short() {
+		audioOnlyDuration = time.Second
+	}
+
 	s := NewSynchronizer(nil)
+	var tt2 *trackTester
+	time.AfterFunc(audioOnlyDuration, func() {
+		tt2 = newTrackTester(s, webrtc.RTPCodecTypeVideo)
+	})
 	tt1 := newTrackTester(s, webrtc.RTPCodecTypeAudio)
-	// one second of audio only
-	for i := 0; i < 50; i++ {
+
+	// audio only
+	audioFrames := int(audioOnlyDuration.Seconds() * 50)
+	for i := 0; i < audioFrames; i++ {
 		tt1.testNextFrame(t, true)
 	}
 
-	tt2 := newTrackTester(s, webrtc.RTPCodecTypeVideo)
-	tt2.initializeLate(t, time.Second)
-
-	// one second of audio and video
+	// late video track
+	tt2.adjustExpected(t, audioOnlyDuration)
 	for i := 0; i < 600; i++ {
 		time.Sleep(time.Microsecond * 1660)
 		if i%12 == 0 {
@@ -184,7 +193,7 @@ func (tt *trackTester) testBlankFrame(t require.TestingT) {
 	require.InDelta(t, tt.expectedPTS, pts, 1)
 }
 
-func (tt *trackTester) initializeLate(t require.TestingT, estimatedPTS time.Duration) {
+func (tt *trackTester) adjustExpected(t require.TestingT, estimatedPTS time.Duration) {
 	pts, err := tt.ts.GetPTS(&rtp.Packet{
 		Header: rtp.Header{
 			SequenceNumber: tt.sn,
@@ -192,8 +201,7 @@ func (tt *trackTester) initializeLate(t require.TestingT, estimatedPTS time.Dura
 		},
 	})
 	require.NoError(t, err)
-	fmt.Println(tt.sn, tt.timestamp, tt.expectedPTS, pts)
-	require.InDelta(t, estimatedPTS, pts, 100000000)
+	require.InDelta(t, estimatedPTS, pts, float64(estimatedPTS/10))
 	tt.expectedPTS = pts
 }
 
@@ -205,7 +213,6 @@ func (tt *trackTester) testPacket(t require.TestingT) {
 		},
 	})
 	require.NoError(t, err)
-	fmt.Println(tt.sn, tt.timestamp, tt.expectedPTS, pts)
 	require.InDelta(t, tt.expectedPTS, pts, 1)
 }
 

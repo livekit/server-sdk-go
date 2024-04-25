@@ -97,7 +97,7 @@ func getLocalIPAddresses() ([]string, error) {
 
 func Test() error {
 	fmt.Println("testing local packages...")
-	if err := mageutil.Run(context.Background(), "go test ./pkg/... -count=1"); err != nil {
+	if err := mageutil.Run(context.Background(), "go test -short ./pkg/... -count=1"); err != nil {
 		return err
 	}
 
