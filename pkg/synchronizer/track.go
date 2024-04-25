@@ -161,6 +161,15 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 
 // adjust accounts for uint32 overflow, and will reset sequence numbers or rtp time if necessary
 func (t *TrackSynchronizer) adjust(pkt *rtp.Packet) (int64, time.Duration, bool) {
+	if t.lastPacket.IsZero() {
+		ts := int64(pkt.Timestamp)
+		for ts < t.firstTS-uint32Half {
+			ts += uint32Overflow
+		}
+		pts := t.getElapsed(ts) + t.ptsOffset
+		return ts, pts, true
+	}
+
 	// adjust sequence number and reset if needed
 	pkt.SequenceNumber += t.snOffset
 	if t.lastTS != 0 &&

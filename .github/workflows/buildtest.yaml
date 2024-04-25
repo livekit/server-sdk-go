@@ -15,6 +15,8 @@
 name: Test
 
 on:
+  schedule:
+    - cron: '0 3 * * 1,5' # 03:00 each Mon and Fri
   workflow_dispatch:
   push:
     branches: [ main ]
@@ -59,7 +61,7 @@ jobs:
           args: build
 
       - name: Static Check
-        uses: amarpal/staticcheck-action@master
+        uses: dominikh/staticcheck-action@master
         with:
           install-go: false
 
@@ -70,4 +72,3 @@ jobs:
           args: test
         env:
           TestFlags: "-v"
-
