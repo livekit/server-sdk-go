@@ -18,6 +18,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -25,6 +26,8 @@ import (
 	"strings"
 
 	"github.com/magefile/mage/sh"
+
+	"github.com/livekit/mageutil"
 )
 
 var Default = Build
@@ -93,6 +96,11 @@ func getLocalIPAddresses() ([]string, error) {
 }
 
 func Test() error {
+	fmt.Println("testing local packages...")
+	if err := mageutil.Run(context.Background(), "go test ./pkg/... -count=1"); err != nil {
+		return err
+	}
+
 	fmt.Println("starting livekit-server...")
 
 	confString := `
