@@ -20,6 +20,7 @@ import (
 
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
+	"github.com/twitchtv/twirp"
 )
 
 type IngressClient struct {
@@ -27,9 +28,9 @@ type IngressClient struct {
 	authBase
 }
 
-func NewIngressClient(url string, apiKey string, secretKey string) *IngressClient {
+func NewIngressClient(url string, apiKey string, secretKey string, opts ...twirp.ClientOption) *IngressClient {
 	url = ToHttpURL(url)
-	client := livekit.NewIngressProtobufClient(url, &http.Client{})
+	client := livekit.NewIngressProtobufClient(url, &http.Client{}, opts...)
 	return &IngressClient{
 		ingressClient: client,
 		authBase: authBase{

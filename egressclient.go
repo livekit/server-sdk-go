@@ -20,6 +20,7 @@ import (
 
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
+	"github.com/twitchtv/twirp"
 )
 
 type EgressClient struct {
@@ -27,9 +28,9 @@ type EgressClient struct {
 	authBase
 }
 
-func NewEgressClient(url string, apiKey string, secretKey string) *EgressClient {
+func NewEgressClient(url string, apiKey string, secretKey string, opts ...twirp.ClientOption) *EgressClient {
 	url = ToHttpURL(url)
-	client := livekit.NewEgressProtobufClient(url, &http.Client{})
+	client := livekit.NewEgressProtobufClient(url, &http.Client{}, opts...)
 	return &EgressClient{
 		egressClient: client,
 		authBase: authBase{
