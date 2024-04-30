@@ -20,6 +20,7 @@ import (
 
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
+	"github.com/twitchtv/twirp"
 )
 
 type SIPClient struct {
@@ -27,9 +28,9 @@ type SIPClient struct {
 	authBase
 }
 
-func NewSIPClient(url string, apiKey string, secretKey string) *SIPClient {
+func NewSIPClient(url string, apiKey string, secretKey string, opts ...twirp.ClientOption) *SIPClient {
 	return &SIPClient{
-		sipClient: livekit.NewSIPProtobufClient(ToHttpURL(url), &http.Client{}),
+		sipClient: livekit.NewSIPProtobufClient(ToHttpURL(url), &http.Client{}, opts...),
 		authBase: authBase{
 			apiKey:    apiKey,
 			apiSecret: secretKey,

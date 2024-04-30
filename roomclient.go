@@ -20,6 +20,7 @@ import (
 
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
+	"github.com/twitchtv/twirp"
 )
 
 type RoomServiceClient struct {
@@ -27,9 +28,9 @@ type RoomServiceClient struct {
 	authBase
 }
 
-func NewRoomServiceClient(url string, apiKey string, secretKey string) *RoomServiceClient {
+func NewRoomServiceClient(url string, apiKey string, secretKey string, opts ...twirp.ClientOption) *RoomServiceClient {
 	url = ToHttpURL(url)
-	client := livekit.NewRoomServiceProtobufClient(url, &http.Client{})
+	client := livekit.NewRoomServiceProtobufClient(url, &http.Client{}, opts...)
 	return &RoomServiceClient{
 		roomService: client,
 		authBase: authBase{
