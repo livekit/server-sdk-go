@@ -16,7 +16,6 @@ package lksdk
 
 import (
 	"context"
-	"net/http"
 
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
@@ -29,8 +28,9 @@ type SIPClient struct {
 }
 
 func NewSIPClient(url string, apiKey string, secretKey string, opts ...twirp.ClientOption) *SIPClient {
+	httpClient := DefaultHttpClientProvider.newHttpClient("sip")
 	return &SIPClient{
-		sipClient: livekit.NewSIPProtobufClient(ToHttpURL(url), &http.Client{}, opts...),
+		sipClient: livekit.NewSIPProtobufClient(ToHttpURL(url), httpClient, opts...),
 		authBase: authBase{
 			apiKey:    apiKey,
 			apiSecret: secretKey,

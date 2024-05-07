@@ -16,7 +16,6 @@ package lksdk
 
 import (
 	"context"
-	"net/http"
 
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
@@ -30,7 +29,8 @@ type IngressClient struct {
 
 func NewIngressClient(url string, apiKey string, secretKey string, opts ...twirp.ClientOption) *IngressClient {
 	url = ToHttpURL(url)
-	client := livekit.NewIngressProtobufClient(url, &http.Client{}, opts...)
+	httpClient := DefaultHttpClientProvider.newHttpClient("ingress")
+	client := livekit.NewIngressProtobufClient(url, httpClient, opts...)
 	return &IngressClient{
 		ingressClient: client,
 		authBase: authBase{

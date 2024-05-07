@@ -16,7 +16,6 @@ package lksdk
 
 import (
 	"context"
-	"net/http"
 
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
@@ -30,7 +29,8 @@ type EgressClient struct {
 
 func NewEgressClient(url string, apiKey string, secretKey string, opts ...twirp.ClientOption) *EgressClient {
 	url = ToHttpURL(url)
-	client := livekit.NewEgressProtobufClient(url, &http.Client{}, opts...)
+	httpClient := DefaultHttpClientProvider.newHttpClient("egress")
+	client := livekit.NewEgressProtobufClient(url, httpClient, opts...)
 	return &EgressClient{
 		egressClient: client,
 		authBase: authBase{
