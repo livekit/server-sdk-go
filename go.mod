@@ -6,12 +6,13 @@ toolchain go1.22.2
 
 require (
 	github.com/bep/debounce v1.2.1
+	github.com/frostbyte73/core v0.0.10
 	github.com/go-logr/logr v1.4.1
 	github.com/go-logr/stdr v1.2.2
 	github.com/gorilla/websocket v1.5.1
 	github.com/livekit/mageutil v0.0.0-20230125210925-54e8a70427c1
-	github.com/livekit/mediatransportutil v0.0.0-20240501132628-6105557bbb9a
-	github.com/livekit/protocol v1.15.0
+	github.com/livekit/mediatransportutil v0.0.0-20240511004033-f08cbc684b11
+	github.com/livekit/protocol v1.15.1-0.20240508201813-6afe4c3491fd
 	github.com/magefile/mage v1.15.0
 	github.com/pion/dtls/v2 v2.2.10
 	github.com/pion/interceptor v0.1.27
@@ -34,7 +35,6 @@ require (
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/eapache/channels v1.1.0 // indirect
 	github.com/eapache/queue v1.1.0 // indirect
-	github.com/frostbyte73/core v0.0.10 // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
 	github.com/gammazero/deque v0.2.1 // indirect
 	github.com/go-jose/go-jose/v3 v3.0.3 // indirect

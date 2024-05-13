@@ -16,27 +16,37 @@ package lksdk
 
 import (
 	"sort"
+	"sync"
 	"time"
 
+	"github.com/frostbyte73/core"
 	"github.com/pion/webrtc/v3"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/livekit/mediatransportutil"
 	"github.com/livekit/protocol/livekit"
 )
 
 const (
 	trackPublishTimeout = 10 * time.Second
+	timeSyncTimeout     = 5 * time.Second
 )
 
 type LocalParticipant struct {
 	baseParticipant
 	engine *RTCEngine
+
+	timeSyncLock         sync.Mutex
+	timeSynchronized     *core.Fuse
+	timeSyncResponseChan chan livekit.TimeSyncResponse
+	timeSyncInfo         *mediatransportutil.TimeSyncInfo
 }
 
 func newLocalParticipant(engine *RTCEngine, roomcallback *RoomCallback) *LocalParticipant {
 	return &LocalParticipant{
-		baseParticipant: *newBaseParticipant(roomcallback),
-		engine:          engine,
+		baseParticipant:      *newBaseParticipant(roomcallback),
+		engine:               engine,
+		timeSyncResponseChan: make(chan livekit.TimeSyncResponse, 10),
 	}
 }
 
@@ -229,7 +239,7 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *Tra
 	return pub, nil
 }
 
-func (p *LocalParticipant) republishTracks() {
+func (p *LocalParticipant) republishTracksAndResetTimeSync() {
 	var localPubs []*LocalTrackPublication
 	p.tracks.Range(func(key, value interface{}) bool {
 		track := value.(*LocalTrackPublication)
@@ -272,9 +282,84 @@ func (p *LocalParticipant) closeTracks() {
 	}
 }
 
+func (p *LocalParticipant) syncTime(timeSyncInfo *mediatransportutil.TimeSyncInfo) {
+	req := p.timeSyncInfo.StartTimeSync()
+	dataPacket := &livekit.DataPacket{Value: &livekit.DataPacket_TimeSyncRequest{
+		TimeSyncRequest: &req,
+	}}
+
+	for {
+		select {
+		case <-time.After(timeSyncTimeout):
+			logger.Debugw("timeout waiting for time synchronization response")
+			return
+		case resp := <-p.timeSyncResponseChan:
+			err := timeSyncInfo.HandleTimeSyncResponse(resp)
+			if err == nil {
+				logger.Debugw("time synchronization successful")
+				return
+			}
+			// Wait for a potential other response to come on the channel
+			logger.Debugw("error handling time synchronization response", "error", err)
+		}
+	}
+}
+
+func (p *LocalParticipant) getSynchronizedTimeSync() *mediatransportutil.TimeSyncInfo {
+	needToSyncTime := false
+	p.timeSyncLock.Lock()
+	if p.timeSyncInfo == nil {
+		needToSyncTime = true
+		p.timeSyncInfo = &mediatransportutil.TimeSyncInfo{}
+		p.timeSynchronized = &core.Fuse{}
+	}
+
+	timeSyncInfo := p.timeSyncInfo
+	timeSynchronized := p.timeSynchronized
+
+	p.timeSyncLock.Unlock()
+
+	// Do not hold the lock while synchronizing time to prevent blocking the reconnection callback that resets timeSyncInfo
+	if needToSyncTime {
+		// Do not retry time sync if it fails for now as the most likely reason is that the SFU does not support the time sync protocol
+		p.syncTime(syncTime)
+		timeSynchronized.Break()
+	}
+
+	<-timeSynchronized.Watch()
+
+	return timeSyncInfo
+}
+
+func (p *LocalParticipant) convertLocalTimeToSFUTime(ts *uint64, timeSyncInfo *mediatransportutil.TimeSyncInfo) {
+	if ts == nil {
+		return
+	}
+
+	timeTs := mediatransportutil.NtpTime(*userPkt.User.StartTime).Time()
+
+	sfuTs, err := p.timeSyncInfo.GetPeerTimeForLocalTime(timeTs)
+	if err != nil {
+		// Leave time as is
+		return
+	}
+	ntpSfuTs := mediatransportutil.ToNtpTime(sfuTs)
+
+	*ts = uint64(ntpSfuTs)
+}
+
 func (p *LocalParticipant) publishData(kind livekit.DataPacket_Kind, dataPacket *livekit.DataPacket) error {
 	if err := p.engine.ensurePublisherConnected(true); err != nil {
 		return err
+	}
+
+	if userPkt, ok := dataPacket.Value.(*livekit.DataPacket_User); ok {
+		if userPkt.User.StartTime != nil || userPkt.User.StartTime != nil {
+			timeSyncInfo := p.getSynchronizedTimeSync()
+
+			p.convertLocalTimeToSFUTime(userPkt.User.StartTime, timeSyncInfo)
+			p.convertLocalTimeToSFUTime(userPkt.User.EndTime, timeSyncInfo)
+		}
 	}
 
 	encoded, err := proto.Marshal(dataPacket)
@@ -318,8 +403,10 @@ func UserData(data []byte) *UserDataPacket {
 
 // UserDataPacket is a custom user data that can be sent via WebRTC on a custom topic.
 type UserDataPacket struct {
-	Payload []byte
-	Topic   string // optional
+	Payload   []byte
+	Topic     string  // optional
+	StartTime *uint64 // optional
+	EndTime   *uint64 // optional
 }
 
 // ToProto implements DataPacket.
@@ -330,8 +417,10 @@ func (p *UserDataPacket) ToProto() *livekit.DataPacket {
 	}
 	return &livekit.DataPacket{Value: &livekit.DataPacket_User{
 		User: &livekit.UserPacket{
-			Payload: p.Payload,
-			Topic:   topic,
+			Payload:   p.Payload,
+			Topic:     topic,
+			StartTime: p.StartTime,
+			EndTime:   p.EndTime,
 		},
 	}}
 }

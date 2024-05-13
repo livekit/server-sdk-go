@@ -412,7 +412,7 @@ func (r *Room) handleRestarted(joinRes *livekit.JoinResponse) {
 
 	r.handleParticipantUpdate(joinRes.OtherParticipants)
 
-	r.LocalParticipant.republishTracks()
+	r.LocalParticipant.republishTracksAndResetTimeSync()
 
 	r.callback.OnReconnected()
 }
