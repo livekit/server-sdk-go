@@ -11,7 +11,7 @@ require (
 	github.com/gorilla/websocket v1.5.1
 	github.com/livekit/mageutil v0.0.0-20230125210925-54e8a70427c1
 	github.com/livekit/mediatransportutil v0.0.0-20240501132628-6105557bbb9a
-	github.com/livekit/protocol v1.15.0
+	github.com/livekit/protocol v1.16.0
 	github.com/magefile/mage v1.15.0
 	github.com/pion/dtls/v2 v2.2.10
 	github.com/pion/interceptor v0.1.27
