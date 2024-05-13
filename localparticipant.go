@@ -240,6 +240,10 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *Tra
 }
 
 func (p *LocalParticipant) republishTracksAndResetTimeSync() {
+	p.timeSyncLock.Lock()
+	p.timeSyncInfo = nil
+	p.timeSyncLock.Unlock()
+
 	var localPubs []*LocalTrackPublication
 	p.tracks.Range(func(key, value interface{}) bool {
 		track := value.(*LocalTrackPublication)
@@ -288,6 +292,12 @@ func (p *LocalParticipant) syncTime(timeSyncInfo *mediatransportutil.TimeSyncInf
 		TimeSyncRequest: &req,
 	}}
 
+	err := p.publishData(livekit.DataPacket_RELIABLE, dataPacket)
+	if err != nil {
+		logger.Debugw("time sync data channel request failed sending", "error", err)
+		return
+	}
+
 	for {
 		select {
 		case <-time.After(timeSyncTimeout):
@@ -322,7 +332,7 @@ func (p *LocalParticipant) getSynchronizedTimeSync() *mediatransportutil.TimeSyn
 	// Do not hold the lock while synchronizing time to prevent blocking the reconnection callback that resets timeSyncInfo
 	if needToSyncTime {
 		// Do not retry time sync if it fails for now as the most likely reason is that the SFU does not support the time sync protocol
-		p.syncTime(syncTime)
+		p.syncTime(timeSyncInfo)
 		timeSynchronized.Break()
 	}
 
@@ -336,7 +346,7 @@ func (p *LocalParticipant) convertLocalTimeToSFUTime(ts *uint64, timeSyncInfo *m
 		return
 	}
 
-	timeTs := mediatransportutil.NtpTime(*userPkt.User.StartTime).Time()
+	timeTs := mediatransportutil.NtpTime(*ts).Time()
 
 	sfuTs, err := p.timeSyncInfo.GetPeerTimeForLocalTime(timeTs)
 	if err != nil {
