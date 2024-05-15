@@ -443,6 +443,8 @@ func (r *Room) handleDataReceived(identity string, dataPacket DataPacket) {
 			p.Callback.OnDataReceived(msg.Payload, params)
 		}
 		r.callback.OnDataReceived(msg.Payload, params)
+	case *livekit.TimeSyncResponse:
+		r.LocalParticipant.onTimeSyncResponse(*msg)
 	}
 	if p != nil {
 		p.Callback.OnDataPacket(dataPacket, params)

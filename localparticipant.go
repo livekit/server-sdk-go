@@ -15,6 +15,7 @@
 package lksdk
 
 import (
+	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -336,6 +337,8 @@ func (p *LocalParticipant) getSynchronizedTimeSync() *mediatransportutil.TimeSyn
 		timeSynchronized.Break()
 	}
 
+	fmt.Println("time synced", p.timeSyncInfo)
+
 	<-timeSynchronized.Watch()
 
 	return timeSyncInfo
@@ -404,6 +407,7 @@ type DataPacket interface {
 var (
 	_ DataPacket = (*UserDataPacket)(nil)
 	_ DataPacket = (*livekit.SipDTMF)(nil) // implemented in the protocol package
+	_ DataPacket = (*livekit.TimeSyncResponse)(nil)
 )
 
 // UserData is a custom user data that can be sent via WebRTC.
@@ -414,9 +418,9 @@ func UserData(data []byte) *UserDataPacket {
 // UserDataPacket is a custom user data that can be sent via WebRTC on a custom topic.
 type UserDataPacket struct {
 	Payload   []byte
-	Topic     string  // optional
-	StartTime *uint64 // optional
-	EndTime   *uint64 // optional
+	Topic     string     // optional
+	StartTime *time.Time // optional
+	EndTime   *time.Time // optional
 }
 
 // ToProto implements DataPacket.
@@ -425,12 +429,21 @@ func (p *UserDataPacket) ToProto() *livekit.DataPacket {
 	if p.Topic != "" {
 		topic = proto.String(p.Topic)
 	}
+
+	var startTime, endTime *uint64
+	if p.StartTime != nil {
+		startTime = proto.Uint64(uint64(mediatransportutil.ToNtpTime(*p.StartTime)))
+	}
+	if p.EndTime != nil {
+		endTime = proto.Uint64(uint64(mediatransportutil.ToNtpTime(*p.EndTime)))
+	}
+
 	return &livekit.DataPacket{Value: &livekit.DataPacket_User{
 		User: &livekit.UserPacket{
 			Payload:   p.Payload,
 			Topic:     topic,
-			StartTime: p.StartTime,
-			EndTime:   p.EndTime,
+			StartTime: startTime,
+			EndTime:   endTime,
 		},
 	}}
 }
@@ -568,5 +581,13 @@ func (p *LocalParticipant) onTrackMuted(pub *LocalTrackPublication, muted bool) 
 	} else {
 		p.Callback.OnTrackUnmuted(pub, p)
 		p.roomCallback.OnTrackUnmuted(pub, p)
+	}
+}
+
+func (p *LocalParticipant) onTimeSyncResponse(resp livekit.TimeSyncResponse) {
+	select {
+	case p.timeSyncResponseChan <- resp:
+	default:
+		logger.Infow("time sync response chan full")
 	}
 }
