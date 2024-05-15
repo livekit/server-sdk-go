@@ -15,7 +15,6 @@
 package lksdk
 
 import (
-	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -336,8 +335,6 @@ func (p *LocalParticipant) getSynchronizedTimeSync() *mediatransportutil.TimeSyn
 		p.syncTime(timeSyncInfo)
 		timeSynchronized.Break()
 	}
-
-	fmt.Println("time synced", p.timeSyncInfo)
 
 	<-timeSynchronized.Watch()
 
