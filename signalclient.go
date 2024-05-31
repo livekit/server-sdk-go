@@ -137,7 +137,12 @@ func (c *SignalClient) connect(urlPrefix string, token string, params connectPar
 	}
 
 	header := newHeaderWithToken(token)
-	conn, hresp, err := websocket.DefaultDialer.Dial(u.String(), header)
+	dialer := websocket.DefaultDialer
+	if params.Dialer != nil {
+		dialer = params.Dialer
+	}
+
+	conn, hresp, err := dialer.Dial(u.String(), header)
 	if err != nil {
 		var fields []interface{}
 		if hresp != nil {

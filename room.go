@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/gorilla/websocket"
 	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v3"
@@ -86,6 +87,8 @@ type connectParams struct {
 	Interceptors []interceptor.Factory
 
 	ICETransportPolicy webrtc.ICETransportPolicy
+
+	Dialer *websocket.Dialer
 }
 
 type ConnectOption func(*connectParams)
@@ -119,6 +122,12 @@ func WithInterceptors(interceptors []interceptor.Factory) ConnectOption {
 func WithICETransportPolicy(iceTransportPolicy webrtc.ICETransportPolicy) ConnectOption {
 	return func(p *connectParams) {
 		p.ICETransportPolicy = iceTransportPolicy
+	}
+}
+
+func WithDialer(dialer *websocket.Dialer) ConnectOption {
+	return func(p *connectParams) {
+		p.Dialer = dialer
 	}
 }
 
