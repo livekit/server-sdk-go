@@ -33,7 +33,7 @@ import (
 	"go.uber.org/atomic"
 
 	"github.com/livekit/protocol/livekit"
-	"github.com/livekit/protocol/utils"
+	"github.com/livekit/protocol/utils/guid"
 )
 
 const (
@@ -119,8 +119,8 @@ func NewLocalTrack(c webrtc.RTPCodecCapability, opts ...LocalTrackOptions) (*Loc
 			rid = "q"
 		}
 	}
-	trackID := utils.NewGuid("TR_")
-	streamID := utils.NewGuid("ST_")
+	trackID := guid.New("TR_")
+	streamID := guid.New("ST_")
 	if s.simulcastID != "" {
 		trackID = s.simulcastID
 		streamID = s.simulcastID
