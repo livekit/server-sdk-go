@@ -127,7 +127,8 @@ func TestJoin(t *testing.T) {
 	require.NoError(t, err)
 	serverInfo := sub.ServerInfo()
 	require.NotNil(t, serverInfo)
-	require.Equal(t, serverInfo.Edition, livekit.ServerInfo_Standard)
+	require.Equal(t, livekit.ServerInfo_Standard, serverInfo.Edition)
+	require.Equal(t, ConnectionStateConnected, sub.ConnectionState())
 
 	pub.LocalParticipant.PublishDataPacket(UserData([]byte("test")), WithDataPublishReliable(true))
 	pub.LocalParticipant.PublishDataPacket(&livekit.SipDTMF{Digit: "#"}, WithDataPublishReliable(true))
@@ -143,6 +144,7 @@ func TestJoin(t *testing.T) {
 
 	pub.Disconnect()
 	sub.Disconnect()
+	require.Equal(t, ConnectionStateDisconnected, sub.ConnectionState())
 }
 
 func TestJoinError(t *testing.T) {
@@ -181,6 +183,13 @@ func TestResume(t *testing.T) {
 	}
 	sub, err := createAgent(t.Name(), subCB, "subscriber")
 	require.NoError(t, err)
+
+	subCB.OnReconnecting = func() {
+		require.Equal(t, ConnectionStateReconnecting, sub.ConnectionState())
+	}
+	subCB.OnReconnected = func() {
+		require.Equal(t, ConnectionStateConnected, sub.ConnectionState())
+	}
 
 	pub.Simulate(SimulateSignalReconnect)
 	require.Eventually(t, func() bool { return reconnected.Load() }, 5*time.Second, 100*time.Millisecond)
