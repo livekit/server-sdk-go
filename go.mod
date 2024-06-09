@@ -8,7 +8,7 @@ require (
 	github.com/bep/debounce v1.2.1
 	github.com/go-logr/logr v1.4.2
 	github.com/go-logr/stdr v1.2.2
-	github.com/gorilla/websocket v1.5.1
+	github.com/gorilla/websocket v1.5.2
 	github.com/livekit/mageutil v0.0.0-20230125210925-54e8a70427c1
 	github.com/livekit/mediatransportutil v0.0.0-20240501132628-6105557bbb9a
 	github.com/livekit/protocol v1.17.1-0.20240606023900-429fec77a69b
