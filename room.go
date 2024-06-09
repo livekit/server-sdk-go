@@ -45,6 +45,14 @@ const (
 	SimulateNodeFailure
 )
 
+type ConnectionState string
+
+const (
+	ConnectionStateConnected    ConnectionState = "connected"
+	ConnectionStateReconnecting ConnectionState = "reconnecting"
+	ConnectionStateDisconnected ConnectionState = "disconnected"
+)
+
 // -----------------------------------------------
 
 const (
@@ -104,6 +112,8 @@ func WithRetransmitBufferSize(val uint16) ConnectOption {
 	}
 }
 
+// WithPacer enables the use of a pacer on this connection
+// A pacer helps to smooth out video packet rate to avoid overwhelming downstream. Learn more at: https://chromium.googlesource.com/external/webrtc/+/master/modules/pacing/g3doc/index.md
 func WithPacer(pacer pacer.Factory) ConnectOption {
 	return func(p *connectParams) {
 		p.Pacer = pacer
@@ -130,6 +140,7 @@ type Room struct {
 	name             string
 	LocalParticipant *LocalParticipant
 	callback         *RoomCallback
+	connectionState  ConnectionState
 	sidReady         chan struct{}
 
 	remoteParticipants map[livekit.ParticipantIdentity]*RemoteParticipant
@@ -152,6 +163,7 @@ func NewRoom(callback *RoomCallback) *Room {
 		sidDefers:          make(map[livekit.ParticipantID][]func(*RemoteParticipant)),
 		callback:           NewRoomCallback(),
 		sidReady:           make(chan struct{}),
+		connectionState:    ConnectionStateDisconnected,
 	}
 	r.callback.Merge(callback)
 	r.LocalParticipant = newLocalParticipant(engine, r.callback)
@@ -252,6 +264,7 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 	r.name = joinRes.Room.Name
 	r.metadata = joinRes.Room.Metadata
 	r.serverInfo = joinRes.ServerInfo
+	r.connectionState = ConnectionStateConnected
 	r.lock.Unlock()
 
 	r.setSid(joinRes.Room.Sid, false)
@@ -268,6 +281,18 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 func (r *Room) Disconnect() {
 	_ = r.engine.client.SendLeave()
 	r.cleanup()
+}
+
+func (r *Room) ConnectionState() ConnectionState {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+	return r.connectionState
+}
+
+func (r *Room) setConnectionState(cs ConnectionState) {
+	r.lock.Lock()
+	r.connectionState = cs
+	r.lock.Unlock()
 }
 
 func (r *Room) deferParticipantUpdate(sid livekit.ParticipantID, fnc func(p *RemoteParticipant)) {
@@ -398,6 +423,7 @@ func (r *Room) handleDisconnect(reason DisconnectionReason) {
 }
 
 func (r *Room) handleRestarting() {
+	r.setConnectionState(ConnectionStateReconnecting)
 	r.callback.OnReconnecting()
 
 	for _, rp := range r.GetRemoteParticipants() {
@@ -414,14 +440,17 @@ func (r *Room) handleRestarted(joinRes *livekit.JoinResponse) {
 
 	r.LocalParticipant.republishTracks()
 
+	r.setConnectionState(ConnectionStateConnected)
 	r.callback.OnReconnected()
 }
 
 func (r *Room) handleResuming() {
+	r.setConnectionState(ConnectionStateReconnecting)
 	r.callback.OnReconnecting()
 }
 
 func (r *Room) handleResumed() {
+	r.setConnectionState(ConnectionStateConnected)
 	r.callback.OnReconnected()
 	r.sendSyncState()
 }
@@ -634,6 +663,7 @@ func (r *Room) sendSyncState() {
 }
 
 func (r *Room) cleanup() {
+	r.setConnectionState(ConnectionStateDisconnected)
 	r.engine.Close()
 	r.LocalParticipant.closeTracks()
 	r.setSid("", true)
