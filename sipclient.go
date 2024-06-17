@@ -23,11 +23,14 @@ import (
 	"github.com/twitchtv/twirp"
 )
 
+//lint:file-ignore SA1019 We still support some deprecated functions for backward compatibility
+
 type SIPClient struct {
 	sipClient livekit.SIP
 	authBase
 }
 
+// NewSIPClient creates a LiveKit SIP client.
 func NewSIPClient(url string, apiKey string, secretKey string, opts ...twirp.ClientOption) *SIPClient {
 	return &SIPClient{
 		sipClient: livekit.NewSIPProtobufClient(ToHttpURL(url), &http.Client{}, opts...),
@@ -38,6 +41,9 @@ func NewSIPClient(url string, apiKey string, secretKey string, opts ...twirp.Cli
 	}
 }
 
+// CreateSIPTrunk creates a new SIP Trunk.
+//
+// Deprecated: Use CreateSIPInboundTrunk or CreateSIPOutboundTrunk
 func (s *SIPClient) CreateSIPTrunk(ctx context.Context, in *livekit.CreateSIPTrunkRequest) (*livekit.SIPTrunkInfo, error) {
 	if in == nil {
 		return nil, ErrInvalidParameter
@@ -50,6 +56,35 @@ func (s *SIPClient) CreateSIPTrunk(ctx context.Context, in *livekit.CreateSIPTru
 	return s.sipClient.CreateSIPTrunk(ctx, in)
 }
 
+// CreateSIPInboundTrunk creates a new SIP Trunk for accepting inbound calls to LiveKit.
+func (s *SIPClient) CreateSIPInboundTrunk(ctx context.Context, in *livekit.CreateSIPInboundTrunkRequest) (*livekit.SIPInboundTrunkInfo, error) {
+	if in == nil || in.Trunk == nil || in.Trunk.SipTrunkId != "" {
+		return nil, ErrInvalidParameter
+	}
+
+	ctx, err := s.withAuth(ctx, auth.VideoGrant{})
+	if err != nil {
+		return nil, err
+	}
+	return s.sipClient.CreateSIPInboundTrunk(ctx, in)
+}
+
+// CreateSIPOutboundTrunk creates a new SIP Trunk for making outbound calls from LiveKit.
+func (s *SIPClient) CreateSIPOutboundTrunk(ctx context.Context, in *livekit.CreateSIPOutboundTrunkRequest) (*livekit.SIPOutboundTrunkInfo, error) {
+	if in == nil || in.Trunk == nil || in.Trunk.SipTrunkId != "" {
+		return nil, ErrInvalidParameter
+	}
+
+	ctx, err := s.withAuth(ctx, auth.VideoGrant{})
+	if err != nil {
+		return nil, err
+	}
+	return s.sipClient.CreateSIPOutboundTrunk(ctx, in)
+}
+
+// ListSIPTrunk lists SIP Trunks.
+//
+// Deprecated: Use ListSIPInboundTrunk or ListSIPOutboundTrunk
 func (s *SIPClient) ListSIPTrunk(ctx context.Context, in *livekit.ListSIPTrunkRequest) (*livekit.ListSIPTrunkResponse, error) {
 	if in == nil {
 		return nil, ErrInvalidParameter
@@ -62,6 +97,33 @@ func (s *SIPClient) ListSIPTrunk(ctx context.Context, in *livekit.ListSIPTrunkRe
 	return s.sipClient.ListSIPTrunk(ctx, in)
 }
 
+// ListSIPInboundTrunk lists SIP Trunks accepting inbound calls.
+func (s *SIPClient) ListSIPInboundTrunk(ctx context.Context, in *livekit.ListSIPInboundTrunkRequest) (*livekit.ListSIPInboundTrunkResponse, error) {
+	if in == nil {
+		return nil, ErrInvalidParameter
+	}
+
+	ctx, err := s.withAuth(ctx, auth.VideoGrant{})
+	if err != nil {
+		return nil, err
+	}
+	return s.sipClient.ListSIPInboundTrunk(ctx, in)
+}
+
+// ListSIPOutboundTrunk lists SIP Trunks for making outbound calls.
+func (s *SIPClient) ListSIPOutboundTrunk(ctx context.Context, in *livekit.ListSIPOutboundTrunkRequest) (*livekit.ListSIPOutboundTrunkResponse, error) {
+	if in == nil {
+		return nil, ErrInvalidParameter
+	}
+
+	ctx, err := s.withAuth(ctx, auth.VideoGrant{})
+	if err != nil {
+		return nil, err
+	}
+	return s.sipClient.ListSIPOutboundTrunk(ctx, in)
+}
+
+// DeleteSIPTrunk deletes SIP Trunk given an ID.
 func (s *SIPClient) DeleteSIPTrunk(ctx context.Context, in *livekit.DeleteSIPTrunkRequest) (*livekit.SIPTrunkInfo, error) {
 	if in == nil {
 		return nil, ErrInvalidParameter
@@ -74,6 +136,7 @@ func (s *SIPClient) DeleteSIPTrunk(ctx context.Context, in *livekit.DeleteSIPTru
 	return s.sipClient.DeleteSIPTrunk(ctx, in)
 }
 
+// CreateSIPDispatchRule creates SIP Dispatch Rules.
 func (s *SIPClient) CreateSIPDispatchRule(ctx context.Context, in *livekit.CreateSIPDispatchRuleRequest) (*livekit.SIPDispatchRuleInfo, error) {
 	if in == nil {
 		return nil, ErrInvalidParameter
@@ -86,6 +149,7 @@ func (s *SIPClient) CreateSIPDispatchRule(ctx context.Context, in *livekit.Creat
 	return s.sipClient.CreateSIPDispatchRule(ctx, in)
 }
 
+// ListSIPDispatchRule lists SIP Dispatch Rules.
 func (s *SIPClient) ListSIPDispatchRule(ctx context.Context, in *livekit.ListSIPDispatchRuleRequest) (*livekit.ListSIPDispatchRuleResponse, error) {
 	if in == nil {
 		return nil, ErrInvalidParameter
@@ -98,6 +162,7 @@ func (s *SIPClient) ListSIPDispatchRule(ctx context.Context, in *livekit.ListSIP
 	return s.sipClient.ListSIPDispatchRule(ctx, in)
 }
 
+// DeleteSIPDispatchRule deletes SIP Dispatch Rule given an ID.
 func (s *SIPClient) DeleteSIPDispatchRule(ctx context.Context, in *livekit.DeleteSIPDispatchRuleRequest) (*livekit.SIPDispatchRuleInfo, error) {
 	if in == nil {
 		return nil, ErrInvalidParameter
@@ -110,6 +175,7 @@ func (s *SIPClient) DeleteSIPDispatchRule(ctx context.Context, in *livekit.Delet
 	return s.sipClient.DeleteSIPDispatchRule(ctx, in)
 }
 
+// CreateSIPParticipant creates SIP Participant by making an outbound call.
 func (s *SIPClient) CreateSIPParticipant(ctx context.Context, in *livekit.CreateSIPParticipantRequest) (*livekit.SIPParticipantInfo, error) {
 	if in == nil {
 		return nil, ErrInvalidParameter
