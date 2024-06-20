@@ -27,9 +27,28 @@ type authBase struct {
 	apiSecret string
 }
 
-func (b authBase) withAuth(ctx context.Context, grant auth.VideoGrant) (context.Context, error) {
+type authOption interface {
+	Apply(t *auth.AccessToken)
+}
+
+type withVideoGrant auth.VideoGrant
+
+func (g withVideoGrant) Apply(t *auth.AccessToken) {
+	t.AddGrant((*auth.VideoGrant)(&g))
+}
+
+type withSIPGrant auth.SIPGrant
+
+func (g withSIPGrant) Apply(t *auth.AccessToken) {
+	t.AddSIPGrant((*auth.SIPGrant)(&g))
+}
+
+func (b authBase) withAuth(ctx context.Context, opt authOption, options ...authOption) (context.Context, error) {
 	at := auth.NewAccessToken(b.apiKey, b.apiSecret)
-	at.AddGrant(&grant)
+	opt.Apply(at)
+	for _, opt := range options {
+		opt.Apply(at)
+	}
 	token, err := at.ToJWT()
 	if err != nil {
 		return nil, err

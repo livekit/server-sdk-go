@@ -18,7 +18,6 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
 	"github.com/twitchtv/twirp"
 )
@@ -45,7 +44,7 @@ func (c *IngressClient) CreateIngress(ctx context.Context, in *livekit.CreateIng
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := c.withAuth(ctx, auth.VideoGrant{IngressAdmin: true})
+	ctx, err := c.withAuth(ctx, withVideoGrant{IngressAdmin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +56,7 @@ func (c *IngressClient) UpdateIngress(ctx context.Context, in *livekit.UpdateIng
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := c.withAuth(ctx, auth.VideoGrant{IngressAdmin: true})
+	ctx, err := c.withAuth(ctx, withVideoGrant{IngressAdmin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +68,7 @@ func (c *IngressClient) ListIngress(ctx context.Context, in *livekit.ListIngress
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := c.withAuth(ctx, auth.VideoGrant{IngressAdmin: true})
+	ctx, err := c.withAuth(ctx, withVideoGrant{IngressAdmin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +80,7 @@ func (c *IngressClient) DeleteIngress(ctx context.Context, in *livekit.DeleteIng
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := c.withAuth(ctx, auth.VideoGrant{IngressAdmin: true})
+	ctx, err := c.withAuth(ctx, withVideoGrant{IngressAdmin: true})
 	if err != nil {
 		return nil, err
 	}

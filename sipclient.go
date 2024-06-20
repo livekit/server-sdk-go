@@ -18,7 +18,6 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
 	"github.com/twitchtv/twirp"
 )
@@ -49,7 +48,7 @@ func (s *SIPClient) CreateSIPTrunk(ctx context.Context, in *livekit.CreateSIPTru
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, auth.VideoGrant{})
+	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +61,7 @@ func (s *SIPClient) CreateSIPInboundTrunk(ctx context.Context, in *livekit.Creat
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, auth.VideoGrant{})
+	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +74,7 @@ func (s *SIPClient) CreateSIPOutboundTrunk(ctx context.Context, in *livekit.Crea
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, auth.VideoGrant{})
+	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +89,7 @@ func (s *SIPClient) ListSIPTrunk(ctx context.Context, in *livekit.ListSIPTrunkRe
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, auth.VideoGrant{})
+	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +102,7 @@ func (s *SIPClient) ListSIPInboundTrunk(ctx context.Context, in *livekit.ListSIP
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, auth.VideoGrant{})
+	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +115,7 @@ func (s *SIPClient) ListSIPOutboundTrunk(ctx context.Context, in *livekit.ListSI
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, auth.VideoGrant{})
+	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +128,7 @@ func (s *SIPClient) DeleteSIPTrunk(ctx context.Context, in *livekit.DeleteSIPTru
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, auth.VideoGrant{})
+	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +141,7 @@ func (s *SIPClient) CreateSIPDispatchRule(ctx context.Context, in *livekit.Creat
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, auth.VideoGrant{})
+	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +154,7 @@ func (s *SIPClient) ListSIPDispatchRule(ctx context.Context, in *livekit.ListSIP
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, auth.VideoGrant{})
+	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +167,7 @@ func (s *SIPClient) DeleteSIPDispatchRule(ctx context.Context, in *livekit.Delet
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, auth.VideoGrant{})
+	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +180,7 @@ func (s *SIPClient) CreateSIPParticipant(ctx context.Context, in *livekit.Create
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, auth.VideoGrant{})
+	ctx, err := s.withAuth(ctx, withSIPGrant{Call: true})
 	if err != nil {
 		return nil, err
 	}
