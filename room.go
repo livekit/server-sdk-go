@@ -73,13 +73,14 @@ const (
 )
 
 type ConnectInfo struct {
-	APIKey              string
-	APISecret           string
-	RoomName            string
-	ParticipantName     string
-	ParticipantIdentity string
-	ParticipantKind     ParticipantKind
-	ParticipantMetadata string
+	APIKey                string
+	APISecret             string
+	RoomName              string
+	ParticipantName       string
+	ParticipantIdentity   string
+	ParticipantKind       ParticipantKind
+	ParticipantMetadata   string
+	ParticipantAttributes map[string]string
 }
 
 // not exposed to users. clients should use ConnectOption
@@ -235,6 +236,7 @@ func (r *Room) Join(url string, info ConnectInfo, opts ...ConnectOption) error {
 	at.AddGrant(grant).
 		SetIdentity(info.ParticipantIdentity).
 		SetMetadata(info.ParticipantMetadata).
+		SetAttributes(info.ParticipantAttributes).
 		SetName(info.ParticipantName).
 		SetKind(livekit.ParticipantInfo_Kind(info.ParticipantKind))
 

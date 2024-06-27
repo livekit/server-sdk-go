@@ -25,6 +25,7 @@ type ParticipantCallback struct {
 	OnTrackMuted               func(pub TrackPublication, p Participant)
 	OnTrackUnmuted             func(pub TrackPublication, p Participant)
 	OnMetadataChanged          func(oldMetadata string, p Participant)
+	OnAttributesChanged        func(oldAttrs map[string]string, p Participant)
 	OnIsSpeakingChanged        func(p Participant)
 	OnConnectionQualityChanged func(update *livekit.ConnectionQualityInfo, p Participant)
 
@@ -43,6 +44,7 @@ func NewParticipantCallback() *ParticipantCallback {
 		OnTrackMuted:               func(pub TrackPublication, p Participant) {},
 		OnTrackUnmuted:             func(pub TrackPublication, p Participant) {},
 		OnMetadataChanged:          func(oldMetadata string, p Participant) {},
+		OnAttributesChanged:        func(oldAttrs map[string]string, p Participant) {},
 		OnIsSpeakingChanged:        func(p Participant) {},
 		OnConnectionQualityChanged: func(update *livekit.ConnectionQualityInfo, p Participant) {},
 		OnTrackSubscribed:          func(track *webrtc.TrackRemote, publication *RemoteTrackPublication, rp *RemoteParticipant) {},
@@ -64,6 +66,9 @@ func (cb *ParticipantCallback) Merge(other *ParticipantCallback) {
 	}
 	if other.OnMetadataChanged != nil {
 		cb.OnMetadataChanged = other.OnMetadataChanged
+	}
+	if other.OnAttributesChanged != nil {
+		cb.OnAttributesChanged = other.OnAttributesChanged
 	}
 	if other.OnIsSpeakingChanged != nil {
 		cb.OnIsSpeakingChanged = other.OnIsSpeakingChanged

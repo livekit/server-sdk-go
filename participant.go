@@ -15,6 +15,7 @@
 package lksdk
 
 import (
+	"maps"
 	"sync"
 
 	"go.uber.org/atomic"
@@ -36,6 +37,7 @@ type Participant interface {
 	IsScreenShareEnabled() bool
 	IsScreenShareAudioEnabled() bool
 	Metadata() string
+	Attributes() map[string]string
 	GetTrackPublication(source livekit.TrackSource) TrackPublication
 	Permissions() *livekit.ParticipantPermission
 
@@ -50,6 +52,7 @@ type baseParticipant struct {
 	name              string
 	audioLevel        atomic.Float64
 	metadata          string
+	attributes        map[string]string
 	isSpeaking        atomic.Bool
 	info              *livekit.ParticipantInfo
 	connectionQuality *livekit.ConnectionQualityInfo
@@ -105,6 +108,12 @@ func (p *baseParticipant) Metadata() string {
 	p.lock.RLock()
 	defer p.lock.RUnlock()
 	return p.metadata
+}
+
+func (p *baseParticipant) Attributes() map[string]string {
+	p.lock.RLock()
+	defer p.lock.RUnlock()
+	return maps.Clone(p.attributes)
 }
 
 func (p *baseParticipant) Permissions() *livekit.ParticipantPermission {
@@ -201,12 +210,28 @@ func (p *baseParticipant) updateInfo(pi *livekit.ParticipantInfo, participant Pa
 	p.name = pi.Name
 	oldMetadata := p.metadata
 	p.metadata = pi.Metadata
-	hasChanged := oldMetadata != p.metadata
+	metaChanged := oldMetadata != p.metadata
+	attrsChanged := len(pi.Attributes) != 0
+	oldAttributes := maps.Clone(p.attributes)
+	if p.attributes == nil {
+		p.attributes = make(map[string]string)
+	}
+	for k, v := range pi.Attributes {
+		if v == "" {
+			delete(p.attributes, k)
+		} else {
+			p.attributes[k] = v
+		}
+	}
 	p.lock.Unlock()
 
-	if hasChanged {
+	if metaChanged {
 		p.Callback.OnMetadataChanged(oldMetadata, participant)
 		p.roomCallback.OnMetadataChanged(oldMetadata, participant)
+	}
+	if attrsChanged {
+		p.Callback.OnAttributesChanged(oldAttributes, participant)
+		p.roomCallback.OnAttributesChanged(oldAttributes, participant)
 	}
 	return true
 }

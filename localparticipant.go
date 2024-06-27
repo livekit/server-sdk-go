@@ -433,10 +433,19 @@ func (p *LocalParticipant) SetName(name string) {
 }
 
 // SetMetadata sets the metadata of the current participant.
-// updates will be performed only if the participant has canUpdateOwnMetadata grant
+// Updates will be performed only if the participant has canUpdateOwnMetadata grant.
 func (p *LocalParticipant) SetMetadata(metadata string) {
 	_ = p.engine.client.SendUpdateParticipantMetadata(&livekit.UpdateParticipantMetadata{
 		Metadata: metadata,
+	})
+}
+
+// SetAttributes sets the KV attributes of the current participant.
+// To remove an attribute, set it to empty value.
+// Updates will be performed only if the participant has canUpdateOwnMetadata grant.
+func (p *LocalParticipant) SetAttributes(attrs map[string]string) {
+	_ = p.engine.client.SendUpdateParticipantMetadata(&livekit.UpdateParticipantMetadata{
+		Attributes: attrs,
 	})
 }
 
