@@ -17,6 +17,7 @@ package lksdk
 import (
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v3"
@@ -301,6 +302,20 @@ func (p *LocalTrackPublication) GetSimulcastTrack(quality livekit.VideoQuality) 
 
 func (p *LocalTrackPublication) SetMuted(muted bool) {
 	p.setMuted(muted, false)
+}
+
+func (p *LocalTrackPublication) SimulateDisconnection(duration time.Duration) {
+	if track := p.track; track != nil {
+		switch t := track.(type) {
+		case *LocalTrack:
+			t.setMuted(true)
+			time.AfterFunc(duration, func() {
+				if !p.isMuted.Load() {
+					t.setMuted(false)
+				}
+			})
+		}
+	}
 }
 
 func (p *LocalTrackPublication) setMuted(muted bool, byRemote bool) {
