@@ -74,12 +74,13 @@ type LocalTrack struct {
 	videoLayer       *livekit.VideoLayer
 	onRTCP           func(rtcp.Packet)
 
-	muted       atomic.Bool
-	cancelWrite func()
-	writeClosed chan struct{}
-	provider    SampleProvider
-	onBind      func()
-	onUnbind    func()
+	muted        atomic.Bool
+	disconnected atomic.Bool
+	cancelWrite  func()
+	writeClosed  chan struct{}
+	provider     SampleProvider
+	onBind       func()
+	onUnbind     func()
 	// notify when sample provider responds with EOF
 	onWriteComplete func()
 }
@@ -456,6 +457,10 @@ func (s *LocalTrack) WriteSample(sample media.Sample, opts *SampleWriteOptions) 
 	s.lastRTPTimestamp = currentRTPTimestamp
 	s.lock.Unlock()
 
+	if s.disconnected.Load() {
+		return nil
+	}
+
 	var writeErrs []error
 	for _, p := range packets {
 		if err := s.WriteRTP(p, opts); err != nil {
@@ -493,6 +498,10 @@ func (s *LocalTrack) SSRC() webrtc.SSRC {
 
 func (s *LocalTrack) setMuted(muted bool) {
 	s.muted.Store(muted)
+}
+
+func (s *LocalTrack) setDisconnected(disconnected bool) {
+	s.disconnected.Store(disconnected)
 }
 
 func (s *LocalTrack) rtcpWorker(rtcpReader interceptor.RTCPReader) {

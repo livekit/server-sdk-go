@@ -308,12 +308,10 @@ func (p *LocalTrackPublication) SimulateDisconnection(duration time.Duration) {
 	if track := p.track; track != nil {
 		switch t := track.(type) {
 		case *LocalTrack:
-			t.setMuted(true)
+			t.setDisconnected(true)
 			if duration != 0 {
 				time.AfterFunc(duration, func() {
-					if !p.isMuted.Load() {
-						t.setMuted(false)
-					}
+					t.setDisconnected(false)
 				})
 			}
 		}
