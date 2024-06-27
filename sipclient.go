@@ -17,6 +17,7 @@ package lksdk
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/livekit/protocol/livekit"
 	"github.com/twitchtv/twirp"
@@ -184,5 +185,14 @@ func (s *SIPClient) CreateSIPParticipant(ctx context.Context, in *livekit.Create
 	if err != nil {
 		return nil, err
 	}
+
+	// CreateSIPParticipant will wait for LiveKit Participant to be created and that can take some time.
+	// Default deadline is too short, thus, we must set a higher deadline for it (if not specified by the user).
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel func()
+		ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+	}
+
 	return s.sipClient.CreateSIPParticipant(ctx, in)
 }
