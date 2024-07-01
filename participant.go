@@ -197,6 +197,21 @@ func (p *baseParticipant) setConnectionQualityInfo(info *livekit.ConnectionQuali
 	p.roomCallback.OnConnectionQualityChanged(info, p)
 }
 
+func attributeChanges(old, cur map[string]string) map[string]string {
+	diff := make(map[string]string)
+	for k, v := range cur {
+		if old[k] != v {
+			diff[k] = v // added or changed
+		}
+	}
+	for k := range old {
+		if _, ok := cur[k]; !ok {
+			diff[k] = "" // deleted
+		}
+	}
+	return diff
+}
+
 func (p *baseParticipant) updateInfo(pi *livekit.ParticipantInfo, participant Participant) bool {
 	p.lock.Lock()
 	if p.info != nil && p.info.Version > pi.Version {
@@ -211,27 +226,17 @@ func (p *baseParticipant) updateInfo(pi *livekit.ParticipantInfo, participant Pa
 	oldMetadata := p.metadata
 	p.metadata = pi.Metadata
 	metaChanged := oldMetadata != p.metadata
-	attrsChanged := len(pi.Attributes) != 0
-	oldAttributes := maps.Clone(p.attributes)
-	if p.attributes == nil {
-		p.attributes = make(map[string]string)
-	}
-	for k, v := range pi.Attributes {
-		if v == "" {
-			delete(p.attributes, k)
-		} else {
-			p.attributes[k] = v
-		}
-	}
+	attrsChanges := attributeChanges(p.attributes, pi.Attributes)
+	p.attributes = maps.Clone(pi.Attributes)
 	p.lock.Unlock()
 
 	if metaChanged {
 		p.Callback.OnMetadataChanged(oldMetadata, participant)
 		p.roomCallback.OnMetadataChanged(oldMetadata, participant)
 	}
-	if attrsChanged {
-		p.Callback.OnAttributesChanged(oldAttributes, participant)
-		p.roomCallback.OnAttributesChanged(oldAttributes, participant)
+	if len(attrsChanges) != 0 {
+		p.Callback.OnAttributesChanged(attrsChanges, participant)
+		p.roomCallback.OnAttributesChanged(attrsChanges, participant)
 	}
 	return true
 }
