@@ -20,12 +20,17 @@ import (
 	"github.com/livekit/protocol/livekit"
 )
 
+// ParticipantAttributesChangedFunc is callback for Participant attribute change event.
+// The function is called with an already updated participant state and the map of changes attributes.
+// Deleted attributes will have empty string value in the changed map.
+type ParticipantAttributesChangedFunc func(changed map[string]string, p Participant)
+
 type ParticipantCallback struct {
 	// for all participants
 	OnTrackMuted               func(pub TrackPublication, p Participant)
 	OnTrackUnmuted             func(pub TrackPublication, p Participant)
 	OnMetadataChanged          func(oldMetadata string, p Participant)
-	OnAttributesChanged        func(oldAttrs map[string]string, p Participant)
+	OnAttributesChanged        ParticipantAttributesChangedFunc
 	OnIsSpeakingChanged        func(p Participant)
 	OnConnectionQualityChanged func(update *livekit.ConnectionQualityInfo, p Participant)
 
@@ -44,7 +49,7 @@ func NewParticipantCallback() *ParticipantCallback {
 		OnTrackMuted:               func(pub TrackPublication, p Participant) {},
 		OnTrackUnmuted:             func(pub TrackPublication, p Participant) {},
 		OnMetadataChanged:          func(oldMetadata string, p Participant) {},
-		OnAttributesChanged:        func(oldAttrs map[string]string, p Participant) {},
+		OnAttributesChanged:        func(changed map[string]string, p Participant) {},
 		OnIsSpeakingChanged:        func(p Participant) {},
 		OnConnectionQualityChanged: func(update *livekit.ConnectionQualityInfo, p Participant) {},
 		OnTrackSubscribed:          func(track *webrtc.TrackRemote, publication *RemoteTrackPublication, rp *RemoteParticipant) {},
