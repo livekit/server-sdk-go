@@ -457,26 +457,28 @@ func (r *Room) handleResumed() {
 	r.sendSyncState()
 }
 
-func (r *Room) handleDataReceived(identity string, dataPacket DataPacket) {
-	if identity == r.LocalParticipant.Identity() {
+func (r *Room) handleDataReceived(senderIdentity string, dataPacket DataPacket) {
+	if senderIdentity == r.LocalParticipant.Identity() {
 		// if sent by itself, do not handle data
 		return
 	}
-	p := r.GetParticipantByIdentity(identity)
 	params := DataReceiveParams{
-		SenderIdentity: identity,
-		Sender:         p,
+		SenderIdentity: senderIdentity,
+		Sender:         r.GetParticipantByIdentity(senderIdentity),
 	}
+	// only local participant should receive data callbacks
+	receiver := r.LocalParticipant
+
 	switch msg := dataPacket.(type) {
 	case *UserDataPacket: // compatibility
 		params.Topic = msg.Topic
-		if p != nil {
-			p.Callback.OnDataReceived(msg.Payload, params)
+		if receiver != nil {
+			receiver.Callback.OnDataReceived(msg.Payload, params)
 		}
 		r.callback.OnDataReceived(msg.Payload, params)
 	}
-	if p != nil {
-		p.Callback.OnDataPacket(dataPacket, params)
+	if receiver != nil {
+		receiver.Callback.OnDataPacket(dataPacket, params)
 	}
 	r.callback.OnDataPacket(dataPacket, params)
 }

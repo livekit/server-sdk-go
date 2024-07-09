@@ -485,11 +485,11 @@ func (e *RTCEngine) handleDataPacket(msg webrtc.DataChannelMessage) {
 		if onDataReceived := e.OnDataReceived; onDataReceived != nil {
 			onDataReceived(m)
 		}
+		if identity == "" {
+			//lint:ignore SA1019 backward compatibility
+			identity = m.ParticipantIdentity
+		}
 		if e.OnDataPacket != nil {
-			if identity == "" {
-				//lint:ignore SA1019 backward compatibility
-				identity = m.ParticipantIdentity
-			}
 			e.OnDataPacket(identity, &UserDataPacket{
 				Payload: m.Payload,
 				Topic:   m.GetTopic(),
