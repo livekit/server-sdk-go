@@ -635,6 +635,8 @@ func payloaderForCodec(codec webrtc.RTPCodecCapability) (rtp.Payloader, error) {
 		return &codecs.G722Payloader{}, nil
 	case strings.ToLower(webrtc.MimeTypePCMU), strings.ToLower(webrtc.MimeTypePCMA):
 		return &codecs.G711Payloader{}, nil
+	case strings.ToLower(webrtc.MimeTypeAV1):
+		return &codecs.AV1Payloader{}, nil
 	default:
 		return nil, webrtc.ErrNoPayloaderForCodec
 	}
