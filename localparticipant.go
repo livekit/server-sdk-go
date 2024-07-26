@@ -119,7 +119,7 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 
 	publisher.Negotiate()
 
-	logger.Infow("published track", "name", opts.Name, "source", opts.Source.String(), "trackID", pubRes.Track.Sid)
+	p.engine.log.Infow("published track", "name", opts.Name, "source", opts.Source.String(), "trackID", pubRes.Track.Sid)
 
 	return pub, nil
 }
@@ -224,7 +224,7 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *Tra
 
 	publisher.Negotiate()
 
-	logger.Infow("published simulcast track", "name", opts.Name, "source", opts.Source.String(), "trackID", pubRes.Track.Sid)
+	p.engine.log.Infow("published simulcast track", "name", opts.Name, "source", opts.Source.String(), "trackID", pubRes.Track.Sid)
 
 	return pub, nil
 }
@@ -252,7 +252,7 @@ func (p *LocalParticipant) republishTracks() {
 		} else if track := pub.TrackLocal(); track != nil {
 			p.PublishTrack(track, &opt)
 		} else {
-			logger.Warnw("could not republish track as no track local found", nil, "track", pub.SID())
+			p.engine.log.Warnw("could not republish track as no track local found", nil, "track", pub.SID())
 		}
 	}
 }
@@ -401,7 +401,7 @@ func (p *LocalParticipant) UnpublishTrack(sid string) error {
 
 	pub.CloseTrack()
 
-	logger.Infow("unpublished track", "name", pub.Name(), "sid", sid)
+	p.engine.log.Infow("unpublished track", "name", pub.Name(), "sid", sid)
 
 	return err
 }

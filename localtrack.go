@@ -23,6 +23,7 @@ import (
 	"sync"
 	"time"
 
+	protoLogger "github.com/livekit/protocol/logger"
 	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
@@ -55,6 +56,7 @@ type SampleWriteOptions struct {
 // publishing tracks at the right frequency
 // This extends webrtc.TrackLocalStaticSample, and adds the ability to write RTP extensions
 type LocalTrack struct {
+	log              protoLogger.Logger
 	packetizer       rtp.Packetizer
 	sequencer        rtp.Sequencer
 	transceiver      *webrtc.RTPTransceiver
@@ -105,7 +107,7 @@ func WithRTCPHandler(cb func(rtcp.Packet)) LocalTrackOptions {
 }
 
 func NewLocalTrack(c webrtc.RTPCodecCapability, opts ...LocalTrackOptions) (*LocalTrack, error) {
-	s := &LocalTrack{}
+	s := &LocalTrack{log: logger}
 	for _, o := range opts {
 		o(s)
 	}
@@ -136,6 +138,11 @@ func NewLocalTrack(c webrtc.RTPCodecCapability, opts ...LocalTrackOptions) (*Loc
 
 func NewLocalSampleTrack(c webrtc.RTPCodecCapability, opts ...LocalTrackOptions) (*LocalTrack, error) {
 	return NewLocalTrack(c, opts...)
+}
+
+// SetLogger overrides default logger.
+func (s *LocalTrack) SetLogger(l protoLogger.Logger) {
+	s.log = l
 }
 
 func (s *LocalTrack) SetTransceiver(transceiver *webrtc.RTPTransceiver) {
@@ -519,7 +526,7 @@ func (s *LocalTrack) rtcpWorker(rtcpReader interceptor.RTCPReader) {
 
 		pkts, err := rtcp.Unmarshal(b[:i])
 		if err != nil {
-			logger.Warnw("could not unmarshal rtcp", err)
+			s.log.Warnw("could not unmarshal rtcp", err)
 			return
 		}
 		for _, packet := range pkts {
@@ -582,7 +589,7 @@ func (s *LocalTrack) writeWorker(provider SampleProvider, onComplete func()) {
 			return
 		}
 		if err != nil {
-			logger.Errorw("could not get sample from provider", err)
+			s.log.Errorw("could not get sample from provider", err)
 			return
 		}
 
@@ -596,7 +603,7 @@ func (s *LocalTrack) writeWorker(provider SampleProvider, onComplete func()) {
 			}
 
 			if err := s.WriteSample(sample, opts); err != nil {
-				logger.Errorw("could not write sample", err)
+				s.log.Errorw("could not write sample", err)
 				return
 			}
 		}

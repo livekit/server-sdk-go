@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/bep/debounce"
+	protoLogger "github.com/livekit/protocol/logger"
 	"github.com/pion/dtls/v2"
 	"github.com/pion/interceptor"
 	"github.com/pion/interceptor/pkg/nack"
@@ -32,6 +33,7 @@ import (
 	lkinterceptor "github.com/livekit/mediatransportutil/pkg/interceptor"
 	"github.com/livekit/mediatransportutil/pkg/pacer"
 	lksdp "github.com/livekit/protocol/sdp"
+
 	sdkinterceptor "github.com/livekit/server-sdk-go/v2/pkg/interceptor"
 )
 
@@ -46,7 +48,8 @@ const (
 
 // PCTransport is a wrapper around PeerConnection, with some helper methods
 type PCTransport struct {
-	pc *webrtc.PeerConnection
+	log protoLogger.Logger
+	pc  *webrtc.PeerConnection
 
 	lock                      sync.Mutex
 	pendingCandidates         []webrtc.ICECandidateInit
@@ -194,6 +197,11 @@ func NewPCTransport(params PCTransportParams) (*PCTransport, error) {
 	return t, nil
 }
 
+// SetLogger overrides default logger.
+func (t *PCTransport) SetLogger(l protoLogger.Logger) {
+	t.log = l
+}
+
 func (t *PCTransport) handleRTTUpdate(rtt uint32) {
 	t.SetRTT(rtt)
 
@@ -211,17 +219,17 @@ func (t *PCTransport) onICEGatheringStateChange(state webrtc.ICEGathererState) {
 		t.lock.Lock()
 		if t.restartAfterGathering {
 			t.lock.Unlock()
-			logger.Debugw("restarting ICE after ICE gathering")
+			t.log.Debugw("restarting ICE after ICE gathering")
 			if err := t.createAndSendOffer(&webrtc.OfferOptions{ICERestart: true}); err != nil {
-				logger.Errorw("could not restart ICE", err)
+				t.log.Errorw("could not restart ICE", err)
 			}
 		} else if t.pendingRestartIceOffer != nil {
-			logger.Debugw("accept remote restart ice offer after ICE gathering")
+			t.log.Debugw("accept remote restart ice offer after ICE gathering")
 			offer := t.pendingRestartIceOffer
 			t.pendingRestartIceOffer = nil
 			t.lock.Unlock()
 			if err := t.SetRemoteDescription(*offer); err != nil {
-				logger.Errorw("could not accept remote restart ICE offer", err)
+				t.log.Errorw("could not accept remote restart ICE offer", err)
 			}
 		} else {
 			t.lock.Unlock()
@@ -275,14 +283,14 @@ func (t *PCTransport) SetRemoteDescription(sd webrtc.SessionDescription) error {
 		var err error
 		iceCredential, offerRestartICE, err = t.isRemoteOfferRestartICE(sd)
 		if err != nil {
-			logger.Errorw("check remote offer restart ICE failed", err)
+			t.log.Errorw("check remote offer restart ICE failed", err)
 			t.lock.Unlock()
 			return err
 		}
 	}
 
 	if offerRestartICE && t.pc.ICEGatheringState() == webrtc.ICEGatheringStateGathering {
-		logger.Debugw("remote offer restart ice while ice gathering")
+		t.log.Debugw("remote offer restart ice while ice gathering")
 		t.pendingRestartIceOffer = &sd
 		t.lock.Unlock()
 		return nil
@@ -379,7 +387,7 @@ func (t *PCTransport) createAndSendOffer(options *webrtc.OfferOptions) error {
 			t.restartAfterGathering = true
 			return nil
 		}
-		logger.Debugw("restarting ICE")
+		t.log.Debugw("restarting ICE")
 	}
 	if t.pc.SignalingState() == webrtc.SignalingStateHaveLocalOffer {
 		if iceRestart {
@@ -395,15 +403,15 @@ func (t *PCTransport) createAndSendOffer(options *webrtc.OfferOptions) error {
 		}
 	}
 
-	logger.Debugw("starting to negotiate")
+	t.log.Debugw("starting to negotiate")
 	offer, err := t.pc.CreateOffer(options)
-	logger.Debugw("create offer", "offer", offer.SDP)
+	t.log.Debugw("create offer", "offer", offer.SDP)
 	if err != nil {
-		logger.Errorw("could not negotiate", err)
+		t.log.Errorw("could not negotiate", err)
 		return err
 	}
 	if err := t.pc.SetLocalDescription(offer); err != nil {
-		logger.Errorw("could not set local description", err)
+		t.log.Errorw("could not set local description", err)
 		return err
 	}
 	t.restartAfterGathering = false

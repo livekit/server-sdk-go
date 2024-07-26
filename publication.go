@@ -217,7 +217,7 @@ func (p *RemoteTrackPublication) updateSettings() {
 	p.lock.RUnlock()
 
 	if err := p.client.SendUpdateTrackSettings(settings); err != nil {
-		logger.Errorw("could not send track settings", err, "trackID", p.SID())
+		p.client.log.Errorw("could not send track settings", err, "trackID", p.SID())
 	}
 }
 
