@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 
+	protoLogger "github.com/livekit/protocol/logger"
 	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v3"
@@ -136,6 +137,7 @@ func WithICETransportPolicy(iceTransportPolicy webrtc.ICETransportPolicy) Connec
 type PLIWriter func(webrtc.SSRC)
 
 type Room struct {
+	log              protoLogger.Logger
 	engine           *RTCEngine
 	sid              string
 	name             string
@@ -158,6 +160,7 @@ type Room struct {
 func NewRoom(callback *RoomCallback) *Room {
 	engine := NewRTCEngine()
 	r := &Room{
+		log:                logger,
 		engine:             engine,
 		remoteParticipants: make(map[livekit.ParticipantIdentity]*RemoteParticipant),
 		sidToIdentity:      make(map[livekit.ParticipantID]livekit.ParticipantIdentity),
@@ -205,6 +208,12 @@ func ConnectToRoomWithToken(url, token string, callback *RoomCallback, opts ...C
 		return nil, err
 	}
 	return room, nil
+}
+
+// SetLogger overrides default logger.
+func (r *Room) SetLogger(l protoLogger.Logger) {
+	r.log = l
+	r.engine.SetLogger(l)
 }
 
 func (r *Room) Name() string {
@@ -317,7 +326,7 @@ func (r *Room) runParticipantDefers(sid livekit.ParticipantID, p *RemoteParticip
 	if len(fncs) == 0 {
 		return
 	}
-	logger.Infow("running deferred updates for participant", "participantID", sid, "updates", len(fncs))
+	r.log.Infow("running deferred updates for participant", "participantID", sid, "updates", len(fncs))
 	for _, fnc := range fncs {
 		fnc(p)
 	}
@@ -410,7 +419,7 @@ func (r *Room) handleMediaTrack(track *webrtc.TrackRemote, receiver *webrtc.RTPR
 
 	rp := r.GetParticipantBySID(participantID)
 	if rp == nil {
-		logger.Infow("could not find participant, deferring track update", "participantID", participantID)
+		r.log.Infow("could not find participant, deferring track update", "participantID", participantID)
 		r.deferParticipantUpdate(livekit.ParticipantID(participantID), update)
 		return
 	}
@@ -504,7 +513,7 @@ func (r *Room) handleParticipantUpdate(participants []*livekit.ParticipantInfo) 
 			rp.updateInfo(pi)
 			newSid := livekit.ParticipantID(rp.SID())
 			if oldSid != newSid {
-				logger.Infow("participant sid update", "sid-old", oldSid, "sid-new", newSid, "identity", rp.Identity())
+				r.log.Infow("participant sid update", "sid-old", oldSid, "sid-new", newSid, "identity", rp.Identity())
 				r.lock.Lock()
 				delete(r.sidToIdentity, oldSid)
 				r.sidToIdentity[newSid] = livekit.ParticipantIdentity(rp.Identity())
@@ -571,7 +580,7 @@ func (r *Room) handleConnectionQualityUpdate(updates []*livekit.ConnectionQualit
 			if p != nil {
 				p.setConnectionQualityInfo(update)
 			} else {
-				logger.Debugw("could not find participant", "sid", update.ParticipantSid,
+				r.log.Debugw("could not find participant", "sid", update.ParticipantSid,
 					"localParticipant", r.LocalParticipant.SID())
 			}
 		}
@@ -605,7 +614,7 @@ func (r *Room) handleTrackRemoteMuted(msg *livekit.MuteTrackRequest) {
 func (r *Room) handleLocalTrackUnpublished(msg *livekit.TrackUnpublishedResponse) {
 	err := r.LocalParticipant.UnpublishTrack(msg.TrackSid)
 	if err != nil {
-		logger.Errorw("could not unpublish track", err, "trackID", msg.TrackSid)
+		r.log.Errorw("could not unpublish track", err, "trackID", msg.TrackSid)
 	}
 }
 

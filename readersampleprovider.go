@@ -170,7 +170,7 @@ func NewLocalReaderTrack(in io.ReadCloser, mime string, options ...ReaderSampleP
 	}
 	track.OnBind(func() {
 		if err := track.StartWrite(provider, provider.OnWriteComplete); err != nil {
-			logger.Errorw("Could not start writing", err)
+			track.log.Errorw("Could not start writing", err)
 		}
 	})
 
