@@ -26,7 +26,12 @@ var (
 	errChecksumMismatch          = errors.New("expected and actual checksum do not match")
 )
 
-// OggReader is used to read Ogg files and return page payloads
+// This is a modified version of the oggreader package from github.com/pion/webrtc
+// The original Pion package can only read OGG pages, and the payload can only be used if the page contains only one segment.
+// And this specific segment must only contains one Opus Packet.
+//
+// RTP Packet can contains only one Opus Packet.
+// https://www.rfc-editor.org/rfc/rfc7587#section-4.2
 type OggReader struct {
 	stream io.Reader
 
@@ -197,6 +202,8 @@ func (o *OggReader) readPage() (*OggPage, error) {
 	return page, nil
 }
 
+// Pages can contain up to a second of audio data, which is much too large for an RTP packet.
+// Instead of returning the entire page, this will return one sample at a time.
 func (o *OggReader) ReadPacket() ([]byte, error) {
 	page := o.page
 	if page == nil {
