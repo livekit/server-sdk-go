@@ -30,7 +30,6 @@ var (
 type OggReader struct {
 	stream io.Reader
 
-	header  *OggHeader
 	page    *OggPage // current page
 	segment uint8
 	offset  int
