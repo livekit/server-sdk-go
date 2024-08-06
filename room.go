@@ -15,17 +15,19 @@
 package lksdk
 
 import (
+	"os"
 	"reflect"
 	"sort"
 	"strings"
 	"sync"
 
-	protoLogger "github.com/livekit/protocol/logger"
 	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v3"
 	"golang.org/x/exp/maps"
 	"google.golang.org/protobuf/proto"
+
+	protoLogger "github.com/livekit/protocol/logger"
 
 	"github.com/livekit/mediatransportutil/pkg/pacer"
 	"github.com/livekit/protocol/auth"
@@ -60,8 +62,10 @@ const (
 	SimulateSpeakerUpdateInterval = 5
 )
 
-type TrackPubCallback func(track Track, pub TrackPublication, participant *RemoteParticipant)
-type PubCallback func(pub TrackPublication, participant *RemoteParticipant)
+type (
+	TrackPubCallback func(track Track, pub TrackPublication, participant *RemoteParticipant)
+	PubCallback      func(pub TrackPublication, participant *RemoteParticipant)
+)
 
 type ParticipantKind int
 
@@ -152,6 +156,7 @@ type Room struct {
 	metadata           string
 	activeSpeakers     []Participant
 	serverInfo         *livekit.ServerInfo
+	regionURLProvider  regionURLProvider
 
 	lock sync.RWMutex
 }
@@ -229,6 +234,11 @@ func (r *Room) SID() string {
 	return r.sid
 }
 
+// PrepareConnection - with LiveKit Cloud, determine the best edge data center for the current client to connect to
+func (r *Room) PrepareConnection(url, token string) error {
+	return r.regionURLProvider.RefreshRegionSettings(url, token)
+}
+
 // Join - joins the room as with default permissions
 func (r *Room) Join(url string, info ConnectInfo, opts ...ConnectOption) error {
 	var params connectParams
@@ -266,10 +276,30 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 		opt(params)
 	}
 
-	joinRes, err := r.engine.Join(url, token, params)
+	bestURL, err := r.regionURLProvider.BestURL(url, token)
 	if err != nil {
 		return err
 	}
+
+	var joinRes *livekit.JoinResponse
+	for joinRes == nil {
+		var err error
+		joinRes, err = r.engine.Join(bestURL, token, params)
+		if err != nil {
+			if os.IsTimeout(err) || strings.HasPrefix(err.Error(), "unauthorized: ") { // TODO: use errors.Is instead of strings.HasPrefix
+				// try the next URL
+				r.regionURLProvider.ReportAttempt(url, bestURL, false)
+				bestURL, err = r.regionURLProvider.BestURL(url, token)
+				if err != nil {
+					return err
+				}
+				continue
+			}
+
+			return err
+		}
+	}
+	r.regionURLProvider.ReportAttempt(url, bestURL, true)
 
 	r.lock.Lock()
 	r.name = joinRes.Room.Name
