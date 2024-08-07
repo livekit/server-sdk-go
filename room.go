@@ -156,7 +156,7 @@ type Room struct {
 	metadata           string
 	activeSpeakers     []Participant
 	serverInfo         *livekit.ServerInfo
-	regionURLProvider  regionURLProvider
+	regionURLProvider  *regionURLProvider
 
 	lock sync.RWMutex
 }
@@ -173,6 +173,7 @@ func NewRoom(callback *RoomCallback) *Room {
 		callback:           NewRoomCallback(),
 		sidReady:           make(chan struct{}),
 		connectionState:    ConnectionStateDisconnected,
+		regionURLProvider:  newRegionURLProvider(),
 	}
 	r.callback.Merge(callback)
 	r.LocalParticipant = newLocalParticipant(engine, r.callback)
@@ -276,30 +277,27 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 		opt(params)
 	}
 
-	bestURL, err := r.regionURLProvider.BestURL(url, token)
-	if err != nil {
-		return err
-	}
-
 	var joinRes *livekit.JoinResponse
 	for joinRes == nil {
-		var err error
+		bestURL, err := r.regionURLProvider.BestURL(url, token)
+		if err != nil {
+			return err
+		}
+
+		logger.Debugw("RTC engine joining room",
+			"url", bestURL,
+		)
 		joinRes, err = r.engine.Join(bestURL, token, params)
 		if err != nil {
 			if os.IsTimeout(err) || strings.HasPrefix(err.Error(), "unauthorized: ") { // TODO: use errors.Is instead of strings.HasPrefix
 				// try the next URL
 				r.regionURLProvider.ReportAttempt(url, bestURL, false)
-				bestURL, err = r.regionURLProvider.BestURL(url, token)
-				if err != nil {
-					return err
-				}
 				continue
 			}
-
 			return err
 		}
+		r.regionURLProvider.ReportAttempt(url, bestURL, true)
 	}
-	r.regionURLProvider.ReportAttempt(url, bestURL, true)
 
 	r.lock.Lock()
 	r.name = joinRes.Room.Name

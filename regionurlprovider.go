@@ -1,13 +1,16 @@
 package lksdk
 
 import (
-	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
+
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/livekit/protocol/livekit"
 )
@@ -29,10 +32,19 @@ type hostnameSettingsCacheItem struct {
 	successfulRegionURLs map[string]int
 }
 
+func newRegionURLProvider() *regionURLProvider {
+	return &regionURLProvider{
+		hostnameSettingsCache: make(map[string]*hostnameSettingsCacheItem),
+		httpClient: &http.Client{
+			Timeout: 5 * time.Second,
+		},
+	}
+}
+
 func (r *regionURLProvider) RefreshRegionSettings(serverURL, token string) error {
 	parsedURL, err := url.Parse(serverURL)
 	if err != nil {
-		return err
+		return errors.New(fmt.Sprintf("invalid server URL (%s): %v", serverURL, err))
 	}
 
 	parsedHostname := parsedURL.Hostname()
@@ -43,7 +55,12 @@ func (r *regionURLProvider) RefreshRegionSettings(serverURL, token string) error
 	r.mutex.RLock()
 	defer r.mutex.RUnlock()
 
-	return r.refreshRegionSettings(parsedHostname, token)
+	err = r.refreshRegionSettings(parsedHostname, token)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (r *regionURLProvider) BestURL(serverURL, token string) (string, error) {
@@ -63,7 +80,7 @@ func (r *regionURLProvider) BestURL(serverURL, token string) (string, error) {
 	hostnameSettings := r.hostnameSettingsCache[parsedHostname]
 	if hostnameSettings == nil || time.Since(hostnameSettings.updatedAt) > regionHostnameProviderSettingsCacheTime {
 		if err := r.refreshRegionSettings(parsedHostname, token); err != nil {
-			return "", err
+			return "", errors.New(fmt.Sprintf("BestURL could not refresh region settings: %v", err))
 		}
 		hostnameSettings = r.hostnameSettingsCache[parsedHostname]
 	}
@@ -117,16 +134,10 @@ func (r *regionURLProvider) ReportAttempt(serverURL, regionURL string, success b
 
 // assume this is being called within a lock
 func (r *regionURLProvider) refreshRegionSettings(settingsHostname, token string) error {
-	if r.httpClient == nil {
-		r.httpClient = &http.Client{
-			Timeout: 5 * time.Second,
-		}
-	}
-
-	settingsURL := "https://" + settingsHostname + "/regions"
+	settingsURL := "https://" + settingsHostname + "/settings/regions"
 	req, err := http.NewRequest("GET", settingsURL, nil)
 	if err != nil {
-		return err
+		return errors.New("refreshRegionSettings failed to create request: " + err.Error())
 	}
 	req.Header = http.Header{
 		"Authorization": []string{"Bearer " + token},
@@ -139,16 +150,20 @@ func (r *regionURLProvider) refreshRegionSettings(settingsHostname, token string
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return errors.New("failed to fetch region settings. http status: " + resp.Status)
+		return errors.New("refreshRegionSettings failed to fetch region settings. http status: " + resp.Status)
 	}
 
-	var settings *livekit.RegionSettings
-	if err := json.NewDecoder(resp.Body).Decode(settings); err != nil {
-		return err
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return errors.New("refreshRegionSettings failed to read response body: " + err.Error())
+	}
+	regions := &livekit.RegionSettings{}
+	if err := protojson.Unmarshal(respBody, regions); err != nil {
+		return errors.New("refreshRegionSettings failed to decode region settings: " + err.Error())
 	}
 
 	r.hostnameSettingsCache[settingsHostname] = &hostnameSettingsCacheItem{
-		regionSettings:       settings,
+		regionSettings:       regions,
 		updatedAt:            time.Now(),
 		successfulRegionURLs: map[string]int{},
 	}
