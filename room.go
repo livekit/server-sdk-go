@@ -15,7 +15,6 @@
 package lksdk
 
 import (
-	"os"
 	"reflect"
 	"sort"
 	"strings"
@@ -90,8 +89,9 @@ type ConnectInfo struct {
 
 // not exposed to users. clients should use ConnectOption
 type connectParams struct {
-	AutoSubscribe bool
-	Reconnect     bool
+	AutoSubscribe          bool
+	Reconnect              bool
+	DisableRegionDiscovery bool
 
 	RetransmitBufferSize uint16
 
@@ -135,6 +135,12 @@ func WithInterceptors(interceptors []interceptor.Factory) ConnectOption {
 func WithICETransportPolicy(iceTransportPolicy webrtc.ICETransportPolicy) ConnectOption {
 	return func(p *connectParams) {
 		p.ICETransportPolicy = iceTransportPolicy
+	}
+}
+
+func WithDisableRegionDiscovery() ConnectOption {
+	return func(p *connectParams) {
+		p.DisableRegionDiscovery = true
 	}
 }
 
@@ -237,7 +243,12 @@ func (r *Room) SID() string {
 
 // PrepareConnection - with LiveKit Cloud, determine the best edge data center for the current client to connect to
 func (r *Room) PrepareConnection(url, token string) error {
-	return r.regionURLProvider.RefreshRegionSettings(url, token)
+	cloudHostname, _ := parseCloudURL(url)
+	if cloudHostname == "" {
+		return nil
+	}
+
+	return r.regionURLProvider.RefreshRegionSettings(cloudHostname, token)
 }
 
 // Join - joins the room as with default permissions
@@ -278,25 +289,30 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 	}
 
 	var joinRes *livekit.JoinResponse
-	for joinRes == nil {
-		bestURL, err := r.regionURLProvider.BestURL(url, token)
+	cloudHostname, _ := parseCloudURL(url)
+	if params.DisableRegionDiscovery || cloudHostname == "" {
+		var err error
+		joinRes, err = r.engine.Join(url, token, params)
 		if err != nil {
 			return err
 		}
+	} else {
+		for joinRes == nil {
+			bestURL, err := r.regionURLProvider.BestURL(cloudHostname, token)
+			if err != nil {
+				return err
+			}
 
-		logger.Debugw("RTC engine joining room",
-			"url", bestURL,
-		)
-		joinRes, err = r.engine.Join(bestURL, token, params)
-		if err != nil {
-			if os.IsTimeout(err) || strings.HasPrefix(err.Error(), "unauthorized: ") { // TODO: use errors.Is instead of strings.HasPrefix
+			logger.Debugw("RTC engine joining room",
+				"url", bestURL,
+			)
+			joinRes, err = r.engine.Join(bestURL, token, params)
+			if err != nil {
 				// try the next URL
-				r.regionURLProvider.ReportAttempt(url, bestURL, false)
+				r.regionURLProvider.ReportAttemptFailure(cloudHostname, bestURL)
 				continue
 			}
-			return err
 		}
-		r.regionURLProvider.ReportAttempt(url, bestURL, true)
 	}
 
 	r.lock.Lock()
