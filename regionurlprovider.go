@@ -129,9 +129,11 @@ func (r *regionURLProvider) ReportAttemptFailure(cloudHostname, regionURL string
 	}
 
 	// remove failed region from regionSettings
-	_ = slices.DeleteFunc(hostnameSettings.regionSettings.Regions, func(region *livekit.RegionInfo) bool {
-		return region.Url == regionURL
-	})
+	hostnameSettings.regionSettings.Regions = slices.DeleteFunc(hostnameSettings.regionSettings.Regions,
+		func(region *livekit.RegionInfo) bool {
+			return region.Url == regionURL
+		},
+	)
 
 	return nil
 }
