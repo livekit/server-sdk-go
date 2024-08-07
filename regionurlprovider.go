@@ -44,7 +44,7 @@ func newRegionURLProvider() *regionURLProvider {
 func (r *regionURLProvider) RefreshRegionSettings(serverURL, token string) error {
 	parsedURL, err := url.Parse(serverURL)
 	if err != nil {
-		return errors.New(fmt.Sprintf("invalid server URL (%s): %v", serverURL, err))
+		return fmt.Errorf("invalid server URL (%s): %v", serverURL, err)
 	}
 
 	parsedHostname := parsedURL.Hostname()
@@ -80,7 +80,7 @@ func (r *regionURLProvider) BestURL(serverURL, token string) (string, error) {
 	hostnameSettings := r.hostnameSettingsCache[parsedHostname]
 	if hostnameSettings == nil || time.Since(hostnameSettings.updatedAt) > regionHostnameProviderSettingsCacheTime {
 		if err := r.refreshRegionSettings(parsedHostname, token); err != nil {
-			return "", errors.New(fmt.Sprintf("BestURL could not refresh region settings: %v", err))
+			return "", fmt.Errorf("BestURL could not refresh region settings: %v", err)
 		}
 		hostnameSettings = r.hostnameSettingsCache[parsedHostname]
 	}
