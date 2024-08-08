@@ -58,7 +58,7 @@ func (c *AgentDispatchClient) DeleteDispatch(ctx context.Context, req *livekit.D
 	return c.agentDispatchService.DeleteDispatch(ctx, req)
 }
 
-func (c *AgentDispatchClient) ListDispatch(ctx context.Context, req *livekit.ListAgentDispatchRequesst) (*livekit.ListAgentDispatchResponse, error) {
+func (c *AgentDispatchClient) ListDispatch(ctx context.Context, req *livekit.ListAgentDispatchRequest) (*livekit.ListAgentDispatchResponse, error) {
 	ctx, err := c.withAuth(ctx, withVideoGrant{RoomAdmin: true, Room: req.Room})
 	if err != nil {
 		return nil, err
