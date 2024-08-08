@@ -11,7 +11,7 @@ require (
 	github.com/gorilla/websocket v1.5.2
 	github.com/livekit/mageutil v0.0.0-20230125210925-54e8a70427c1
 	github.com/livekit/mediatransportutil v0.0.0-20240730083616-559fa5ece598
-	github.com/livekit/protocol v1.19.3
+	github.com/livekit/protocol v1.19.4-0.20240808180722-581b59b65309
 	github.com/magefile/mage v1.15.0
 	github.com/pion/dtls/v2 v2.2.12
 	github.com/pion/interceptor v0.1.29
@@ -64,6 +64,5 @@ require (
 	golang.org/x/text v0.16.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20240528184218-531527333157 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240725223205-93522f1f2a9f // indirect
-	google.golang.org/grpc v1.65.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
