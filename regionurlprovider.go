@@ -100,8 +100,7 @@ func (r *regionURLProvider) BestURL(cloudHostname, token string) (string, error)
 		return "", errors.New("no regions available")
 	}
 
-	var bestRegionURL string
-	bestRegionURL = hostnameSettings.regionSettings.Regions[0].Url
+	bestRegionURL := hostnameSettings.regionSettings.Regions[0].Url
 	hostnameSettings.regionSettings.Regions = hostnameSettings.regionSettings.Regions[1:]
 
 	return bestRegionURL, nil
