@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -43,6 +42,14 @@ func newRegionURLProvider() *regionURLProvider {
 }
 
 func (r *regionURLProvider) RefreshRegionSettings(cloudHostname, token string) error {
+	r.mutex.RLock()
+	hostnameSettings := r.hostnameSettingsCache[cloudHostname]
+	r.mutex.RUnlock()
+
+	if hostnameSettings != nil && time.Since(hostnameSettings.updatedAt) < regionHostnameProviderSettingsCacheTime {
+		return nil
+	}
+
 	settingsURL := "https://" + cloudHostname + "/settings/regions"
 	req, err := http.NewRequest("GET", settingsURL, nil)
 	if err != nil {
@@ -84,58 +91,20 @@ func (r *regionURLProvider) RefreshRegionSettings(cloudHostname, token string) e
 
 // BestURL returns the region with least number of attempts, in the order provided by the region settings endpoint (round-robin)
 func (r *regionURLProvider) BestURL(cloudHostname, token string) (string, error) {
-	r.mutex.RLock()
-	hostnameSettings := r.hostnameSettingsCache[cloudHostname]
-	r.mutex.RUnlock()
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
 
-	if hostnameSettings == nil || time.Since(hostnameSettings.updatedAt) > regionHostnameProviderSettingsCacheTime {
-		if err := r.RefreshRegionSettings(cloudHostname, token); err != nil {
-			return "", fmt.Errorf("BestURL could not refresh region settings: %v", err)
-		}
-		r.mutex.RLock()
-		hostnameSettings = r.hostnameSettingsCache[cloudHostname]
-		r.mutex.RUnlock()
-	}
+	hostnameSettings := r.hostnameSettingsCache[cloudHostname]
 
 	if hostnameSettings == nil || hostnameSettings.regionSettings == nil || len(hostnameSettings.regionSettings.Regions) == 0 {
 		return "", errors.New("no regions available")
 	}
 
 	var bestRegionURL string
-	minAttempts := -1
-	r.mutex.Lock()
-	for _, region := range hostnameSettings.regionSettings.Regions {
-		currAttempts := hostnameSettings.regionURLAttempts[region.Url]
-
-		if minAttempts == -1 || currAttempts < minAttempts {
-			minAttempts = currAttempts
-			bestRegionURL = region.Url
-		}
-	}
-	hostnameSettings.regionURLAttempts[bestRegionURL]++
-	r.mutex.Unlock()
+	bestRegionURL = hostnameSettings.regionSettings.Regions[0].Url
+	hostnameSettings.regionSettings.Regions = hostnameSettings.regionSettings.Regions[1:]
 
 	return bestRegionURL, nil
-}
-
-// ReportAttemptFailure reports a failed attempt to connect to a region, so that it can be avoided in future connection attempts
-func (r *regionURLProvider) ReportAttemptFailure(cloudHostname, regionURL string) error {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-
-	hostnameSettings := r.hostnameSettingsCache[cloudHostname]
-	if hostnameSettings == nil {
-		return errors.New("ReportAttemptFailure: serverURL not found in cache")
-	}
-
-	// remove failed region from regionSettings
-	hostnameSettings.regionSettings.Regions = slices.DeleteFunc(hostnameSettings.regionSettings.Regions,
-		func(region *livekit.RegionInfo) bool {
-			return region.Url == regionURL
-		},
-	)
-
-	return nil
 }
 
 func parseCloudURL(serverURL string) (string, error) {

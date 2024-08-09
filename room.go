@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
@@ -290,28 +291,36 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 
 	var joinRes *livekit.JoinResponse
 	cloudHostname, _ := parseCloudURL(url)
-	if params.DisableRegionDiscovery || cloudHostname == "" {
+	if !params.DisableRegionDiscovery && cloudHostname != "" {
+		if err := r.regionURLProvider.RefreshRegionSettings(cloudHostname, token); err != nil {
+			logger.Errorw("failed to get best url", err)
+		} else {
+			for tries := 1; joinRes == nil; tries++ {
+				bestURL, err := r.regionURLProvider.BestURL(cloudHostname, token)
+				if err != nil {
+					logger.Errorw("failed to get best url", err)
+					break
+				}
+
+				logger.Debugw("RTC engine joining room",
+					"url", bestURL,
+				)
+				joinRes, err = r.engine.Join(bestURL, token, params)
+				if err != nil {
+					// try the next URL with exponential backoff
+					logger.Errorw("failed to join room", err)
+					time.Sleep(time.Duration(tries*tries) * time.Second)
+					continue
+				}
+			}
+		}
+	}
+
+	if joinRes == nil {
 		var err error
 		joinRes, err = r.engine.Join(url, token, params)
 		if err != nil {
 			return err
-		}
-	} else {
-		for joinRes == nil {
-			bestURL, err := r.regionURLProvider.BestURL(cloudHostname, token)
-			if err != nil {
-				return err
-			}
-
-			logger.Debugw("RTC engine joining room",
-				"url", bestURL,
-			)
-			joinRes, err = r.engine.Join(bestURL, token, params)
-			if err != nil {
-				// try the next URL
-				r.regionURLProvider.ReportAttemptFailure(cloudHostname, bestURL)
-				continue
-			}
 		}
 	}
 
