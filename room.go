@@ -19,13 +19,15 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
-	protoLogger "github.com/livekit/protocol/logger"
 	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v3"
 	"golang.org/x/exp/maps"
 	"google.golang.org/protobuf/proto"
+
+	protoLogger "github.com/livekit/protocol/logger"
 
 	"github.com/livekit/mediatransportutil/pkg/pacer"
 	"github.com/livekit/protocol/auth"
@@ -60,8 +62,10 @@ const (
 	SimulateSpeakerUpdateInterval = 5
 )
 
-type TrackPubCallback func(track Track, pub TrackPublication, participant *RemoteParticipant)
-type PubCallback func(pub TrackPublication, participant *RemoteParticipant)
+type (
+	TrackPubCallback func(track Track, pub TrackPublication, participant *RemoteParticipant)
+	PubCallback      func(pub TrackPublication, participant *RemoteParticipant)
+)
 
 type ParticipantKind int
 
@@ -86,8 +90,9 @@ type ConnectInfo struct {
 
 // not exposed to users. clients should use ConnectOption
 type connectParams struct {
-	AutoSubscribe bool
-	Reconnect     bool
+	AutoSubscribe          bool
+	Reconnect              bool
+	DisableRegionDiscovery bool
 
 	RetransmitBufferSize uint16
 
@@ -134,6 +139,12 @@ func WithICETransportPolicy(iceTransportPolicy webrtc.ICETransportPolicy) Connec
 	}
 }
 
+func WithDisableRegionDiscovery() ConnectOption {
+	return func(p *connectParams) {
+		p.DisableRegionDiscovery = true
+	}
+}
+
 type PLIWriter func(webrtc.SSRC)
 
 type Room struct {
@@ -152,6 +163,7 @@ type Room struct {
 	metadata           string
 	activeSpeakers     []Participant
 	serverInfo         *livekit.ServerInfo
+	regionURLProvider  *regionURLProvider
 
 	lock sync.RWMutex
 }
@@ -168,6 +180,7 @@ func NewRoom(callback *RoomCallback) *Room {
 		callback:           NewRoomCallback(),
 		sidReady:           make(chan struct{}),
 		connectionState:    ConnectionStateDisconnected,
+		regionURLProvider:  newRegionURLProvider(),
 	}
 	r.callback.Merge(callback)
 	r.LocalParticipant = newLocalParticipant(engine, r.callback)
@@ -229,6 +242,16 @@ func (r *Room) SID() string {
 	return r.sid
 }
 
+// PrepareConnection - with LiveKit Cloud, determine the best edge data center for the current client to connect to
+func (r *Room) PrepareConnection(url, token string) error {
+	cloudHostname, _ := parseCloudURL(url)
+	if cloudHostname == "" {
+		return nil
+	}
+
+	return r.regionURLProvider.RefreshRegionSettings(cloudHostname, token)
+}
+
 // Join - joins the room as with default permissions
 func (r *Room) Join(url string, info ConnectInfo, opts ...ConnectOption) error {
 	var params connectParams
@@ -266,9 +289,42 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 		opt(params)
 	}
 
-	joinRes, err := r.engine.Join(url, token, params)
-	if err != nil {
-		return err
+	var joinRes *livekit.JoinResponse
+	cloudHostname, _ := parseCloudURL(url)
+	if !params.DisableRegionDiscovery && cloudHostname != "" {
+		if err := r.regionURLProvider.RefreshRegionSettings(cloudHostname, token); err != nil {
+			logger.Errorw("failed to get best url", err)
+		} else {
+			for tries := uint(0); joinRes == nil; tries++ {
+				bestURL, err := r.regionURLProvider.PopBestURL(cloudHostname, token)
+				if err != nil {
+					logger.Errorw("failed to get best url", err)
+					break
+				}
+
+				logger.Debugw("RTC engine joining room",
+					"url", bestURL,
+				)
+				joinRes, err = r.engine.Join(bestURL, token, params)
+				if err != nil {
+					// try the next URL with exponential backoff
+					d := time.Duration(1<<min(tries, 6)) * time.Second // max 64 seconds
+					logger.Errorw("failed to join room", err,
+						"retrying in", d,
+					)
+					time.Sleep(d)
+					continue
+				}
+			}
+		}
+	}
+
+	if joinRes == nil {
+		var err error
+		joinRes, err = r.engine.Join(url, token, params)
+		if err != nil {
+			return err
+		}
 	}
 
 	r.lock.Lock()
