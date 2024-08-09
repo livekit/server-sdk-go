@@ -143,6 +143,8 @@ func trackSubscribed(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPu
 }
 ```
 
+For more advanced usage, see the [examples](https://github.com/livekit/server-sdk-go/tree/main/examples) directory.
+
 ## Publishing tracks to Room
 
 With the Go SDK, you can publish existing files encoded in H.264, VP8, and Opus to the room.

@@ -11,6 +11,7 @@ import (
 	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/pkg/media"
 
+	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/logger"
 	lksdk "github.com/livekit/server-sdk-go/v2"
 )
@@ -29,7 +30,7 @@ func init() {
 }
 
 func main() {
-	logger.InitFromConfig(&logger.Config{Level: "debug"}, "filesaver")
+	logger.InitFromConfig(&logger.Config{Level: "debug"}, "echo")
 	lksdk.SetLogger(logger.GetLogger())
 	flag.Parse()
 	if host == "" || apiKey == "" || apiSecret == "" || roomName == "" || identity == "" {
@@ -42,12 +43,7 @@ func main() {
 		panic(err)
 	}
 
-	room, err := lksdk.ConnectToRoom(host, lksdk.ConnectInfo{
-		APIKey:              apiKey,
-		APISecret:           apiSecret,
-		RoomName:            roomName,
-		ParticipantIdentity: identity,
-	}, &lksdk.RoomCallback{
+	room := lksdk.NewRoom(&lksdk.RoomCallback{
 		ParticipantCallback: lksdk.ParticipantCallback{
 			OnTrackSubscribed: func(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
 				// Only provide echo for the first participant
@@ -58,7 +54,18 @@ func main() {
 			},
 		},
 	})
+
+	token, err := newAccessToken(apiKey, apiSecret, roomName, identity)
 	if err != nil {
+		panic(err)
+	}
+
+	// not required. warm up the connection for a participant that may join later.
+	if err := room.PrepareConnection(host, token); err != nil {
+		panic(err)
+	}
+
+	if err := room.JoinWithToken(host, token); err != nil {
 		panic(err)
 	}
 
@@ -83,4 +90,17 @@ func onTrackSubscribed(track *webrtc.TrackRemote, echoTrack *lksdk.LocalTrack) {
 		}
 		echoTrack.WriteSample(media.Sample{Data: pkt.Payload, Duration: 20 * time.Millisecond}, &lksdk.SampleWriteOptions{})
 	}
+}
+
+func newAccessToken(apiKey, apiSecret, roomName, pID string) (string, error) {
+	at := auth.NewAccessToken(apiKey, apiSecret)
+	grant := &auth.VideoGrant{
+		RoomJoin: true,
+		Room:     roomName,
+	}
+	at.AddGrant(grant).
+		SetIdentity(pID).
+		SetName(pID)
+
+	return at.ToJWT()
 }
