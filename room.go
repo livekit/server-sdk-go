@@ -295,8 +295,8 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 		if err := r.regionURLProvider.RefreshRegionSettings(cloudHostname, token); err != nil {
 			logger.Errorw("failed to get best url", err)
 		} else {
-			for tries := 0; joinRes == nil; tries++ {
-				bestURL, err := r.regionURLProvider.BestURL(cloudHostname, token)
+			for tries := uint(0); joinRes == nil; tries++ {
+				bestURL, err := r.regionURLProvider.PopBestURL(cloudHostname, token)
 				if err != nil {
 					logger.Errorw("failed to get best url", err)
 					break
@@ -308,8 +308,11 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 				joinRes, err = r.engine.Join(bestURL, token, params)
 				if err != nil {
 					// try the next URL with exponential backoff
-					logger.Errorw("failed to join room", err)
-					time.Sleep(time.Second << uint(tries))
+					d := time.Duration(1<<min(tries, 6)) * time.Second // max 64 seconds
+					logger.Errorw("failed to join room", err,
+						"retrying in", d,
+					)
+					time.Sleep(d)
 					continue
 				}
 			}

@@ -89,8 +89,9 @@ func (r *regionURLProvider) RefreshRegionSettings(cloudHostname, token string) e
 	return nil
 }
 
-// BestURL returns the region with least number of attempts, in the order provided by the region settings endpoint (round-robin)
-func (r *regionURLProvider) BestURL(cloudHostname, token string) (string, error) {
+// PopBestURL removes and returns the best region URL. Once all URLs are exhausted, it will return an error.
+// RefreshRegionSettings must be called to repopulate the list of regions.
+func (r *regionURLProvider) PopBestURL(cloudHostname, token string) (string, error) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
