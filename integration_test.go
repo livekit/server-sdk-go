@@ -46,8 +46,7 @@ var (
 )
 
 func TestMain(m *testing.M) {
-	// keys := strings.Split(os.Getenv("LIVEKIT_KEYS"), ": ")
-	keys := strings.Split("APIhdZda4TDAGxk: 4BA2qCorbmGnVZ9iMri7Sp0EEA7v2S4Oi8eyHuPxtxJ", ": ")
+	keys := strings.Split(os.Getenv("LIVEKIT_KEYS"), ": ")
 	if len(keys) >= 2 {
 		apiKey, apiSecret = keys[0], keys[1]
 	}
