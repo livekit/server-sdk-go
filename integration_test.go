@@ -226,6 +226,7 @@ func TestResume(t *testing.T) {
 	sub.Simulate(SimulateSignalReconnect)
 	require.Eventually(t, func() bool { return subReconnected.Load() }, 5*time.Second, 100*time.Millisecond)
 
+	// confirm track is still working after resume
 	exitConsume.Store(true)
 	<-consumeCh
 	trackLock.Lock()
