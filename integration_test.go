@@ -46,7 +46,8 @@ var (
 )
 
 func TestMain(m *testing.M) {
-	keys := strings.Split(os.Getenv("LIVEKIT_KEYS"), ": ")
+	// keys := strings.Split(os.Getenv("LIVEKIT_KEYS"), ": ")
+	keys := strings.Split("APIhdZda4TDAGxk: 4BA2qCorbmGnVZ9iMri7Sp0EEA7v2S4Oi8eyHuPxtxJ", ": ")
 	if len(keys) >= 2 {
 		apiKey, apiSecret = keys[0], keys[1]
 	}
@@ -170,7 +171,8 @@ func TestResume(t *testing.T) {
 	// test pub sub after reconnected
 	audioTrackName := "audio_of_pub1"
 	var trackLock sync.Mutex
-	var trackReceived atomic.Bool
+	var trackReceived, subReconnected atomic.Bool
+	var subTrack *webrtc.TrackRemote
 	subCB := &RoomCallback{
 		ParticipantCallback: ParticipantCallback{
 			OnTrackSubscribed: func(track *webrtc.TrackRemote, publication *RemoteTrackPublication, rp *RemoteParticipant) {
@@ -179,8 +181,12 @@ func TestResume(t *testing.T) {
 				require.Equal(t, rp.Name(), pub.LocalParticipant.Name())
 				require.Equal(t, publication.Name(), audioTrackName)
 				require.Equal(t, track.Kind(), webrtc.RTPCodecTypeAudio)
+				subTrack = track
 				trackLock.Unlock()
 			},
+		},
+		OnReconnected: func() {
+			subReconnected.Store(true)
 		},
 	}
 	sub, err := createAgent(t.Name(), subCB, "subscriber")
@@ -201,6 +207,35 @@ func TestResume(t *testing.T) {
 	localPub := pubNullTrack(t, pub, audioTrackName)
 	require.Equal(t, localPub.Name(), audioTrackName)
 	require.Eventually(t, func() bool { return trackReceived.Load() }, 5*time.Second, 100*time.Millisecond)
+
+	// consume track packet
+	consumeCh := make(chan struct{})
+	var exitConsume atomic.Bool
+	go func() {
+		trackLock.Lock()
+		track := subTrack
+		trackLock.Unlock()
+		buf := make([]byte, 1024)
+		defer close(consumeCh)
+		for !exitConsume.Load() {
+			_, _, err = track.Read(buf)
+			require.NoError(t, err)
+		}
+	}()
+
+	sub.Simulate(SimulateSignalReconnect)
+	require.Eventually(t, func() bool { return subReconnected.Load() }, 5*time.Second, 100*time.Millisecond)
+
+	exitConsume.Store(true)
+	<-consumeCh
+	trackLock.Lock()
+	track := subTrack
+	trackLock.Unlock()
+	buf := make([]byte, 1024)
+	for i := 0; i < 10; i++ {
+		_, _, err = track.Read(buf)
+		require.NoError(t, err)
+	}
 
 	pub.Disconnect()
 	sub.Disconnect()

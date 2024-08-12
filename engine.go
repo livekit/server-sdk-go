@@ -219,16 +219,8 @@ func (e *RTCEngine) configure(
 	iceServers []*livekit.ICEServer,
 	clientConfig *livekit.ClientConfiguration,
 	subscriberPrimary *bool) error {
-	rtcICEServers := FromProtoIceServers(iceServers)
-	configuration := webrtc.Configuration{
-		ICEServers:         rtcICEServers,
-		ICETransportPolicy: e.connParams.ICETransportPolicy,
-	}
-	if clientConfig != nil &&
-		clientConfig.GetForceRelay() == livekit.ClientConfigSetting_ENABLED {
-		configuration.ICETransportPolicy = webrtc.ICETransportPolicyRelay
-	}
 
+	configuration := e.makeRTCConfiguration(iceServers, clientConfig)
 	e.pclock.Lock()
 	defer e.pclock.Unlock()
 
@@ -592,10 +584,19 @@ func (e *RTCEngine) resumeConnection() error {
 	}
 
 	if reconnect != nil {
-		err := e.configure(reconnect.IceServers, reconnect.ClientConfiguration, nil)
-		if err != nil {
+		configuration := e.makeRTCConfiguration(reconnect.IceServers, reconnect.ClientConfiguration)
+		e.pclock.Lock()
+		if err = e.publisher.SetConfiguration(configuration); err != nil {
+			logger.Errorw("could not set rtc configuration for publisher", err)
+			e.pclock.Unlock()
 			return err
 		}
+		if err = e.subscriber.SetConfiguration(configuration); err != nil {
+			logger.Errorw("could not set rtc configuration for subscriber", err)
+			e.pclock.Unlock()
+			return err
+		}
+		e.pclock.Unlock()
 	}
 	e.client.Start()
 
@@ -668,4 +669,17 @@ func (e *RTCEngine) handleLeave(leave *livekit.LeaveRequest) {
 			e.OnDisconnected(LeaveRequested)
 		}
 	}
+}
+
+func (e *RTCEngine) makeRTCConfiguration(iceServers []*livekit.ICEServer, clientConfig *livekit.ClientConfiguration) webrtc.Configuration {
+	rtcICEServers := FromProtoIceServers(iceServers)
+	configuration := webrtc.Configuration{
+		ICEServers:         rtcICEServers,
+		ICETransportPolicy: e.connParams.ICETransportPolicy,
+	}
+	if clientConfig != nil &&
+		clientConfig.GetForceRelay() == livekit.ClientConfigSetting_ENABLED {
+		configuration.ICETransportPolicy = webrtc.ICETransportPolicyRelay
+	}
+	return configuration
 }
