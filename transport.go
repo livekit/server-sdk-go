@@ -418,3 +418,7 @@ func (t *PCTransport) createAndSendOffer(options *webrtc.OfferOptions) error {
 	t.OnOffer(offer)
 	return nil
 }
+
+func (t *PCTransport) SetConfiguration(config webrtc.Configuration) error {
+	return t.pc.SetConfiguration(config)
+}
