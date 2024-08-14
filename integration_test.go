@@ -198,14 +198,13 @@ func TestResume(t *testing.T) {
 		require.Equal(t, ConnectionStateConnected, sub.ConnectionState())
 	}
 
-	pub.Simulate(SimulateSignalReconnect)
-	require.Eventually(t, func() bool { return reconnected.Load() }, 5*time.Second, 100*time.Millisecond)
-
-	pub.log.Infow("reconnected")
-
 	localPub := pubNullTrack(t, pub, audioTrackName)
 	require.Equal(t, localPub.Name(), audioTrackName)
 	require.Eventually(t, func() bool { return trackReceived.Load() }, 5*time.Second, 100*time.Millisecond)
+
+	pub.Simulate(SimulateSignalReconnect)
+	require.Eventually(t, func() bool { return reconnected.Load() }, 5*time.Second, 100*time.Millisecond)
+	pub.log.Infow("reconnected")
 
 	// consume track packet
 	consumeCh := make(chan struct{})
