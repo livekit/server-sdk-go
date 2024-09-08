@@ -337,6 +337,7 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 	r.setSid(joinRes.Room.Sid, false)
 
 	r.LocalParticipant.updateInfo(joinRes.Participant)
+	r.LocalParticipant.updateSubscriptionPermission()
 
 	for _, pi := range joinRes.OtherParticipants {
 		r.addRemoteParticipant(pi, true)
@@ -502,6 +503,7 @@ func (r *Room) handleRestarted(joinRes *livekit.JoinResponse) {
 	r.handleRoomUpdate(joinRes.Room)
 
 	r.LocalParticipant.updateInfo(joinRes.Participant)
+	r.LocalParticipant.updateSubscriptionPermission()
 
 	r.handleParticipantUpdate(joinRes.OtherParticipants)
 
@@ -520,6 +522,7 @@ func (r *Room) handleResumed() {
 	r.setConnectionState(ConnectionStateConnected)
 	r.callback.OnReconnected()
 	r.sendSyncState()
+	r.LocalParticipant.updateSubscriptionPermission()
 }
 
 func (r *Room) handleDataReceived(identity string, dataPacket DataPacket) {
