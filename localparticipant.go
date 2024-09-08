@@ -495,7 +495,7 @@ func (p *LocalParticipant) onTrackMuted(pub *LocalTrackPublication, muted bool) 
 func (p *LocalParticipant) SetSubscriptionPermission(sp *livekit.SubscriptionPermission) {
 	p.lock.Lock()
 	p.subscriptionPermission = proto.Clone(sp).(*livekit.SubscriptionPermission)
-	p.updateSubscriptionPermission()
+	p.updateSubscriptionPermissionLocked()
 	p.lock.Unlock()
 }
 
