@@ -487,8 +487,8 @@ func (p *LocalParticipant) onTrackMuted(pub *LocalTrackPublication, muted bool) 
 // By default, all participants can subscribe. This allows fine-grained control over
 // who is able to subscribe at a participant and track level.
 //
-// Note: if access is given at a track-level (i.e. both `allParticipantsAllowed` and
-// `ParticipantTrackPermission.allTracksAllowed` are false), any newer published tracks
+// Note: if access is given at a track-level (i.e. both `AllParticipants` and
+// `TrackPermission.AllTracks` are false), any newer published tracks
 // will not grant permissions to any participants and will require a subsequent
 // permissions update to allow subscription.
 //
