@@ -30,7 +30,8 @@ const (
 
 type LocalParticipant struct {
 	baseParticipant
-	engine *RTCEngine
+	engine                 *RTCEngine
+	subscriptionPermission *livekit.SubscriptionPermission
 }
 
 func newLocalParticipant(engine *RTCEngine, roomcallback *RoomCallback) *LocalParticipant {
@@ -478,5 +479,48 @@ func (p *LocalParticipant) onTrackMuted(pub *LocalTrackPublication, muted bool) 
 	} else {
 		p.Callback.OnTrackUnmuted(pub, p)
 		p.roomCallback.OnTrackUnmuted(pub, p)
+	}
+}
+
+// Control who can subscribe to LocalParticipant's published tracks.
+//
+// By default, all participants can subscribe. This allows fine-grained control over
+// who is able to subscribe at a participant and track level.
+//
+// Note: if access is given at a track-level (i.e. both `allParticipantsAllowed` and
+// `ParticipantTrackPermission.allTracksAllowed` are false), any newer published tracks
+// will not grant permissions to any participants and will require a subsequent
+// permissions update to allow subscription.
+//
+func (p *LocalParticipant) SetSubscriptionPermission(sp *livekit.SubscriptionPermission) {
+	p.lock.Lock()
+	p.subscriptionPermission = proto.Clone(sp).(*livekit.SubscriptionPermission)
+	p.updateSubscriptionPermissionLocked()
+	p.lock.Unlock()
+}
+
+func (p *LocalParticipant) updateSubscriptionPermission() {
+	p.lock.RLock()
+	defer p.lock.RUnlock()
+
+	p.updateSubscriptionPermissionLocked()
+}
+
+func (p *LocalParticipant) updateSubscriptionPermissionLocked() {
+	if p.subscriptionPermission == nil {
+		return
+	}
+
+	err := p.engine.client.SendRequest(&livekit.SignalRequest{
+		Message: &livekit.SignalRequest_SubscriptionPermission{
+			SubscriptionPermission: p.subscriptionPermission,
+		},
+	})
+	if err != nil {
+		logger.Errorw(
+			"could not send subscription permission", err,
+			"participant", p.identity,
+			"pID", p.sid,
+		)
 	}
 }
