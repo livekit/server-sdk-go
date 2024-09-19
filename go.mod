@@ -4,6 +4,8 @@ go 1.22
 
 toolchain go1.22.2
 
+replace github.com/livekit/protocol => ../protocol
+
 require (
 	github.com/bep/debounce v1.2.1
 	github.com/go-logr/logr v1.4.2
