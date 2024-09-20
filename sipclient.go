@@ -21,6 +21,7 @@ import (
 
 	"github.com/livekit/protocol/livekit"
 	"github.com/twitchtv/twirp"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 //lint:file-ignore SA1019 We still support some deprecated functions for backward compatibility
@@ -195,4 +196,26 @@ func (s *SIPClient) CreateSIPParticipant(ctx context.Context, in *livekit.Create
 	}
 
 	return s.sipClient.CreateSIPParticipant(ctx, in)
+}
+
+// TransferSIPParticipant transfer an existing SIP participant to an outside SIP endpoint.
+func (s *SIPClient) TransferSIPParticipant(ctx context.Context, in *livekit.TransferSIPParticipantRequest) (*emptypb.Empty, error) {
+	if in == nil {
+		return nil, ErrInvalidParameter
+	}
+
+	ctx, err := s.withAuth(ctx, withSIPGrant{Call: true}, withVideoGrant{RoomAdmin: true, Room: in.RoomName})
+	if err != nil {
+		return nil, err
+	}
+
+	// TransferSIPParticipant will wait for call to be transferred and that can take some time.
+	// Default deadline is too short, thus, we must set a higher deadline for it (if not specified by the user).
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel func()
+		ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+	}
+
+	return s.sipClient.TransferSIPParticipant(ctx, in)
 }
