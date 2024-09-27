@@ -175,6 +175,12 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *Tra
 				Width:  mainTrack.videoLayer.Width,
 				Height: mainTrack.videoLayer.Height,
 				Layers: layers,
+				SimulcastCodecs: []*livekit.SimulcastCodec{
+					{
+						Codec: mainTrack.Codec().MimeType,
+						Cid:   mainTrack.ID(),
+					},
+				},
 			},
 		},
 	})
