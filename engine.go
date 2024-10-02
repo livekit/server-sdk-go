@@ -625,7 +625,8 @@ func (e *RTCEngine) resumeConnection() error {
 
 func (e *RTCEngine) restartConnection() error {
 	if e.client.IsStarted() {
-		e.client.SendLeave()
+		// TODO: special reason for reconnect?
+		e.client.SendLeaveWithReason(livekit.DisconnectReason_UNKNOWN_REASON)
 	}
 	e.client.Close()
 
@@ -661,12 +662,14 @@ func (e *RTCEngine) handleLeave(leave *livekit.LeaveRequest) {
 	if leave.GetCanReconnect() {
 		e.handleDisconnect(true)
 	} else {
+		reason := leave.GetReason()
 		e.log.Infow("server initiated leave",
-			"reason", leave.GetReason(),
+			"reason", reason,
 			"canReconnect", leave.GetCanReconnect(),
 		)
 		if e.OnDisconnected != nil {
-			e.OnDisconnected(LeaveRequested)
+			// TODO: migrate to LeaveRequest.Action
+			e.OnDisconnected(GetDisconnectionReason(reason))
 		}
 	}
 }

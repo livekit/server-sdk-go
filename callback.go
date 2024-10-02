@@ -107,9 +107,23 @@ func (cb *ParticipantCallback) Merge(other *ParticipantCallback) {
 type DisconnectionReason string
 
 const (
-	LeaveRequested DisconnectionReason = "leave requested by room"
-	Failed         DisconnectionReason = "connection to room failed"
+	LeaveRequested  DisconnectionReason = "leave requested by room"
+	UserUnavailable DisconnectionReason = "remote user unavailable"
+	RejectedByUser  DisconnectionReason = "rejected by remote user"
+	Failed          DisconnectionReason = "connection to room failed"
 )
+
+func GetDisconnectionReason(reason livekit.DisconnectReason) DisconnectionReason {
+	// TODO: SDK should forward the original reason and provide helpers like IsRequestedLeave.
+	r := LeaveRequested
+	switch reason {
+	case livekit.DisconnectReason_USER_UNAVAILABLE:
+		r = UserUnavailable
+	case livekit.DisconnectReason_USER_REJECTED:
+		r = RejectedByUser
+	}
+	return r
+}
 
 type RoomCallback struct {
 	OnDisconnected            func()
