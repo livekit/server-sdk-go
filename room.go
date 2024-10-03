@@ -347,7 +347,11 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 }
 
 func (r *Room) Disconnect() {
-	_ = r.engine.client.SendLeave()
+	r.DisconnectWithReason(livekit.DisconnectReason_UNKNOWN_REASON)
+}
+
+func (r *Room) DisconnectWithReason(reason livekit.DisconnectReason) {
+	_ = r.engine.client.SendLeaveWithReason(reason)
 	r.cleanup()
 }
 

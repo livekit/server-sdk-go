@@ -258,9 +258,15 @@ func (c *SignalClient) SendSyncState(state *livekit.SyncState) error {
 }
 
 func (c *SignalClient) SendLeave() error {
+	return c.SendLeaveWithReason(livekit.DisconnectReason_UNKNOWN_REASON)
+}
+
+func (c *SignalClient) SendLeaveWithReason(reason livekit.DisconnectReason) error {
 	return c.SendRequest(&livekit.SignalRequest{
 		Message: &livekit.SignalRequest_Leave{
-			Leave: &livekit.LeaveRequest{},
+			Leave: &livekit.LeaveRequest{
+				Reason: reason,
+			},
 		},
 	})
 }
