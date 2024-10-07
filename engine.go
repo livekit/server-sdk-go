@@ -62,7 +62,7 @@ type RTCEngine struct {
 
 	url        string
 	token      atomic.String
-	connParams *connectParams
+	connParams *SignalClientConnectParams
 
 	JoinTimeout time.Duration
 
@@ -138,7 +138,7 @@ func (e *RTCEngine) SetLogger(l protoLogger.Logger) {
 	}
 }
 
-func (e *RTCEngine) Join(url string, token string, params *connectParams) (*livekit.JoinResponse, error) {
+func (e *RTCEngine) Join(url string, token string, params *SignalClientConnectParams) (*livekit.JoinResponse, error) {
 	res, err := e.client.Join(url, token, *params)
 	if err != nil {
 		return nil, err
