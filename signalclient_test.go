@@ -23,13 +23,13 @@ import (
 func TestSignalClient_Join(t *testing.T) {
 	t.Run("rejects empty URLs", func(t *testing.T) {
 		c := NewSignalClient()
-		_, err := c.Join("", "", connectParams{})
+		_, err := c.Join("", "", SignalClientConnectParams{})
 		require.Equal(t, ErrURLNotProvided, err)
 	})
 
 	t.Run("errors on invalid URLs", func(t *testing.T) {
 		c := NewSignalClient()
-		_, err := c.Join("https://invalid-livekit-url", "", connectParams{})
+		_, err := c.Join("https://invalid-livekit-url", "", SignalClientConnectParams{})
 		require.Error(t, err)
 		require.NotEqual(t, ErrURLNotProvided, err)
 	})
