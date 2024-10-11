@@ -42,21 +42,6 @@ func NewSIPClient(url string, apiKey string, secretKey string, opts ...twirp.Cli
 	}
 }
 
-// CreateSIPTrunk creates a new SIP Trunk.
-//
-// Deprecated: Use CreateSIPInboundTrunk or CreateSIPOutboundTrunk
-func (s *SIPClient) CreateSIPTrunk(ctx context.Context, in *livekit.CreateSIPTrunkRequest) (*livekit.SIPTrunkInfo, error) {
-	if in == nil {
-		return nil, ErrInvalidParameter
-	}
-
-	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
-	if err != nil {
-		return nil, err
-	}
-	return s.sipClient.CreateSIPTrunk(ctx, in)
-}
-
 // CreateSIPInboundTrunk creates a new SIP Trunk for accepting inbound calls to LiveKit.
 func (s *SIPClient) CreateSIPInboundTrunk(ctx context.Context, in *livekit.CreateSIPInboundTrunkRequest) (*livekit.SIPInboundTrunkInfo, error) {
 	if in == nil || in.Trunk == nil || in.Trunk.SipTrunkId != "" {
