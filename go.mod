@@ -14,6 +14,7 @@ require (
 	github.com/livekit/protocol v1.23.1-0.20241003084409-2406243b2f49
 	github.com/magefile/mage v1.15.0
 	github.com/pion/dtls/v2 v2.2.12
+	github.com/pion/dtls/v3 v3.0.3
 	github.com/pion/interceptor v0.1.30
 	github.com/pion/rtcp v1.2.14
 	github.com/pion/rtp v1.8.9
@@ -57,11 +58,11 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
 	go.uber.org/zap/exp v0.2.0 // indirect
-	golang.org/x/crypto v0.25.0 // indirect
-	golang.org/x/net v0.27.0 // indirect
+	golang.org/x/crypto v0.27.0 // indirect
+	golang.org/x/net v0.29.0 // indirect
 	golang.org/x/sync v0.8.0 // indirect
-	golang.org/x/sys v0.22.0 // indirect
-	golang.org/x/text v0.16.0 // indirect
+	golang.org/x/sys v0.25.0 // indirect
+	golang.org/x/text v0.18.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20240528184218-531527333157 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240725223205-93522f1f2a9f // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
