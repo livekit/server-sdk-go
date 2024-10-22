@@ -34,13 +34,13 @@ type authOption interface {
 type withVideoGrant auth.VideoGrant
 
 func (g withVideoGrant) Apply(t *auth.AccessToken) {
-	t.AddGrant((*auth.VideoGrant)(&g))
+	t.SetVideoGrant((*auth.VideoGrant)(&g))
 }
 
 type withSIPGrant auth.SIPGrant
 
 func (g withSIPGrant) Apply(t *auth.AccessToken) {
-	t.AddSIPGrant((*auth.SIPGrant)(&g))
+	t.SetSIPGrant((*auth.SIPGrant)(&g))
 }
 
 func (b authBase) withAuth(ctx context.Context, opt authOption, options ...authOption) (context.Context, error) {

@@ -98,7 +98,7 @@ func newAccessToken(apiKey, apiSecret, roomName, pID string) (string, error) {
 		RoomJoin: true,
 		Room:     roomName,
 	}
-	at.AddGrant(grant).
+	at.SetVideoGrant(grant).
 		SetIdentity(pID).
 		SetName(pID)
 
