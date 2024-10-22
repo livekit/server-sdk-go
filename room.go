@@ -265,7 +265,7 @@ func (r *Room) Join(url string, info ConnectInfo, opts ...ConnectOption) error {
 		RoomJoin: true,
 		Room:     info.RoomName,
 	}
-	at.AddGrant(grant).
+	at.SetVideoGrant(grant).
 		SetIdentity(info.ParticipantIdentity).
 		SetMetadata(info.ParticipantMetadata).
 		SetAttributes(info.ParticipantAttributes).
