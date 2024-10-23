@@ -144,7 +144,7 @@ func (e *RTCEngine) Join(url string, token string, params *connectParams) (*live
 	e.client.Start()
 
 	// send offer
-	if !res.SubscriberPrimary {
+	if !res.SubscriberPrimary || res.FastPublish {
 		if publisher, ok := e.Publisher(); ok {
 			publisher.Negotiate()
 		} else {
