@@ -55,6 +55,11 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 		}
 	}
 
+	publisher, ok := p.engine.Publisher()
+	if !ok {
+		return nil, ErrNoPeerConnection
+	}
+
 	pub := NewLocalTrackPublication(kind, track, *opts, p.engine.client)
 	pub.onMuteChanged = p.onTrackMuted
 
@@ -88,21 +93,6 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 		return nil, err
 	}
 
-	pubChan := p.engine.TrackPublishedChan()
-	var pubRes *livekit.TrackPublishedResponse
-
-	select {
-	case pubRes = <-pubChan:
-		break
-	case <-time.After(trackPublishTimeout):
-		return nil, ErrTrackPublishTimeout
-	}
-
-	publisher, ok := p.engine.Publisher()
-	if !ok {
-		return nil, ErrNoPeerConnection
-	}
-
 	// add transceivers
 	transceiver, err := publisher.PeerConnection().AddTransceiverFromTrack(track, webrtc.RTPTransceiverInit{
 		Direction: webrtc.RTPTransceiverDirectionSendonly,
@@ -115,10 +105,20 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 	_, isSampleTrack := track.(*LocalTrack)
 	pub.setSender(transceiver.Sender(), !isSampleTrack)
 
+	publisher.Negotiate()
+
+	pubChan := p.engine.TrackPublishedChan()
+	var pubRes *livekit.TrackPublishedResponse
+
+	select {
+	case pubRes = <-pubChan:
+		break
+	case <-time.After(trackPublishTimeout):
+		return nil, ErrTrackPublishTimeout
+	}
+
 	pub.updateInfo(pubRes.Track)
 	p.addPublication(pub)
-
-	publisher.Negotiate()
 
 	p.engine.log.Infow("published track", "name", opts.Name, "source", opts.Source.String(), "trackID", pubRes.Track.Sid)
 
@@ -497,7 +497,6 @@ func (p *LocalParticipant) onTrackMuted(pub *LocalTrackPublication, muted bool) 
 // `TrackPermission.AllTracks` are false), any newer published tracks
 // will not grant permissions to any participants and will require a subsequent
 // permissions update to allow subscription.
-//
 func (p *LocalParticipant) SetSubscriptionPermission(sp *livekit.SubscriptionPermission) {
 	p.lock.Lock()
 	p.subscriptionPermission = proto.Clone(sp).(*livekit.SubscriptionPermission)

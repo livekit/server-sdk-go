@@ -38,7 +38,7 @@ import (
 )
 
 const (
-	negotiationFrequency = 150 * time.Millisecond
+	negotiationFrequency = 20 * time.Millisecond
 
 	dtlsRetransmissionInterval = 100 * time.Millisecond
 	iceDisconnectedTimeout     = 10 * time.Second
