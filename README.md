@@ -21,7 +21,7 @@ Version 2 of the <platform> SDK contains a small set of breaking changes. Read t
 ## Installation
 
 ```shell
-go get github.com/livekit/server-sdk-go/v2
+go get github.com/p1cn/livekit-server-sdk/v2
 ```
 
 Note: since v1.0 release, this package requires Go 1.18+ in order to build.
@@ -32,7 +32,7 @@ Note: since v1.0 release, this package requires Go 1.18+ in order to build.
 import (
 	"time"
 
-	lksdk "github.com/livekit/server-sdk-go/v2"
+	lksdk "github.com/p1cn/livekit-server-sdk/v2"
 	"github.com/livekit/protocol/auth"
 )
 
@@ -56,7 +56,7 @@ RoomService gives you complete control over rooms and participants within them. 
 
 ```go
 import (
-	lksdk "github.com/livekit/server-sdk-go/v2"
+	lksdk "github.com/p1cn/livekit-server-sdk/v2"
 	livekit "github.com/livekit/protocol/livekit"
 )
 
@@ -110,7 +110,7 @@ The Real-time SDK gives you access programmatic access as a client enabling you 
 
 ```go
 import (
-  lksdk "github.com/livekit/server-sdk-go/v2"
+  lksdk "github.com/p1cn/livekit-server-sdk/v2"
 )
 
 func main() {

@@ -23,7 +23,7 @@ import (
 	"syscall"
 	"time"
 
-	lksdk "github.com/livekit/server-sdk-go/v2"
+	lksdk "github.com/p1cn/livekit-server-sdk/v2"
 )
 
 var (

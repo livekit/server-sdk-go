@@ -13,7 +13,7 @@ import (
 
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/logger"
-	lksdk "github.com/livekit/server-sdk-go/v2"
+	lksdk "github.com/p1cn/livekit-server-sdk/v2"
 )
 
 var (
