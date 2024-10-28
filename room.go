@@ -88,11 +88,19 @@ type ConnectInfo struct {
 	ParticipantAttributes map[string]string
 }
 
+type RTPHeaderExtensionConfig struct {
+	Audio []webrtc.RTPHeaderExtensionCapability
+	Video []webrtc.RTPHeaderExtensionCapability
+}
+
 // not exposed to users. clients should use ConnectOption
 type connectParams struct {
 	AutoSubscribe          bool
 	Reconnect              bool
 	DisableRegionDiscovery bool
+
+	PublisherHeaderExtensions  RTPHeaderExtensionConfig
+	SubscriberHeaderExtensions RTPHeaderExtensionConfig
 
 	RetransmitBufferSize uint16
 
@@ -142,6 +150,38 @@ func WithICETransportPolicy(iceTransportPolicy webrtc.ICETransportPolicy) Connec
 func WithDisableRegionDiscovery() ConnectOption {
 	return func(p *connectParams) {
 		p.DisableRegionDiscovery = true
+	}
+}
+
+func WithPublisherAudioRTPHeaderExtensions(uris []string) ConnectOption {
+	return func(p *connectParams) {
+		for _, uri := range uris {
+			p.PublisherHeaderExtensions.Audio = append(p.PublisherHeaderExtensions.Audio, webrtc.RTPHeaderExtensionCapability{URI: uri})
+		}
+	}
+}
+
+func WithPublisherVideoRTPHeaderExtensions(uris []string) ConnectOption {
+	return func(p *connectParams) {
+		for _, uri := range uris {
+			p.PublisherHeaderExtensions.Video = append(p.PublisherHeaderExtensions.Video, webrtc.RTPHeaderExtensionCapability{URI: uri})
+		}
+	}
+}
+
+func WithSubscriberAudioRTPHeaderExtensions(uris []string) ConnectOption {
+	return func(p *connectParams) {
+		for _, uri := range uris {
+			p.SubscriberHeaderExtensions.Audio = append(p.SubscriberHeaderExtensions.Audio, webrtc.RTPHeaderExtensionCapability{URI: uri})
+		}
+	}
+}
+
+func WithSubscriberVideoRTPHeaderExtensions(uris []string) ConnectOption {
+	return func(p *connectParams) {
+		for _, uri := range uris {
+			p.SubscriberHeaderExtensions.Video = append(p.SubscriberHeaderExtensions.Audio, webrtc.RTPHeaderExtensionCapability{URI: uri})
+		}
 	}
 }
 

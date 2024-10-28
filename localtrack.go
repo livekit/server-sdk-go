@@ -24,6 +24,7 @@ import (
 	"time"
 
 	protoLogger "github.com/livekit/protocol/logger"
+	rtpext "github.com/p1cn/webrtc-extension/rtp"
 	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
@@ -47,6 +48,12 @@ var (
 	errOutOfOrderSample      = errors.New("out-of-order sample")
 )
 
+type Packetizer interface {
+	Packetize(payload []byte, metadata interface{}, samples uint32) []*rtp.Packet
+	GeneratePadding(samples uint32) []*rtp.Packet
+	SkipSamples(skippedSamples uint32)
+}
+
 type SampleWriteOptions struct {
 	AudioLevel *uint8
 }
@@ -57,7 +64,7 @@ type SampleWriteOptions struct {
 // This extends webrtc.TrackLocalStaticSample, and adds the ability to write RTP extensions
 type LocalTrack struct {
 	log              protoLogger.Logger
-	packetizer       rtp.Packetizer
+	packetizer       Packetizer
 	sequencer        rtp.Sequencer
 	transceiver      *webrtc.RTPTransceiver
 	rtpTrack         *webrtc.TrackLocalStaticRTP
@@ -205,14 +212,17 @@ func (s *LocalTrack) Bind(t webrtc.TrackLocalContext) (webrtc.RTPCodecParameters
 			s.sdesRtpStreamID = uint8(ext.ID)
 		}
 	}
+	customExtensions := make([]webrtc.RTPHeaderExtensionParameter, len(t.HeaderExtensions()))
+	copy(customExtensions, t.HeaderExtensions())
 	s.sequencer = rtp.NewRandomSequencer()
-	s.packetizer = rtp.NewPacketizer(
+	s.packetizer = rtpext.NewPacketizer(
 		rtpOutboundMTU,
 		0, // Value is handled when writing
 		0, // Value is handled when writing
 		payloader,
 		s.sequencer,
 		codec.ClockRate,
+		customExtensions,
 	)
 	s.clockRate = float64(codec.RTPCodecCapability.ClockRate)
 	onBind := s.onBind
@@ -458,7 +468,7 @@ func (s *LocalTrack) WriteSample(sample media.Sample, opts *SampleWriteOptions) 
 		s.packetizer.SkipSamples(skippedSamples)
 	}
 
-	packets := s.packetizer.Packetize(sample.Data, samplesPerPacket)
+	packets := s.packetizer.Packetize(sample.Data, sample.Metadata, samplesPerPacket)
 
 	s.lastTS = sample.Timestamp
 	s.lastRTPTimestamp = currentRTPTimestamp

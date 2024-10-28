@@ -75,6 +75,7 @@ type PCTransportParams struct {
 	Interceptors         []interceptor.Factory
 	OnRTTUpdate          func(rtt uint32)
 	IsSender             bool
+	HeaderExtensions     RTPHeaderExtensionConfig
 }
 
 func (t *PCTransport) registerDefaultInterceptors(params PCTransportParams, i *interceptor.Registry) error {
@@ -146,6 +147,16 @@ func NewPCTransport(params PCTransportParams) (*PCTransport, error) {
 	sdesRtpStreamIdExtension := webrtc.RTPHeaderExtensionCapability{URI: sdp.SDESRTPStreamIDURI}
 	if err := m.RegisterHeaderExtension(sdesRtpStreamIdExtension, webrtc.RTPCodecTypeVideo); err != nil {
 		return nil, err
+	}
+	for _, ext := range params.HeaderExtensions.Audio {
+		if err := m.RegisterHeaderExtension(ext, webrtc.RTPCodecTypeAudio); err != nil {
+			return nil, err
+		}
+	}
+	for _, ext := range params.HeaderExtensions.Video {
+		if err := m.RegisterHeaderExtension(ext, webrtc.RTPCodecTypeVideo); err != nil {
+			return nil, err
+		}
 	}
 
 	i := &interceptor.Registry{}
