@@ -120,6 +120,9 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 	pub.updateInfo(pubRes.Track)
 	p.addPublication(pub)
 
+	p.Callback.OnLocalTrackPublished(pub, p)
+	p.roomCallback.OnLocalTrackPublished(pub, p)
+
 	p.engine.log.Infow("published track", "name", opts.Name, "source", opts.Source.String(), "trackID", pubRes.Track.Sid)
 
 	return pub, nil
@@ -231,6 +234,9 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *Tra
 
 	publisher.Negotiate()
 
+	p.Callback.OnLocalTrackPublished(pub, p)
+	p.roomCallback.OnLocalTrackPublished(pub, p)
+
 	p.engine.log.Infow("published simulcast track", "name", opts.Name, "source", opts.Source.String(), "trackID", pubRes.Track.Sid)
 
 	return pub, nil
@@ -245,6 +251,11 @@ func (p *LocalParticipant) republishTracks() {
 			localPubs = append(localPubs, track)
 		}
 		p.tracks.Delete(key)
+		p.audioTracks.Delete(key)
+		p.videoTracks.Delete(key)
+
+		p.Callback.OnLocalTrackUnpublished(track, p)
+		p.roomCallback.OnLocalTrackUnpublished(track, p)
 		return true
 	})
 
@@ -266,11 +277,14 @@ func (p *LocalParticipant) republishTracks() {
 
 func (p *LocalParticipant) closeTracks() {
 	var localPubs []*LocalTrackPublication
-	p.tracks.Range(func(_, value interface{}) bool {
+	p.tracks.Range(func(key, value interface{}) bool {
 		track := value.(*LocalTrackPublication)
 		if track.Track() != nil || len(track.simulcastTracks) > 0 {
 			localPubs = append(localPubs, track)
 		}
+		p.tracks.Delete(key)
+		p.audioTracks.Delete(key)
+		p.videoTracks.Delete(key)
 		return true
 	})
 
@@ -407,6 +421,9 @@ func (p *LocalParticipant) UnpublishTrack(sid string) error {
 	}
 
 	pub.CloseTrack()
+
+	p.Callback.OnLocalTrackUnpublished(pub, p)
+	p.roomCallback.OnLocalTrackUnpublished(pub, p)
 
 	p.engine.log.Infow("unpublished track", "name", pub.Name(), "sid", sid)
 

@@ -26,6 +26,10 @@ import (
 type ParticipantAttributesChangedFunc func(changed map[string]string, p Participant)
 
 type ParticipantCallback struct {
+	// for local participant
+	OnLocalTrackPublished   func(publication *LocalTrackPublication, lp *LocalParticipant)
+	OnLocalTrackUnpublished func(publication *LocalTrackPublication, lp *LocalParticipant)
+
 	// for all participants
 	OnTrackMuted               func(pub TrackPublication, p Participant)
 	OnTrackUnmuted             func(pub TrackPublication, p Participant)
@@ -46,6 +50,9 @@ type ParticipantCallback struct {
 
 func NewParticipantCallback() *ParticipantCallback {
 	return &ParticipantCallback{
+		OnLocalTrackPublished:   func(publication *LocalTrackPublication, lp *LocalParticipant) {},
+		OnLocalTrackUnpublished: func(publication *LocalTrackPublication, lp *LocalParticipant) {},
+
 		OnTrackMuted:               func(pub TrackPublication, p Participant) {},
 		OnTrackUnmuted:             func(pub TrackPublication, p Participant) {},
 		OnMetadataChanged:          func(oldMetadata string, p Participant) {},
@@ -63,6 +70,12 @@ func NewParticipantCallback() *ParticipantCallback {
 }
 
 func (cb *ParticipantCallback) Merge(other *ParticipantCallback) {
+	if other.OnLocalTrackPublished != nil {
+		cb.OnLocalTrackPublished = other.OnLocalTrackPublished
+	}
+	if other.OnLocalTrackUnpublished != nil {
+		cb.OnLocalTrackUnpublished = other.OnLocalTrackUnpublished
+	}
 	if other.OnTrackMuted != nil {
 		cb.OnTrackMuted = other.OnTrackMuted
 	}

@@ -62,18 +62,19 @@ type RTCEngine struct {
 	JoinTimeout time.Duration
 
 	// callbacks
-	OnDisconnected      func(reason DisconnectionReason)
-	OnMediaTrack        func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver)
-	OnParticipantUpdate func([]*livekit.ParticipantInfo)
-	OnSpeakersChanged   func([]*livekit.SpeakerInfo)
-	OnDataReceived      func(userPacket *livekit.UserPacket) // Deprecated: Use OnDataPacket instead
-	OnDataPacket        func(identity string, dataPacket DataPacket)
-	OnConnectionQuality func([]*livekit.ConnectionQualityInfo)
-	OnRoomUpdate        func(room *livekit.Room)
-	OnRestarting        func()
-	OnRestarted         func(*livekit.JoinResponse)
-	OnResuming          func()
-	OnResumed           func()
+	OnLocalTrackUnpublished func(response *livekit.TrackUnpublishedResponse)
+	OnDisconnected          func(reason DisconnectionReason)
+	OnMediaTrack            func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver)
+	OnParticipantUpdate     func([]*livekit.ParticipantInfo)
+	OnSpeakersChanged       func([]*livekit.SpeakerInfo)
+	OnDataReceived          func(userPacket *livekit.UserPacket) // Deprecated: Use OnDataPacket instead
+	OnDataPacket            func(identity string, dataPacket DataPacket)
+	OnConnectionQuality     func([]*livekit.ConnectionQualityInfo)
+	OnRoomUpdate            func(room *livekit.Room)
+	OnRestarting            func()
+	OnRestarted             func(*livekit.JoinResponse)
+	OnResuming              func()
+	OnResumed               func()
 }
 
 func NewRTCEngine() *RTCEngine {
@@ -95,6 +96,7 @@ func NewRTCEngine() *RTCEngine {
 		}
 	}
 	e.client.OnLocalTrackPublished = e.handleLocalTrackPublished
+	e.client.OnLocalTrackUnpublished = e.handleLocalTrackUnpublished
 	e.client.OnConnectionQuality = func(cqi []*livekit.ConnectionQualityInfo) {
 		if f := e.OnConnectionQuality; f != nil {
 			f(cqi)
@@ -472,6 +474,12 @@ func (e *RTCEngine) dataPubChannelReady() bool {
 
 func (e *RTCEngine) handleLocalTrackPublished(res *livekit.TrackPublishedResponse) {
 	e.trackPublishedChan <- res
+}
+
+func (e *RTCEngine) handleLocalTrackUnpublished(res *livekit.TrackUnpublishedResponse) {
+	if e.OnLocalTrackUnpublished != nil {
+		e.OnLocalTrackUnpublished(res)
+	}
 }
 
 func (e *RTCEngine) handleDataPacket(msg webrtc.DataChannelMessage) {
