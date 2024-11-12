@@ -107,16 +107,19 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 
 	publisher.Negotiate()
 
-	pubChan := p.engine.TrackPublishedChan()
-	var pubRes *livekit.TrackPublishedResponse
+	pubChan := make(chan *livekit.TrackPublishedResponse, 1)
+	p.engine.RegisterTrackPublishedListener(track.ID(), pubChan)
 
+	var pubRes *livekit.TrackPublishedResponse
 	select {
 	case pubRes = <-pubChan:
 		break
 	case <-time.After(trackPublishTimeout):
+		p.engine.UnregisterTrackPublishedListener(track.ID())
 		return nil, ErrTrackPublishTimeout
 	}
 
+	p.engine.UnregisterTrackPublishedListener(track.ID())
 	pub.updateInfo(pubRes.Track)
 	p.addPublication(pub)
 
@@ -124,7 +127,6 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 	p.roomCallback.OnLocalTrackPublished(pub, p)
 
 	p.engine.log.Infow("published track", "name", opts.Name, "source", opts.Source.String(), "trackID", pubRes.Track.Sid)
-
 	return pub, nil
 }
 
@@ -191,16 +193,19 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *Tra
 		return nil, err
 	}
 
-	pubChan := p.engine.TrackPublishedChan()
-	var pubRes *livekit.TrackPublishedResponse
+	pubChan := make(chan *livekit.TrackPublishedResponse, 1)
+	p.engine.RegisterTrackPublishedListener(mainTrack.ID(), pubChan)
 
+	var pubRes *livekit.TrackPublishedResponse
 	select {
 	case pubRes = <-pubChan:
 		break
 	case <-time.After(trackPublishTimeout):
+		p.engine.UnregisterTrackPublishedListener(mainTrack.ID())
 		return nil, ErrTrackPublishTimeout
 	}
 
+	p.engine.UnregisterTrackPublishedListener(mainTrack.ID())
 	publisher, ok := p.engine.Publisher()
 	if !ok {
 		return nil, ErrNoPeerConnection
@@ -428,7 +433,7 @@ func (p *LocalParticipant) UnpublishTrack(sid string) error {
 	p.Callback.OnLocalTrackUnpublished(pub, p)
 	p.roomCallback.OnLocalTrackUnpublished(pub, p)
 
-	p.engine.log.Infow("unpublished track", "name", pub.Name(), "sid", sid)
+	p.engine.log.Infow("unpublished track", "name", pub.Name(), "trackID", sid)
 
 	return err
 }
