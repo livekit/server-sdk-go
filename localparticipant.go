@@ -268,7 +268,10 @@ func (p *LocalParticipant) republishTracks() {
 			}
 			p.PublishSimulcastTrack(tracks, &opt)
 		} else if track := pub.TrackLocal(); track != nil {
-			p.PublishTrack(track, &opt)
+			_, err := p.PublishTrack(track, &opt)
+			if err != nil {
+				p.engine.log.Warnw("could not republish track", err, "track", pub.SID())
+			}
 		} else {
 			p.engine.log.Warnw("could not republish track as no track local found", nil, "track", pub.SID())
 		}
