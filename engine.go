@@ -37,17 +37,22 @@ const (
 )
 
 type RTCEngine struct {
-	log                   protoLogger.Logger
-	pclock                sync.Mutex
-	publisher             *PCTransport
-	subscriber            *PCTransport
-	client                *SignalClient
-	dclock                sync.RWMutex
-	reliableDC            *webrtc.DataChannel
-	lossyDC               *webrtc.DataChannel
-	reliableDCSub         *webrtc.DataChannel
-	lossyDCSub            *webrtc.DataChannel
-	trackPublishedChan    chan *livekit.TrackPublishedResponse
+	log protoLogger.Logger
+
+	pclock     sync.Mutex
+	publisher  *PCTransport
+	subscriber *PCTransport
+	client     *SignalClient
+
+	dclock        sync.RWMutex
+	reliableDC    *webrtc.DataChannel
+	lossyDC       *webrtc.DataChannel
+	reliableDCSub *webrtc.DataChannel
+	lossyDCSub    *webrtc.DataChannel
+
+	trackPublishedListenersLock sync.Mutex
+	trackPublishedListeners     map[string]chan *livekit.TrackPublishedResponse
+
 	subscriberPrimary     bool
 	hasConnected          atomic.Bool
 	hasPublish            atomic.Bool
@@ -79,10 +84,10 @@ type RTCEngine struct {
 
 func NewRTCEngine() *RTCEngine {
 	e := &RTCEngine{
-		log:                logger,
-		client:             NewSignalClient(),
-		trackPublishedChan: make(chan *livekit.TrackPublishedResponse, 1),
-		JoinTimeout:        15 * time.Second,
+		log:                     logger,
+		client:                  NewSignalClient(),
+		trackPublishedListeners: make(map[string]chan *livekit.TrackPublishedResponse),
+		JoinTimeout:             15 * time.Second,
 	}
 
 	e.client.OnParticipantUpdate = func(info []*livekit.ParticipantInfo) {
@@ -205,10 +210,6 @@ func (e *RTCEngine) Subscriber() (*PCTransport, bool) {
 	e.pclock.Lock()
 	defer e.pclock.Unlock()
 	return e.subscriber, e.subscriber != nil
-}
-
-func (e *RTCEngine) TrackPublishedChan() <-chan *livekit.TrackPublishedResponse {
-	return e.trackPublishedChan
 }
 
 func (e *RTCEngine) setRTT(rtt uint32) {
@@ -472,8 +473,26 @@ func (e *RTCEngine) dataPubChannelReady() bool {
 	return e.reliableDC.ReadyState() == webrtc.DataChannelStateOpen && e.lossyDC.ReadyState() == webrtc.DataChannelStateOpen
 }
 
+func (e *RTCEngine) RegisterTrackPublishedListener(cid string, c chan *livekit.TrackPublishedResponse) {
+	e.trackPublishedListenersLock.Lock()
+	e.trackPublishedListeners[cid] = c
+	e.trackPublishedListenersLock.Unlock()
+}
+
+func (e *RTCEngine) UnregisterTrackPublishedListener(cid string) {
+	e.trackPublishedListenersLock.Lock()
+	delete(e.trackPublishedListeners, cid)
+	e.trackPublishedListenersLock.Unlock()
+}
+
 func (e *RTCEngine) handleLocalTrackPublished(res *livekit.TrackPublishedResponse) {
-	e.trackPublishedChan <- res
+	e.trackPublishedListenersLock.Lock()
+	listener, ok := e.trackPublishedListeners[res.Cid]
+	e.trackPublishedListenersLock.Unlock()
+
+	if ok {
+		listener <- res
+	}
 }
 
 func (e *RTCEngine) handleLocalTrackUnpublished(res *livekit.TrackUnpublishedResponse) {
