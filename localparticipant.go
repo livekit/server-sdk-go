@@ -60,6 +60,10 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 		return nil, ErrNoPeerConnection
 	}
 
+	pubChan := make(chan *livekit.TrackPublishedResponse, 1)
+	p.engine.RegisterTrackPublishedListener(track.ID(), pubChan)
+	defer p.engine.UnregisterTrackPublishedListener(track.ID())
+
 	pub := NewLocalTrackPublication(kind, track, *opts, p.engine.client)
 	pub.onMuteChanged = p.onTrackMuted
 
@@ -107,19 +111,14 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 
 	publisher.Negotiate()
 
-	pubChan := make(chan *livekit.TrackPublishedResponse, 1)
-	p.engine.RegisterTrackPublishedListener(track.ID(), pubChan)
-
 	var pubRes *livekit.TrackPublishedResponse
 	select {
 	case pubRes = <-pubChan:
 		break
 	case <-time.After(trackPublishTimeout):
-		p.engine.UnregisterTrackPublishedListener(track.ID())
 		return nil, ErrTrackPublishTimeout
 	}
 
-	p.engine.UnregisterTrackPublishedListener(track.ID())
 	pub.updateInfo(pubRes.Track)
 	p.addPublication(pub)
 
@@ -163,6 +162,10 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *Tra
 
 	mainTrack := tracksCopy[len(tracksCopy)-1]
 
+	pubChan := make(chan *livekit.TrackPublishedResponse, 1)
+	p.engine.RegisterTrackPublishedListener(mainTrack.ID(), pubChan)
+	defer p.engine.UnregisterTrackPublishedListener(mainTrack.ID())
+
 	pub := NewLocalTrackPublication(KindFromRTPType(mainTrack.Kind()), nil, *opts, p.engine.client)
 	pub.onMuteChanged = p.onTrackMuted
 
@@ -193,19 +196,14 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *Tra
 		return nil, err
 	}
 
-	pubChan := make(chan *livekit.TrackPublishedResponse, 1)
-	p.engine.RegisterTrackPublishedListener(mainTrack.ID(), pubChan)
-
 	var pubRes *livekit.TrackPublishedResponse
 	select {
 	case pubRes = <-pubChan:
 		break
 	case <-time.After(trackPublishTimeout):
-		p.engine.UnregisterTrackPublishedListener(mainTrack.ID())
 		return nil, ErrTrackPublishTimeout
 	}
 
-	p.engine.UnregisterTrackPublishedListener(mainTrack.ID())
 	publisher, ok := p.engine.Publisher()
 	if !ok {
 		return nil, ErrNoPeerConnection
