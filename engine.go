@@ -68,6 +68,7 @@ type RTCEngine struct {
 
 	// callbacks
 	OnLocalTrackUnpublished func(response *livekit.TrackUnpublishedResponse)
+	OnTrackRemoteMuted      func(request *livekit.MuteTrackRequest)
 	OnDisconnected          func(reason DisconnectionReason)
 	OnMediaTrack            func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver)
 	OnParticipantUpdate     func([]*livekit.ParticipantInfo)
@@ -80,6 +81,9 @@ type RTCEngine struct {
 	OnRestarted             func(*livekit.JoinResponse)
 	OnResuming              func()
 	OnResumed               func()
+
+	// callbacks to get data
+	CbGetLocalParticipantSID func() string
 }
 
 func NewRTCEngine() *RTCEngine {
@@ -102,6 +106,7 @@ func NewRTCEngine() *RTCEngine {
 	}
 	e.client.OnLocalTrackPublished = e.handleLocalTrackPublished
 	e.client.OnLocalTrackUnpublished = e.handleLocalTrackUnpublished
+	e.client.OnTrackRemoteMuted = e.handleTrackRemoteMuted
 	e.client.OnConnectionQuality = func(cqi []*livekit.ConnectionQualityInfo) {
 		if f := e.OnConnectionQuality; f != nil {
 			f(cqi)
@@ -501,6 +506,12 @@ func (e *RTCEngine) handleLocalTrackUnpublished(res *livekit.TrackUnpublishedRes
 	}
 }
 
+func (e *RTCEngine) handleTrackRemoteMuted(request *livekit.MuteTrackRequest) {
+	if e.OnTrackRemoteMuted != nil {
+		e.OnTrackRemoteMuted(request)
+	}
+}
+
 func (e *RTCEngine) handleDataPacket(msg webrtc.DataChannelMessage) {
 	packet, err := e.readDataPacket(msg)
 	if err != nil {
@@ -605,7 +616,7 @@ func (e *RTCEngine) handleDisconnect(fullReconnect bool) {
 }
 
 func (e *RTCEngine) resumeConnection() error {
-	reconnect, err := e.client.Reconnect(e.url, e.token.Load(), *e.connParams)
+	reconnect, err := e.client.Reconnect(e.url, e.token.Load(), *e.connParams, e.CbGetLocalParticipantSID())
 	if err != nil {
 		return err
 	}
