@@ -97,17 +97,19 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 		return nil, err
 	}
 
-	// add transceivers
-	transceiver, err := publisher.PeerConnection().AddTransceiverFromTrack(track, webrtc.RTPTransceiverInit{
-		Direction: webrtc.RTPTransceiverDirectionSendonly,
-	})
+	// add transceivers - re-use if possible, AddTrack will try to re-use.
+	// NOTE: `AddTrack` technically cannot re-use transceiver if it was ever
+	// used to send media, i. e. if it was ever in a `sendrecv` or `sendonly`
+	// direction. But, pion does not enforce that based on browser behaviour
+	// observed in practice.
+	sender, err := publisher.PeerConnection().AddTrack(track)
 	if err != nil {
 		return nil, err
 	}
 
 	// LocalTrack will consume rtcp packets so we don't need to consume again
 	_, isSampleTrack := track.(*LocalTrack)
-	pub.setSender(transceiver.Sender(), !isSampleTrack)
+	pub.setSender(sender, !isSampleTrack)
 
 	publisher.Negotiate()
 
@@ -215,13 +217,24 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *Tra
 	var sender *webrtc.RTPSender
 	for idx, st := range tracksCopy {
 		if idx == 0 {
-			transceiver, err = publishPC.AddTransceiverFromTrack(st, webrtc.RTPTransceiverInit{
-				Direction: webrtc.RTPTransceiverDirectionSendonly,
-			})
+			// add transceivers - re-use if possible, AddTrack will try to re-use.
+			// NOTE: `AddTrack` technically cannot re-use transceiver if it was ever
+			// used to send media, i. e. if it was ever in a `sendrecv` or `sendonly`
+			// direction. But, pion does not enforce that based on browser behaviour
+			// observed in practice.
+			sender, err = publishPC.AddTrack(st)
 			if err != nil {
 				return nil, err
 			}
-			sender = transceiver.Sender()
+
+			// as there is no way to get transceiver from sender, search
+			for _, tr := range publishPC.GetTransceivers() {
+				if tr.Sender() == sender {
+					transceiver = tr
+					break
+				}
+			}
+
 			pub.setSender(sender, false)
 		} else {
 			if err = sender.AddEncoding(st); err != nil {
