@@ -483,11 +483,17 @@ func (r *Room) handleMediaTrack(track *webrtc.TrackRemote, receiver *webrtc.RTPR
 
 	rp := r.GetParticipantBySID(participantID)
 	if rp == nil {
-		r.log.Infow("could not find participant, deferring track update", "participantID", participantID)
+		r.log.Infow(
+			"could not find participant, deferring track update",
+			"pID", participantID,
+			"trackID", trackID,
+			"streamID", streamID,
+		)
 		r.deferParticipantUpdate(livekit.ParticipantID(participantID), update)
 		return
 	}
 	update(rp)
+	r.runParticipantDefers(livekit.ParticipantID(participantID), rp)
 }
 
 func (r *Room) handleDisconnect(reason DisconnectionReason) {
@@ -584,6 +590,8 @@ func (r *Room) handleParticipantUpdate(participants []*livekit.ParticipantInfo) 
 				delete(r.sidToIdentity, oldSid)
 				r.sidToIdentity[newSid] = livekit.ParticipantIdentity(rp.Identity())
 				r.lock.Unlock()
+				r.runParticipantDefers(newSid, rp)
+			} else {
 				r.runParticipantDefers(newSid, rp)
 			}
 		}
