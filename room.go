@@ -197,8 +197,11 @@ func NewRoom(callback *RoomCallback) *Room {
 	engine.OnRestarted = r.handleRestarted
 	engine.OnResuming = r.handleResuming
 	engine.OnResumed = r.handleResumed
-	engine.client.OnLocalTrackUnpublished = r.handleLocalTrackUnpublished
-	engine.client.OnTrackRemoteMuted = r.handleTrackRemoteMuted
+	engine.OnLocalTrackUnpublished = r.handleLocalTrackUnpublished
+	engine.OnTrackRemoteMuted = r.handleTrackRemoteMuted
+
+	// callbacks engine can use to get data
+	engine.CbGetLocalParticipantSID = r.getLocalParticipantSID
 
 	return r
 }
@@ -817,6 +820,12 @@ func (r *Room) Simulate(scenario SimulateScenario) {
 		})
 	}
 }
+
+func (r *Room) getLocalParticipantSID() string {
+	return r.LocalParticipant.SID()
+}
+
+// ---------------------------------------------------------
 
 func unpackStreamID(packed string) (participantId string, trackId string) {
 	parts := strings.Split(packed, "|")

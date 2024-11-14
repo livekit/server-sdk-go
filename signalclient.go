@@ -82,7 +82,7 @@ func (c *SignalClient) IsStarted() bool {
 }
 
 func (c *SignalClient) Join(urlPrefix string, token string, params connectParams) (*livekit.JoinResponse, error) {
-	res, err := c.connect(urlPrefix, token, params)
+	res, err := c.connect(urlPrefix, token, params, "")
 	if err != nil {
 		return nil, err
 	}
@@ -97,9 +97,9 @@ func (c *SignalClient) Join(urlPrefix string, token string, params connectParams
 
 // Reconnect starts a new WebSocket connection to the server, passing in reconnect=1
 // when successful, it'll return a ReconnectResponse; older versions of the server will not send back a ReconnectResponse
-func (c *SignalClient) Reconnect(urlPrefix string, token string, params connectParams) (*livekit.ReconnectResponse, error) {
+func (c *SignalClient) Reconnect(urlPrefix string, token string, params connectParams, participantSID string) (*livekit.ReconnectResponse, error) {
 	params.Reconnect = true
-	res, err := c.connect(urlPrefix, token, params)
+	res, err := c.connect(urlPrefix, token, params, participantSID)
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +121,7 @@ func (c *SignalClient) Reconnect(urlPrefix string, token string, params connectP
 	return nil, nil
 }
 
-func (c *SignalClient) connect(urlPrefix string, token string, params connectParams) (*livekit.SignalResponse, error) {
+func (c *SignalClient) connect(urlPrefix string, token string, params connectParams, participantSID string) (*livekit.SignalResponse, error) {
 	if urlPrefix == "" {
 		return nil, ErrURLNotProvided
 	}
@@ -135,6 +135,9 @@ func (c *SignalClient) connect(urlPrefix string, token string, params connectPar
 	}
 	if params.Reconnect {
 		urlSuffix += "&reconnect=1"
+		if participantSID != "" {
+			urlSuffix += fmt.Sprintf("&sid=%s", participantSID)
+		}
 	}
 	urlSuffix += getStatsParamString()
 
