@@ -400,7 +400,7 @@ func (r *Room) clearParticipantDefers(sid livekit.ParticipantID, pi *livekit.Par
 	r.lock.Lock()
 	defer r.lock.Unlock()
 
-	for trackID, _ := range r.sidDefers[sid] {
+	for trackID := range r.sidDefers[sid] {
 		found := false
 		for _, ti := range pi.Tracks {
 			if livekit.TrackID(ti.GetSid()) == trackID {
