@@ -592,10 +592,8 @@ func (r *Room) handleParticipantUpdate(participants []*livekit.ParticipantInfo) 
 				delete(r.sidToIdentity, oldSid)
 				r.sidToIdentity[newSid] = livekit.ParticipantIdentity(rp.Identity())
 				r.lock.Unlock()
-				r.runParticipantDefers(newSid, rp)
-			} else {
-				r.runParticipantDefers(newSid, rp)
 			}
+			r.runParticipantDefers(newSid, rp)
 		}
 	}
 }
