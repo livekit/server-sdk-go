@@ -343,7 +343,8 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 	r.LocalParticipant.updateSubscriptionPermission()
 
 	for _, pi := range joinRes.OtherParticipants {
-		r.addRemoteParticipant(pi, true)
+		rp := r.addRemoteParticipant(pi, true)
+		r.runParticipantDefers(livekit.ParticipantID(pi.Sid), rp)
 	}
 
 	return nil
@@ -579,6 +580,7 @@ func (r *Room) handleParticipantUpdate(participants []*livekit.ParticipantInfo) 
 			}
 		} else if isNew {
 			rp = r.addRemoteParticipant(pi, true)
+			r.runParticipantDefers(livekit.ParticipantID(pi.Sid), rp)
 			go r.callback.OnParticipantConnected(rp)
 		} else {
 			oldSid := livekit.ParticipantID(rp.SID())
