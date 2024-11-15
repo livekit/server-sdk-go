@@ -12,7 +12,7 @@ require (
 	github.com/livekit/protocol v1.27.1
 	github.com/magefile/mage v1.15.0
 	github.com/pion/dtls/v2 v2.2.12
-	github.com/pion/interceptor v0.1.30
+	github.com/pion/interceptor v0.1.37
 	github.com/pion/rtcp v1.2.14
 	github.com/pion/rtp v1.8.9
 	github.com/pion/sdp/v3 v3.0.9
