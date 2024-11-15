@@ -59,6 +59,7 @@ type PCTransport struct {
 	pendingRestartIceOffer    *webrtc.SessionDescription
 	restartAfterGathering     bool
 	nackGenerator             *sdkinterceptor.NackGeneratorInterceptorFactory
+	closed                    bool
 	rttFromXR                 atomic.Bool
 
 	onRemoteDescriptionSettled func() error
@@ -257,6 +258,11 @@ func (t *PCTransport) IsConnected() bool {
 }
 
 func (t *PCTransport) Close() error {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+
+	t.closed = true
+
 	return t.pc.Close()
 }
 
@@ -380,6 +386,11 @@ func (t *PCTransport) createAndSendOffer(options *webrtc.OfferOptions) error {
 	}
 	t.lock.Lock()
 	defer t.lock.Unlock()
+
+	if t.closed {
+		t.log.Debugw("aborting Offer since transport is closed")
+		return ErrAborted
+	}
 
 	iceRestart := options != nil && options.ICERestart
 	if iceRestart {

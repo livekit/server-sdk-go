@@ -368,6 +368,11 @@ func (e *RTCEngine) configure(
 
 	// configure client
 	e.client.OnAnswer = func(sd webrtc.SessionDescription) {
+		if e.closed.Load() {
+			e.log.Debugw("ignoring SDP answer after closed")
+			return
+		}
+
 		if err := e.publisher.SetRemoteDescription(sd); err != nil {
 			e.log.Errorw("could not set remote description", err)
 		} else {
@@ -375,6 +380,11 @@ func (e *RTCEngine) configure(
 		}
 	}
 	e.client.OnTrickle = func(init webrtc.ICECandidateInit, target livekit.SignalTarget) {
+		if e.closed.Load() {
+			e.log.Debugw("ignoring trickle after closed")
+			return
+		}
+
 		var err error
 		e.log.Debugw("remote ICE candidate",
 			"target", target,
@@ -390,6 +400,11 @@ func (e *RTCEngine) configure(
 		}
 	}
 	e.client.OnOffer = func(sd webrtc.SessionDescription) {
+		if e.closed.Load() {
+			e.log.Debugw("ignoring SDP offer after closed")
+			return
+		}
+
 		e.log.Debugw("received offer for subscriber")
 		if err := e.subscriber.SetRemoteDescription(sd); err != nil {
 			e.log.Errorw("could not set remote description", err)
