@@ -89,7 +89,7 @@ type ConnectInfo struct {
 }
 
 // not exposed to users. clients should use ConnectOption
-type connectParams struct {
+type SignalClientConnectParams struct {
 	AutoSubscribe          bool
 	Reconnect              bool
 	DisableRegionDiscovery bool
@@ -103,10 +103,10 @@ type connectParams struct {
 	ICETransportPolicy webrtc.ICETransportPolicy
 }
 
-type ConnectOption func(*connectParams)
+type ConnectOption func(*SignalClientConnectParams)
 
 func WithAutoSubscribe(val bool) ConnectOption {
-	return func(p *connectParams) {
+	return func(p *SignalClientConnectParams) {
 		p.AutoSubscribe = val
 	}
 }
@@ -114,7 +114,7 @@ func WithAutoSubscribe(val bool) ConnectOption {
 // Retransmit buffer size to reponse to nack request,
 // must be one of: 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768
 func WithRetransmitBufferSize(val uint16) ConnectOption {
-	return func(p *connectParams) {
+	return func(p *SignalClientConnectParams) {
 		p.RetransmitBufferSize = val
 	}
 }
@@ -122,25 +122,25 @@ func WithRetransmitBufferSize(val uint16) ConnectOption {
 // WithPacer enables the use of a pacer on this connection
 // A pacer helps to smooth out video packet rate to avoid overwhelming downstream. Learn more at: https://chromium.googlesource.com/external/webrtc/+/master/modules/pacing/g3doc/index.md
 func WithPacer(pacer pacer.Factory) ConnectOption {
-	return func(p *connectParams) {
+	return func(p *SignalClientConnectParams) {
 		p.Pacer = pacer
 	}
 }
 
 func WithInterceptors(interceptors []interceptor.Factory) ConnectOption {
-	return func(p *connectParams) {
+	return func(p *SignalClientConnectParams) {
 		p.Interceptors = interceptors
 	}
 }
 
 func WithICETransportPolicy(iceTransportPolicy webrtc.ICETransportPolicy) ConnectOption {
-	return func(p *connectParams) {
+	return func(p *SignalClientConnectParams) {
 		p.ICETransportPolicy = iceTransportPolicy
 	}
 }
 
 func WithDisableRegionDiscovery() ConnectOption {
-	return func(p *connectParams) {
+	return func(p *SignalClientConnectParams) {
 		p.DisableRegionDiscovery = true
 	}
 }
@@ -257,7 +257,7 @@ func (r *Room) PrepareConnection(url, token string) error {
 
 // Join - joins the room as with default permissions
 func (r *Room) Join(url string, info ConnectInfo, opts ...ConnectOption) error {
-	var params connectParams
+	var params SignalClientConnectParams
 	for _, opt := range opts {
 		opt(&params)
 	}
@@ -285,7 +285,7 @@ func (r *Room) Join(url string, info ConnectInfo, opts ...ConnectOption) error {
 
 // JoinWithToken - customize participant options by generating your own token
 func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
-	params := &connectParams{
+	params := &SignalClientConnectParams{
 		AutoSubscribe: true,
 	}
 	for _, opt := range opts {
