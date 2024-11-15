@@ -29,4 +29,5 @@ var (
 	ErrCannotConnectSignal      = errors.New("could not establish signal connection")
 	ErrCannotDialSignal         = errors.New("could not dial signal connection")
 	ErrNoPeerConnection         = errors.New("peer connection not established")
+	ErrAborted                  = errors.New("operation was aborted")
 )
