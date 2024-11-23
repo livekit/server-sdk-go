@@ -17,7 +17,7 @@ require (
 	github.com/pion/rtp v1.8.9
 	github.com/pion/sdp/v3 v3.0.9
 	github.com/pion/webrtc/v3 v3.3.4
-	github.com/stretchr/testify v1.9.0
+	github.com/stretchr/testify v1.10.0
 	github.com/twitchtv/twirp v8.1.3+incompatible
 	go.uber.org/atomic v1.11.0
 	golang.org/x/exp v0.0.0-20241108190413-2d47ceb2692f
