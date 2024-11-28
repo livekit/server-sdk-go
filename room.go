@@ -23,7 +23,7 @@ import (
 
 	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
-	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v4"
 	"golang.org/x/exp/maps"
 	"google.golang.org/protobuf/proto"
 
