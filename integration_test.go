@@ -25,8 +25,8 @@ import (
 	"time"
 
 	"github.com/pion/rtp"
-	"github.com/pion/webrtc/v3"
-	"github.com/pion/webrtc/v3/pkg/media"
+	"github.com/pion/webrtc/v4"
+	"github.com/pion/webrtc/v4/pkg/media"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/atomic"
 
@@ -93,7 +93,12 @@ func pubNullTrack(t *testing.T, room *Room, name string) *LocalTrackPublication 
 }
 
 func TestJoin(t *testing.T) {
-	pub, err := createAgent(t.Name(), nil, "publisher")
+	remoteParticipantsOfPub := make(chan string, 1)
+	pub, err := createAgent(t.Name(), &RoomCallback{
+		OnParticipantConnected: func(participant *RemoteParticipant) {
+			remoteParticipantsOfPub <- participant.Identity()
+		},
+	}, "publisher")
 	require.NoError(t, err)
 
 	var (
@@ -131,6 +136,8 @@ func TestJoin(t *testing.T) {
 	require.NotNil(t, serverInfo)
 	require.Equal(t, livekit.ServerInfo_Standard, serverInfo.Edition)
 	require.Equal(t, ConnectionStateConnected, sub.ConnectionState())
+	remotParticipant := <-remoteParticipantsOfPub
+	require.Equal(t, remotParticipant, sub.LocalParticipant.Identity())
 
 	pub.LocalParticipant.PublishDataPacket(UserData([]byte("test")), WithDataPublishReliable(true))
 	pub.LocalParticipant.PublishDataPacket(&livekit.SipDTMF{Digit: "#"}, WithDataPublishReliable(true))
