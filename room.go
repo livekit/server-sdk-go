@@ -199,6 +199,7 @@ func NewRoom(callback *RoomCallback) *Room {
 	engine.OnResumed = r.handleResumed
 	engine.OnLocalTrackUnpublished = r.handleLocalTrackUnpublished
 	engine.OnTrackRemoteMuted = r.handleTrackRemoteMuted
+	engine.OnTranscription = r.handleTranscriptionReceived
 
 	// callbacks engine can use to get data
 	engine.CbGetLocalParticipantSID = r.getLocalParticipantSID
@@ -713,6 +714,19 @@ func (r *Room) handleLocalTrackUnpublished(msg *livekit.TrackUnpublishedResponse
 	if err != nil {
 		r.log.Errorw("could not unpublish track", err, "trackID", msg.TrackSid)
 	}
+}
+
+func (r *Room) handleTranscriptionReceived(transcription *livekit.Transcription) {
+	// find the participant
+	if transcription.TranscribedParticipantIdentity == r.LocalParticipant.Identity() {
+		// if sent by itself, do not handle data
+		return
+	}
+	p := r.GetParticipantByIdentity(transcription.TranscribedParticipantIdentity)
+	publication := p.getPublication(transcription.TrackId)
+	transcriptionSegments := ExtractTranscriptionSegments(transcription)
+
+	r.callback.OnTranscriptionReceived(transcriptionSegments, p, publication)
 }
 
 func (r *Room) sendSyncState() {
