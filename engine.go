@@ -81,6 +81,7 @@ type RTCEngine struct {
 	OnRestarted             func(*livekit.JoinResponse)
 	OnResuming              func()
 	OnResumed               func()
+	OnTranscription         func(*livekit.Transcription)
 
 	// callbacks to get data
 	CbGetLocalParticipantSID func() string
@@ -560,6 +561,10 @@ func (e *RTCEngine) handleDataPacket(msg webrtc.DataChannelMessage) {
 	case *livekit.DataPacket_SipDtmf:
 		if e.OnDataPacket != nil {
 			e.OnDataPacket(identity, msg.SipDtmf)
+		}
+	case *livekit.DataPacket_Transcription:
+		if e.OnTranscription != nil {
+			e.OnTranscription(msg.Transcription)
 		}
 	}
 }
