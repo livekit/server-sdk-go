@@ -717,13 +717,19 @@ func (r *Room) handleLocalTrackUnpublished(msg *livekit.TrackUnpublishedResponse
 }
 
 func (r *Room) handleTranscriptionReceived(transcription *livekit.Transcription) {
-	// find the participant
+	var (
+		p           Participant
+		publication TrackPublication
+	)
+
 	if transcription.TranscribedParticipantIdentity == r.LocalParticipant.Identity() {
-		// if sent by itself, do not handle data
-		return
+		p = r.LocalParticipant
+		publication = r.LocalParticipant.getPublication(transcription.TrackId)
+	} else {
+		rp := r.GetParticipantByIdentity(transcription.TranscribedParticipantIdentity)
+		publication = rp.getPublication(transcription.TrackId)
+		p = rp
 	}
-	p := r.GetParticipantByIdentity(transcription.TranscribedParticipantIdentity)
-	publication := p.getPublication(transcription.TrackId)
 	transcriptionSegments := ExtractTranscriptionSegments(transcription)
 
 	r.callback.OnTranscriptionReceived(transcriptionSegments, p, publication)
