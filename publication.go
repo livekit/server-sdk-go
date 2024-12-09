@@ -416,4 +416,6 @@ type TrackPublicationOptions struct {
 	// which stream the track belongs to, used to group tracks together.
 	// if not specified, server will infer it from track source to bundle camera/microphone, screenshare/audio together
 	Stream string
+	// encryption type
+	Encryption livekit.Encryption_Type
 }

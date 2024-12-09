@@ -165,6 +165,8 @@ type Room struct {
 	serverInfo         *livekit.ServerInfo
 	regionURLProvider  *regionURLProvider
 
+	sifTrailer []byte
+
 	lock sync.RWMutex
 }
 
@@ -335,6 +337,8 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 	r.metadata = joinRes.Room.Metadata
 	r.serverInfo = joinRes.ServerInfo
 	r.connectionState = ConnectionStateConnected
+	r.sifTrailer = make([]byte, len(joinRes.SifTrailer))
+	copy(r.sifTrailer, joinRes.SifTrailer)
 	r.lock.Unlock()
 
 	r.setSid(joinRes.Room.Sid, false)
@@ -462,6 +466,14 @@ func (r *Room) ServerInfo() *livekit.ServerInfo {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 	return proto.Clone(r.serverInfo).(*livekit.ServerInfo)
+}
+
+func (r *Room) SifTrailer() []byte {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+	trailer := make([]byte, len(r.sifTrailer))
+	copy(trailer, r.sifTrailer)
+	return trailer
 }
 
 func (r *Room) addRemoteParticipant(pi *livekit.ParticipantInfo, updateExisting bool) *RemoteParticipant {
