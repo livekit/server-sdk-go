@@ -95,7 +95,7 @@ func DecryptGCMAudioSample(sample, key, sifTrailer []byte) ([]byte, error) {
 	if sifTrailer != nil && len(sample) >= len(sifTrailer) {
 		possibleTrailer := sample[len(sample)-len(sifTrailer):]
 		if bytes.Equal(possibleTrailer, sifTrailer) {
-			// this is unencrypted Server Injected Frame (SIF) thas should be dropped
+			// this is unencrypted Server Injected Frame (SIF) that should be dropped
 			return nil, nil
 		}
 
