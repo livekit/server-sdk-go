@@ -18,7 +18,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v4"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/livekit/protocol/livekit"

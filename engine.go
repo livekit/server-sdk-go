@@ -19,7 +19,7 @@ import (
 	"time"
 
 	protoLogger "github.com/livekit/protocol/logger"
-	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v4"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -81,6 +81,7 @@ type RTCEngine struct {
 	OnRestarted             func(*livekit.JoinResponse)
 	OnResuming              func()
 	OnResumed               func()
+	OnTranscription         func(*livekit.Transcription)
 
 	// callbacks to get data
 	CbGetLocalParticipantSID func() string
@@ -560,6 +561,10 @@ func (e *RTCEngine) handleDataPacket(msg webrtc.DataChannelMessage) {
 	case *livekit.DataPacket_SipDtmf:
 		if e.OnDataPacket != nil {
 			e.OnDataPacket(identity, msg.SipDtmf)
+		}
+	case *livekit.DataPacket_Transcription:
+		if e.OnTranscription != nil {
+			e.OnTranscription(msg.Transcription)
 		}
 	}
 }

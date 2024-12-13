@@ -26,7 +26,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	protoLogger "github.com/livekit/protocol/logger"
-	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v4"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"

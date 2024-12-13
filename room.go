@@ -23,7 +23,7 @@ import (
 
 	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
-	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v4"
 	"golang.org/x/exp/maps"
 	"google.golang.org/protobuf/proto"
 
@@ -201,6 +201,7 @@ func NewRoom(callback *RoomCallback) *Room {
 	engine.OnResumed = r.handleResumed
 	engine.OnLocalTrackUnpublished = r.handleLocalTrackUnpublished
 	engine.OnTrackRemoteMuted = r.handleTrackRemoteMuted
+	engine.OnTranscription = r.handleTranscriptionReceived
 
 	// callbacks engine can use to get data
 	engine.CbGetLocalParticipantSID = r.getLocalParticipantSID
@@ -725,6 +726,25 @@ func (r *Room) handleLocalTrackUnpublished(msg *livekit.TrackUnpublishedResponse
 	if err != nil {
 		r.log.Errorw("could not unpublish track", err, "trackID", msg.TrackSid)
 	}
+}
+
+func (r *Room) handleTranscriptionReceived(transcription *livekit.Transcription) {
+	var (
+		p           Participant
+		publication TrackPublication
+	)
+
+	if transcription.TranscribedParticipantIdentity == r.LocalParticipant.Identity() {
+		p = r.LocalParticipant
+		publication = r.LocalParticipant.getPublication(transcription.TrackId)
+	} else {
+		rp := r.GetParticipantByIdentity(transcription.TranscribedParticipantIdentity)
+		publication = rp.getPublication(transcription.TrackId)
+		p = rp
+	}
+	transcriptionSegments := ExtractTranscriptionSegments(transcription)
+
+	r.callback.OnTranscriptionReceived(transcriptionSegments, p, publication)
 }
 
 func (r *Room) sendSyncState() {
