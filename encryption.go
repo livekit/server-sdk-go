@@ -22,11 +22,14 @@ const (
 	unencrypted_audio_bytes  = 1
 )
 
-var ErrIncorrectKeyLength = errors.New("incorrect key length for encryption/decryption")
-var ErrUnableGenerateIV = errors.New("unable to generate iv for encryption")
-var ErrIncorrectIVLength = errors.New("incorrect iv length")
-var ErrIncorrectSecretLength = errors.New("input secret provided to derivation function cannot be empty or nil")
-var ErrIncorrectSaltLength = errors.New("input salt provided to derivation function cannot be empty or nil")
+var (
+	ErrIncorrectKeyLength    = errors.New("incorrect key length for encryption/decryption")
+	ErrUnableGenerateIV      = errors.New("unable to generate iv for encryption")
+	ErrIncorrectIVLength     = errors.New("incorrect iv length")
+	ErrIncorrectSecretLength = errors.New("input secret provided to derivation function cannot be empty or nil")
+	ErrIncorrectSaltLength   = errors.New("input salt provided to derivation function cannot be empty or nil")
+	ErrBlockCipherRequired   = errors.New("input block cipher cannot be nil")
+)
 
 func DeriveKeyFromString(password string) ([]byte, error) {
 	return DeriveKeyFromStringCustomSalt(password, LIVEKIT_SDK_SALT)
@@ -77,6 +80,34 @@ func DeriveKeyFromBytesCustomSalt(secret []byte, salt string) ([]byte, error) {
 }
 
 // Take audio sample (body of RTP) encrypted by LiveKit client SDK, extract IV and decrypt using provided key
+// If sample matches sifTrailer, it's considered to be a non-encrypted Server Injected Frame and nil is returned
+// Use DecryptGCMAudioSampleCustomCipher with cached aes cipher block for better (30%) performance
+func DecryptGCMAudioSample(sample, key, sifTrailer []byte) ([]byte, error) {
+
+	if len(key) != 16 {
+		return nil, ErrIncorrectKeyLength
+	}
+
+	if sifTrailer != nil && len(sample) >= len(sifTrailer) {
+		possibleTrailer := sample[len(sample)-len(sifTrailer):]
+		if bytes.Equal(possibleTrailer, sifTrailer) {
+			// this is unencrypted Server Injected Frame (SIF) that should be dropped
+			return nil, nil
+		}
+
+	}
+
+	cipherBlock, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+
+	return DecryptGCMAudioSampleCustomCipher(sample, sifTrailer, cipherBlock)
+
+}
+
+// Take audio sample (body of RTP) encrypted by LiveKit client SDK, extract IV and decrypt using provided cipherBlock
+// If sample matches sifTrailer, it's considered to be a non-encrypted Server Injected Frame and nil is returned
 // Encrypted sample format based on livekit client sdk
 // ---------+-------------------------+---------+----
 // payload  |IV...(length = IV_LENGTH)|IV_LENGTH|KID|
@@ -86,10 +117,14 @@ func DeriveKeyFromBytesCustomSalt(secret []byte, salt string) ([]byte, error) {
 // IV - variable bytes (equal to IV_LENGTH bytes)
 // IV_LENGTH - 1 byte
 // KID (Key ID) - 1 byte - ignored here, key is provided as parameter to function
-func DecryptGCMAudioSample(sample, key, sifTrailer []byte) ([]byte, error) {
+func DecryptGCMAudioSampleCustomCipher(sample, sifTrailer []byte, cipherBlock cipher.Block) ([]byte, error) {
 
-	if len(key) != 16 {
-		return nil, ErrIncorrectKeyLength
+	if cipherBlock == nil {
+		return nil, ErrBlockCipherRequired
+	}
+
+	if sample == nil {
+		return nil, nil
 	}
 
 	if sifTrailer != nil && len(sample) >= len(sifTrailer) {
@@ -120,18 +155,11 @@ func DecryptGCMAudioSample(sample, key, sifTrailer []byte) ([]byte, error) {
 	cipherText := make([]byte, cipherTextLength)
 	copy(cipherText, sample[cipherTextStart:cipherTextStart+cipherTextLength])
 
-	// setup AES
-	aesCipher, err := aes.NewCipher(key)
+	aesGCM, err := cipher.NewGCMWithNonceSize(cipherBlock, ivLength) // standard Nonce size is 12 bytes, but since it MAY be different in the sample, we use the one from the sample
 	if err != nil {
 		return nil, err
 	}
 
-	aesGCM, err := cipher.NewGCMWithNonceSize(aesCipher, ivLength) // standard Nonce size is 12 bytes, but since it MAY be different in the sample, we use the one from the sample
-	if err != nil {
-		return nil, err
-	}
-
-	// fmt.Println("**** DECRYPTION BEGIN ********")
 	plainText, err := aesGCM.Open(nil, iv, cipherText, frameHeader)
 	if err != nil {
 		return nil, err
@@ -147,6 +175,23 @@ func DecryptGCMAudioSample(sample, key, sifTrailer []byte) ([]byte, error) {
 }
 
 // Take audio sample (body of RTP) and encrypts it using AES-GCM 128bit with provided key
+// Use EncryptGCMAudioSampleCustomCipher with cached aes cipher block for better (20%) performance
+func EncryptGCMAudioSample(sample, key []byte, kid uint8) ([]byte, error) {
+
+	if len(key) != 16 {
+		return nil, ErrIncorrectKeyLength
+	}
+
+	cipherBlock, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+
+	return EncryptGCMAudioSampleCustomCipher(sample, kid, cipherBlock)
+
+}
+
+// Take audio sample (body of RTP) and encrypts it using AES-GCM 128bit with provided cipher block
 // Encrypted sample format based on livekit client sdk
 // ---------+-------------------------+---------+----
 // payload  |IV...(length = IV_LENGTH)|IV_LENGTH|KID|
@@ -156,10 +201,14 @@ func DecryptGCMAudioSample(sample, key, sifTrailer []byte) ([]byte, error) {
 // IV - variable bytes (equal to IV_LENGTH bytes) - 12 random bytes
 // IV_LENGTH - 1 byte - 12 bytes fixed
 // KID (Key ID) - 1 byte - taken from "kid" parameter
-func EncryptGCMAudioSample(sample, key []byte, kid uint8) ([]byte, error) {
+func EncryptGCMAudioSampleCustomCipher(sample []byte, kid uint8, cipherBlock cipher.Block) ([]byte, error) {
 
-	if len(key) != 16 {
-		return nil, ErrIncorrectKeyLength
+	if cipherBlock == nil {
+		return nil, ErrBlockCipherRequired
+	}
+
+	if sample == nil {
+		return nil, nil
 	}
 
 	// variable naming is kept close to LiveKit client SDK decrypt function
@@ -179,13 +228,7 @@ func EncryptGCMAudioSample(sample, key []byte, kid uint8) ([]byte, error) {
 	plainText := make([]byte, plainTextLength)
 	copy(plainText, sample[plainTextStart:plainTextStart+plainTextLength])
 
-	// setup AES
-	aesCipher, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-
-	aesGCM, err := cipher.NewGCMWithNonceSize(aesCipher, LIVEKIT_IV_LENGTH) // standard Nonce size is 12 bytes, but using one from defined constant (which matches Javascript SDK)
+	aesGCM, err := cipher.NewGCMWithNonceSize(cipherBlock, LIVEKIT_IV_LENGTH) // standard Nonce size is 12 bytes, but using one from defined constant (which matches Javascript SDK)
 	if err != nil {
 		return nil, err
 	}
