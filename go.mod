@@ -24,7 +24,7 @@ require (
 	go.uber.org/atomic v1.11.0
 	golang.org/x/crypto v0.31.0
 	golang.org/x/exp v0.0.0-20241217172543-b2144cdd0a67
-	google.golang.org/protobuf v1.36.0
+	google.golang.org/protobuf v1.36.1
 )
 
 require (
