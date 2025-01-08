@@ -739,6 +739,10 @@ func (r *Room) handleTranscriptionReceived(transcription *livekit.Transcription)
 		publication = r.LocalParticipant.getPublication(transcription.TrackId)
 	} else {
 		rp := r.GetParticipantByIdentity(transcription.TranscribedParticipantIdentity)
+		if rp == nil {
+			r.log.Debugw("recieved transcription for unknown participant", "participant", transcription.TranscribedParticipantIdentity)
+			return
+		}
 		publication = rp.getPublication(transcription.TrackId)
 		p = rp
 	}
