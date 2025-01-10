@@ -394,7 +394,12 @@ func (r *Room) runParticipantDefers(sid livekit.ParticipantID, p *RemoteParticip
 	r.lock.Unlock()
 
 	if len(fncs) != 0 {
-		r.log.Infow("running deferred updates for participant", "pID", sid, "updates", len(fncs))
+		r.log.Infow(
+			"running deferred updates for participant",
+			"participant", p.Identity(),
+			"pID", sid,
+			"numUpdates", len(fncs),
+		)
 		for _, fnc := range fncs {
 			fnc(p)
 		}
@@ -414,7 +419,12 @@ func (r *Room) clearParticipantDefers(sid livekit.ParticipantID, pi *livekit.Par
 			}
 		}
 		if !found {
-			r.log.Infow("deleting deferred update for participant", "pID", sid, "trackID", trackID)
+			r.log.Infow(
+				"deleting deferred update for participant",
+				"participant", pi.Identity,
+				"pID", sid,
+				"trackID", trackID,
+			)
 			delete(r.sidDefers[sid], trackID)
 			if len(r.sidDefers[sid]) == 0 {
 				delete(r.sidDefers, sid)
@@ -627,9 +637,9 @@ func (r *Room) handleParticipantUpdate(participants []*livekit.ParticipantInfo) 
 			if oldSid != newSid {
 				r.log.Infow(
 					"participant sid update",
+					"participant", rp.Identity(),
 					"sid-old", oldSid,
 					"sid-new", newSid,
-					"participant", rp.Identity(),
 				)
 				r.lock.Lock()
 				delete(r.sidDefers, oldSid)
