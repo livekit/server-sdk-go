@@ -394,7 +394,12 @@ func (r *Room) runParticipantDefers(sid livekit.ParticipantID, p *RemoteParticip
 	r.lock.Unlock()
 
 	if len(fncs) != 0 {
-		r.log.Infow("running deferred updates for participant", "participantID", sid, "updates", len(fncs))
+		r.log.Infow(
+			"running deferred updates for participant",
+			"participant", p.Identity(),
+			"pID", sid,
+			"numUpdates", len(fncs),
+		)
 		for _, fnc := range fncs {
 			fnc(p)
 		}
@@ -414,7 +419,12 @@ func (r *Room) clearParticipantDefers(sid livekit.ParticipantID, pi *livekit.Par
 			}
 		}
 		if !found {
-			r.log.Infow("deleting deferred update for participant", "participantID", sid, "trackID", trackID)
+			r.log.Infow(
+				"deleting deferred update for participant",
+				"participant", pi.Identity,
+				"pID", sid,
+				"trackID", trackID,
+			)
 			delete(r.sidDefers[sid], trackID)
 			if len(r.sidDefers[sid]) == 0 {
 				delete(r.sidDefers, sid)
@@ -520,7 +530,7 @@ func (r *Room) handleMediaTrack(track *webrtc.TrackRemote, receiver *webrtc.RTPR
 	if rp == nil {
 		r.log.Infow(
 			"could not find participant, deferring track update",
-			"participantID", participantID,
+			"pID", participantID,
 			"trackID", trackID,
 			"streamID", streamID,
 		)
@@ -599,6 +609,12 @@ func (r *Room) handleDataReceived(identity string, dataPacket DataPacket) {
 
 func (r *Room) handleParticipantUpdate(participants []*livekit.ParticipantInfo) {
 	for _, pi := range participants {
+		r.log.Infow(
+			"handling participant update",
+			"participant", pi.Identity,
+			"pID", pi.Sid,
+			"participantInfo", protoLogger.Proto(pi),
+		)
 		if pi.Sid == r.LocalParticipant.SID() || pi.Identity == r.LocalParticipant.Identity() {
 			r.LocalParticipant.updateInfo(pi)
 			continue
@@ -608,10 +624,7 @@ func (r *Room) handleParticipantUpdate(participants []*livekit.ParticipantInfo) 
 		isNew := rp == nil
 
 		if pi.State == livekit.ParticipantInfo_DISCONNECTED {
-			// remove
-			if rp != nil {
-				r.handleParticipantDisconnect(rp)
-			}
+			r.handleParticipantDisconnect(rp)
 		} else if isNew {
 			rp = r.addRemoteParticipant(pi, true)
 			r.clearParticipantDefers(livekit.ParticipantID(pi.Sid), pi)
@@ -622,8 +635,14 @@ func (r *Room) handleParticipantUpdate(participants []*livekit.ParticipantInfo) 
 			rp.updateInfo(pi)
 			newSid := livekit.ParticipantID(rp.SID())
 			if oldSid != newSid {
-				r.log.Infow("participant sid update", "sid-old", oldSid, "sid-new", newSid, "identity", rp.Identity())
+				r.log.Infow(
+					"participant sid update",
+					"participant", rp.Identity(),
+					"sid-old", oldSid,
+					"sid-new", newSid,
+				)
 				r.lock.Lock()
+				delete(r.sidDefers, oldSid)
 				delete(r.sidToIdentity, oldSid)
 				r.sidToIdentity[newSid] = livekit.ParticipantIdentity(rp.Identity())
 				r.lock.Unlock()
@@ -634,15 +653,19 @@ func (r *Room) handleParticipantUpdate(participants []*livekit.ParticipantInfo) 
 	}
 }
 
-func (r *Room) handleParticipantDisconnect(p *RemoteParticipant) {
+func (r *Room) handleParticipantDisconnect(rp *RemoteParticipant) {
+	if rp == nil {
+		return
+	}
+
 	r.lock.Lock()
-	delete(r.remoteParticipants, livekit.ParticipantIdentity(p.Identity()))
-	delete(r.sidToIdentity, livekit.ParticipantID(p.SID()))
-	delete(r.sidDefers, livekit.ParticipantID(p.SID()))
+	delete(r.remoteParticipants, livekit.ParticipantIdentity(rp.Identity()))
+	delete(r.sidToIdentity, livekit.ParticipantID(rp.SID()))
+	delete(r.sidDefers, livekit.ParticipantID(rp.SID()))
 	r.lock.Unlock()
 
-	p.unpublishAllTracks()
-	go r.callback.OnParticipantDisconnected(p)
+	rp.unpublishAllTracks()
+	go r.callback.OnParticipantDisconnected(rp)
 }
 
 func (r *Room) handleSpeakersChange(speakerUpdates []*livekit.SpeakerInfo) {
