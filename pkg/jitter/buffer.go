@@ -109,6 +109,9 @@ func (b *Buffer) Push(pkt *rtp.Packet) {
 			b.prevSN = pkt.SequenceNumber - 1
 			b.minTS = pkt.Timestamp - b.maxLate
 			p.reset = true
+		} else {
+			// drop the buffer
+			return
 		}
 	} else if beforePrev && !outsidePrevRange {
 		// drop if packet comes before previously pushed packet
