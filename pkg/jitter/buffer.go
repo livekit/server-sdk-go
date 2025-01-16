@@ -100,8 +100,8 @@ func (b *Buffer) Push(pkt *rtp.Packet) {
 
 	if !b.initialized {
 		if p.start {
-			for c := b.head; c != nil; c = b.head {
-				if before16(c.packet.SequenceNumber, pkt.SequenceNumber) {
+			for {
+				if b.head != nil && before16(b.head.packet.SequenceNumber, pkt.SequenceNumber) {
 					// drop packet
 					b.head = b.head.next
 				} else {

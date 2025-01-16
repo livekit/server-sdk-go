@@ -33,8 +33,8 @@ func TestJitterBuffer(t *testing.T) {
 	require.Len(t, b.Pop(false), 0)
 
 	b.Push(testPacket(3, 31))
-	b.Push(testHeadPacket(6, 32))
 	b.Push(testHeadPacket(1, 31))
+	b.Push(testHeadPacket(6, 32))
 
 	require.Len(t, b.Pop(false), 0)
 
