@@ -101,8 +101,10 @@ func (b *Buffer) Push(pkt *rtp.Packet) {
 	outsidePrevRange := outsideRange(pkt.SequenceNumber, b.prevSN)
 
 	if !b.initialized {
+		fmt.Println("NOT INIT", p.start, b.head)
 		if p.start && (b.head == nil || before16(pkt.SequenceNumber, b.head.packet.SequenceNumber)) {
 			// initialize on the first start packet
+			fmt.Println("INITIALIZED")
 			b.initialized = true
 			b.prevSN = pkt.SequenceNumber - 1
 			b.minTS = pkt.Timestamp - b.maxLate
