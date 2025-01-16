@@ -104,6 +104,9 @@ func (b *Buffer) Push(pkt *rtp.Packet) {
 				if b.head != nil && before16(b.head.packet.SequenceNumber, pkt.SequenceNumber) {
 					// drop packet
 					b.head = b.head.next
+					if b.head == nil {
+						b.tail = nil
+					}
 				} else {
 					break
 				}
