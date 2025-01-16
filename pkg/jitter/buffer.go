@@ -15,6 +15,7 @@
 package jitter
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -91,6 +92,7 @@ func (b *Buffer) Push(pkt *rtp.Packet) {
 	} else {
 		start = b.depacketizer.IsPartitionHead(pkt.Payload)
 		end = b.depacketizer.IsPartitionTail(pkt.Marker, pkt.Payload)
+		fmt.Println("PARTITION", start, end)
 	}
 
 	p := b.newPacket(start, end, padding, pkt)
@@ -277,11 +279,13 @@ func (b *Buffer) pop() []*rtp.Packet {
 
 	b.drop()
 	if b.head == nil || !b.head.start {
+		fmt.Println("No start")
 		return nil
 	}
 
 	end := b.getEnd()
 	if end == nil {
+		fmt.Println("No end")
 		return nil
 	}
 
@@ -368,6 +372,7 @@ func (b *Buffer) getEnd() *packet {
 		if c.packet.SequenceNumber != prevSN+1 &&
 			// or a reset which is about to reach its time limit
 			(!prevComplete || !c.reset || !before32(c.packet.Timestamp-b.maxSampleSize, b.minTS)) {
+			fmt.Println("PREV", prevSN, c.packet.SequenceNumber)
 			break
 		}
 		if prevComplete {
@@ -380,6 +385,7 @@ func (b *Buffer) getEnd() *packet {
 		prevSN = c.packet.SequenceNumber
 	}
 
+	fmt.Println("END", end)
 	return end
 }
 
