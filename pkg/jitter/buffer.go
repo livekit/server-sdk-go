@@ -78,7 +78,7 @@ func (b *Buffer) UpdateMaxLatency(maxLatency time.Duration) {
 func (b *Buffer) Push(pkt *rtp.Packet) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-
+	fmt.Println("PUSH", len(pkt.Payload))
 	b.packetsTotal++
 	var start, end, padding bool
 	if len(pkt.Payload) == 0 {
