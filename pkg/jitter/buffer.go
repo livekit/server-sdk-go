@@ -99,7 +99,19 @@ func (b *Buffer) Push(pkt *rtp.Packet) {
 	outsidePrevRange := outsideRange(pkt.SequenceNumber, b.prevSN)
 
 	if !b.initialized {
-		if p.start && (b.head == nil || before16(pkt.SequenceNumber, b.head.packet.SequenceNumber)) {
+		if p.start {
+			for {
+				if b.head != nil && before16(b.head.packet.SequenceNumber, pkt.SequenceNumber) {
+					// drop packet
+					b.head = b.head.next
+					if b.head == nil {
+						b.tail = nil
+					}
+				} else {
+					break
+				}
+			}
+
 			// initialize on the first start packet
 			b.initialized = true
 			b.prevSN = pkt.SequenceNumber - 1
