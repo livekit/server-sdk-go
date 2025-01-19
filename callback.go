@@ -125,20 +125,34 @@ func (cb *ParticipantCallback) Merge(other *ParticipantCallback) {
 type DisconnectionReason string
 
 const (
-	LeaveRequested  DisconnectionReason = "leave requested by room"
-	UserUnavailable DisconnectionReason = "remote user unavailable"
-	RejectedByUser  DisconnectionReason = "rejected by remote user"
-	Failed          DisconnectionReason = "connection to room failed"
+	LeaveRequested     DisconnectionReason = "leave requested by user"
+	UserUnavailable    DisconnectionReason = "remote user unavailable"
+	RejectedByUser     DisconnectionReason = "rejected by remote user"
+	Failed             DisconnectionReason = "connection to room failed"
+	RoomClosed         DisconnectionReason = "room closed"
+	ParticipantRemoved DisconnectionReason = "removed by server"
+	DuplicateIdentity  DisconnectionReason = "duplicate identity"
+	OtherReason        DisconnectionReason = "other reasons"
 )
 
 func GetDisconnectionReason(reason livekit.DisconnectReason) DisconnectionReason {
 	// TODO: SDK should forward the original reason and provide helpers like IsRequestedLeave.
-	r := LeaveRequested
+	r := OtherReason
 	switch reason {
+	case livekit.DisconnectReason_CLIENT_INITIATED:
+		r = LeaveRequested
 	case livekit.DisconnectReason_USER_UNAVAILABLE:
 		r = UserUnavailable
 	case livekit.DisconnectReason_USER_REJECTED:
 		r = RejectedByUser
+	case livekit.DisconnectReason_ROOM_CLOSED:
+		r = RoomClosed
+	case livekit.DisconnectReason_PARTICIPANT_REMOVED:
+		r = ParticipantRemoved
+	case livekit.DisconnectReason_DUPLICATE_IDENTITY:
+		r = DuplicateIdentity
+	case livekit.DisconnectReason_JOIN_FAILURE, livekit.DisconnectReason_SIGNAL_CLOSE, livekit.DisconnectReason_STATE_MISMATCH:
+		r = Failed
 	}
 	return r
 }
