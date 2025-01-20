@@ -342,41 +342,6 @@ func (p *LocalParticipant) PublishData(payload []byte, opts ...DataPublishOption
 	return p.PublishDataPacket(UserData(payload), opts...)
 }
 
-type DataPacket interface {
-	ToProto() *livekit.DataPacket
-}
-
-// Compile-time assertion for all supported data packet types.
-var (
-	_ DataPacket = (*UserDataPacket)(nil)
-	_ DataPacket = (*livekit.SipDTMF)(nil) // implemented in the protocol package
-)
-
-// UserData is a custom user data that can be sent via WebRTC.
-func UserData(data []byte) *UserDataPacket {
-	return &UserDataPacket{Payload: data}
-}
-
-// UserDataPacket is a custom user data that can be sent via WebRTC on a custom topic.
-type UserDataPacket struct {
-	Payload []byte
-	Topic   string // optional
-}
-
-// ToProto implements DataPacket.
-func (p *UserDataPacket) ToProto() *livekit.DataPacket {
-	var topic *string
-	if p.Topic != "" {
-		topic = proto.String(p.Topic)
-	}
-	return &livekit.DataPacket{Value: &livekit.DataPacket_User{
-		User: &livekit.UserPacket{
-			Payload: p.Payload,
-			Topic:   topic,
-		},
-	}}
-}
-
 // PublishDataPacket sends a packet via a WebRTC data channel. UserData can be used for sending custom user data.
 //
 // By default, the message can be received by all participants in a room,
