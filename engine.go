@@ -15,6 +15,7 @@
 package lksdk
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -139,8 +140,13 @@ func (e *RTCEngine) SetLogger(l protoLogger.Logger) {
 	}
 }
 
+// Deprecated, use JoinContext.
 func (e *RTCEngine) Join(url string, token string, params *SignalClientConnectParams) (*livekit.JoinResponse, error) {
-	res, err := e.client.Join(url, token, *params)
+	return e.JoinContext(context.TODO(), url, token, params)
+}
+
+func (e *RTCEngine) JoinContext(ctx context.Context, url string, token string, params *SignalClientConnectParams) (*livekit.JoinResponse, error) {
+	res, err := e.client.JoinContext(ctx, url, token, *params)
 	if err != nil {
 		return nil, err
 	}
