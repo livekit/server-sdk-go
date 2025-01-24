@@ -15,6 +15,7 @@
 package lksdk
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -81,8 +82,13 @@ func (c *SignalClient) IsStarted() bool {
 	return c.isStarted.Load()
 }
 
+// Deprecated, use JoinContext
 func (c *SignalClient) Join(urlPrefix string, token string, params SignalClientConnectParams) (*livekit.JoinResponse, error) {
-	res, err := c.connect(urlPrefix, token, params, "")
+	return c.JoinContext(context.TODO(), urlPrefix, token, params)
+}
+
+func (c *SignalClient) JoinContext(ctx context.Context, urlPrefix string, token string, params SignalClientConnectParams) (*livekit.JoinResponse, error) {
+	res, err := c.connectContext(ctx, urlPrefix, token, params, "")
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +127,12 @@ func (c *SignalClient) Reconnect(urlPrefix string, token string, params SignalCl
 	return nil, nil
 }
 
+// Deprecated, use connectContext.
 func (c *SignalClient) connect(urlPrefix string, token string, params SignalClientConnectParams, participantSID string) (*livekit.SignalResponse, error) {
+	return c.connectContext(context.TODO(), urlPrefix, token, params, participantSID)
+}
+
+func (c *SignalClient) connectContext(ctx context.Context, urlPrefix string, token string, params SignalClientConnectParams, participantSID string) (*livekit.SignalResponse, error) {
 	if urlPrefix == "" {
 		return nil, ErrURLNotProvided
 	}
@@ -147,7 +158,7 @@ func (c *SignalClient) connect(urlPrefix string, token string, params SignalClie
 	}
 
 	header := newHeaderWithToken(token)
-	conn, hresp, err := websocket.DefaultDialer.Dial(u.String(), header)
+	conn, hresp, err := websocket.DefaultDialer.DialContext(ctx, u.String(), header)
 	if err != nil {
 		var fields []interface{}
 		if hresp != nil {
@@ -162,7 +173,7 @@ func (c *SignalClient) connect(urlPrefix string, token string, params SignalClie
 		// use validate endpoint to get the actual error
 		validateSuffix := strings.Replace(urlSuffix, "/rtc", "/rtc/validate", 1)
 
-		validateReq, err1 := http.NewRequest(http.MethodGet, ToHttpURL(urlPrefix)+validateSuffix, nil)
+		validateReq, err1 := http.NewRequestWithContext(ctx, http.MethodGet, ToHttpURL(urlPrefix)+validateSuffix, nil)
 		if err1 != nil {
 			c.log.Errorw("error creating validate request", err1)
 			return nil, ErrCannotDialSignal
