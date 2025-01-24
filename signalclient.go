@@ -173,7 +173,7 @@ func (c *SignalClient) connectContext(ctx context.Context, urlPrefix string, tok
 		// use validate endpoint to get the actual error
 		validateSuffix := strings.Replace(urlSuffix, "/rtc", "/rtc/validate", 1)
 
-		validateReq, err1 := http.NewRequest(http.MethodGet, ToHttpURL(urlPrefix)+validateSuffix, nil)
+		validateReq, err1 := http.NewRequestWithContext(ctx, http.MethodGet, ToHttpURL(urlPrefix)+validateSuffix, nil)
 		if err1 != nil {
 			c.log.Errorw("error creating validate request", err1)
 			return nil, ErrCannotDialSignal
