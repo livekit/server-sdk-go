@@ -18,9 +18,9 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
-	"github.com/livekit/protocol/utils/mono"
 	"github.com/twitchtv/twirp"
 )
 
@@ -134,7 +134,7 @@ func (c *RoomServiceClient) SendData(ctx context.Context, req *livekit.SendDataR
 		return nil, err
 	}
 	// add a nonce to enable receiver to de-dupe
-	req.Nonce = mono.UnixNano()
+	req.Nonce = uuid.New().String()
 	return c.roomService.SendData(ctx, req)
 }
 
