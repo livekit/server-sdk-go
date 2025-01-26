@@ -17,6 +17,7 @@ package lksdk
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
@@ -132,6 +133,8 @@ func (c *RoomServiceClient) SendData(ctx context.Context, req *livekit.SendDataR
 	if err != nil {
 		return nil, err
 	}
+	// add a nonce to enable receiver to de-dupe
+	req.Nonce = time.Now().UnixNano()
 	return c.roomService.SendData(ctx, req)
 }
 
