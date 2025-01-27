@@ -133,8 +133,10 @@ func (c *RoomServiceClient) SendData(ctx context.Context, req *livekit.SendDataR
 	if err != nil {
 		return nil, err
 	}
-	// add a nonce to enable receiver to de-dupe
-	req.Nonce = uuid.New().String()
+	if len(req.Nonce) == 0 {
+		// add a nonce to enable receiver to de-dupe
+		req.Nonce = uuid.New().String()
+	}
 	return c.roomService.SendData(ctx, req)
 }
 
