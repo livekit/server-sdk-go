@@ -18,6 +18,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
 	"github.com/twitchtv/twirp"
@@ -131,6 +132,11 @@ func (c *RoomServiceClient) SendData(ctx context.Context, req *livekit.SendDataR
 	ctx, err := c.withAuth(ctx, withVideoGrant{RoomAdmin: true, Room: req.Room})
 	if err != nil {
 		return nil, err
+	}
+	// add a nonce to enable receiver to de-dupe
+	bytes, err := uuid.New().MarshalBinary()
+	if err == nil {
+		req.Nonce = bytes
 	}
 	return c.roomService.SendData(ctx, req)
 }
