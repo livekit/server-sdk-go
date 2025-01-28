@@ -2,7 +2,7 @@ module github.com/livekit/server-sdk-go/v2
 
 go 1.22.7
 
-toolchain go1.23.3
+toolchain go1.23.5
 
 require (
 	github.com/bep/debounce v1.2.1
@@ -24,7 +24,7 @@ require (
 	github.com/twitchtv/twirp v8.1.3+incompatible
 	go.uber.org/atomic v1.11.0
 	golang.org/x/crypto v0.32.0
-	golang.org/x/exp v0.0.0-20250106191152-7588d65b2ba8
+	golang.org/x/exp v0.0.0-20250128182459-e0ece0dbea4c
 	google.golang.org/protobuf v1.36.4
 )
 
