@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
+	"github.com/livekit/protocol/utils/xtwirp"
 	"github.com/twitchtv/twirp"
 )
 
@@ -30,6 +31,7 @@ type RoomServiceClient struct {
 }
 
 func NewRoomServiceClient(url string, apiKey string, secretKey string, opts ...twirp.ClientOption) *RoomServiceClient {
+	opts = append(opts, xtwirp.DefaultClientOptions()...)
 	url = ToHttpURL(url)
 	client := livekit.NewRoomServiceProtobufClient(url, &http.Client{}, opts...)
 	return &RoomServiceClient{

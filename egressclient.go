@@ -19,6 +19,7 @@ import (
 	"net/http"
 
 	"github.com/livekit/protocol/livekit"
+	"github.com/livekit/protocol/utils/xtwirp"
 	"github.com/twitchtv/twirp"
 )
 
@@ -28,6 +29,7 @@ type EgressClient struct {
 }
 
 func NewEgressClient(url string, apiKey string, secretKey string, opts ...twirp.ClientOption) *EgressClient {
+	opts = append(opts, xtwirp.DefaultClientOptions()...)
 	url = ToHttpURL(url)
 	client := livekit.NewEgressProtobufClient(url, &http.Client{}, opts...)
 	return &EgressClient{
