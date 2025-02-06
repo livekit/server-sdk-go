@@ -20,7 +20,9 @@ import (
 	"time"
 
 	"github.com/livekit/protocol/livekit"
+	"github.com/livekit/protocol/utils/xtwirp"
 	"github.com/twitchtv/twirp"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -33,6 +35,7 @@ type SIPClient struct {
 
 // NewSIPClient creates a LiveKit SIP client.
 func NewSIPClient(url string, apiKey string, secretKey string, opts ...twirp.ClientOption) *SIPClient {
+	opts = append(opts, xtwirp.DefaultClientOptions()...)
 	return &SIPClient{
 		sipClient: livekit.NewSIPProtobufClient(ToHttpURL(url), &http.Client{}, opts...),
 		authBase: authBase{
@@ -269,4 +272,18 @@ func (s *SIPClient) TransferSIPParticipant(ctx context.Context, in *livekit.Tran
 	}
 
 	return s.sipClient.TransferSIPParticipant(ctx, in)
+}
+
+// SIPStatusFrom unwraps an error and returns associated SIP call status, if any.
+func SIPStatusFrom(err error) *livekit.SIPStatus {
+	st, ok := status.FromError(err)
+	if !ok {
+		return nil
+	}
+	for _, d := range st.Details() {
+		if e, ok := d.(*livekit.SIPStatus); ok {
+			return e
+		}
+	}
+	return nil
 }
