@@ -320,7 +320,7 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 				// - Too long, users will given up.
 				// - Too short, risk frequently timing out on a request that would have
 				//   succeeded.
-				callCtx, cancelCallCtx := context.WithTimeout(ctx, 4 * time.Second)
+				callCtx, cancelCallCtx := context.WithTimeout(ctx, 4*time.Second)
 				joinRes, err = r.engine.JoinContext(callCtx, bestURL, token, params)
 				cancelCallCtx()
 				if err != nil {
@@ -620,12 +620,6 @@ func (r *Room) handleDataReceived(identity string, dataPacket DataPacket) {
 
 func (r *Room) handleParticipantUpdate(participants []*livekit.ParticipantInfo) {
 	for _, pi := range participants {
-		r.log.Infow(
-			"handling participant update",
-			"participant", pi.Identity,
-			"pID", pi.Sid,
-			"participantInfo", protoLogger.Proto(pi),
-		)
 		if pi.Sid == r.LocalParticipant.SID() || pi.Identity == r.LocalParticipant.Identity() {
 			r.LocalParticipant.updateInfo(pi)
 			continue
