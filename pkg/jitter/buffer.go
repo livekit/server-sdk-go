@@ -236,9 +236,20 @@ func (b *Buffer) PopSamples(force bool) [][]*rtp.Packet {
 	}
 }
 
+func (b *Buffer) PacketsDropped() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.packetsDropped
+}
+
 func (b *Buffer) PacketLoss() float64 {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	if b.packetsTotal == 0 {
+		return 0
+	}
 
 	return float64(b.packetsDropped) / float64(b.packetsTotal)
 }
