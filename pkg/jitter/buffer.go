@@ -46,8 +46,8 @@ type Buffer struct {
 
 type BufferStats struct {
 	PacketsPushed  uint64
+	PaddingPushed  uint64
 	PacketsDropped uint64
-	PaddingPackets uint64
 	PacketsPopped  uint64
 	SamplesPopped  uint64
 }
@@ -87,6 +87,10 @@ func (b *Buffer) Push(pkt *rtp.Packet) {
 	defer b.mu.Unlock()
 
 	b.stats.PacketsPushed++
+	if pkt.Padding {
+		b.stats.PaddingPushed++
+	}
+
 	var start, end, padding bool
 	if len(pkt.Payload) == 0 {
 		// drop padding packets from the beginning of the stream
@@ -237,6 +241,9 @@ func (b *Buffer) Pop(force bool) []*rtp.Packet {
 }
 
 func (b *Buffer) PopSamples(force bool) [][]*rtp.Packet {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	if force {
 		return b.forcePopSamples()
 	} else {
@@ -251,7 +258,7 @@ func (b *Buffer) Stats() *BufferStats {
 	return &BufferStats{
 		PacketsPushed:  b.stats.PacketsPushed,
 		PacketsDropped: b.stats.PacketsDropped,
-		PaddingPackets: b.stats.PaddingPackets,
+		PaddingPushed:  b.stats.PaddingPushed,
 		PacketsPopped:  b.stats.PacketsPopped,
 		SamplesPopped:  b.stats.SamplesPopped,
 	}
