@@ -29,8 +29,7 @@ type Buffer struct {
 	maxLate         uint32
 	clockRate       uint32
 	onPacketDropped func()
-	packetsDropped  int
-	packetsTotal    int
+	stats           *BufferStats
 	logger          logger.Logger
 
 	mu          sync.Mutex
@@ -45,6 +44,14 @@ type Buffer struct {
 	minTS         uint32
 }
 
+type BufferStats struct {
+	PacketsPushed  uint64
+	PacketsDropped uint64
+	PaddingPackets uint64
+	PacketsPopped  uint64
+	SamplesPopped  uint64
+}
+
 type packet struct {
 	prev, next     *packet
 	start, end     bool
@@ -57,6 +64,7 @@ func NewBuffer(depacketizer rtp.Depacketizer, clockRate uint32, maxLatency time.
 		depacketizer: depacketizer,
 		maxLate:      uint32(float64(maxLatency) / float64(time.Second) * float64(clockRate)),
 		clockRate:    clockRate,
+		stats:        &BufferStats{},
 		logger:       logger.LogRLogger(logr.Discard()),
 	}
 	for _, opt := range opts {
@@ -78,7 +86,7 @@ func (b *Buffer) Push(pkt *rtp.Packet) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.packetsTotal++
+	b.stats.PacketsPushed++
 	var start, end, padding bool
 	if len(pkt.Payload) == 0 {
 		// drop padding packets from the beginning of the stream
@@ -121,7 +129,7 @@ func (b *Buffer) Push(pkt *rtp.Packet) {
 	} else if beforePrev && !outsidePrevRange {
 		// drop if packet comes before previously pushed packet
 		if !p.padding {
-			b.packetsDropped++
+			b.stats.PacketsDropped++
 			if b.onPacketDropped != nil {
 				b.onPacketDropped()
 			}
@@ -236,22 +244,28 @@ func (b *Buffer) PopSamples(force bool) [][]*rtp.Packet {
 	}
 }
 
-func (b *Buffer) PacketsDropped() int {
+func (b *Buffer) Stats() *BufferStats {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	return b.packetsDropped
+	return &BufferStats{
+		PacketsPushed:  b.stats.PacketsPushed,
+		PacketsDropped: b.stats.PacketsDropped,
+		PaddingPackets: b.stats.PaddingPackets,
+		PacketsPopped:  b.stats.PacketsPopped,
+		SamplesPopped:  b.stats.SamplesPopped,
+	}
 }
 
 func (b *Buffer) PacketLoss() float64 {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if b.packetsTotal == 0 {
+	if b.stats.PacketsPushed == 0 {
 		return 0
 	}
 
-	return float64(b.packetsDropped) / float64(b.packetsTotal)
+	return float64(b.stats.PacketsDropped) / float64(b.stats.PacketsPushed)
 }
 
 func (b *Buffer) forcePop() []*rtp.Packet {
@@ -260,7 +274,13 @@ func (b *Buffer) forcePop() []*rtp.Packet {
 	var next *packet
 	for c := b.head; c != nil; c = next {
 		next = c.next
-		packets = append(packets, c.packet)
+		if !c.padding {
+			packets = append(packets, c.packet)
+			b.stats.PacketsPopped++
+		}
+		if c.end {
+			b.stats.SamplesPopped++
+		}
 		b.free(c)
 	}
 
@@ -276,15 +296,24 @@ func (b *Buffer) forcePopSamples() [][]*rtp.Packet {
 	var next *packet
 	for c := b.head; c != nil; c = next {
 		next = c.next
+
 		if c.start && len(sample) > 0 {
+			b.stats.SamplesPopped++
 			packets = append(packets, sample)
 			sample = make([]*rtp.Packet, 0)
 		}
-		sample = append(sample, c.packet)
+
+		if !c.padding {
+			sample = append(sample, c.packet)
+			b.stats.PacketsPopped++
+		}
+
 		if c.end {
+			b.stats.SamplesPopped++
 			packets = append(packets, sample)
 			sample = make([]*rtp.Packet, 0)
 		}
+
 		b.free(c)
 	}
 
@@ -312,9 +341,6 @@ func (b *Buffer) pop() []*rtp.Packet {
 	var next *packet
 	for c := b.head; ; c = next {
 		next = c.next
-		if !c.padding {
-			packets = append(packets, c.packet)
-		}
 		if next != nil {
 			if outsideRange(next.packet.SequenceNumber, c.packet.SequenceNumber) {
 				// adjust minTS to account for sequence number reset
@@ -322,6 +348,15 @@ func (b *Buffer) pop() []*rtp.Packet {
 			}
 			next.prev = nil
 		}
+
+		if !c.padding {
+			packets = append(packets, c.packet)
+			b.stats.PacketsPopped++
+		}
+		if c.end {
+			b.stats.SamplesPopped++
+		}
+
 		if c == end {
 			b.prevSN = c.packet.SequenceNumber
 			b.head = next
@@ -331,6 +366,7 @@ func (b *Buffer) pop() []*rtp.Packet {
 			b.free(c)
 			return packets
 		}
+
 		b.free(c)
 	}
 }
@@ -355,9 +391,6 @@ func (b *Buffer) popSamples() [][]*rtp.Packet {
 	var next *packet
 	for c := b.head; ; c = next {
 		next = c.next
-		if !c.padding {
-			sample = append(sample, c.packet)
-		}
 		if next != nil {
 			if outsideRange(next.packet.SequenceNumber, c.packet.SequenceNumber) {
 				// adjust minTS to account for sequence number reset
@@ -365,10 +398,17 @@ func (b *Buffer) popSamples() [][]*rtp.Packet {
 			}
 			next.prev = nil
 		}
+
+		if !c.padding {
+			sample = append(sample, c.packet)
+			b.stats.PacketsPopped++
+		}
 		if c.end {
+			b.stats.SamplesPopped++
 			packets = append(packets, sample)
 			sample = make([]*rtp.Packet, 0)
 		}
+
 		if c == end {
 			b.prevSN = c.packet.SequenceNumber
 			b.head = next
@@ -378,6 +418,7 @@ func (b *Buffer) popSamples() [][]*rtp.Packet {
 			b.free(c)
 			return packets
 		}
+
 		b.free(c)
 	}
 }
@@ -419,13 +460,13 @@ func (b *Buffer) drop() {
 		// lost packets will now be too old even if we receive them
 		// on sequence number reset, skip callback because we don't know whether we lost any
 		if !b.head.reset {
-			b.packetsDropped++
 			dropped = true
+			b.stats.PacketsDropped++
 		}
 
 		for b.head != nil && !b.head.start && before32(b.head.packet.Timestamp-b.maxSampleSize, b.minTS) {
 			dropped = true
-			b.packetsDropped++
+			b.stats.PacketsDropped++
 			b.prevSN = b.head.packet.SequenceNumber - 1
 			b.dropHead()
 		}
@@ -446,7 +487,7 @@ func (b *Buffer) drop() {
 		count := 0
 		ts := c.packet.Timestamp
 		for {
-			b.packetsDropped++
+			b.stats.PacketsDropped++
 			count++
 			b.dropHead()
 			c = b.head
