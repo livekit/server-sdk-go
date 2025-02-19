@@ -49,10 +49,7 @@ func (s *Synchronizer) AddTrack(track TrackRemote, identity string) *TrackSynchr
 	s.Lock()
 	p := s.psByIdentity[identity]
 	if p == nil {
-		p = &participantSynchronizer{
-			tracks:        make(map[uint32]*TrackSynchronizer),
-			senderReports: make(map[uint32]*rtcp.SenderReport),
-		}
+		p = newParticipantSynchronizer()
 		s.psByIdentity[identity] = p
 	}
 	ssrc := uint32(track.SSRC())
@@ -100,6 +97,7 @@ func (s *Synchronizer) getOrSetStartedAt(now int64) int64 {
 
 	if s.startedAt == 0 {
 		s.startedAt = now
+
 		if s.onStarted != nil {
 			s.onStarted()
 		}
