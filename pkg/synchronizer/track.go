@@ -49,8 +49,9 @@ type TrackRemote interface {
 
 type TrackSynchronizer struct {
 	sync.Mutex
-	sync  *Synchronizer
-	track TrackRemote
+	sync   *Synchronizer
+	track  TrackRemote
+	logger logger.Logger
 
 	// track stats
 	stats        *TrackStats
@@ -74,7 +75,7 @@ type TrackSynchronizer struct {
 	inserted   int64         // number of frames inserted
 
 	// offsets
-	snOffset  uint16        // sequence number offset (increases with each blank frame inserted
+	snOffset  uint16        // sequence number offset (increases with each blank frame inserted)
 	ptsOffset time.Duration // presentation timestamp offset (used for a/v sync)
 }
 
@@ -82,6 +83,7 @@ func newTrackSynchronizer(s *Synchronizer, track TrackRemote) *TrackSynchronizer
 	t := &TrackSynchronizer{
 		sync:         s,
 		track:        track,
+		logger:       logger.GetLogger().WithValues("trackID", track.ID(), "codec", track.Codec().MimeType),
 		stats:        &TrackStats{},
 		rtpConverter: newRTPConverter(int64(track.Codec().ClockRate)),
 	}
@@ -119,7 +121,7 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 	ts, pts, valid := t.adjust(pkt)
 	if pts < t.lastPTS {
 		if t.backwards == 0 {
-			logger.Warnw("backwards pts", ErrBackwardsPTS,
+			t.logger.Warnw("backwards pts", ErrBackwardsPTS,
 				"timestamp", pkt.Timestamp,
 				"sequence number", pkt.SequenceNumber,
 				"pts", pts,
@@ -131,9 +133,8 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 		t.backwards++
 		return 0, ErrBackwardsPTS
 	} else if t.backwards > 0 {
-		logger.Debugw("packet dropped",
+		t.logger.Warnw("packet dropped", ErrBackwardsPTS,
 			"count", t.backwards,
-			"reason", "backwards pts",
 		)
 		t.backwards = 0
 	}
@@ -235,7 +236,7 @@ func (t *TrackSynchronizer) resetRTP(pkt *rtp.Packet, fields []any) (int64, time
 		"adjustedPTS", pts,
 	)
 
-	logger.Infow("resetting track synchronizer", fields...)
+	t.logger.Infow("resetting track synchronizer", fields...)
 
 	return ts, pts
 }
