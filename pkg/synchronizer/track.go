@@ -235,7 +235,7 @@ func (t *TrackSynchronizer) resetRTP(pkt *rtp.Packet, fields []any) (int64, time
 		"adjustedPTS", pts,
 	)
 
-	logger.Debugw("resetting track synchronizer", fields...)
+	logger.Infow("resetting track synchronizer", fields...)
 
 	return ts, pts
 }
