@@ -45,29 +45,38 @@ func (p *participantSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 	defer p.Unlock()
 
 	if p.ntpStart.IsZero() {
-		if p.firstReport.IsZero() {
-			p.firstReport = time.Now()
-		}
+		p.initialize(pkt)
+	} else if t := p.tracks[pkt.SSRC]; t != nil {
+		t.onSenderReport(pkt, p.ntpStart)
+	}
+}
 
-		p.senderReports[pkt.SSRC] = pkt
-		if len(p.senderReports) < len(p.tracks) && time.Since(p.firstReport) < 5*time.Second {
-			return
-		}
+func (p *participantSynchronizer) initialize(pkt *rtcp.SenderReport) {
+	if p.firstReport.IsZero() {
+		p.firstReport = time.Now()
+	}
 
-		// update ntp start time
-		for ssrc, report := range p.senderReports {
-			if t := p.tracks[ssrc]; t != nil {
-				pts := t.getSenderReportPTS(report)
-				ntpStart := mediatransportutil.NtpTime(report.NTPTime).Time().Add(-pts)
-				if p.ntpStart.IsZero() || ntpStart.Before(p.ntpStart) {
-					p.ntpStart = ntpStart
-				}
+	p.senderReports[pkt.SSRC] = pkt
+	if len(p.senderReports) < len(p.tracks) && time.Since(p.firstReport) < 5*time.Second {
+		return
+	}
+
+	// update ntp start time
+	for ssrc, report := range p.senderReports {
+		if t := p.tracks[ssrc]; t != nil {
+			pts := t.getSenderReportPTS(report)
+			ntpStart := mediatransportutil.NtpTime(report.NTPTime).Time().Add(-pts)
+			if p.ntpStart.IsZero() || ntpStart.Before(p.ntpStart) {
+				p.ntpStart = ntpStart
 			}
 		}
 	}
 
-	if t := p.tracks[pkt.SSRC]; t != nil {
-		t.onSenderReport(pkt, p.ntpStart)
+	// call onSenderReport for all tracks
+	for ssrc, report := range p.senderReports {
+		if t := p.tracks[ssrc]; t != nil {
+			t.onSenderReport(report, p.ntpStart)
+		}
 	}
 }
 
