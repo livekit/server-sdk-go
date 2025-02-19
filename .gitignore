@@ -17,5 +17,6 @@
 *.ogg
 
 .idea/
+.vscode/
 docs/
 bin/
