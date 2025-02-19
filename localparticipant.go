@@ -16,8 +16,10 @@ package lksdk
 
 import (
 	"sort"
+	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/pion/webrtc/v4"
 	"google.golang.org/protobuf/proto"
 
@@ -32,13 +34,25 @@ type LocalParticipant struct {
 	baseParticipant
 	engine                 *RTCEngine
 	subscriptionPermission *livekit.SubscriptionPermission
+	serverInfo             *livekit.ServerInfo
+
+	rpcPendingAcks      *sync.Map
+	rpcPendingResponses *sync.Map
 }
 
-func newLocalParticipant(engine *RTCEngine, roomcallback *RoomCallback) *LocalParticipant {
-	return &LocalParticipant{
-		baseParticipant: *newBaseParticipant(roomcallback),
-		engine:          engine,
+func newLocalParticipant(engine *RTCEngine, roomcallback *RoomCallback, serverInfo *livekit.ServerInfo) *LocalParticipant {
+	p := &LocalParticipant{
+		baseParticipant:     *newBaseParticipant(roomcallback),
+		engine:              engine,
+		serverInfo:          serverInfo,
+		rpcPendingAcks:      &sync.Map{},
+		rpcPendingResponses: &sync.Map{},
 	}
+
+	engine.OnRpcAck = p.handleIncomingRpcAck
+	engine.OnRpcResponse = p.handleIncomingRpcResponse
+
+	return p
 }
 
 func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPublicationOptions) (*LocalTrackPublication, error) {
@@ -530,4 +544,118 @@ func (p *LocalParticipant) updateSubscriptionPermissionLocked() {
 			"pID", p.sid,
 		)
 	}
+}
+
+func (p *LocalParticipant) handleParticipantDisconnected(identity string) {
+	p.rpcPendingAcks.Range(func(key, value interface{}) bool {
+		if value.(rpcPendingAckHandler).participantIdentity == identity {
+			p.rpcPendingAcks.Delete(key)
+		}
+		return true
+	})
+
+	p.rpcPendingResponses.Range(func(key, value interface{}) bool {
+		if value.(rpcPendingResponseHandler).participantIdentity == identity {
+			value.(rpcPendingResponseHandler).resolve(nil, RpcErrorFromBuiltInCodes(RpcRecipientDisconnected, nil))
+			p.rpcPendingResponses.Delete(key)
+		}
+		return true
+	})
+}
+
+func (p *LocalParticipant) handleIncomingRpcAck(requestId string) {
+	handler, ok := p.rpcPendingAcks.Load(requestId)
+	if !ok {
+		p.engine.log.Errorw("Ack received for unexpected RPC request", nil, "requestId", requestId)
+	} else {
+		handler.(rpcPendingAckHandler).resolve()
+		p.rpcPendingAcks.Delete(requestId)
+	}
+}
+
+func (p *LocalParticipant) handleIncomingRpcResponse(requestId string, payload *string, error *RpcError) {
+	handler, ok := p.rpcPendingResponses.Load(requestId)
+	if !ok {
+		p.engine.log.Errorw("Response received for unexpected RPC request", nil, "requestId", requestId)
+	} else {
+		handler.(rpcPendingResponseHandler).resolve(payload, error)
+		p.rpcPendingResponses.Delete(requestId)
+	}
+}
+
+// TODO: fix default timeout
+func (p *LocalParticipant) PerformRpc(params PerformRpcParams) (*string, error) {
+	resultChan := make(chan *string, 1)
+	errorChan := make(chan error, 1)
+
+	maxRoundTripLatency := 2000 * time.Millisecond
+
+	go func() {
+		if byteLength(params.Payload) > MaxPayloadBytes {
+			errorChan <- RpcErrorFromBuiltInCodes(RpcRequestPayloadTooLarge, nil)
+			return
+		}
+
+		if p.serverInfo != nil && compareVersions(p.serverInfo.Version, "1.8.0") < 0 {
+			errorChan <- RpcErrorFromBuiltInCodes(RpcUnsupportedServer, nil)
+			return
+		}
+
+		id := uuid.New().String()
+		p.engine.publishRpcRequest(params.DestinationIdentity, id, params.Method, params.Payload, params.ResponseTimeout-maxRoundTripLatency)
+
+		responseTimer := time.AfterFunc(params.ResponseTimeout, func() {
+			p.rpcPendingResponses.Delete(id)
+			errorChan <- RpcErrorFromBuiltInCodes(RpcResponseTimeout, nil)
+		})
+
+		ackTimer := time.AfterFunc(maxRoundTripLatency, func() {
+			p.rpcPendingAcks.Delete(id)
+			errorChan <- RpcErrorFromBuiltInCodes(RpcConnectionTimeout, nil)
+			p.rpcPendingResponses.Delete(id)
+			responseTimer.Stop()
+		})
+
+		p.rpcPendingAcks.Store(id, rpcPendingAckHandler{
+			resolve: func() {
+				ackTimer.Stop()
+			},
+			participantIdentity: params.DestinationIdentity,
+		})
+
+		p.rpcPendingResponses.Store(id, rpcPendingResponseHandler{
+			resolve: func(payload *string, error *RpcError) {
+				responseTimer.Stop()
+				if _, ok := p.rpcPendingAcks.Load(id); ok {
+					p.engine.log.Warnw("RPC response received before ack", nil, "requestId", id)
+					p.rpcPendingAcks.Delete(id)
+					ackTimer.Stop()
+				}
+
+				if error != nil {
+					errorChan <- error
+				} else {
+					if payload != nil {
+						resultChan <- payload
+					} else {
+						emptyStr := ""
+						resultChan <- &emptyStr
+					}
+				}
+			},
+			participantIdentity: params.DestinationIdentity,
+		})
+	}()
+
+	select {
+	case result := <-resultChan:
+		return result, nil
+	case err := <-errorChan:
+		return nil, err
+	}
+}
+
+func (p *LocalParticipant) cleanup() {
+	p.rpcPendingAcks = &sync.Map{}
+	p.rpcPendingResponses = &sync.Map{}
 }

@@ -16,6 +16,7 @@ package lksdk
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"sort"
 	"strings"
@@ -168,6 +169,8 @@ type Room struct {
 
 	sifTrailer []byte
 
+	rpcHandlers *sync.Map
+
 	lock sync.RWMutex
 }
 
@@ -184,9 +187,10 @@ func NewRoom(callback *RoomCallback) *Room {
 		sidReady:           make(chan struct{}),
 		connectionState:    ConnectionStateDisconnected,
 		regionURLProvider:  newRegionURLProvider(),
+		rpcHandlers:        &sync.Map{},
 	}
 	r.callback.Merge(callback)
-	r.LocalParticipant = newLocalParticipant(engine, r.callback)
+	r.LocalParticipant = newLocalParticipant(engine, r.callback, r.serverInfo)
 
 	// callbacks from engine
 	engine.OnMediaTrack = r.handleMediaTrack
@@ -203,6 +207,7 @@ func NewRoom(callback *RoomCallback) *Room {
 	engine.OnLocalTrackUnpublished = r.handleLocalTrackUnpublished
 	engine.OnTrackRemoteMuted = r.handleTrackRemoteMuted
 	engine.OnTranscription = r.handleTranscriptionReceived
+	engine.OnRpcRequest = r.handleIncomingRpcRequest
 
 	// callbacks engine can use to get data
 	engine.CbGetLocalParticipantSID = r.getLocalParticipantSID
@@ -320,7 +325,7 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 				// - Too long, users will given up.
 				// - Too short, risk frequently timing out on a request that would have
 				//   succeeded.
-				callCtx, cancelCallCtx := context.WithTimeout(ctx, 4 * time.Second)
+				callCtx, cancelCallCtx := context.WithTimeout(ctx, 4*time.Second)
 				joinRes, err = r.engine.JoinContext(callCtx, bestURL, token, params)
 				cancelCallCtx()
 				if err != nil {
@@ -676,6 +681,7 @@ func (r *Room) handleParticipantDisconnect(rp *RemoteParticipant) {
 	r.lock.Unlock()
 
 	rp.unpublishAllTracks()
+	r.LocalParticipant.handleParticipantDisconnected(rp.Identity())
 	go r.callback.OnParticipantDisconnected(rp)
 }
 
@@ -845,6 +851,8 @@ func (r *Room) cleanup() {
 	r.engine.Close()
 	r.LocalParticipant.closeTracks()
 	r.setSid("", true)
+	r.rpcHandlers = &sync.Map{}
+	r.LocalParticipant.cleanup()
 }
 
 func (r *Room) setSid(sid string, allowEmpty bool) {
@@ -924,6 +932,58 @@ func (r *Room) Simulate(scenario SimulateScenario) {
 
 func (r *Room) getLocalParticipantSID() string {
 	return r.LocalParticipant.SID()
+}
+
+func (r *Room) RegisterRpcMethod(method string, handler RpcHandlerFunc) error {
+	_, ok := r.rpcHandlers.Load(method)
+	if ok {
+		return fmt.Errorf("RPC handler already registered for method: %s, unregisterRpcMethod before trying to register again", method)
+	}
+	r.rpcHandlers.Store(method, handler)
+	return nil
+}
+
+func (r *Room) UnregisterRpcMethod(method string) {
+	r.rpcHandlers.Delete(method)
+}
+
+func (r *Room) handleIncomingRpcRequest(callerIdentity, requestId, method, payload string, responseTimeout time.Duration, version uint32) {
+	r.engine.publishRpcAck(callerIdentity, requestId)
+
+	if version != 1 {
+		r.engine.publishRpcResponse(callerIdentity, requestId, nil, RpcErrorFromBuiltInCodes(RpcUnsupportedVersion, nil))
+		return
+	}
+
+	handler, ok := r.rpcHandlers.Load(method)
+	if !ok {
+		r.engine.publishRpcResponse(callerIdentity, requestId, nil, RpcErrorFromBuiltInCodes(RpcUnsupportedMethod, nil))
+		return
+	}
+
+	response, err := handler.(RpcHandlerFunc)(RpcInvocationData{
+		RequestID:       requestId,
+		CallerIdentity:  callerIdentity,
+		Payload:         payload,
+		ResponseTimeout: responseTimeout,
+	})
+
+	if err != nil {
+		if _, ok := err.(*RpcError); ok {
+			r.engine.publishRpcResponse(callerIdentity, requestId, nil, err.(*RpcError))
+		} else {
+			r.engine.log.Warnw("Uncaught error returned by RPC handler for method, using application error instead", err, "method", method)
+			r.engine.publishRpcResponse(callerIdentity, requestId, nil, RpcErrorFromBuiltInCodes(RpcApplicationError, nil))
+		}
+		return
+	}
+
+	if byteLength(response) > MaxDataBytes {
+		r.engine.publishRpcResponse(callerIdentity, requestId, nil, RpcErrorFromBuiltInCodes(RpcResponsePayloadTooLarge, nil))
+		return
+	}
+
+	r.engine.publishRpcResponse(callerIdentity, requestId, &response, nil)
 }
 
 // ---------------------------------------------------------
