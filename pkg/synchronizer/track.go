@@ -31,7 +31,7 @@ import (
 
 const (
 	ewmaWeight           = 0.9
-	maxDrift             = time.Millisecond * 15
+	maxAdjustment        = time.Millisecond * 15
 	maxTSDiff            = time.Minute
 	maxSNDropout         = 3000 // max sequence number skip
 	uint32Half     int64 = 2147483648
@@ -167,7 +167,7 @@ func (t *TrackSynchronizer) adjust(pkt *rtp.Packet) (int64, time.Duration, bool)
 		for ts < t.firstTS-uint32Half {
 			ts += uint32Overflow
 		}
-		pts := t.getElapsed(ts) + t.ptsOffset
+		pts := t.getPTS(ts)
 		return ts, pts, true
 	}
 
@@ -198,7 +198,7 @@ func (t *TrackSynchronizer) adjust(pkt *rtp.Packet) (int64, time.Duration, bool)
 	}
 
 	// sanity check
-	pts := t.getElapsed(ts) + t.ptsOffset
+	pts := t.getPTS(ts)
 	if expected := time.Since(t.startedAt.Add(t.ptsOffset)); pts > expected+maxTSDiff {
 		// reset RTP timestamps
 		ts, pts = t.resetRTP(pkt, []any{
@@ -212,8 +212,8 @@ func (t *TrackSynchronizer) adjust(pkt *rtp.Packet) (int64, time.Duration, bool)
 	return ts, pts, true
 }
 
-func (t *TrackSynchronizer) getElapsed(ts int64) time.Duration {
-	return t.rtpConverter.toDuration(ts - t.firstTS)
+func (t *TrackSynchronizer) getPTS(ts int64) time.Duration {
+	return t.rtpConverter.toDuration(ts-t.firstTS) + t.ptsOffset
 }
 
 func (t *TrackSynchronizer) resetRTP(pkt *rtp.Packet, fields []any) (int64, time.Duration) {
@@ -334,7 +334,7 @@ func (t *TrackSynchronizer) getSenderReportPTSLocked(pkt *rtcp.SenderReport) tim
 		ts += uint32Overflow
 	}
 
-	return t.getElapsed(ts) + t.ptsOffset
+	return t.getPTS(ts)
 }
 
 // onSenderReport handles pts adjustments for a track
@@ -342,8 +342,7 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport, ntpStart time
 	t.Lock()
 	defer t.Unlock()
 
-	// we receive every sender report twice
-	if pkt.RTPTime == t.lastSR {
+	if pkt.RTPTime == t.lastSR || t.startedAt.IsZero() {
 		return
 	}
 
@@ -351,14 +350,22 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport, ntpStart time
 	calculatedNTPStart := mediatransportutil.NtpTime(pkt.NTPTime).Time().Add(-pts)
 	drift := calculatedNTPStart.Sub(ntpStart)
 
+	t.adjustOffsetLocked(drift)
+	t.lastSR = pkt.RTPTime
+}
+
+func (t *TrackSynchronizer) adjustOffsetLocked(drift time.Duration) {
+	if drift == 0 {
+		return
+	}
+
 	t.stats.updateDrift(drift)
-	if drift > maxDrift {
-		drift = maxDrift
-	} else if drift < -maxDrift {
-		drift = -maxDrift
+	if drift > maxAdjustment {
+		drift = maxAdjustment
+	} else if drift < -maxAdjustment {
+		drift = -maxAdjustment
 	}
 	t.ptsOffset += drift
-	t.lastSR = pkt.RTPTime
 }
 
 type TrackStats struct {
@@ -371,6 +378,7 @@ func (t *TrackStats) updateDrift(drift time.Duration) {
 	if drift < 0 {
 		drift = -drift
 	}
+
 	t.AvgDrift = ewmaWeight*t.AvgDrift + (1-ewmaWeight)*float64(drift)
 	if drift > t.MaxDrift {
 		t.MaxDrift = drift
