@@ -49,8 +49,9 @@ type TrackRemote interface {
 
 type TrackSynchronizer struct {
 	sync.Mutex
-	sync  *Synchronizer
-	track TrackRemote
+	sync   *Synchronizer
+	track  TrackRemote
+	logger logger.Logger
 
 	// track stats
 	stats        *TrackStats
@@ -74,7 +75,7 @@ type TrackSynchronizer struct {
 	inserted   int64         // number of frames inserted
 
 	// offsets
-	snOffset  uint16        // sequence number offset (increases with each blank frame inserted
+	snOffset  uint16        // sequence number offset (increases with each blank frame inserted)
 	ptsOffset time.Duration // presentation timestamp offset (used for a/v sync)
 }
 
@@ -82,6 +83,7 @@ func newTrackSynchronizer(s *Synchronizer, track TrackRemote) *TrackSynchronizer
 	t := &TrackSynchronizer{
 		sync:         s,
 		track:        track,
+		logger:       logger.GetLogger().WithValues("trackID", track.ID(), "codec", track.Codec().MimeType),
 		stats:        &TrackStats{},
 		rtpConverter: newRTPConverter(int64(track.Codec().ClockRate)),
 	}
@@ -119,7 +121,7 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 	ts, pts, valid := t.adjust(pkt)
 	if pts < t.lastPTS {
 		if t.backwards == 0 {
-			logger.Warnw("backwards pts", ErrBackwardsPTS,
+			t.logger.Warnw("backwards pts", ErrBackwardsPTS,
 				"timestamp", pkt.Timestamp,
 				"sequence number", pkt.SequenceNumber,
 				"pts", pts,
@@ -131,9 +133,8 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 		t.backwards++
 		return 0, ErrBackwardsPTS
 	} else if t.backwards > 0 {
-		logger.Debugw("packet dropped",
+		t.logger.Warnw("packet dropped", ErrBackwardsPTS,
 			"count", t.backwards,
-			"reason", "backwards pts",
 		)
 		t.backwards = 0
 	}
@@ -181,8 +182,7 @@ func (t *TrackSynchronizer) adjust(pkt *rtp.Packet) (int64, time.Duration, bool)
 		pkt.SequenceNumber = t.lastSN + 1
 
 		// reset RTP timestamps
-		logger.Debugw("resetting track synchronizer", "reason", "SN gap", "lastSN", t.lastSN, "SN", pkt.SequenceNumber)
-		ts, pts := t.resetRTP(pkt)
+		ts, pts := t.resetRTP(pkt, []any{"reason", "SN gap"})
 		return ts, pts, false
 	}
 
@@ -201,8 +201,11 @@ func (t *TrackSynchronizer) adjust(pkt *rtp.Packet) (int64, time.Duration, bool)
 	pts := t.getElapsed(ts) + t.ptsOffset
 	if expected := time.Since(t.startedAt.Add(t.ptsOffset)); pts > expected+maxTSDiff {
 		// reset RTP timestamps
-		logger.Debugw("resetting track synchronizer", "reason", "pts out of bounds", "pts", pts, "expected", expected)
-		ts, pts = t.resetRTP(pkt)
+		ts, pts = t.resetRTP(pkt, []any{
+			"reason", "pts out of bounds",
+			"pts", pts,
+			"expectedPTS", expected,
+		})
 		return ts, pts, false
 	}
 
@@ -213,12 +216,28 @@ func (t *TrackSynchronizer) getElapsed(ts int64) time.Duration {
 	return t.rtpConverter.toDuration(ts - t.firstTS)
 }
 
-func (t *TrackSynchronizer) resetRTP(pkt *rtp.Packet) (int64, time.Duration) {
-	frames := int64(time.Since(t.lastPacket) / t.getFrameDuration())
-	duration := t.getFrameDurationRTP() * frames
-	ts := t.lastTS + duration
-	pts := t.lastPTS + t.rtpConverter.toDuration(duration)
-	t.firstTS += int64(pkt.Timestamp) - ts
+func (t *TrackSynchronizer) resetRTP(pkt *rtp.Packet, fields []any) (int64, time.Duration) {
+	frameDuration := t.getFrameDuration()                     // avg frame duration
+	frames := int64(time.Since(t.lastPacket) / frameDuration) // number of frames we expect since the last packet
+	duration := t.getFrameDurationRTP() * frames              // expected increase in RTP time
+	ts := t.lastTS + duration                                 // expected new RTP time
+	pts := t.lastPTS + t.rtpConverter.toDuration(duration)    // expected new PTS
+
+	t.firstTS += int64(pkt.Timestamp) - ts // reset firstTS to align with new ts
+
+	fields = append(fields,
+		"pktTS", pkt.Timestamp,
+		"pktSN", pkt.SequenceNumber,
+		"prevTS", t.lastTS,
+		"prevSN", t.lastSN,
+		"frameDuration", frameDuration,
+		"prevPTS", t.lastPTS,
+		"adjustedTS", ts,
+		"adjustedPTS", pts,
+	)
+
+	t.logger.Infow("resetting track synchronizer", fields...)
+
 	return ts, pts
 }
 
