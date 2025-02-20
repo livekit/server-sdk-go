@@ -21,7 +21,7 @@ const (
 const (
 	RpcUnsupportedMethod RpcErrorCode = 1400 + iota
 	RpcRecipientNotFound
-	RpcRequestPayloadTooLarge // Why is this duplicate?
+	RpcRequestPayloadTooLarge
 	RpcUnsupportedServer
 	RpcUnsupportedVersion
 )
