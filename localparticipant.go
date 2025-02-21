@@ -556,7 +556,7 @@ func (p *LocalParticipant) handleParticipantDisconnected(identity string) {
 
 	p.rpcPendingResponses.Range(func(key, value interface{}) bool {
 		if value.(rpcPendingResponseHandler).participantIdentity == identity {
-			value.(rpcPendingResponseHandler).resolve(nil, RpcErrorFromBuiltInCodes(RpcRecipientDisconnected, nil))
+			value.(rpcPendingResponseHandler).resolve(nil, rpcErrorFromBuiltInCodes(RpcRecipientDisconnected, nil))
 			p.rpcPendingResponses.Delete(key)
 		}
 		return true
@@ -583,8 +583,15 @@ func (p *LocalParticipant) handleIncomingRpcResponse(requestId string, payload *
 	}
 }
 
-// TODO: fix default timeout
+// Initiate an RPC call to a remote participant
+//   - @param params - For parameters for initiating the RPC call, see PerformRpcParams
+//   - @returns A string payload or an error
 func (p *LocalParticipant) PerformRpc(params PerformRpcParams) (*string, error) {
+	responseTimeout := 10000 * time.Millisecond
+	if params.ResponseTimeout != nil {
+		responseTimeout = *params.ResponseTimeout
+	}
+
 	resultChan := make(chan *string, 1)
 	errorChan := make(chan error, 1)
 
@@ -592,28 +599,36 @@ func (p *LocalParticipant) PerformRpc(params PerformRpcParams) (*string, error) 
 
 	go func() {
 		if byteLength(params.Payload) > MaxPayloadBytes {
-			errorChan <- RpcErrorFromBuiltInCodes(RpcRequestPayloadTooLarge, nil)
+			errorChan <- rpcErrorFromBuiltInCodes(RpcRequestPayloadTooLarge, nil)
 			return
 		}
 
 		if p.serverInfo != nil && compareVersions(p.serverInfo.Version, "1.8.0") < 0 {
-			errorChan <- RpcErrorFromBuiltInCodes(RpcUnsupportedServer, nil)
+			errorChan <- rpcErrorFromBuiltInCodes(RpcUnsupportedServer, nil)
 			return
 		}
 
 		id := uuid.New().String()
-		p.engine.publishRpcRequest(params.DestinationIdentity, id, params.Method, params.Payload, params.ResponseTimeout-maxRoundTripLatency)
+		p.engine.publishRpcRequest(params.DestinationIdentity, id, params.Method, params.Payload, responseTimeout-maxRoundTripLatency)
 
-		responseTimer := time.AfterFunc(params.ResponseTimeout, func() {
+		responseTimer := time.AfterFunc(responseTimeout, func() {
 			p.rpcPendingResponses.Delete(id)
-			errorChan <- RpcErrorFromBuiltInCodes(RpcResponseTimeout, nil)
+
+			select {
+			case errorChan <- rpcErrorFromBuiltInCodes(RpcResponseTimeout, nil):
+			default:
+			}
 		})
 
 		ackTimer := time.AfterFunc(maxRoundTripLatency, func() {
 			p.rpcPendingAcks.Delete(id)
-			errorChan <- RpcErrorFromBuiltInCodes(RpcConnectionTimeout, nil)
 			p.rpcPendingResponses.Delete(id)
 			responseTimer.Stop()
+
+			select {
+			case errorChan <- rpcErrorFromBuiltInCodes(RpcConnectionTimeout, nil):
+			default:
+			}
 		})
 
 		p.rpcPendingAcks.Store(id, rpcPendingAckHandler{

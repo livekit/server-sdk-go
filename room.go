@@ -934,6 +934,29 @@ func (r *Room) getLocalParticipantSID() string {
 	return r.LocalParticipant.SID()
 }
 
+// Establishes the participant as a receiver for calls of the specified RPC method.
+// Will overwrite any existing callback for the same method.
+//
+//   - @param method - The name of the indicated RPC method
+//   - @param handler - Will be invoked when an RPC request for this method is received
+//   - @returns A promise that resolves when the method is successfully registered
+//
+// Example:
+//
+//	room.LocalParticipant?.registerRpcMethod(
+//		"greet",
+//		func (data: RpcInvocationData) => {
+//			fmt.Println("Received greeting from ", data.callerIdentity, "with payload ", data.payload)
+//			return "Hello, " + data.callerIdentity + "!";
+//		}
+//	);
+//
+// The handler should return either a string or an error.
+// If unable to respond within `responseTimeout`, the request will result in an error on the caller's side.
+//
+// You may throw errors of type `RpcError` with a string `message` in the handler,
+// and they will be received on the caller's side with the message intact.
+// Other errors thrown in your handler will not be transmitted as-is, and will instead arrive to the caller as `1500` ("Application Error").
 func (r *Room) RegisterRpcMethod(method string, handler RpcHandlerFunc) error {
 	_, ok := r.rpcHandlers.Load(method)
 	if ok {
@@ -943,6 +966,8 @@ func (r *Room) RegisterRpcMethod(method string, handler RpcHandlerFunc) error {
 	return nil
 }
 
+// Unregisters a previously registered RPC method.
+//   - @param method - The name of the RPC method to unregister
 func (r *Room) UnregisterRpcMethod(method string) {
 	r.rpcHandlers.Delete(method)
 }
@@ -951,13 +976,13 @@ func (r *Room) handleIncomingRpcRequest(callerIdentity, requestId, method, paylo
 	r.engine.publishRpcAck(callerIdentity, requestId)
 
 	if version != 1 {
-		r.engine.publishRpcResponse(callerIdentity, requestId, nil, RpcErrorFromBuiltInCodes(RpcUnsupportedVersion, nil))
+		r.engine.publishRpcResponse(callerIdentity, requestId, nil, rpcErrorFromBuiltInCodes(RpcUnsupportedVersion, nil))
 		return
 	}
 
 	handler, ok := r.rpcHandlers.Load(method)
 	if !ok {
-		r.engine.publishRpcResponse(callerIdentity, requestId, nil, RpcErrorFromBuiltInCodes(RpcUnsupportedMethod, nil))
+		r.engine.publishRpcResponse(callerIdentity, requestId, nil, rpcErrorFromBuiltInCodes(RpcUnsupportedMethod, nil))
 		return
 	}
 
@@ -973,13 +998,13 @@ func (r *Room) handleIncomingRpcRequest(callerIdentity, requestId, method, paylo
 			r.engine.publishRpcResponse(callerIdentity, requestId, nil, err.(*RpcError))
 		} else {
 			r.engine.log.Warnw("Uncaught error returned by RPC handler for method, using application error instead", err, "method", method)
-			r.engine.publishRpcResponse(callerIdentity, requestId, nil, RpcErrorFromBuiltInCodes(RpcApplicationError, nil))
+			r.engine.publishRpcResponse(callerIdentity, requestId, nil, rpcErrorFromBuiltInCodes(RpcApplicationError, nil))
 		}
 		return
 	}
 
 	if byteLength(response) > MaxDataBytes {
-		r.engine.publishRpcResponse(callerIdentity, requestId, nil, RpcErrorFromBuiltInCodes(RpcResponsePayloadTooLarge, nil))
+		r.engine.publishRpcResponse(callerIdentity, requestId, nil, rpcErrorFromBuiltInCodes(RpcResponsePayloadTooLarge, nil))
 		return
 	}
 

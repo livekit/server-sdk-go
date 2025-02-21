@@ -585,14 +585,14 @@ func (e *RTCEngine) handleDataPacket(msg webrtc.DataChannelMessage) {
 		}
 	case *livekit.DataPacket_RpcResponse:
 		if e.OnRpcResponse != nil {
-			if _, ok := msg.RpcResponse.Value.(*livekit.RpcResponse_Payload); ok {
-				e.OnRpcResponse(msg.RpcResponse.RequestId, &msg.RpcResponse.Value.(*livekit.RpcResponse_Payload).Payload, nil)
-			} else if _, ok := msg.RpcResponse.Value.(*livekit.RpcResponse_Error); ok {
-				e.OnRpcResponse(msg.RpcResponse.RequestId, nil, fromProto(msg.RpcResponse.Value.(*livekit.RpcResponse_Error).Error))
+			switch res := msg.RpcResponse.Value.(type) {
+			case *livekit.RpcResponse_Payload:
+				e.OnRpcResponse(msg.RpcResponse.RequestId, &res.Payload, nil)
+			case *livekit.RpcResponse_Error:
+				e.OnRpcResponse(msg.RpcResponse.RequestId, nil, fromProto(res.Error))
 			}
 		}
 	}
-
 }
 
 func (e *RTCEngine) readDataPacket(msg webrtc.DataChannelMessage) (*livekit.DataPacket, error) {

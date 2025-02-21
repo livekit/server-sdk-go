@@ -29,6 +29,9 @@ const (
 const (
 	MaxMessageBytes = 256
 	MaxDataBytes    = 15360 // 15KiB
+
+	// Maximum payload size for RPC requests and responses. If a payload exceeds this size,
+	// the RPC call will fail with a RpcRequestPayloadTooLarge(1402) or RpcResponsePayloadTooLarge(1504) error.
 	MaxPayloadBytes = 15360 // 15KiB
 )
 
@@ -47,11 +50,16 @@ var rpcErrorMessages = map[RpcErrorCode]string{
 	RpcUnsupportedVersion:     "Unsupported RPC version",
 }
 
+// Parameters for initiating an RPC call
 type PerformRpcParams struct {
+	// The identity of the destination participant
 	DestinationIdentity string
-	Method              string
-	Payload             string
-	ResponseTimeout     time.Duration
+	// The name of the method to call
+	Method string
+	// The method payload
+	Payload string
+	// Timeout for receiving a response after initial connection. Default: 10000ms
+	ResponseTimeout *time.Duration
 }
 
 // Data passed to method handler for incoming RPC invocations
@@ -60,33 +68,32 @@ type RpcInvocationData struct {
 	RequestID string
 	// The unique participant identity of the caller.
 	CallerIdentity string
-	// The payload of the request. User-definable format, typically JSON.
+	// The payload of the request. User-definable format, could be JSON for example.
 	Payload string
 	// The maximum time the caller will wait for a response.
 	ResponseTimeout time.Duration
 }
 
-/**
-* Specialized error handling for RPC methods.
-*
-* Instances of this type, when thrown in a method handler, will have their `message`
-* serialized and sent across the wire. The sender will receive an equivalent error on the other side.
-*
-* Built-in types are included but developers may use any string, with a max length of 256 bytes.
- */
+// Specialized error handling for RPC methods.
+//
+// Instances of this type, when thrown in a method handler, will have their `message`
+// serialized and sent across the wire. The sender will receive an equivalent error on the other side.
+//
+// Built-in types are included but developers may use any string, with a max length of 256 bytes.
 type RpcError struct {
 	Code    RpcErrorCode
 	Message string
 	Data    *string
 }
 
-/**
-* Creates an error object with the given code and message, plus an optional data payload.
-*
-* If thrown in an RPC method handler, the error will be sent back to the caller.
-*
-* Error codes 1001-1999 are reserved for built-in errors.
- */
+// Creates an error object with the given code and message, plus an optional data payload.
+//
+// If thrown in an RPC method handler, the error will be sent back to the caller.
+//
+// Error codes 1001-1999 are reserved for built-in errors.
+//
+// Maximum message length is 256 bytes, and maximum data payload length is 15KiB.
+// If a payload exceeds these limits, it will be truncated.
 func NewRpcError(code RpcErrorCode, message string, data *string) *RpcError {
 	err := &RpcError{Code: code, Message: truncateBytes(message, MaxMessageBytes)}
 
@@ -123,7 +130,8 @@ func (e *RpcError) Error() string {
 	return fmt.Sprintf("RpcError %d: %s", e.Code, e.Message)
 }
 
-func RpcErrorFromBuiltInCodes(code RpcErrorCode, data *string) *RpcError {
+// Creates an error object with a built-in (or reserved) code and optional data payload.
+func rpcErrorFromBuiltInCodes(code RpcErrorCode, data *string) *RpcError {
 	return NewRpcError(code, rpcErrorMessages[code], data)
 }
 

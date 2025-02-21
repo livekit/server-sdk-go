@@ -34,7 +34,6 @@ func performGreeting(room *lksdk.Room) {
 		DestinationIdentity: "greeter",
 		Method:              "arrival",
 		Payload:             "Hello",
-		ResponseTimeout:     10000 * time.Millisecond,
 	})
 
 	if err != nil {
@@ -51,7 +50,6 @@ func performDisconnection(room *lksdk.Room) {
 		DestinationIdentity: "greeter",
 		Method:              "arrival",
 		Payload:             "You still there?",
-		ResponseTimeout:     10000 * time.Millisecond,
 	})
 
 	if err != nil {
@@ -80,7 +78,6 @@ func performSquareRoot(room *lksdk.Room) {
 		DestinationIdentity: "math-genius",
 		Method:              "square-root",
 		Payload:             string(payload),
-		ResponseTimeout:     10000 * time.Millisecond,
 	})
 
 	if err != nil {
@@ -111,7 +108,6 @@ func performQuantumHypergeometricSeries(room *lksdk.Room) {
 		DestinationIdentity: "math-genius",
 		Method:              "quantum-hypergeometric-series",
 		Payload:             string(payload),
-		ResponseTimeout:     10000 * time.Millisecond,
 	})
 
 	if err != nil {
@@ -155,7 +151,6 @@ func performDivide(room *lksdk.Room) {
 		DestinationIdentity: "math-genius",
 		Method:              "divide",
 		Payload:             string(payload),
-		ResponseTimeout:     10000 * time.Millisecond,
 	})
 
 	if err != nil {
