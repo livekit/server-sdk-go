@@ -15,6 +15,10 @@
 package lksdk
 
 import (
+	"mime"
+	"os"
+	"path/filepath"
+
 	"sort"
 	"sync"
 	"time"
@@ -673,4 +677,141 @@ func (p *LocalParticipant) PerformRpc(params PerformRpcParams) (*string, error) 
 func (p *LocalParticipant) cleanup() {
 	p.rpcPendingAcks = &sync.Map{}
 	p.rpcPendingResponses = &sync.Map{}
+}
+
+func (p *LocalParticipant) StreamText(options StreamTextOptions) *TextStreamWriter {
+	if options.StreamId == nil {
+		streamId := uuid.New().String()
+		options.StreamId = &streamId
+	}
+
+	if options.Attributes == nil {
+		options.Attributes = make(map[string]string)
+	}
+
+	info := TextStreamInfo{
+		baseStreamInfo: &baseStreamInfo{
+			Id:       *options.StreamId,
+			MimeType: "text/plain",
+			Topic:    options.Topic,
+			// Q: Is this correct?
+			Timestamp:  time.Now().Unix(),
+			Size:       options.TotalSize,
+			Attributes: options.Attributes,
+		},
+	}
+
+	header := &livekit.DataStream_Header{
+		StreamId:    info.Id,
+		MimeType:    info.MimeType,
+		Topic:       info.Topic,
+		Timestamp:   info.Timestamp,
+		TotalLength: info.Size,
+		ContentHeader: &livekit.DataStream_Header_TextHeader{
+			TextHeader: &livekit.DataStream_TextHeader{
+				OperationType: livekit.DataStream_CREATE,
+			},
+		},
+	}
+	if options.ReplyToStreamId != nil {
+		if textHeader, ok := header.ContentHeader.(*livekit.DataStream_Header_TextHeader); ok {
+			textHeader.TextHeader.ReplyToStreamId = *options.ReplyToStreamId
+		}
+	}
+
+	writer := newTextStreamWriter(info, header, p.engine, options.DestinationIdentities, options.OnProgress)
+	p.engine.OnClose(writer.onClose)
+
+	return writer
+}
+
+func (p *LocalParticipant) SendText(text string, options StreamTextOptions) TextStreamInfo {
+	if options.TotalSize == nil {
+		textInBytes := []byte(text)
+		totalTextLength := uint64(len(textInBytes))
+		options.TotalSize = &totalTextLength
+	}
+
+	writer := p.StreamText(options)
+
+	go func() {
+		writer.Write(text)
+		writer.Close()
+	}()
+	return writer.Info
+}
+
+func (p *LocalParticipant) StreamBytes(options StreamBytesOptions) *ByteStreamWriter {
+	if options.StreamId == nil {
+		streamId := uuid.New().String()
+		options.StreamId = &streamId
+	}
+
+	if options.Attributes == nil {
+		options.Attributes = make(map[string]string)
+	}
+
+	info := ByteStreamInfo{
+		baseStreamInfo: &baseStreamInfo{
+			Id:         *options.StreamId,
+			MimeType:   options.MimeType,
+			Topic:      options.Topic,
+			Timestamp:  time.Now().Unix(),
+			Size:       options.TotalSize,
+			Attributes: options.Attributes,
+		},
+	}
+
+	header := &livekit.DataStream_Header{
+		StreamId:    info.Id,
+		MimeType:    info.MimeType,
+		Topic:       info.Topic,
+		Timestamp:   info.Timestamp,
+		TotalLength: info.Size,
+		ContentHeader: &livekit.DataStream_Header_ByteHeader{
+			ByteHeader: &livekit.DataStream_ByteHeader{},
+		},
+	}
+
+	if options.FileName != nil {
+		if byteHeader, ok := header.ContentHeader.(*livekit.DataStream_Header_ByteHeader); ok {
+			byteHeader.ByteHeader.Name = *options.FileName
+		}
+		info.Name = options.FileName
+	}
+
+	writer := newByteStreamWriter(info, header, p.engine, options.DestinationIdentities, options.OnProgress)
+	p.engine.OnClose(writer.onClose)
+
+	return writer
+}
+
+func (p *LocalParticipant) SendFile(filePath string, options StreamBytesOptions) (*ByteStreamInfo, error) {
+	if options.TotalSize == nil {
+		fileInfo, err := os.Stat(filePath)
+		if err != nil {
+			return nil, err
+		}
+		totalSize := uint64(fileInfo.Size())
+		options.TotalSize = &totalSize
+	}
+
+	if options.MimeType == "" {
+		mimeType := mime.TypeByExtension(filepath.Ext(filePath))
+		options.MimeType = mimeType
+	}
+
+	writer := p.StreamBytes(options)
+
+	fileBytes, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	go func() {
+		writer.Write(fileBytes)
+		writer.Close()
+	}()
+
+	return &writer.Info, nil
 }

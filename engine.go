@@ -87,6 +87,10 @@ type RTCEngine struct {
 	OnRpcRequest            func(callerIdentity, requestId, method, payload string, responseTimeout time.Duration, version uint32)
 	OnRpcAck                func(requestId string)
 	OnRpcResponse           func(requestId string, payload *string, error *RpcError)
+	OnStreamHeader          func(*livekit.DataStream_Header, string)
+	OnStreamChunk           func(*livekit.DataStream_Chunk)
+	OnStreamTrailer         func(*livekit.DataStream_Trailer)
+	onClose                 []func()
 
 	// callbacks to get data
 	CbGetLocalParticipantSID func() string
@@ -128,6 +132,7 @@ func NewRTCEngine() *RTCEngine {
 		e.token.Store(refreshToken)
 	}
 	e.client.OnClose = func() { e.handleDisconnect(false) }
+	e.onClose = []func(){}
 
 	return e
 }
@@ -186,6 +191,10 @@ func (e *RTCEngine) JoinContext(ctx context.Context, url string, token string, p
 	return res, err
 }
 
+func (e *RTCEngine) OnClose(onClose func()) {
+	e.onClose = append(e.onClose, onClose)
+}
+
 func (e *RTCEngine) Close() {
 	if !e.closed.CompareAndSwap(false, true) {
 		return
@@ -194,6 +203,10 @@ func (e *RTCEngine) Close() {
 	go func() {
 		for e.reconnecting.Load() {
 			time.Sleep(50 * time.Millisecond)
+		}
+
+		for _, onCloseHandler := range e.onClose {
+			onCloseHandler()
 		}
 
 		if publisher, ok := e.Publisher(); ok {
@@ -597,6 +610,18 @@ func (e *RTCEngine) handleDataPacket(msg webrtc.DataChannelMessage) {
 				e.OnRpcResponse(msg.RpcResponse.RequestId, nil, fromProto(res.Error))
 			}
 		}
+	case *livekit.DataPacket_StreamHeader:
+		if e.OnStreamHeader != nil {
+			e.OnStreamHeader(msg.StreamHeader, identity)
+		}
+	case *livekit.DataPacket_StreamChunk:
+		if e.OnStreamChunk != nil {
+			e.OnStreamChunk(msg.StreamChunk)
+		}
+	case *livekit.DataPacket_StreamTrailer:
+		if e.OnStreamTrailer != nil {
+			e.OnStreamTrailer(msg.StreamTrailer)
+		}
 	}
 }
 
@@ -857,4 +882,58 @@ func (e *RTCEngine) publishRpcRequest(destinationIdentity, requestId, method, pa
 	}
 
 	e.publishDataPacket(packet, livekit.DataPacket_RELIABLE)
+}
+
+func (e *RTCEngine) publishStreamHeader(header *livekit.DataStream_Header, destinationIdentities []string) {
+	packet := &livekit.DataPacket{
+		DestinationIdentities: destinationIdentities,
+		Kind:                  livekit.DataPacket_RELIABLE,
+		Value: &livekit.DataPacket_StreamHeader{
+			StreamHeader: header,
+		},
+	}
+
+	e.publishDataPacket(packet, livekit.DataPacket_RELIABLE)
+}
+
+func (e *RTCEngine) publishStreamChunk(chunk *livekit.DataStream_Chunk, destinationIdentities []string) {
+	packet := &livekit.DataPacket{
+		DestinationIdentities: destinationIdentities,
+		Kind:                  livekit.DataPacket_RELIABLE,
+		Value: &livekit.DataPacket_StreamChunk{
+			StreamChunk: chunk,
+		},
+	}
+
+	e.publishDataPacket(packet, livekit.DataPacket_RELIABLE)
+}
+
+func (e *RTCEngine) publishStreamTrailer(streamId string, destinationIdentities []string) {
+	packet := &livekit.DataPacket{
+		DestinationIdentities: destinationIdentities,
+		Kind:                  livekit.DataPacket_RELIABLE,
+		Value: &livekit.DataPacket_StreamTrailer{
+			StreamTrailer: &livekit.DataStream_Trailer{
+				StreamId: streamId,
+			},
+		},
+	}
+
+	e.publishDataPacket(packet, livekit.DataPacket_RELIABLE)
+}
+
+func (e *RTCEngine) isBufferStatusLow(kind livekit.DataPacket_Kind) bool {
+	dc := e.GetDataChannel(kind)
+	if dc != nil {
+		return dc.BufferedAmount() <= dc.BufferedAmountLowThreshold()
+	}
+	return false
+}
+
+func (e *RTCEngine) waitForBufferStatusLow(kind livekit.DataPacket_Kind) {
+	// will block forever if dc is nil
+	// probably have a timeout here?
+	for !e.isBufferStatusLow(kind) {
+		time.Sleep(10 * time.Millisecond)
+	}
 }
