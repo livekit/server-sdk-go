@@ -83,6 +83,7 @@ type RTCEngine struct {
 	OnResuming              func()
 	OnResumed               func()
 	OnTranscription         func(*livekit.Transcription)
+	OnSignalClientConnected func(*livekit.JoinResponse)
 
 	// callbacks to get data
 	CbGetLocalParticipantSID func() string
@@ -158,6 +159,10 @@ func (e *RTCEngine) JoinContext(ctx context.Context, url string, token string, p
 	err = e.configure(res.IceServers, res.ClientConfiguration, proto.Bool(res.SubscriberPrimary))
 	if err != nil {
 		return nil, err
+	}
+
+	if e.OnSignalClientConnected != nil {
+		e.OnSignalClientConnected(res)
 	}
 
 	e.client.Start()

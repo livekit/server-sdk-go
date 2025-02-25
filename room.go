@@ -189,6 +189,7 @@ func NewRoom(callback *RoomCallback) *Room {
 	r.LocalParticipant = newLocalParticipant(engine, r.callback)
 
 	// callbacks from engine
+	engine.OnSignalClientConnected = r.handleSignalClientConnected
 	engine.OnMediaTrack = r.handleMediaTrack
 	engine.OnDisconnected = r.handleDisconnect
 	engine.OnParticipantUpdate = r.handleParticipantUpdate
@@ -328,6 +329,7 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 					d := time.Duration(1<<min(tries, 6)) * time.Second // max 64 seconds
 					logger.Errorw("failed to join room", err,
 						"retrying in", d,
+						"url", bestURL,
 					)
 					time.Sleep(d)
 					continue
@@ -338,30 +340,10 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 
 	if joinRes == nil {
 		var err error
-		joinRes, err = r.engine.JoinContext(ctx, url, token, params)
+		_, err = r.engine.JoinContext(ctx, url, token, params)
 		if err != nil {
 			return err
 		}
-	}
-
-	r.lock.Lock()
-	r.name = joinRes.Room.Name
-	r.metadata = joinRes.Room.Metadata
-	r.serverInfo = joinRes.ServerInfo
-	r.connectionState = ConnectionStateConnected
-	r.sifTrailer = make([]byte, len(joinRes.SifTrailer))
-	copy(r.sifTrailer, joinRes.SifTrailer)
-	r.lock.Unlock()
-
-	r.setSid(joinRes.Room.Sid, false)
-
-	r.LocalParticipant.updateInfo(joinRes.Participant)
-	r.LocalParticipant.updateSubscriptionPermission()
-
-	for _, pi := range joinRes.OtherParticipants {
-		rp := r.addRemoteParticipant(pi, true)
-		r.clearParticipantDefers(livekit.ParticipantID(pi.Sid), pi)
-		r.runParticipantDefers(livekit.ParticipantID(pi.Sid), rp)
 	}
 
 	return nil
@@ -550,6 +532,28 @@ func (r *Room) handleMediaTrack(track *webrtc.TrackRemote, receiver *webrtc.RTPR
 	}
 	update(rp)
 	r.runParticipantDefers(livekit.ParticipantID(participantID), rp)
+}
+
+func (r *Room) handleSignalClientConnected(joinRes *livekit.JoinResponse) {
+	r.lock.Lock()
+	r.name = joinRes.Room.Name
+	r.metadata = joinRes.Room.Metadata
+	r.serverInfo = joinRes.ServerInfo
+	r.connectionState = ConnectionStateConnected
+	r.sifTrailer = make([]byte, len(joinRes.SifTrailer))
+	copy(r.sifTrailer, joinRes.SifTrailer)
+	r.lock.Unlock()
+
+	r.setSid(joinRes.Room.Sid, false)
+
+	r.LocalParticipant.updateInfo(joinRes.Participant)
+	r.LocalParticipant.updateSubscriptionPermission()
+
+	for _, pi := range joinRes.OtherParticipants {
+		r.addRemoteParticipant(pi, true)
+		r.clearParticipantDefers(livekit.ParticipantID(pi.Sid), pi)
+		// no need to run participant defers here, since we are connected for the first time
+	}
 }
 
 func (r *Room) handleDisconnect(reason DisconnectionReason) {
