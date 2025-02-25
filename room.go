@@ -340,7 +340,7 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 
 	if joinRes == nil {
 		var err error
-		joinRes, err = r.engine.JoinContext(ctx, url, token, params)
+		_, err = r.engine.JoinContext(ctx, url, token, params)
 		if err != nil {
 			return err
 		}
