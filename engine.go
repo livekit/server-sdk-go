@@ -161,6 +161,10 @@ func (e *RTCEngine) JoinContext(ctx context.Context, url string, token string, p
 		return nil, err
 	}
 
+	if e.OnSignalClientConnected != nil {
+		e.OnSignalClientConnected(res)
+	}
+
 	e.client.Start()
 
 	// send offer
