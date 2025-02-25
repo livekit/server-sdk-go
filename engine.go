@@ -83,6 +83,7 @@ type RTCEngine struct {
 	OnResuming              func()
 	OnResumed               func()
 	OnTranscription         func(*livekit.Transcription)
+	OnSignalClientConnected func(*livekit.JoinResponse)
 
 	// callbacks to get data
 	CbGetLocalParticipantSID func() string

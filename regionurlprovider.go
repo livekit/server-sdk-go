@@ -78,13 +78,18 @@ func (r *regionURLProvider) RefreshRegionSettings(cloudHostname, token string) e
 		return errors.New("refreshRegionSettings failed to decode region settings: " + err.Error())
 	}
 
-	r.mutex.Lock()
-	r.hostnameSettingsCache[cloudHostname] = &hostnameSettingsCacheItem{
+	item := &hostnameSettingsCacheItem{
 		regionSettings:    regions,
 		updatedAt:         time.Now(),
 		regionURLAttempts: map[string]int{},
 	}
+	r.mutex.Lock()
+	r.hostnameSettingsCache[cloudHostname] = item
 	r.mutex.Unlock()
+
+	if len(item.regionSettings.Regions) == 0 {
+		logger.Warnw("no regions returned", nil, "cloudHostname", cloudHostname)
+	}
 
 	return nil
 }
