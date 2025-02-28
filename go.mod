@@ -1,8 +1,8 @@
 module github.com/livekit/server-sdk-go/v2
 
-go 1.22.7
+go 1.23.0
 
-toolchain go1.23.6
+toolchain go1.24.0
 
 require (
 	github.com/bep/debounce v1.2.1
@@ -23,8 +23,8 @@ require (
 	github.com/stretchr/testify v1.10.0
 	github.com/twitchtv/twirp v8.1.3+incompatible
 	go.uber.org/atomic v1.11.0
-	golang.org/x/crypto v0.32.0
-	golang.org/x/exp v0.0.0-20250207012021-f9890c6ad9f3
+	golang.org/x/crypto v0.35.0
+	golang.org/x/exp v0.0.0-20250228200357-dead58393ab7
 	google.golang.org/grpc v1.70.0
 	google.golang.org/protobuf v1.36.5
 )
@@ -72,9 +72,9 @@ require (
 	go.uber.org/zap v1.27.0 // indirect
 	go.uber.org/zap/exp v0.3.0 // indirect
 	golang.org/x/net v0.34.0 // indirect
-	golang.org/x/sync v0.10.0 // indirect
-	golang.org/x/sys v0.29.0 // indirect
-	golang.org/x/text v0.21.0 // indirect
+	golang.org/x/sync v0.11.0 // indirect
+	golang.org/x/sys v0.30.0 // indirect
+	golang.org/x/text v0.22.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20241202173237-19429a94021a // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250124145028-65684f501c47 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
