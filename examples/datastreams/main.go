@@ -30,16 +30,6 @@ func main() {
 	flag.Parse()
 
 	roomName := "datastreams-demo-" + uuid.New().String()[:8]
-	senderRoom, err := lksdk.ConnectToRoom(host, lksdk.ConnectInfo{
-		APIKey:              apiKey,
-		APISecret:           apiSecret,
-		RoomName:            roomName,
-		ParticipantIdentity: sender,
-	}, nil)
-	if err != nil {
-		logger.Errorw("failed to connect to room", err, "participant", sender)
-		return
-	}
 
 	receiverRoom, err := lksdk.ConnectToRoom(host, lksdk.ConnectInfo{
 		APIKey:              apiKey,
@@ -52,6 +42,17 @@ func main() {
 		return
 	}
 
+	senderRoom, err := lksdk.ConnectToRoom(host, lksdk.ConnectInfo{
+		APIKey:              apiKey,
+		APISecret:           apiSecret,
+		RoomName:            roomName,
+		ParticipantIdentity: sender,
+	}, nil)
+	if err != nil {
+		logger.Errorw("failed to connect to room", err, "participant", sender)
+		return
+	}
+
 	defer func() {
 		senderRoom.Disconnect()
 		receiverRoom.Disconnect()
@@ -59,21 +60,17 @@ func main() {
 
 	receiverRoom.RegisterTextStreamHandler("text-receive-iter", func(reader *lksdk.TextStreamReader, participantIdentity string) {
 		logger.Infow("received text stream", "participant", participantIdentity)
-		// Q. If I iterate over the reader directly without a goroutine, I don't receive any dc messages
-		go func() {
-			for chunk := range reader.Read() {
-				logger.Infow("received text chunk", "chunk", chunk)
-			}
-		}()
+		all := reader.ReadAll()
+		logger.Infow("received text", "text", all)
 	})
 
-	receiverRoom.RegisterTextStreamHandler("text-receive-all", func(reader *lksdk.TextStreamReader, participantIdentity string) {
-		logger.Infow("received text stream", "participant", participantIdentity)
-		go func() {
-			all := reader.ReadAll()
-			logger.Infow("received text", "text", all)
-		}()
-	})
+	// receiverRoom.RegisterTextStreamHandler("text-receive-all", func(reader *lksdk.TextStreamReader, participantIdentity string) {
+	// 	logger.Infow("received text stream", "participant", participantIdentity)
+	// 	go func() {
+	// 		all := reader.ReadAll()
+	// 		logger.Infow("received text", "text", all)
+	// 	}()
+	// })
 
 	// receiverRoom.RegisterTextStreamHandler("text-stream-recv-iter", func(reader *lksdk.TextStreamReader, participantIdentity string) {
 	// 	logger.Infow("received text stream", "participant", participantIdentity)
@@ -99,9 +96,6 @@ func main() {
 	// 		os.WriteFile("received.pdf", all, 0644)
 	// 	}()
 	// })
-
-	// Q. If I don't add a delay, I don't receive stream header, I do get chunk and trailer though
-	time.Sleep(150 * time.Millisecond)
 
 	text := "Lorem ipsum dolor sit amet..."
 	topic := "text-receive-iter"

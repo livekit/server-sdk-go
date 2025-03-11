@@ -16,6 +16,7 @@ package lksdk
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -90,8 +91,9 @@ type RTCEngine struct {
 	OnStreamHeader          func(*livekit.DataStream_Header, string)
 	OnStreamChunk           func(*livekit.DataStream_Chunk)
 	OnStreamTrailer         func(*livekit.DataStream_Trailer)
-	onClose                 []func()
 
+	onClose     []func()
+	onCloseLock sync.Mutex
 	// callbacks to get data
 	CbGetLocalParticipantSID func() string
 }
@@ -192,7 +194,9 @@ func (e *RTCEngine) JoinContext(ctx context.Context, url string, token string, p
 }
 
 func (e *RTCEngine) OnClose(onClose func()) {
+	e.onCloseLock.Lock()
 	e.onClose = append(e.onClose, onClose)
+	e.onCloseLock.Unlock()
 }
 
 func (e *RTCEngine) Close() {
@@ -205,9 +209,11 @@ func (e *RTCEngine) Close() {
 			time.Sleep(50 * time.Millisecond)
 		}
 
+		e.onCloseLock.Lock()
 		for _, onCloseHandler := range e.onClose {
 			onCloseHandler()
 		}
+		e.onCloseLock.Unlock()
 
 		if publisher, ok := e.Publisher(); ok {
 			_ = publisher.Close()
@@ -801,28 +807,30 @@ func (e *RTCEngine) makeRTCConfiguration(iceServers []*livekit.ICEServer, client
 	return configuration
 }
 
-func (e *RTCEngine) publishDataPacket(pck *livekit.DataPacket, kind livekit.DataPacket_Kind) {
+func (e *RTCEngine) publishDataPacket(pck *livekit.DataPacket, kind livekit.DataPacket_Kind) error {
 	data, err := proto.Marshal(pck)
 	if err != nil {
 		e.log.Errorw("could not marshal data packet", err)
-		return
+		return err
 	}
 
 	err = e.ensurePublisherConnected(true)
 	if err != nil {
 		e.log.Errorw("could not ensure publisher connected", err)
-		return
+		return err
 	}
 
 	dc := e.GetDataChannel(kind)
 	if dc == nil {
 		e.log.Errorw("could not get data channel", nil, "kind", kind)
-		return
+		return errors.New("datachannel not found")
 	}
 
 	dc.Send(data)
+	return nil
 }
 
+// TODO: adjust RPC methods to return error on publishDataPacket failure
 func (e *RTCEngine) publishRpcResponse(destinationIdentity, requestId string, payload *string, error *RpcError) {
 	packet := &livekit.DataPacket{
 		DestinationIdentities: []string{destinationIdentity},
@@ -884,7 +892,7 @@ func (e *RTCEngine) publishRpcRequest(destinationIdentity, requestId, method, pa
 	e.publishDataPacket(packet, livekit.DataPacket_RELIABLE)
 }
 
-func (e *RTCEngine) publishStreamHeader(header *livekit.DataStream_Header, destinationIdentities []string) {
+func (e *RTCEngine) publishStreamHeader(header *livekit.DataStream_Header, destinationIdentities []string) error {
 	packet := &livekit.DataPacket{
 		DestinationIdentities: destinationIdentities,
 		Kind:                  livekit.DataPacket_RELIABLE,
@@ -893,10 +901,10 @@ func (e *RTCEngine) publishStreamHeader(header *livekit.DataStream_Header, desti
 		},
 	}
 
-	e.publishDataPacket(packet, livekit.DataPacket_RELIABLE)
+	return e.publishDataPacket(packet, livekit.DataPacket_RELIABLE)
 }
 
-func (e *RTCEngine) publishStreamChunk(chunk *livekit.DataStream_Chunk, destinationIdentities []string) {
+func (e *RTCEngine) publishStreamChunk(chunk *livekit.DataStream_Chunk, destinationIdentities []string) error {
 	packet := &livekit.DataPacket{
 		DestinationIdentities: destinationIdentities,
 		Kind:                  livekit.DataPacket_RELIABLE,
@@ -905,10 +913,10 @@ func (e *RTCEngine) publishStreamChunk(chunk *livekit.DataStream_Chunk, destinat
 		},
 	}
 
-	e.publishDataPacket(packet, livekit.DataPacket_RELIABLE)
+	return e.publishDataPacket(packet, livekit.DataPacket_RELIABLE)
 }
 
-func (e *RTCEngine) publishStreamTrailer(streamId string, destinationIdentities []string) {
+func (e *RTCEngine) publishStreamTrailer(streamId string, destinationIdentities []string) error {
 	packet := &livekit.DataPacket{
 		DestinationIdentities: destinationIdentities,
 		Kind:                  livekit.DataPacket_RELIABLE,
@@ -919,21 +927,28 @@ func (e *RTCEngine) publishStreamTrailer(streamId string, destinationIdentities 
 		},
 	}
 
-	e.publishDataPacket(packet, livekit.DataPacket_RELIABLE)
+	return e.publishDataPacket(packet, livekit.DataPacket_RELIABLE)
 }
 
-func (e *RTCEngine) isBufferStatusLow(kind livekit.DataPacket_Kind) bool {
+func (e *RTCEngine) isBufferStatusLow(kind livekit.DataPacket_Kind) (bool, error) {
 	dc := e.GetDataChannel(kind)
 	if dc != nil {
-		return dc.BufferedAmount() <= dc.BufferedAmountLowThreshold()
+		return dc.BufferedAmount() <= dc.BufferedAmountLowThreshold(), nil
 	}
-	return false
+	return false, errors.New("datachannel not found")
 }
 
-func (e *RTCEngine) waitForBufferStatusLow(kind livekit.DataPacket_Kind) {
-	// will block forever if dc is nil
-	// probably have a timeout here?
-	for !e.isBufferStatusLow(kind) {
+func (e *RTCEngine) waitForBufferStatusLow(kind livekit.DataPacket_Kind) error {
+	for {
+		low, err := e.isBufferStatusLow(kind)
+		if err != nil {
+			return err
+		}
+		if low {
+			break
+		}
 		time.Sleep(10 * time.Millisecond)
 	}
+
+	return nil
 }

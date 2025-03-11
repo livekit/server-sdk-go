@@ -191,11 +191,11 @@ func NewRoom(callback *RoomCallback) *Room {
 		sidReady:           make(chan struct{}),
 		connectionState:    ConnectionStateDisconnected,
 		regionURLProvider:  newRegionURLProvider(),
-		rpcHandlers:        &sync.Map{},
 		byteStreamHandlers: &sync.Map{},
 		byteStreamReaders:  &sync.Map{},
 		textStreamHandlers: &sync.Map{},
 		textStreamReaders:  &sync.Map{},
+		rpcHandlers:        &sync.Map{},
 	}
 	r.callback.Merge(callback)
 	r.LocalParticipant = newLocalParticipant(engine, r.callback, r.serverInfo)
@@ -967,10 +967,9 @@ func (r *Room) getLocalParticipantSID() string {
 // and they will be received on the caller's side with the message intact.
 // Other errors thrown in your handler will not be transmitted as-is, and will instead arrive to the caller as `1500` ("Application Error").
 func (r *Room) RegisterRpcMethod(method string, handler RpcHandlerFunc) error {
-	if _, ok := r.rpcHandlers.Load(method); ok {
+	if _, ok := r.rpcHandlers.LoadOrStore(method, handler); !ok {
 		return fmt.Errorf("RPC handler already registered for method: %s, unregisterRpcMethod before trying to register again", method)
 	}
-	r.rpcHandlers.Store(method, handler)
 	return nil
 }
 
@@ -1020,10 +1019,9 @@ func (r *Room) handleIncomingRpcRequest(callerIdentity, requestId, method, paylo
 }
 
 func (r *Room) RegisterTextStreamHandler(topic string, handler TextStreamHandler) error {
-	if _, ok := r.textStreamHandlers.Load(topic); ok {
+	if _, ok := r.textStreamHandlers.LoadOrStore(topic, handler); !ok {
 		return fmt.Errorf("text stream handler already registered for topic: %s", topic)
 	}
-	r.textStreamHandlers.Store(topic, handler)
 	return nil
 }
 
@@ -1032,10 +1030,9 @@ func (r *Room) UnregisterTextStreamHandler(topic string) {
 }
 
 func (r *Room) RegisterByteStreamHandler(topic string, handler ByteStreamHandler) error {
-	if _, ok := r.byteStreamHandlers.Load(topic); ok {
+	if _, ok := r.byteStreamHandlers.LoadOrStore(topic, handler); !ok {
 		return fmt.Errorf("byte stream handler already registered for topic: %s", topic)
 	}
-	r.byteStreamHandlers.Store(topic, handler)
 	return nil
 }
 
@@ -1065,7 +1062,7 @@ func (r *Room) handleStreamHeader(streamHeader *livekit.DataStream_Header, parti
 
 		textStreamReader := NewTextStreamReader(info, streamHeader.TotalLength)
 		r.textStreamReaders.Store(streamHeader.StreamId, textStreamReader)
-		streamHandlerCallback.(TextStreamHandler)(textStreamReader, participantIdentity)
+		go streamHandlerCallback.(TextStreamHandler)(textStreamReader, participantIdentity)
 	case *livekit.DataStream_Header_ByteHeader:
 		streamHandlerCallback, ok := r.byteStreamHandlers.Load(streamHeader.Topic)
 		if !ok {
@@ -1087,7 +1084,7 @@ func (r *Room) handleStreamHeader(streamHeader *livekit.DataStream_Header, parti
 
 		byteStreamReader := NewByteStreamReader(info, streamHeader.TotalLength)
 		r.byteStreamReaders.Store(streamHeader.StreamId, byteStreamReader)
-		streamHandlerCallback.(ByteStreamHandler)(byteStreamReader, participantIdentity)
+		go streamHandlerCallback.(ByteStreamHandler)(byteStreamReader, participantIdentity)
 	}
 }
 

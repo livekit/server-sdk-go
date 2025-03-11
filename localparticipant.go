@@ -679,7 +679,7 @@ func (p *LocalParticipant) cleanup() {
 	p.rpcPendingResponses = &sync.Map{}
 }
 
-func (p *LocalParticipant) StreamText(options StreamTextOptions) *TextStreamWriter {
+func (p *LocalParticipant) StreamText(options StreamTextOptions) (*TextStreamWriter, error) {
 	if options.StreamId == nil {
 		streamId := uuid.New().String()
 		options.StreamId = &streamId
@@ -691,11 +691,10 @@ func (p *LocalParticipant) StreamText(options StreamTextOptions) *TextStreamWrit
 
 	info := TextStreamInfo{
 		baseStreamInfo: &baseStreamInfo{
-			Id:       *options.StreamId,
-			MimeType: "text/plain",
-			Topic:    options.Topic,
-			// Q: Is this correct?
-			Timestamp:  time.Now().Unix(),
+			Id:         *options.StreamId,
+			MimeType:   "text/plain",
+			Topic:      options.Topic,
+			Timestamp:  time.Now().UnixMilli(),
 			Size:       options.TotalSize,
 			Attributes: options.Attributes,
 		},
@@ -719,29 +718,47 @@ func (p *LocalParticipant) StreamText(options StreamTextOptions) *TextStreamWrit
 		}
 	}
 
-	writer := newTextStreamWriter(info, header, p.engine, options.DestinationIdentities, options.OnProgress)
-	p.engine.OnClose(writer.onClose)
+	writer, err := newTextStreamWriter(info, header, p.engine, options.DestinationIdentities, options.OnProgress)
+	if err != nil {
+		return nil, err
+	}
+	p.engine.OnClose(func() {
+		err := writer.Close()
+		if err != nil {
+			logger.Errorw("error closing writer", err)
+		}
+	})
 
-	return writer
+	return writer, nil
 }
 
-func (p *LocalParticipant) SendText(text string, options StreamTextOptions) TextStreamInfo {
+func (p *LocalParticipant) SendText(text string, options StreamTextOptions) (*TextStreamInfo, error) {
 	if options.TotalSize == nil {
 		textInBytes := []byte(text)
 		totalTextLength := uint64(len(textInBytes))
 		options.TotalSize = &totalTextLength
 	}
 
-	writer := p.StreamText(options)
+	writer, err := p.StreamText(options)
+	if err != nil {
+		return nil, err
+	}
 
 	go func() {
-		writer.Write(text)
-		writer.Close()
+		// should return the error from here if any
+		_, err := writer.Write(text)
+		if err != nil {
+			logger.Errorw("error writing text", err)
+		}
+		err = writer.Close()
+		if err != nil {
+			logger.Errorw("error closing writer", err)
+		}
 	}()
-	return writer.Info
+	return &writer.Info, nil
 }
 
-func (p *LocalParticipant) StreamBytes(options StreamBytesOptions) *ByteStreamWriter {
+func (p *LocalParticipant) StreamBytes(options StreamBytesOptions) (*ByteStreamWriter, error) {
 	if options.StreamId == nil {
 		streamId := uuid.New().String()
 		options.StreamId = &streamId
@@ -756,7 +773,7 @@ func (p *LocalParticipant) StreamBytes(options StreamBytesOptions) *ByteStreamWr
 			Id:         *options.StreamId,
 			MimeType:   options.MimeType,
 			Topic:      options.Topic,
-			Timestamp:  time.Now().Unix(),
+			Timestamp:  time.Now().UnixMilli(),
 			Size:       options.TotalSize,
 			Attributes: options.Attributes,
 		},
@@ -780,10 +797,18 @@ func (p *LocalParticipant) StreamBytes(options StreamBytesOptions) *ByteStreamWr
 		info.Name = options.FileName
 	}
 
-	writer := newByteStreamWriter(info, header, p.engine, options.DestinationIdentities, options.OnProgress)
-	p.engine.OnClose(writer.onClose)
+	writer, err := newByteStreamWriter(info, header, p.engine, options.DestinationIdentities, options.OnProgress)
+	if err != nil {
+		return nil, err
+	}
+	p.engine.OnClose(func() {
+		err := writer.Close()
+		if err != nil {
+			logger.Errorw("error closing writer", err)
+		}
+	})
 
-	return writer
+	return writer, nil
 }
 
 func (p *LocalParticipant) SendFile(filePath string, options StreamBytesOptions) (*ByteStreamInfo, error) {
@@ -801,16 +826,27 @@ func (p *LocalParticipant) SendFile(filePath string, options StreamBytesOptions)
 		options.MimeType = mimeType
 	}
 
-	writer := p.StreamBytes(options)
-
-	fileBytes, err := os.ReadFile(filePath)
+	writer, err := p.StreamBytes(options)
 	if err != nil {
 		return nil, err
 	}
 
-	go func() {
-		writer.Write(fileBytes)
+	fileBytes, err := os.ReadFile(filePath)
+	if err != nil {
 		writer.Close()
+		return nil, err
+	}
+
+	go func() {
+		// this error isn't propagated to the caller
+		_, err := writer.Write(fileBytes)
+		if err != nil {
+			logger.Errorw("error writing file", err)
+		}
+		err = writer.Close()
+		if err != nil {
+			logger.Errorw("error closing writer", err)
+		}
 	}()
 
 	return &writer.Info, nil

@@ -1,7 +1,9 @@
 package lksdk
 
 import (
+	"bytes"
 	"sync"
+	"time"
 
 	protocol "github.com/livekit/protocol/livekit"
 )
@@ -50,39 +52,51 @@ type StreamBytesOptions struct {
 }
 
 type baseStreamWriter[T any] struct {
-	onWrite func(data T)
-	onClose func()
+	onWrite func(data T) (int, error)
+	onClose func() error
 }
 
-func newBaseStreamWriter[T any](onWrite func(data T), onClose func()) *baseStreamWriter[T] {
+func newBaseStreamWriter[T any](onWrite func(data T) (int, error), onClose func() error) *baseStreamWriter[T] {
 	return &baseStreamWriter[T]{
 		onWrite: onWrite,
 		onClose: onClose,
 	}
 }
 
-func (w *baseStreamWriter[T]) Write(data T) {
-	w.onWrite(data)
+// is it okay for TextStreamWriter to also return number of bytes written?
+func (w *baseStreamWriter[T]) Write(data T) (int, error) {
+	return w.onWrite(data)
 }
 
-func (w *baseStreamWriter[T]) Close() {
-	w.onClose()
+func (w *baseStreamWriter[T]) Close() error {
+	return w.onClose()
 }
 
-func writeStreamBytes(data []byte, e *RTCEngine, streamId string, destinationIdentities []string, totalSize *uint64, onProgress *func(progress float64)) {
+func writeStreamBytes(data []byte, e *RTCEngine, streamId string, destinationIdentities []string, totalSize *uint64, onProgress *func(progress float64)) (int, error) {
 	chunkIndex := uint64(0)
+	bytesWritten := 0
 	for i := 0; i < len(data); i += STREAM_CHUNK_SIZE {
 		end := i + STREAM_CHUNK_SIZE
 		if end > len(data) {
 			end = len(data)
 		}
 
-		e.waitForBufferStatusLow(protocol.DataPacket_RELIABLE)
-		e.publishStreamChunk(&protocol.DataStream_Chunk{
+		// this is a blocking call, but, if we call it in a goroutine internally,
+		// error propagation will require some blocking code which ruins the point
+		// is it best for the user to call this in a goroutine?
+		// or do we not block on buffer status low and just let the user handle it?
+		err := e.waitForBufferStatusLow(protocol.DataPacket_RELIABLE)
+		if err != nil {
+			return bytesWritten, err
+		}
+
+		if err := e.publishStreamChunk(&protocol.DataStream_Chunk{
 			StreamId:   streamId,
 			Content:    data[i:end],
 			ChunkIndex: chunkIndex,
-		}, destinationIdentities)
+		}, destinationIdentities); err != nil {
+			return bytesWritten, err
+		}
 
 		if onProgress != nil && totalSize != nil {
 			progress := float64(i) / float64(*totalSize)
@@ -90,7 +104,10 @@ func writeStreamBytes(data []byte, e *RTCEngine, streamId string, destinationIde
 		}
 
 		chunkIndex++
+		bytesWritten += end - i
 	}
+
+	return bytesWritten, nil
 }
 
 type TextStreamWriter struct {
@@ -98,21 +115,25 @@ type TextStreamWriter struct {
 	Info TextStreamInfo
 }
 
-func newTextStreamWriter(info TextStreamInfo, header *protocol.DataStream_Header, e *RTCEngine, destinationIdentities []string, onProgress *func(progress float64)) *TextStreamWriter {
-	e.publishStreamHeader(header, destinationIdentities)
-
-	onWrite := func(data string) {
-		writeStreamBytes([]byte(data), e, info.Id, destinationIdentities, info.Size, onProgress)
+func newTextStreamWriter(info TextStreamInfo, header *protocol.DataStream_Header, e *RTCEngine, destinationIdentities []string, onProgress *func(progress float64)) (*TextStreamWriter, error) {
+	err := e.publishStreamHeader(header, destinationIdentities)
+	if err != nil {
+		return nil, err
 	}
 
-	onClose := func() {
-		e.publishStreamTrailer(info.Id, destinationIdentities)
+	onWrite := func(data string) (int, error) {
+		return writeStreamBytes([]byte(data), e, info.Id, destinationIdentities, info.Size, onProgress)
+	}
+
+	onClose := func() error {
+		// what happens if user disconnects before sending the trailer?
+		return e.publishStreamTrailer(info.Id, destinationIdentities)
 	}
 
 	return &TextStreamWriter{
 		baseStreamWriter: newBaseStreamWriter[string](onWrite, onClose),
 		Info:             info,
-	}
+	}, nil
 }
 
 type ByteStreamWriter struct {
@@ -120,37 +141,39 @@ type ByteStreamWriter struct {
 	Info ByteStreamInfo
 }
 
-func newByteStreamWriter(info ByteStreamInfo, header *protocol.DataStream_Header, e *RTCEngine, destinationIdentities []string, onProgress *func(progress float64)) *ByteStreamWriter {
-	e.publishStreamHeader(header, destinationIdentities)
-
-	onWrite := func(data []byte) {
-		writeStreamBytes(data, e, info.Id, destinationIdentities, info.Size, onProgress)
+func newByteStreamWriter(info ByteStreamInfo, header *protocol.DataStream_Header, e *RTCEngine, destinationIdentities []string, onProgress *func(progress float64)) (*ByteStreamWriter, error) {
+	err := e.publishStreamHeader(header, destinationIdentities)
+	if err != nil {
+		return nil, err
 	}
 
-	onClose := func() {
-		e.publishStreamTrailer(info.Id, destinationIdentities)
+	onWrite := func(data []byte) (int, error) {
+		return writeStreamBytes(data, e, info.Id, destinationIdentities, info.Size, onProgress)
+	}
+
+	onClose := func() error {
+		return e.publishStreamTrailer(info.Id, destinationIdentities)
 	}
 
 	return &ByteStreamWriter{
 		baseStreamWriter: newBaseStreamWriter[[]byte](onWrite, onClose),
 		Info:             info,
-	}
+	}, nil
 }
 
 type baseStreamReader struct {
-	reader        chan *protocol.DataStream_Chunk
+	readBuffer    bytes.Buffer
 	totalByteSize *uint64
 	bytesReceived int
 
 	closed     bool
-	readerLock sync.Mutex
+	closedLock sync.Mutex
 
 	onProgress *func(progress float64)
 }
 
 func newBaseStreamReader(totalByteSize *uint64) *baseStreamReader {
 	baseReader := &baseStreamReader{
-		reader:        make(chan *protocol.DataStream_Chunk),
 		bytesReceived: 0,
 	}
 	if totalByteSize != nil {
@@ -160,56 +183,22 @@ func newBaseStreamReader(totalByteSize *uint64) *baseStreamReader {
 }
 
 func (r *baseStreamReader) enqueue(chunk *protocol.DataStream_Chunk) {
-	r.readerLock.Lock()
-	defer r.readerLock.Unlock()
+	r.closedLock.Lock()
+	defer r.closedLock.Unlock()
 
 	if r.closed {
 		return
 	}
-	r.reader <- chunk
+	// write seems to handle growing the buffer if needed
+	r.readBuffer.Write(chunk.Content)
 }
 
 func (r *baseStreamReader) OnProgress(onProgress *func(progress float64)) {
 	r.onProgress = onProgress
 }
 
-func (r *baseStreamReader) close() {
-	r.readerLock.Lock()
-	defer r.readerLock.Unlock()
-
-	if !r.closed {
-		close(r.reader)
-		r.closed = true
-	}
-}
-
-type TextStreamReader struct {
-	*baseStreamReader
-	Info TextStreamInfo
-
-	// Q: what are we using this for?
-	receivedChunks map[uint64]*protocol.DataStream_Chunk
-}
-
-func NewTextStreamReader(info TextStreamInfo, totalChunkCount *uint64) *TextStreamReader {
-	return &TextStreamReader{
-		baseStreamReader: newBaseStreamReader(totalChunkCount),
-		Info:             info,
-		receivedChunks:   make(map[uint64]*protocol.DataStream_Chunk),
-	}
-}
-
-func (r *TextStreamReader) handleChunkReceived(chunk *protocol.DataStream_Chunk) {
-	index := chunk.ChunkIndex
-	previousChunkAtIndex, ok := r.receivedChunks[index]
-
-	if ok && previousChunkAtIndex != nil && previousChunkAtIndex.Version > chunk.Version {
-		// we have a newer version already,dropping the old one
-		return
-	}
-
-	r.receivedChunks[index] = chunk
-	r.bytesReceived += len(chunk.Content)
+func (r *baseStreamReader) maybeCallOnProgress(n int) {
+	r.bytesReceived += n
 
 	if r.totalByteSize != nil && r.onProgress != nil {
 		currentProgress := float64(r.bytesReceived) / float64(*r.totalByteSize)
@@ -217,32 +206,73 @@ func (r *TextStreamReader) handleChunkReceived(chunk *protocol.DataStream_Chunk)
 	}
 }
 
-func (r *TextStreamReader) Read() <-chan string {
-	readOnlyChan := make(chan string)
+func (r *baseStreamReader) Read(bytes []byte) (int, error) {
+	n, err := r.readBuffer.Read(bytes)
+	r.maybeCallOnProgress(n)
+	return n, err
+}
 
-	go func() {
-		defer close(readOnlyChan)
+func (r *baseStreamReader) ReadByte() (byte, error) {
+	n, err := r.readBuffer.ReadByte()
+	r.maybeCallOnProgress(1)
+	return n, err
+}
 
-		for chunk := range r.reader {
-			r.handleChunkReceived(chunk)
-			readOnlyChan <- string(chunk.Content)
-		}
-	}()
+func (r *baseStreamReader) ReadBytes(delim byte) ([]byte, error) {
+	n, err := r.readBuffer.ReadBytes(delim)
+	r.maybeCallOnProgress(len(n))
+	return n, err
+}
 
-	return readOnlyChan
+func (r *baseStreamReader) close() {
+	r.closedLock.Lock()
+	defer r.closedLock.Unlock()
+
+	if !r.closed {
+		r.closed = true
+	}
+}
+
+type TextStreamReader struct {
+	*baseStreamReader
+	Info TextStreamInfo
+}
+
+func NewTextStreamReader(info TextStreamInfo, totalChunkCount *uint64) *TextStreamReader {
+	return &TextStreamReader{
+		baseStreamReader: newBaseStreamReader(totalChunkCount),
+		Info:             info,
+	}
+}
+
+func (r *TextStreamReader) ReadRune() (rune, int, error) {
+	n, size, err := r.readBuffer.ReadRune()
+	r.maybeCallOnProgress(size)
+	return n, size, err
+}
+
+func (r *TextStreamReader) ReadString(delim byte) (string, error) {
+	n, err := r.readBuffer.ReadString(delim)
+	r.maybeCallOnProgress(len(n))
+	return n, err
 }
 
 func (r *TextStreamReader) ReadAll() string {
-	// Q: what if part of the data is already read through Read()?
-
-	result := ""
-	reader := r.Read()
-	for chunk := range reader {
-		result += chunk
+	// wait for the stream to be closed
+	// not sure if this is the best way to do this
+	for {
+		r.closedLock.Lock()
+		if r.closed {
+			r.closedLock.Unlock()
+			break
+		}
+		r.closedLock.Unlock()
+		time.Sleep(10 * time.Millisecond)
 	}
 
-	// Q: maybe worth calling onProgress here with 1.0?
-	return result
+	// Now that the stream is closed, read all data
+	n := r.readBuffer.String()
+	return n
 }
 
 type ByteStreamReader struct {
@@ -257,38 +287,23 @@ func NewByteStreamReader(info ByteStreamInfo, totalChunkCount *uint64) *ByteStre
 	}
 }
 
-func (r *ByteStreamReader) handleChunkReceived(chunk *protocol.DataStream_Chunk) {
-	r.bytesReceived += len(chunk.Content)
-
-	if r.totalByteSize != nil && r.onProgress != nil {
-		currentProgress := float64(r.bytesReceived) / float64(*r.totalByteSize)
-		(*r.onProgress)(currentProgress)
-	}
-}
-
-func (r *ByteStreamReader) Read() <-chan []byte {
-	readOnlyChan := make(chan []byte)
-
-	go func() {
-		defer close(readOnlyChan)
-
-		for chunk := range r.reader {
-			r.handleChunkReceived(chunk)
-			readOnlyChan <- chunk.Content
-		}
-	}()
-
-	return readOnlyChan
-}
-
 func (r *ByteStreamReader) ReadAll() []byte {
-	// Q: JS is using a Set for this, go does not have a set, do we need one?
-	result := []byte{}
-	reader := r.Read()
-	for chunk := range reader {
-		result = append(result, chunk...)
+	// wait for the stream to be closed
+	// not sure if this is the best way to do this
+	for {
+		r.closedLock.Lock()
+		if r.closed {
+			r.closedLock.Unlock()
+			break
+		}
+		r.closedLock.Unlock()
+		time.Sleep(10 * time.Millisecond)
 	}
-	return result
+
+	// Now that the stream is closed, read all data
+	n := r.readBuffer.Bytes()
+	r.maybeCallOnProgress(len(n))
+	return n
 }
 
 type TextStreamHandler func(reader *TextStreamReader, participantIdentity string)
