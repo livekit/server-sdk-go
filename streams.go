@@ -57,7 +57,7 @@ type StreamBytesOptions struct {
 }
 
 type writeTask struct {
-	data   []byte
+	chunks [][]byte
 	onDone *func()
 }
 
@@ -91,7 +91,7 @@ func newBaseStreamWriter[T any](engine *RTCEngine, streamId string, destinationI
 
 func (w *baseStreamWriter[T]) processWriteQueue() {
 	for task := range w.writeQueue {
-		w.writeStreamBytes(task.data, task.onDone)
+		w.writeStreamBytes(task.chunks, task.onDone)
 	}
 }
 
@@ -103,12 +103,12 @@ func (w *baseStreamWriter[T]) Write(data T, onDone *func()) {
 	switch v := any(data).(type) {
 	case []byte:
 		w.writeQueue <- writeTask{
-			data:   v,
+			chunks: chunkBytes(v),
 			onDone: onDone,
 		}
 	case string:
 		w.writeQueue <- writeTask{
-			data:   []byte(v),
+			chunks: chunkUtf8String(v),
 			onDone: onDone,
 		}
 	}
@@ -127,28 +127,25 @@ func (w *baseStreamWriter[T]) Close() {
 	}
 }
 
-func (w *baseStreamWriter[T]) writeStreamBytes(data []byte, onDone *func()) {
+func (w *baseStreamWriter[T]) writeStreamBytes(chunks [][]byte, onDone *func()) {
 	w.lock.Lock()
 	chunkIndex := w.chunkIndex
 
-	for i := 0; i < len(data) && !w.closed.Load(); i += STREAM_CHUNK_SIZE {
-		end := i + STREAM_CHUNK_SIZE
-		if end > len(data) {
-			end = len(data)
-		}
+	for i := 0; i < len(chunks) && !w.closed.Load(); i++ {
+		chunk := chunks[i]
 
 		w.engine.waitForBufferStatusLow(protocol.DataPacket_RELIABLE)
 
 		if err := w.engine.publishStreamChunk(&protocol.DataStream_Chunk{
 			StreamId:   w.streamId,
-			Content:    data[i:end],
+			Content:    chunk,
 			ChunkIndex: chunkIndex,
 		}, w.destinationIdentities); err != nil {
 			w.engine.log.Errorw("could not publish stream chunk", err)
 		}
 
 		if w.onProgress != nil && w.totalSize != nil {
-			progress := float64(i) / float64(*w.totalSize)
+			progress := float64(len(chunk)) / float64(*w.totalSize)
 			(*w.onProgress)(progress)
 		}
 
@@ -366,3 +363,46 @@ func (r *ByteStreamReader) ReadAll() []byte {
 type TextStreamHandler func(reader *TextStreamReader, participantIdentity string)
 
 type ByteStreamHandler func(reader *ByteStreamReader, participantIdentity string)
+
+// ---------------------------------------------------------
+
+func chunkUtf8String(s string) [][]byte {
+	chunks := [][]byte{}
+	stringBytes := []byte(s)
+
+	for len(stringBytes) > STREAM_CHUNK_SIZE {
+		k := STREAM_CHUNK_SIZE
+
+		for k > 0 {
+			dataByte := stringBytes[k]
+			if (dataByte & 0xc0) != 0x80 {
+				break
+			}
+			k--
+		}
+
+		chunks = append(chunks, stringBytes[:k])
+		stringBytes = stringBytes[k:]
+	}
+
+	if len(stringBytes) > 0 {
+		chunks = append(chunks, stringBytes)
+	}
+
+	return chunks
+}
+
+func chunkBytes(data []byte) [][]byte {
+	chunks := [][]byte{}
+
+	for len(data) > STREAM_CHUNK_SIZE {
+		chunks = append(chunks, data[:STREAM_CHUNK_SIZE])
+		data = data[STREAM_CHUNK_SIZE:]
+	}
+
+	if len(data) > 0 {
+		chunks = append(chunks, data)
+	}
+
+	return chunks
+}
