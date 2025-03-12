@@ -570,7 +570,7 @@ func (p *LocalParticipant) handleParticipantDisconnected(identity string) {
 func (p *LocalParticipant) handleIncomingRpcAck(requestId string) {
 	handler, ok := p.rpcPendingAcks.Load(requestId)
 	if !ok {
-		p.engine.log.Errorw("Ack received for unexpected RPC request", nil, "requestId", requestId)
+		p.engine.log.Errorw("ack received for unexpected RPC request", nil, "requestId", requestId)
 	} else {
 		handler.(rpcPendingAckHandler).resolve()
 		p.rpcPendingAcks.Delete(requestId)
@@ -580,7 +580,7 @@ func (p *LocalParticipant) handleIncomingRpcAck(requestId string) {
 func (p *LocalParticipant) handleIncomingRpcResponse(requestId string, payload *string, error *RpcError) {
 	handler, ok := p.rpcPendingResponses.Load(requestId)
 	if !ok {
-		p.engine.log.Errorw("Response received for unexpected RPC request", nil, "requestId", requestId)
+		p.engine.log.Errorw("response received for unexpected RPC request", nil, "requestId", requestId)
 	} else {
 		handler.(rpcPendingResponseHandler).resolve(payload, error)
 		p.rpcPendingResponses.Delete(requestId)
@@ -679,7 +679,7 @@ func (p *LocalParticipant) cleanup() {
 	p.rpcPendingResponses = &sync.Map{}
 }
 
-func (p *LocalParticipant) StreamText(options StreamTextOptions) (*TextStreamWriter, error) {
+func (p *LocalParticipant) StreamText(options StreamTextOptions) *TextStreamWriter {
 	if options.StreamId == nil {
 		streamId := uuid.New().String()
 		options.StreamId = &streamId
@@ -689,13 +689,18 @@ func (p *LocalParticipant) StreamText(options StreamTextOptions) (*TextStreamWri
 		options.Attributes = make(map[string]string)
 	}
 
+	var totalSize *uint64
+	if options.TotalSize != 0 {
+		totalSize = &options.TotalSize
+	}
+
 	info := TextStreamInfo{
 		baseStreamInfo: &baseStreamInfo{
 			Id:         *options.StreamId,
 			MimeType:   "text/plain",
 			Topic:      options.Topic,
 			Timestamp:  time.Now().UnixMilli(),
-			Size:       options.TotalSize,
+			Size:       totalSize,
 			Attributes: options.Attributes,
 		},
 	}
@@ -718,47 +723,32 @@ func (p *LocalParticipant) StreamText(options StreamTextOptions) (*TextStreamWri
 		}
 	}
 
-	writer, err := newTextStreamWriter(info, header, p.engine, options.DestinationIdentities, options.OnProgress)
-	if err != nil {
-		return nil, err
-	}
+	writer := newTextStreamWriter(info, header, p.engine, options.DestinationIdentities, options.OnProgress)
+
 	p.engine.OnClose(func() {
-		err := writer.Close()
-		if err != nil {
-			logger.Errorw("error closing writer", err)
-		}
+		writer.Close()
 	})
 
-	return writer, nil
+	return writer
 }
 
-func (p *LocalParticipant) SendText(text string, options StreamTextOptions) (*TextStreamInfo, error) {
-	if options.TotalSize == nil {
+func (p *LocalParticipant) SendText(text string, options StreamTextOptions) *TextStreamInfo {
+	if options.TotalSize == 0 {
 		textInBytes := []byte(text)
-		totalTextLength := uint64(len(textInBytes))
-		options.TotalSize = &totalTextLength
+		options.TotalSize = uint64(len(textInBytes))
 	}
 
-	writer, err := p.StreamText(options)
-	if err != nil {
-		return nil, err
-	}
+	writer := p.StreamText(options)
 
-	go func() {
-		// should return the error from here if any
-		_, err := writer.Write(text)
-		if err != nil {
-			logger.Errorw("error writing text", err)
-		}
-		err = writer.Close()
-		if err != nil {
-			logger.Errorw("error closing writer", err)
-		}
-	}()
-	return &writer.Info, nil
+	onDone := func() {
+		writer.Close()
+	}
+	writer.Write(text, &onDone)
+
+	return &writer.Info
 }
 
-func (p *LocalParticipant) StreamBytes(options StreamBytesOptions) (*ByteStreamWriter, error) {
+func (p *LocalParticipant) StreamBytes(options StreamBytesOptions) *ByteStreamWriter {
 	if options.StreamId == nil {
 		streamId := uuid.New().String()
 		options.StreamId = &streamId
@@ -768,13 +758,18 @@ func (p *LocalParticipant) StreamBytes(options StreamBytesOptions) (*ByteStreamW
 		options.Attributes = make(map[string]string)
 	}
 
+	var totalSize *uint64
+	if options.TotalSize != 0 {
+		totalSize = &options.TotalSize
+	}
+
 	info := ByteStreamInfo{
 		baseStreamInfo: &baseStreamInfo{
 			Id:         *options.StreamId,
 			MimeType:   options.MimeType,
 			Topic:      options.Topic,
 			Timestamp:  time.Now().UnixMilli(),
-			Size:       options.TotalSize,
+			Size:       totalSize,
 			Attributes: options.Attributes,
 		},
 	}
@@ -797,28 +792,22 @@ func (p *LocalParticipant) StreamBytes(options StreamBytesOptions) (*ByteStreamW
 		info.Name = options.FileName
 	}
 
-	writer, err := newByteStreamWriter(info, header, p.engine, options.DestinationIdentities, options.OnProgress)
-	if err != nil {
-		return nil, err
-	}
+	writer := newByteStreamWriter(info, header, p.engine, options.DestinationIdentities, options.OnProgress)
+
 	p.engine.OnClose(func() {
-		err := writer.Close()
-		if err != nil {
-			logger.Errorw("error closing writer", err)
-		}
+		writer.Close()
 	})
 
-	return writer, nil
+	return writer
 }
 
 func (p *LocalParticipant) SendFile(filePath string, options StreamBytesOptions) (*ByteStreamInfo, error) {
-	if options.TotalSize == nil {
+	if options.TotalSize == 0 {
 		fileInfo, err := os.Stat(filePath)
 		if err != nil {
 			return nil, err
 		}
-		totalSize := uint64(fileInfo.Size())
-		options.TotalSize = &totalSize
+		options.TotalSize = uint64(fileInfo.Size())
 	}
 
 	if options.MimeType == "" {
@@ -826,10 +815,7 @@ func (p *LocalParticipant) SendFile(filePath string, options StreamBytesOptions)
 		options.MimeType = mimeType
 	}
 
-	writer, err := p.StreamBytes(options)
-	if err != nil {
-		return nil, err
-	}
+	writer := p.StreamBytes(options)
 
 	fileBytes, err := os.ReadFile(filePath)
 	if err != nil {
@@ -837,17 +823,10 @@ func (p *LocalParticipant) SendFile(filePath string, options StreamBytesOptions)
 		return nil, err
 	}
 
-	go func() {
-		// this error isn't propagated to the caller
-		_, err := writer.Write(fileBytes)
-		if err != nil {
-			logger.Errorw("error writing file", err)
-		}
-		err = writer.Close()
-		if err != nil {
-			logger.Errorw("error closing writer", err)
-		}
-	}()
+	onDone := func() {
+		writer.Close()
+	}
+	writer.Write(fileBytes, &onDone)
 
 	return &writer.Info, nil
 }

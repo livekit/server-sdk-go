@@ -968,7 +968,7 @@ func (r *Room) getLocalParticipantSID() string {
 // Other errors thrown in your handler will not be transmitted as-is, and will instead arrive to the caller as `1500` ("Application Error").
 func (r *Room) RegisterRpcMethod(method string, handler RpcHandlerFunc) error {
 	if _, ok := r.rpcHandlers.LoadOrStore(method, handler); !ok {
-		return fmt.Errorf("RPC handler already registered for method: %s, unregisterRpcMethod before trying to register again", method)
+		return fmt.Errorf("rpc handler already registered for method: %s, unregisterRpcMethod before trying to register again", method)
 	}
 	return nil
 }
@@ -1004,7 +1004,7 @@ func (r *Room) handleIncomingRpcRequest(callerIdentity, requestId, method, paylo
 		if _, ok := err.(*RpcError); ok {
 			r.engine.publishRpcResponse(callerIdentity, requestId, nil, err.(*RpcError))
 		} else {
-			r.log.Warnw("Uncaught error returned by RPC handler for method, using application error instead", err, "method", method)
+			r.log.Warnw("unexpected error returned by RPC handler for method, using application error instead", err, "method", method)
 			r.engine.publishRpcResponse(callerIdentity, requestId, nil, rpcErrorFromBuiltInCodes(RpcApplicationError, nil))
 		}
 		return

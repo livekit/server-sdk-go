@@ -210,10 +210,13 @@ func (e *RTCEngine) Close() {
 		}
 
 		e.onCloseLock.Lock()
-		for _, onCloseHandler := range e.onClose {
+		onClose := e.onClose
+		e.onClose = []func(){}
+		e.onCloseLock.Unlock()
+
+		for _, onCloseHandler := range onClose {
 			onCloseHandler()
 		}
-		e.onCloseLock.Unlock()
 
 		if publisher, ok := e.Publisher(); ok {
 			_ = publisher.Close()
@@ -930,25 +933,16 @@ func (e *RTCEngine) publishStreamTrailer(streamId string, destinationIdentities 
 	return e.publishDataPacket(packet, livekit.DataPacket_RELIABLE)
 }
 
-func (e *RTCEngine) isBufferStatusLow(kind livekit.DataPacket_Kind) (bool, error) {
+func (e *RTCEngine) isBufferStatusLow(kind livekit.DataPacket_Kind) bool {
 	dc := e.GetDataChannel(kind)
 	if dc != nil {
-		return dc.BufferedAmount() <= dc.BufferedAmountLowThreshold(), nil
+		return dc.BufferedAmount() <= dc.BufferedAmountLowThreshold()
 	}
-	return false, errors.New("datachannel not found")
+	return false
 }
 
-func (e *RTCEngine) waitForBufferStatusLow(kind livekit.DataPacket_Kind) error {
-	for {
-		low, err := e.isBufferStatusLow(kind)
-		if err != nil {
-			return err
-		}
-		if low {
-			break
-		}
+func (e *RTCEngine) waitForBufferStatusLow(kind livekit.DataPacket_Kind) {
+	for !e.isBufferStatusLow(kind) {
 		time.Sleep(10 * time.Millisecond)
 	}
-
-	return nil
 }

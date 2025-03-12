@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -81,13 +82,13 @@ func main() {
 	// 	}()
 	// })
 
-	// receiverRoom.RegisterTextStreamHandler("text-stream-recv-all", func(reader *lksdk.TextStreamReader, participantIdentity string) {
-	// 	logger.Infow("received text stream", "participant", participantIdentity)
-	// 	go func() {
-	// 		all := reader.ReadAll()
-	// 		logger.Infow("received text", "text", all)
-	// 	}()
-	// })
+	receiverRoom.RegisterTextStreamHandler("text-stream-recv-all", func(reader *lksdk.TextStreamReader, participantIdentity string) {
+		logger.Infow("received text stream", "participant", participantIdentity)
+		go func() {
+			all := reader.ReadAll()
+			logger.Infow("received full text chunks", "text", all)
+		}()
+	})
 
 	// receiverRoom.RegisterByteStreamHandler("file-receive", func(reader *lksdk.ByteStreamReader, participantIdentity string) {
 	// 	logger.Infow("received file stream", "participant", participantIdentity)
@@ -118,14 +119,25 @@ func main() {
 	// }
 	// writer.Close()
 
-	// topic = "text-stream-recv-all"
-	// writer = senderRoom.LocalParticipant.StreamText(&lksdk.StreamTextOptions{
-	// 	Topic: &topic,
-	// })
-	// for _, chunk := range strings.Split(text, " ") {
-	// 	writer.Write(chunk)
-	// }
-	// writer.Close()
+	topic = "text-stream-recv-all"
+	writer := senderRoom.LocalParticipant.StreamText(lksdk.StreamTextOptions{
+		Topic: topic,
+	})
+
+	chunks := strings.Split(text, " ")
+	for i, chunk := range chunks {
+		isLast := i == len(chunks)-1
+		if !isLast {
+			chunk += " "
+		}
+
+		onDone := func() {
+			if isLast {
+				writer.Close()
+			}
+		}
+		writer.Write(chunk, &onDone)
+	}
 
 	// fileName := "test.pdf"
 	// senderRoom.LocalParticipant.SendFile(fileName, lksdk.StreamBytesOptions{
