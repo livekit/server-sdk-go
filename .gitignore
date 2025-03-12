@@ -22,3 +22,6 @@ docs/
 bin/
 
 *.DS_Store
+
+# data stream test files
+*.mp4

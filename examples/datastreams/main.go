@@ -2,6 +2,10 @@ package main
 
 import (
 	"flag"
+	"io"
+	"mime"
+	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -17,12 +21,30 @@ const (
 
 var (
 	host, apiKey, apiSecret string
+
+	testFileName = "test.mp4"
 )
 
 func init() {
 	flag.StringVar(&host, "host", "", "livekit server host")
 	flag.StringVar(&apiKey, "api-key", "", "livekit api key")
 	flag.StringVar(&apiSecret, "api-secret", "", "livekit api secret")
+}
+
+func downloadTestFile() {
+	res, err := http.Get("https://www.w3schools.com/html/mov_bbb.mp4")
+	if err != nil {
+		logger.Errorw("failed to download test file", err)
+		return
+	}
+	defer res.Body.Close()
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		logger.Errorw("failed to read test file", err)
+		return
+	}
+	os.WriteFile(testFileName, body, 0644)
 }
 
 func main() {
@@ -59,67 +81,54 @@ func main() {
 		receiverRoom.Disconnect()
 	}()
 
-	receiverRoom.RegisterTextStreamHandler("text-receive-iter", func(reader *lksdk.TextStreamReader, participantIdentity string) {
-		logger.Infow("received text stream", "participant", participantIdentity)
-		all := reader.ReadAll()
-		logger.Infow("received text", "text", all)
+	// reading text in chunks
+	receiverRoom.RegisterTextStreamHandler("text-read-iter", func(reader *lksdk.TextStreamReader, participantIdentity string) {
+		logger.Infow("received text-read-iter text stream")
+		res := ""
+		for {
+			word, err := reader.ReadString(' ')
+			logger.Infow("read word", "word", word)
+			res += word
+			if err != nil {
+				// EOF represents the end of the stream
+				if err == io.EOF {
+					break
+				} else if err == lksdk.EAGAIN {
+					// EAGAIN represents that the stream is not closed, but no data is available right now
+					time.Sleep(100 * time.Millisecond)
+				}
+			}
+		}
+		logger.Infow("read text-read-iter text stream", "text", res)
 	})
 
-	// receiverRoom.RegisterTextStreamHandler("text-receive-all", func(reader *lksdk.TextStreamReader, participantIdentity string) {
-	// 	logger.Infow("received text stream", "participant", participantIdentity)
-	// 	go func() {
-	// 		all := reader.ReadAll()
-	// 		logger.Infow("received text", "text", all)
-	// 	}()
-	// })
-
-	// receiverRoom.RegisterTextStreamHandler("text-stream-recv-iter", func(reader *lksdk.TextStreamReader, participantIdentity string) {
-	// 	logger.Infow("received text stream", "participant", participantIdentity)
-	// 	go func() {
-	// 		for chunk := range reader.Read() {
-	// 			logger.Infow("received text chunk", "chunk", chunk)
-	// 		}
-	// 	}()
-	// })
-
-	receiverRoom.RegisterTextStreamHandler("text-stream-recv-all", func(reader *lksdk.TextStreamReader, participantIdentity string) {
-		logger.Infow("received text stream", "participant", participantIdentity)
-		go func() {
-			all := reader.ReadAll()
-			logger.Infow("received full text chunks", "text", all)
-		}()
+	// reading text as a whole
+	receiverRoom.RegisterTextStreamHandler("text-read-all", func(reader *lksdk.TextStreamReader, participantIdentity string) {
+		logger.Infow("received text-read-all text stream")
+		res := reader.ReadAll()
+		logger.Infow("read text-read-all text stream", "text", res)
 	})
 
-	// receiverRoom.RegisterByteStreamHandler("file-receive", func(reader *lksdk.ByteStreamReader, participantIdentity string) {
-	// 	logger.Infow("received file stream", "participant", participantIdentity)
-	// 	go func() {
-	// 		all := reader.ReadAll()
-	// 		os.WriteFile("received.pdf", all, 0644)
-	// 	}()
-	// })
+	receiverRoom.RegisterByteStreamHandler("file-read-all", func(reader *lksdk.ByteStreamReader, participantIdentity string) {
+		logger.Infow("received file-read-all file stream")
+		streamBytes := reader.ReadAll()
 
+		fileName := "received"
+		ext, _ := mime.ExtensionsByType(reader.Info.MimeType)
+		fileName += ext[1]
+		os.WriteFile(fileName, streamBytes, 0644)
+		logger.Infow("wrote file-read-all file stream to received.mp4")
+	})
+
+	// sending text as a whole
 	text := "Lorem ipsum dolor sit amet..."
-	topic := "text-receive-iter"
+	topic := "text-read-iter"
 	senderRoom.LocalParticipant.SendText(text, lksdk.StreamTextOptions{
 		Topic: topic,
 	})
 
-	// topic = "text-receive-all"
-	// text = "Hello World"
-	// senderRoom.LocalParticipant.SendText(text, lksdk.StreamTextOptions{
-	// 	Topic: topic,
-	// })
-
-	// topic = "text-stream-recv-iter"
-	// writer := senderRoom.LocalParticipant.StreamText(&lksdk.StreamTextOptions{
-	// 	Topic: &topic,
-	// })
-	// for _, chunk := range strings.Split(text, " ") {
-	// 	writer.Write(chunk)
-	// }
-	// writer.Close()
-
-	topic = "text-stream-recv-all"
+	// sending text in chunks
+	topic = "text-read-all"
 	writer := senderRoom.LocalParticipant.StreamText(lksdk.StreamTextOptions{
 		Topic: topic,
 	})
@@ -139,11 +148,13 @@ func main() {
 		writer.Write(chunk, &onDone)
 	}
 
-	// fileName := "test.pdf"
-	// senderRoom.LocalParticipant.SendFile(fileName, lksdk.StreamBytesOptions{
-	// 	Topic:    "file-receive",
-	// 	FileName: &fileName,
-	// })
+	downloadTestFile()
+
+	topic = "file-read-all"
+	senderRoom.LocalParticipant.SendFile(testFileName, lksdk.StreamBytesOptions{
+		Topic:    topic,
+		FileName: &testFileName,
+	})
 
 	time.Sleep(30 * time.Second)
 }
