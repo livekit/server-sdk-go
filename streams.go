@@ -2,11 +2,9 @@ package lksdk
 
 import (
 	"bytes"
-	"errors"
 	"io"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	protocol "github.com/livekit/protocol/livekit"
 )
@@ -48,9 +46,6 @@ const (
 	// default max chunk size for streams
 	STREAM_CHUNK_SIZE = 15_000
 )
-
-// ErrAgain is an error that indicates that there is no data available right now, try again later
-var ErrAgain = errors.New("there is no data available right now, try again later")
 
 // Options for publishing a text stream with mime type "text/plain"
 //   - Topic is the topic of the stream
@@ -238,6 +233,12 @@ type baseStreamReader struct {
 
 	closed atomic.Bool
 	lock   sync.Mutex
+	cond   *sync.Cond
+
+	// readerMutex is used to lock the reader when reading the stream
+	// this will prevent issues when the user tries to read from multiple methods at the same time
+	// since cond unlocks the lock before waiting, this is needed to prevent multiple read calls from fighting for data
+	readerMutex sync.Mutex
 
 	onProgress *func(progress float64)
 }
@@ -249,6 +250,7 @@ func newBaseStreamReader(totalByteSize *uint64) *baseStreamReader {
 	if totalByteSize != nil {
 		baseReader.totalByteSize = totalByteSize
 	}
+	baseReader.cond = sync.NewCond(&baseReader.lock)
 	return baseReader
 }
 
@@ -260,6 +262,7 @@ func (r *baseStreamReader) enqueue(chunk *protocol.DataStream_Chunk) {
 	// write seems to handle growing the buffer if needed
 	r.lock.Lock()
 	r.readBuffer.Write(chunk.Content)
+	r.cond.Broadcast()
 	r.lock.Unlock()
 }
 
@@ -279,49 +282,74 @@ func (r *baseStreamReader) maybeCallOnProgress(n int) {
 	}
 }
 
+// waits for a write to the stream
+func (r *baseStreamReader) waitForData() {
+	// if stream is closed, the methods will return io.EOF automatically
+	for r.readBuffer.Len() == 0 && !r.closed.Load() {
+		// cond.Wait() unlocks the lock before waiting, allowing enqueue to write to the buffer
+		r.cond.Wait()
+	}
+}
+
 // handles the EOF error before the stream is closed
 func (r *baseStreamReader) handleEOFBeforeStreamClosed(err error) error {
 	if err == io.EOF {
 		if r.closed.Load() {
 			return io.EOF
+		} else {
+			return nil
 		}
-		return ErrAgain
 	}
 	return err
 }
 
 // Read reads the next len(p) bytes from the stream or until the stream buffer is drained.
 // The return value is the number of bytes read.
-// If the buffer has no data to return, err is ErrAgain or io.EOF (unless len(p) is zero) depending on if the stream is closed or not.
-// Otherwise, the error is nil.
+// If the buffer has no data to return, it will wait for a write to the stream or return io.EOF if the stream is closed.
 func (r *baseStreamReader) Read(bytes []byte) (int, error) {
+	r.readerMutex.Lock()
 	r.lock.Lock()
-	defer r.lock.Unlock()
+	defer func() {
+		r.lock.Unlock()
+		r.readerMutex.Unlock()
+	}()
+
+	r.waitForData()
 
 	n, err := r.readBuffer.Read(bytes)
 	r.maybeCallOnProgress(n)
-
 	return n, r.handleEOFBeforeStreamClosed(err)
 }
 
 // ReadByte reads and returns the next byte from the buffer.
-// If no byte is available, it returns error ErrAgain or io.EOF depending on if the stream is closed or not.
+// If no byte is available, it will wait for a write to the stream or return io.EOF if the stream is closed.
 func (r *baseStreamReader) ReadByte() (byte, error) {
+	r.readerMutex.Lock()
 	r.lock.Lock()
-	defer r.lock.Unlock()
+	defer func() {
+		r.lock.Unlock()
+		r.readerMutex.Unlock()
+	}()
+
+	r.waitForData()
 
 	n, err := r.readBuffer.ReadByte()
 	r.maybeCallOnProgress(1)
-
 	return n, r.handleEOFBeforeStreamClosed(err)
 }
 
 // ReadBytes reads until the first occurrence of delim in the input, returning a slice containing the data up to and including the delimiter.
-// If ReadBytes encounters an error before finding a delimiter, it returns the data read before the error and the error itself (often io.EOF or ErrAgain).
+// If ReadBytes encounters an error before finding a delimiter, it returns the data read before EOF, but does not return EOF until the stream is closed.
 // ReadBytes returns err != nil if and only if the returned data does not end in delim.
 func (r *baseStreamReader) ReadBytes(delim byte) ([]byte, error) {
+	r.readerMutex.Lock()
 	r.lock.Lock()
-	defer r.lock.Unlock()
+	defer func() {
+		r.lock.Unlock()
+		r.readerMutex.Unlock()
+	}()
+
+	r.waitForData()
 
 	n, err := r.readBuffer.ReadBytes(delim)
 	r.maybeCallOnProgress(len(n))
@@ -331,6 +359,10 @@ func (r *baseStreamReader) ReadBytes(delim byte) ([]byte, error) {
 func (r *baseStreamReader) close() {
 	if !r.closed.Load() {
 		r.closed.Store(true)
+
+		r.lock.Lock()
+		r.cond.Broadcast()
+		r.lock.Unlock()
 	}
 }
 
@@ -347,11 +379,17 @@ func NewTextStreamReader(info TextStreamInfo, totalChunkCount *uint64) *TextStre
 }
 
 // ReadRune reads and returns the next UTF-8-encoded Unicode code point from the buffer.
-// If no bytes are available, the error returned is either ErrAgain or io.EOF depending on if the stream is closed or not.
+// If no bytes are available, it will wait for a write to the stream or return io.EOF if the stream is closed.
 // If the bytes are an erroneous UTF-8 encoding, it consumes one byte and returns U+FFFD, 1.
 func (r *TextStreamReader) ReadRune() (rune, int, error) {
+	r.readerMutex.Lock()
 	r.lock.Lock()
-	defer r.lock.Unlock()
+	defer func() {
+		r.lock.Unlock()
+		r.readerMutex.Unlock()
+	}()
+
+	r.waitForData()
 
 	n, size, err := r.readBuffer.ReadRune()
 	r.maybeCallOnProgress(size)
@@ -359,11 +397,17 @@ func (r *TextStreamReader) ReadRune() (rune, int, error) {
 }
 
 // ReadString reads until the first occurrence of delim in the input, returning a string containing the data up to and including the delimiter.
-// If ReadString encounters an error before finding a delimiter, it returns the data read before the error and the error itself (often io.EOF or ErrAgain).
+// If ReadString encounters an error before finding a delimiter, it returns the data read before EOF, but does not return EOF until the stream is closed.
 // ReadString returns err != nil if and only if the returned data does not end in delim.
 func (r *TextStreamReader) ReadString(delim byte) (string, error) {
+	r.readerMutex.Lock()
 	r.lock.Lock()
-	defer r.lock.Unlock()
+	defer func() {
+		r.lock.Unlock()
+		r.readerMutex.Unlock()
+	}()
+
+	r.waitForData()
 
 	n, err := r.readBuffer.ReadString(delim)
 	r.maybeCallOnProgress(len(n))
@@ -373,18 +417,20 @@ func (r *TextStreamReader) ReadString(delim byte) (string, error) {
 // ReadAll reads all the data from the stream and returns it as a string.
 // This will block until the stream is closed.
 func (r *TextStreamReader) ReadAll() string {
+	r.readerMutex.Lock()
+	r.lock.Lock()
+	defer func() {
+		r.lock.Unlock()
+		r.readerMutex.Unlock()
+	}()
+
 	// wait for the stream to be closed
-	for {
-		if r.closed.Load() {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
+	for !r.closed.Load() {
+		// cond.Wait() unlocks the lock before waiting, allowing enqueue to write to the buffer
+		r.cond.Wait()
 	}
 
 	// Now that the stream is closed, read all data
-	r.lock.Lock()
-	defer r.lock.Unlock()
-
 	n := r.readBuffer.String()
 	return n
 }
@@ -404,18 +450,20 @@ func NewByteStreamReader(info ByteStreamInfo, totalChunkCount *uint64) *ByteStre
 // ReadAll reads all the data from the stream and returns it as a byte slice.
 // This will block until the stream is closed.
 func (r *ByteStreamReader) ReadAll() []byte {
+	r.readerMutex.Lock()
+	r.lock.Lock()
+	defer func() {
+		r.lock.Unlock()
+		r.readerMutex.Unlock()
+	}()
+
 	// wait for the stream to be closed
-	for {
-		if r.closed.Load() {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
+	for !r.closed.Load() {
+		// cond.Wait() unlocks the lock before waiting, allowing enqueue to write to the buffer
+		r.cond.Wait()
 	}
 
 	// Now that the stream is closed, read all data
-	r.lock.Lock()
-	defer r.lock.Unlock()
-
 	n := r.readBuffer.Bytes()
 	r.maybeCallOnProgress(len(n))
 	return n

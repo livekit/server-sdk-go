@@ -8,7 +8,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/livekit/protocol/logger"
@@ -100,9 +99,9 @@ func main() {
 				// EOF represents the end of the stream
 				if err == io.EOF {
 					break
-				} else if err == lksdk.ErrAgain {
-					// ErrAgain represents that the stream is not closed, but no data is available right now
-					time.Sleep(100 * time.Millisecond)
+				} else {
+					logger.Errorw("failed to read text-read-iter text stream", err)
+					break
 				}
 			}
 		}
