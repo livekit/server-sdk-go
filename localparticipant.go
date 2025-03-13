@@ -697,9 +697,11 @@ func (p *LocalParticipant) StreamText(options StreamTextOptions) *TextStreamWrit
 		Topic:       info.Topic,
 		Timestamp:   info.Timestamp,
 		TotalLength: info.Size,
+		Attributes:  info.Attributes,
 		ContentHeader: &livekit.DataStream_Header_TextHeader{
 			TextHeader: &livekit.DataStream_TextHeader{
-				OperationType: livekit.DataStream_CREATE,
+				OperationType:     livekit.DataStream_CREATE,
+				AttachedStreamIds: options.AttachedStreamIds,
 			},
 		},
 	}
@@ -726,12 +728,62 @@ func (p *LocalParticipant) SendText(text string, options StreamTextOptions) *Tex
 		options.TotalSize = uint64(len(textInBytes))
 	}
 
-	writer := p.StreamText(options)
+	// Ensure that the number of attached stream ids matches the number of attachments, generate if necessary
+	attachedStreamIds := options.AttachedStreamIds
+	numberOfAttachments := len(options.Attachments)
+	numberOfAttachedStreamIds := len(attachedStreamIds)
+	if numberOfAttachments > 0 {
+		if numberOfAttachedStreamIds != numberOfAttachments {
+			for i := numberOfAttachedStreamIds; i < numberOfAttachments; i++ {
+				attachedStreamIds = append(attachedStreamIds, uuid.New().String())
+			}
+		}
+	}
+	options.AttachedStreamIds = attachedStreamIds
+
+	var progresses sync.Map
+	for i := range numberOfAttachments + 1 {
+		progresses.Store(i, float64(0))
+	}
+
+	handleProgress := func(progress float64, id int) {
+		progresses.Store(id, progress)
+
+		var totalProgress float64
+		progresses.Range(func(_, value interface{}) bool {
+			totalProgress += value.(float64)
+			return true
+		})
+
+		if options.OnProgress != nil {
+			(*options.OnProgress)(totalProgress / float64(numberOfAttachments+1))
+		}
+	}
+
+	textOptions := options
+	textOnProgress := func(progress float64) {
+		handleProgress(progress, 0)
+	}
+	textOptions.OnProgress = &textOnProgress
+	writer := p.StreamText(textOptions)
 
 	onDone := func() {
 		writer.Close()
 	}
 	writer.Write(text, &onDone)
+
+	for i, attachment := range options.Attachments {
+		onProgress := func(progress float64) {
+			handleProgress(progress, i+1)
+		}
+		p.SendFile(attachment, StreamBytesOptions{
+			Topic:                 options.Topic,
+			DestinationIdentities: options.DestinationIdentities,
+			StreamId:              &attachedStreamIds[i],
+			OnProgress:            &onProgress,
+			Attributes:            options.Attributes,
+		})
+	}
 
 	return &writer.Info
 }
@@ -769,6 +821,7 @@ func (p *LocalParticipant) StreamBytes(options StreamBytesOptions) *ByteStreamWr
 		Topic:       info.Topic,
 		Timestamp:   info.Timestamp,
 		TotalLength: info.Size,
+		Attributes:  info.Attributes,
 		ContentHeader: &livekit.DataStream_Header_ByteHeader{
 			ByteHeader: &livekit.DataStream_ByteHeader{},
 		},

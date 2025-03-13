@@ -60,6 +60,8 @@ var ErrAgain = errors.New("there is no data available right now, try again later
 // - TotalSize is the total size of the stream, optional but calculated internally for SendText
 // - Attributes are any additional attributes of the stream
 // - OnProgress is a callback function that will be called when the stream is being written
+// - Attachments is the list of file paths to attach to the stream, optional
+// - AttachedStreamIds is the list of stream ids that are attached to this stream, mapped by index to attachments, optional, generated if not provided
 type StreamTextOptions struct {
 	Topic                 string
 	DestinationIdentities []string
@@ -68,6 +70,8 @@ type StreamTextOptions struct {
 	TotalSize             uint64
 	Attributes            map[string]string
 	OnProgress            *func(progress float64)
+	Attachments           []string
+	AttachedStreamIds     []string
 }
 
 // Options for publishing a byte stream
@@ -78,7 +82,7 @@ type StreamTextOptions struct {
 // - TotalSize is the total size of the stream, optional but calculated internally for SendFile
 // - Attributes are any additional attributes of the stream
 // - OnProgress is a callback function that will be called when the stream is being written
-// - FileName is the name of the file, optional but picked from the path for SendFile
+// - FileName is the name of the file, optional
 type StreamBytesOptions struct {
 	Topic                 string
 	MimeType              string

@@ -77,6 +77,10 @@ func main() {
 	}
 
 	defer func() {
+		senderRoom.UnregisterTextStreamHandler("text-read-iter")
+		senderRoom.UnregisterTextStreamHandler("text-read-all")
+		senderRoom.UnregisterByteStreamHandler("file-read-all")
+
 		senderRoom.Disconnect()
 		receiverRoom.Disconnect()
 	}()
