@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -76,6 +77,8 @@ func main() {
 		return
 	}
 
+	var wg sync.WaitGroup
+
 	defer func() {
 		senderRoom.UnregisterTextStreamHandler("text-read-iter")
 		senderRoom.UnregisterTextStreamHandler("text-read-all")
@@ -104,6 +107,7 @@ func main() {
 			}
 		}
 		logger.Infow("read text-read-iter text stream", "text", res)
+		wg.Done()
 	})
 
 	// reading text as a whole
@@ -111,6 +115,7 @@ func main() {
 		logger.Infow("received text-read-all text stream")
 		res := reader.ReadAll()
 		logger.Infow("read text-read-all text stream", "text", res)
+		wg.Done()
 	})
 
 	receiverRoom.RegisterByteStreamHandler("file-read-all", func(reader *lksdk.ByteStreamReader, participantIdentity string) {
@@ -122,9 +127,11 @@ func main() {
 		fileName += ext[1]
 		os.WriteFile(fileName, streamBytes, 0644)
 		logger.Infow("wrote file-read-all file stream to received.mp4")
+		wg.Done()
 	})
 
 	// sending text as a whole
+	wg.Add(1)
 	text := "Lorem ipsum dolor sit amet..."
 	topic := "text-read-iter"
 	senderRoom.LocalParticipant.SendText(text, lksdk.StreamTextOptions{
@@ -132,6 +139,7 @@ func main() {
 	})
 
 	// sending text in chunks
+	wg.Add(1)
 	topic = "text-read-all"
 	writer := senderRoom.LocalParticipant.StreamText(lksdk.StreamTextOptions{
 		Topic: topic,
@@ -152,13 +160,14 @@ func main() {
 		writer.Write(chunk, &onDone)
 	}
 
+	// sending file as a whole
+	wg.Add(1)
 	downloadTestFile()
-
 	topic = "file-read-all"
 	senderRoom.LocalParticipant.SendFile(testFileName, lksdk.StreamBytesOptions{
 		Topic:    topic,
 		FileName: &testFileName,
 	})
 
-	time.Sleep(30 * time.Second)
+	wg.Wait()
 }

@@ -756,7 +756,7 @@ func (p *LocalParticipant) SendText(text string, options StreamTextOptions) *Tex
 		})
 
 		if options.OnProgress != nil {
-			(*options.OnProgress)(totalProgress / float64(numberOfAttachments+1))
+			options.OnProgress(totalProgress / float64(numberOfAttachments+1))
 		}
 	}
 
@@ -764,7 +764,7 @@ func (p *LocalParticipant) SendText(text string, options StreamTextOptions) *Tex
 	textOnProgress := func(progress float64) {
 		handleProgress(progress, 0)
 	}
-	textOptions.OnProgress = &textOnProgress
+	textOptions.OnProgress = textOnProgress
 	writer := p.StreamText(textOptions)
 
 	onDone := func() {
@@ -780,7 +780,7 @@ func (p *LocalParticipant) SendText(text string, options StreamTextOptions) *Tex
 			Topic:                 options.Topic,
 			DestinationIdentities: options.DestinationIdentities,
 			StreamId:              &attachedStreamIds[i],
-			OnProgress:            &onProgress,
+			OnProgress:            onProgress,
 			Attributes:            options.Attributes,
 		})
 	}

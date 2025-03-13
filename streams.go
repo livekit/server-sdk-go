@@ -21,25 +21,25 @@ type baseStreamInfo struct {
 }
 
 // Info for byte streams
-// - Id is the id of the stream
-// - MimeType is the mime type of the stream, calculate for SendFile if not provided
-// - Topic is the topic of the stream
-// - Timestamp is the timestamp of the stream
-// - Size is the total size of the stream, if provided
-// - Attributes are any additional attributes of the stream
-// - Name is the name of the file or stream, if provided
+//   - Id is the id of the stream
+//   - MimeType is the mime type of the stream, determined for SendFile if not provided
+//   - Topic is the topic of the stream
+//   - Timestamp is the timestamp of sending the stream
+//   - Size is the total size of the stream, if provided
+//   - Attributes are any additional attributes of the stream
+//   - Name is the name of the file or stream, if provided
 type ByteStreamInfo struct {
 	*baseStreamInfo
 	Name *string
 }
 
 // Info for text streams
-// - Id is the id of the stream
-// - MimeType is the mime type of the stream, calculate for SendFile if not provided
-// - Topic is the topic of the stream
-// - Timestamp is the timestamp of the stream
-// - Size is the total size of the stream, if provided
-// - Attributes are any additional attributes of the stream
+//   - Id is the id of the stream
+//   - MimeType is the mime type of the stream, always "text/plain" for text streams
+//   - Topic is the topic of the stream
+//   - Timestamp is the timestamp of sending the stream
+//   - Size is the total size of the stream, if provided
+//   - Attributes are any additional attributes of the stream
 type TextStreamInfo struct {
 	*baseStreamInfo
 }
@@ -53,15 +53,15 @@ const (
 var ErrAgain = errors.New("there is no data available right now, try again later")
 
 // Options for publishing a text stream with mime type "text/plain"
-// - Topic is the topic of the stream
-// - DestinationIdentities is the list of identities that will receive the stream, empty for all participants
-// - StreamId is the id of the stream, generated if not provided
-// - ReplyToStreamId is the id of the stream to reply to, optional
-// - TotalSize is the total size of the stream, optional but calculated internally for SendText
-// - Attributes are any additional attributes of the stream
-// - OnProgress is a callback function that will be called when the stream is being written
-// - Attachments is the list of file paths to attach to the stream, optional
-// - AttachedStreamIds is the list of stream ids that are attached to this stream, mapped by index to attachments, optional, generated if not provided
+//   - Topic is the topic of the stream
+//   - DestinationIdentities is the list of identities that will receive the stream, empty for all participants
+//   - StreamId is the id of the stream, generated if not provided
+//   - ReplyToStreamId is the id of the stream to reply to, optional
+//   - TotalSize is the total size of the stream, optional but calculated internally for SendText if not provided
+//   - Attributes are any additional attributes of the stream
+//   - OnProgress is a callback function that will be called when the stream is being written
+//   - Attachments is the list of file paths to attach to the stream, optional
+//   - AttachedStreamIds is the list of stream ids that are attached to this stream, mapped by index to attachments, optional, generated if not provided
 type StreamTextOptions struct {
 	Topic                 string
 	DestinationIdentities []string
@@ -69,20 +69,20 @@ type StreamTextOptions struct {
 	ReplyToStreamId       *string
 	TotalSize             uint64
 	Attributes            map[string]string
-	OnProgress            *func(progress float64)
+	OnProgress            func(progress float64)
 	Attachments           []string
 	AttachedStreamIds     []string
 }
 
 // Options for publishing a byte stream
-// - Topic is the topic of the stream
-// - MimeType is the mime type of the stream, calculate for SendFile if not provided
-// - DestinationIdentities is the list of identities that will receive the stream, empty for all participants
-// - StreamId is the id of the stream, generated if not provided
-// - TotalSize is the total size of the stream, optional but calculated internally for SendFile
-// - Attributes are any additional attributes of the stream
-// - OnProgress is a callback function that will be called when the stream is being written
-// - FileName is the name of the file, optional
+//   - Topic is the topic of the stream
+//   - MimeType is the mime type of the stream, determined for SendFile if not provided
+//   - DestinationIdentities is the list of identities that will receive the stream, empty for all participants
+//   - StreamId is the id of the stream, generated if not provided
+//   - TotalSize is the total size of the stream, optional but calculated internally for SendFile
+//   - Attributes are any additional attributes of the stream
+//   - OnProgress is a callback function that will be called when the stream is being written
+//   - FileName is the name of the file, optional
 type StreamBytesOptions struct {
 	Topic                 string
 	MimeType              string
@@ -90,7 +90,7 @@ type StreamBytesOptions struct {
 	StreamId              *string
 	TotalSize             uint64
 	Attributes            map[string]string
-	OnProgress            *func(progress float64)
+	OnProgress            func(progress float64)
 	FileName              *string
 }
 
@@ -106,7 +106,7 @@ type baseStreamWriter[T any] struct {
 	streamId              string
 	destinationIdentities []string
 	totalSize             *uint64
-	onProgress            *func(progress float64)
+	onProgress            func(progress float64)
 
 	chunkIndex uint64
 	closed     atomic.Bool
@@ -115,7 +115,7 @@ type baseStreamWriter[T any] struct {
 	writeQueue chan writeTask
 }
 
-func newBaseStreamWriter[T any](engine *RTCEngine, header *protocol.DataStream_Header, streamId string, destinationIdentities []string, totalSize *uint64, onProgress *func(progress float64)) *baseStreamWriter[T] {
+func newBaseStreamWriter[T any](engine *RTCEngine, header *protocol.DataStream_Header, streamId string, destinationIdentities []string, totalSize *uint64, onProgress func(progress float64)) *baseStreamWriter[T] {
 	base := &baseStreamWriter[T]{
 		engine:                engine,
 		streamId:              streamId,
@@ -189,7 +189,7 @@ func (w *baseStreamWriter[T]) writeStreamBytes(chunks [][]byte, onDone *func()) 
 
 		if w.onProgress != nil && w.totalSize != nil {
 			progress := float64(len(chunk)) / float64(*w.totalSize)
-			(*w.onProgress)(progress)
+			w.onProgress(progress)
 		}
 
 		chunkIndex++
@@ -210,7 +210,7 @@ type TextStreamWriter struct {
 }
 
 // create a new text stream writer
-func newTextStreamWriter(info TextStreamInfo, header *protocol.DataStream_Header, e *RTCEngine, destinationIdentities []string, onProgress *func(progress float64)) *TextStreamWriter {
+func newTextStreamWriter(info TextStreamInfo, header *protocol.DataStream_Header, e *RTCEngine, destinationIdentities []string, onProgress func(progress float64)) *TextStreamWriter {
 	return &TextStreamWriter{
 		baseStreamWriter: newBaseStreamWriter[string](e, header, info.Id, destinationIdentities, info.Size, onProgress),
 		Info:             info,
@@ -224,7 +224,7 @@ type ByteStreamWriter struct {
 }
 
 // create a new byte stream writer
-func newByteStreamWriter(info ByteStreamInfo, header *protocol.DataStream_Header, e *RTCEngine, destinationIdentities []string, onProgress *func(progress float64)) *ByteStreamWriter {
+func newByteStreamWriter(info ByteStreamInfo, header *protocol.DataStream_Header, e *RTCEngine, destinationIdentities []string, onProgress func(progress float64)) *ByteStreamWriter {
 	return &ByteStreamWriter{
 		baseStreamWriter: newBaseStreamWriter[[]byte](e, header, info.Id, destinationIdentities, info.Size, onProgress),
 		Info:             info,
@@ -441,12 +441,14 @@ func chunkUtf8String(s string) [][]byte {
 
 		for k > 0 {
 			dataByte := stringBytes[k]
+			// check if the byte is not a continuation byte
 			if (dataByte & 0xc0) != 0x80 {
 				break
 			}
 			k--
 		}
 
+		// valid utf8 sequence found, add it to the chunks
 		chunks = append(chunks, stringBytes[:k])
 		stringBytes = stringBytes[k:]
 	}
