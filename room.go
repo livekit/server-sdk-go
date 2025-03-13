@@ -860,6 +860,10 @@ func (r *Room) cleanup() {
 	r.engine.Close()
 	r.LocalParticipant.closeTracks()
 	r.setSid("", true)
+	r.byteStreamHandlers = &sync.Map{}
+	r.byteStreamReaders = &sync.Map{}
+	r.textStreamHandlers = &sync.Map{}
+	r.textStreamReaders = &sync.Map{}
 	r.rpcHandlers = &sync.Map{}
 	r.LocalParticipant.cleanup()
 }
@@ -1018,6 +1022,9 @@ func (r *Room) handleIncomingRpcRequest(callerIdentity, requestId, method, paylo
 	r.engine.publishRpcResponse(callerIdentity, requestId, &response, nil)
 }
 
+// Registers a handler for a text stream.
+// It will be called when a text stream is received for the given topic.
+// The handler will be called with the stream reader and the participant identity that sent the stream.
 func (r *Room) RegisterTextStreamHandler(topic string, handler TextStreamHandler) error {
 	if _, ok := r.textStreamHandlers.LoadOrStore(topic, handler); !ok {
 		return fmt.Errorf("text stream handler already registered for topic: %s", topic)
@@ -1025,10 +1032,14 @@ func (r *Room) RegisterTextStreamHandler(topic string, handler TextStreamHandler
 	return nil
 }
 
+// Unregisters a handler for a text stream.
 func (r *Room) UnregisterTextStreamHandler(topic string) {
 	r.textStreamHandlers.Delete(topic)
 }
 
+// Registers a handler for a byte stream.
+// It will be called when a byte stream is received for the given topic.
+// The handler will be called with the stream reader and the participant identity that sent the stream.
 func (r *Room) RegisterByteStreamHandler(topic string, handler ByteStreamHandler) error {
 	if _, ok := r.byteStreamHandlers.LoadOrStore(topic, handler); !ok {
 		return fmt.Errorf("byte stream handler already registered for topic: %s", topic)
@@ -1036,6 +1047,7 @@ func (r *Room) RegisterByteStreamHandler(topic string, handler ByteStreamHandler
 	return nil
 }
 
+// Unregisters a handler for a byte stream.
 func (r *Room) UnregisterByteStreamHandler(topic string) {
 	r.byteStreamHandlers.Delete(topic)
 }

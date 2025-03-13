@@ -833,11 +833,18 @@ func (e *RTCEngine) publishDataPacket(pck *livekit.DataPacket, kind livekit.Data
 	return nil
 }
 
+func (e *RTCEngine) publishDataPacketReliable(pck *livekit.DataPacket) error {
+	return e.publishDataPacket(pck, livekit.DataPacket_RELIABLE)
+}
+
+func (e *RTCEngine) publishDataPacketLossy(pck *livekit.DataPacket) error {
+	return e.publishDataPacket(pck, livekit.DataPacket_LOSSY)
+}
+
 // TODO: adjust RPC methods to return error on publishDataPacket failure
-func (e *RTCEngine) publishRpcResponse(destinationIdentity, requestId string, payload *string, error *RpcError) {
+func (e *RTCEngine) publishRpcResponse(destinationIdentity, requestId string, payload *string, err *RpcError) error {
 	packet := &livekit.DataPacket{
 		DestinationIdentities: []string{destinationIdentity},
-		Kind:                  livekit.DataPacket_RELIABLE,
 		Value: &livekit.DataPacket_RpcResponse{
 			RpcResponse: &livekit.RpcResponse{
 				RequestId: requestId,
@@ -845,9 +852,9 @@ func (e *RTCEngine) publishRpcResponse(destinationIdentity, requestId string, pa
 		},
 	}
 
-	if error != nil {
+	if err != nil {
 		packet.Value.(*livekit.DataPacket_RpcResponse).RpcResponse.Value = &livekit.RpcResponse_Error{
-			Error: error.toProto(),
+			Error: err.toProto(),
 		}
 	} else {
 		if payload == nil {
@@ -860,13 +867,16 @@ func (e *RTCEngine) publishRpcResponse(destinationIdentity, requestId string, pa
 		}
 	}
 
-	e.publishDataPacket(packet, livekit.DataPacket_RELIABLE)
+	publishErr := e.publishDataPacketReliable(packet)
+	if publishErr != nil {
+		e.log.Errorw("could not publish rpc response", publishErr)
+	}
+	return publishErr
 }
 
-func (e *RTCEngine) publishRpcAck(destinationIdentity, requestId string) {
+func (e *RTCEngine) publishRpcAck(destinationIdentity, requestId string) error {
 	packet := &livekit.DataPacket{
 		DestinationIdentities: []string{destinationIdentity},
-		Kind:                  livekit.DataPacket_RELIABLE,
 		Value: &livekit.DataPacket_RpcAck{
 			RpcAck: &livekit.RpcAck{
 				RequestId: requestId,
@@ -874,13 +884,16 @@ func (e *RTCEngine) publishRpcAck(destinationIdentity, requestId string) {
 		},
 	}
 
-	e.publishDataPacket(packet, livekit.DataPacket_RELIABLE)
+	publishErr := e.publishDataPacketReliable(packet)
+	if publishErr != nil {
+		e.log.Errorw("could not publish rpc ack", publishErr)
+	}
+	return publishErr
 }
 
-func (e *RTCEngine) publishRpcRequest(destinationIdentity, requestId, method, payload string, responseTimeout time.Duration) {
+func (e *RTCEngine) publishRpcRequest(destinationIdentity, requestId, method, payload string, responseTimeout time.Duration) error {
 	packet := &livekit.DataPacket{
 		DestinationIdentities: []string{destinationIdentity},
-		Kind:                  livekit.DataPacket_RELIABLE,
 		Value: &livekit.DataPacket_RpcRequest{
 			RpcRequest: &livekit.RpcRequest{
 				Id:                requestId,
@@ -892,37 +905,46 @@ func (e *RTCEngine) publishRpcRequest(destinationIdentity, requestId, method, pa
 		},
 	}
 
-	e.publishDataPacket(packet, livekit.DataPacket_RELIABLE)
+	publishErr := e.publishDataPacketReliable(packet)
+	if publishErr != nil {
+		e.log.Errorw("could not publish rpc request", publishErr)
+	}
+	return publishErr
 }
 
 func (e *RTCEngine) publishStreamHeader(header *livekit.DataStream_Header, destinationIdentities []string) error {
 	packet := &livekit.DataPacket{
 		DestinationIdentities: destinationIdentities,
-		Kind:                  livekit.DataPacket_RELIABLE,
 		Value: &livekit.DataPacket_StreamHeader{
 			StreamHeader: header,
 		},
 	}
 
-	return e.publishDataPacket(packet, livekit.DataPacket_RELIABLE)
+	publishErr := e.publishDataPacketReliable(packet)
+	if publishErr != nil {
+		e.log.Errorw("could not publish stream header", publishErr)
+	}
+	return publishErr
 }
 
 func (e *RTCEngine) publishStreamChunk(chunk *livekit.DataStream_Chunk, destinationIdentities []string) error {
 	packet := &livekit.DataPacket{
 		DestinationIdentities: destinationIdentities,
-		Kind:                  livekit.DataPacket_RELIABLE,
 		Value: &livekit.DataPacket_StreamChunk{
 			StreamChunk: chunk,
 		},
 	}
 
-	return e.publishDataPacket(packet, livekit.DataPacket_RELIABLE)
+	publishErr := e.publishDataPacketReliable(packet)
+	if publishErr != nil {
+		e.log.Errorw("could not publish stream chunk", publishErr)
+	}
+	return publishErr
 }
 
 func (e *RTCEngine) publishStreamTrailer(streamId string, destinationIdentities []string) error {
 	packet := &livekit.DataPacket{
 		DestinationIdentities: destinationIdentities,
-		Kind:                  livekit.DataPacket_RELIABLE,
 		Value: &livekit.DataPacket_StreamTrailer{
 			StreamTrailer: &livekit.DataStream_Trailer{
 				StreamId: streamId,
@@ -930,7 +952,11 @@ func (e *RTCEngine) publishStreamTrailer(streamId string, destinationIdentities 
 		},
 	}
 
-	return e.publishDataPacket(packet, livekit.DataPacket_RELIABLE)
+	publishErr := e.publishDataPacketReliable(packet)
+	if publishErr != nil {
+		e.log.Errorw("could not publish stream trailer", publishErr)
+	}
+	return publishErr
 }
 
 func (e *RTCEngine) isBufferStatusLow(kind livekit.DataPacket_Kind) bool {

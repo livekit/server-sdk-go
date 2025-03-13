@@ -331,19 +331,6 @@ func (p *LocalParticipant) closeTracks() {
 	}
 }
 
-func (p *LocalParticipant) publishData(kind livekit.DataPacket_Kind, dataPacket *livekit.DataPacket) error {
-	if err := p.engine.ensurePublisherConnected(true); err != nil {
-		return err
-	}
-
-	encoded, err := proto.Marshal(dataPacket)
-	if err != nil {
-		return err
-	}
-
-	return p.engine.GetDataChannel(kind).Send(encoded)
-}
-
 // PublishData sends custom user data via WebRTC data channel.
 //
 // By default, the message can be received by all participants in a room,
@@ -383,8 +370,6 @@ func (p *LocalParticipant) PublishDataPacket(pck DataPacket, opts ...DataPublish
 	if options.Reliable != nil && *options.Reliable {
 		kind = livekit.DataPacket_RELIABLE
 	}
-	//lint:ignore SA1019 backward compatibility
-	dataPacket.Kind = kind
 
 	dataPacket.DestinationIdentities = options.DestinationIdentities
 	if u, ok := dataPacket.Value.(*livekit.DataPacket_User); ok && u.User != nil {
@@ -392,7 +377,7 @@ func (p *LocalParticipant) PublishDataPacket(pck DataPacket, opts ...DataPublish
 		u.User.DestinationIdentities = options.DestinationIdentities
 	}
 
-	return p.publishData(kind, dataPacket)
+	return p.engine.publishDataPacket(dataPacket, kind)
 }
 
 func (p *LocalParticipant) UnpublishTrack(sid string) error {
@@ -679,6 +664,7 @@ func (p *LocalParticipant) cleanup() {
 	p.rpcPendingResponses = &sync.Map{}
 }
 
+// StreamText creates a new text stream writer with the provided options.
 func (p *LocalParticipant) StreamText(options StreamTextOptions) *TextStreamWriter {
 	if options.StreamId == nil {
 		streamId := uuid.New().String()
@@ -732,6 +718,8 @@ func (p *LocalParticipant) StreamText(options StreamTextOptions) *TextStreamWrit
 	return writer
 }
 
+// SendText creates a new text stream writer with the provided options.
+// It will return a TextStreamInfo that can be used to get metadata about the stream.
 func (p *LocalParticipant) SendText(text string, options StreamTextOptions) *TextStreamInfo {
 	if options.TotalSize == 0 {
 		textInBytes := []byte(text)
@@ -748,6 +736,7 @@ func (p *LocalParticipant) SendText(text string, options StreamTextOptions) *Tex
 	return &writer.Info
 }
 
+// StreamBytes creates a new byte stream writer with the provided options.
 func (p *LocalParticipant) StreamBytes(options StreamBytesOptions) *ByteStreamWriter {
 	if options.StreamId == nil {
 		streamId := uuid.New().String()
@@ -801,6 +790,9 @@ func (p *LocalParticipant) StreamBytes(options StreamBytesOptions) *ByteStreamWr
 	return writer
 }
 
+// SendFile sends a file to the remote participant as a byte stream with the provided options.
+// It will return a ByteStreamInfo that can be used to get metadata about the stream.
+// Error is returned if the file cannot be read.
 func (p *LocalParticipant) SendFile(filePath string, options StreamBytesOptions) (*ByteStreamInfo, error) {
 	if options.TotalSize == 0 {
 		fileInfo, err := os.Stat(filePath)

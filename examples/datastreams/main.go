@@ -93,8 +93,8 @@ func main() {
 				// EOF represents the end of the stream
 				if err == io.EOF {
 					break
-				} else if err == lksdk.EAGAIN {
-					// EAGAIN represents that the stream is not closed, but no data is available right now
+				} else if err == lksdk.ErrAgain {
+					// ErrAgain represents that the stream is not closed, but no data is available right now
 					time.Sleep(100 * time.Millisecond)
 				}
 			}

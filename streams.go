@@ -20,21 +20,46 @@ type baseStreamInfo struct {
 	Attributes map[string]string
 }
 
+// Info for byte streams
+// - Id is the id of the stream
+// - MimeType is the mime type of the stream, calculate for SendFile if not provided
+// - Topic is the topic of the stream
+// - Timestamp is the timestamp of the stream
+// - Size is the total size of the stream, if provided
+// - Attributes are any additional attributes of the stream
+// - Name is the name of the file or stream, if provided
 type ByteStreamInfo struct {
 	*baseStreamInfo
 	Name *string
 }
 
+// Info for text streams
+// - Id is the id of the stream
+// - MimeType is the mime type of the stream, calculate for SendFile if not provided
+// - Topic is the topic of the stream
+// - Timestamp is the timestamp of the stream
+// - Size is the total size of the stream, if provided
+// - Attributes are any additional attributes of the stream
 type TextStreamInfo struct {
 	*baseStreamInfo
 }
 
 const (
+	// default max chunk size for streams
 	STREAM_CHUNK_SIZE = 15_000
 )
 
-var EAGAIN = errors.New("there is no data available right now, try again later")
+// ErrAgain is an error that indicates that there is no data available right now, try again later
+var ErrAgain = errors.New("there is no data available right now, try again later")
 
+// Options for publishing a text stream with mime type "text/plain"
+// - Topic is the topic of the stream
+// - DestinationIdentities is the list of identities that will receive the stream, empty for all participants
+// - StreamId is the id of the stream, generated if not provided
+// - ReplyToStreamId is the id of the stream to reply to, optional
+// - TotalSize is the total size of the stream, optional but calculated internally for SendText
+// - Attributes are any additional attributes of the stream
+// - OnProgress is a callback function that will be called when the stream is being written
 type StreamTextOptions struct {
 	Topic                 string
 	DestinationIdentities []string
@@ -45,6 +70,15 @@ type StreamTextOptions struct {
 	OnProgress            *func(progress float64)
 }
 
+// Options for publishing a byte stream
+// - Topic is the topic of the stream
+// - MimeType is the mime type of the stream, calculate for SendFile if not provided
+// - DestinationIdentities is the list of identities that will receive the stream, empty for all participants
+// - StreamId is the id of the stream, generated if not provided
+// - TotalSize is the total size of the stream, optional but calculated internally for SendFile
+// - Attributes are any additional attributes of the stream
+// - OnProgress is a callback function that will be called when the stream is being written
+// - FileName is the name of the file, optional but picked from the path for SendFile
 type StreamBytesOptions struct {
 	Topic                 string
 	MimeType              string
@@ -56,6 +90,8 @@ type StreamBytesOptions struct {
 	FileName              *string
 }
 
+// writeTask contains a list of chunks to be written to the stream
+// and a callback function that will be called when the data provided is written to the stream
 type writeTask struct {
 	chunks [][]byte
 	onDone *func()
@@ -75,7 +111,7 @@ type baseStreamWriter[T any] struct {
 	writeQueue chan writeTask
 }
 
-func newBaseStreamWriter[T any](engine *RTCEngine, streamId string, destinationIdentities []string, totalSize *uint64, onProgress *func(progress float64)) *baseStreamWriter[T] {
+func newBaseStreamWriter[T any](engine *RTCEngine, header *protocol.DataStream_Header, streamId string, destinationIdentities []string, totalSize *uint64, onProgress *func(progress float64)) *baseStreamWriter[T] {
 	base := &baseStreamWriter[T]{
 		engine:                engine,
 		streamId:              streamId,
@@ -85,16 +121,22 @@ func newBaseStreamWriter[T any](engine *RTCEngine, streamId string, destinationI
 		writeQueue:            make(chan writeTask),
 	}
 
+	engine.publishStreamHeader(header, destinationIdentities)
+
 	go base.processWriteQueue()
 	return base
 }
 
+// processes write queue asynchronously
 func (w *baseStreamWriter[T]) processWriteQueue() {
 	for task := range w.writeQueue {
 		w.writeStreamBytes(task.chunks, task.onDone)
 	}
 }
 
+// Write data to the stream, data can be a byte slice or a string
+// depending on the type of the stream writer
+// onDone is a callback function that will be called when the data provided is written to the stream
 func (w *baseStreamWriter[T]) Write(data T, onDone *func()) {
 	if w.closed.Load() {
 		return
@@ -114,19 +156,18 @@ func (w *baseStreamWriter[T]) Write(data T, onDone *func()) {
 	}
 }
 
+// Close the stream, this will send a stream trailer to notify the receiver that the stream is closed
 func (w *baseStreamWriter[T]) Close() {
 	if !w.closed.Load() {
 		w.closed.Store(true)
 
 		w.lock.Lock()
-		err := w.engine.publishStreamTrailer(w.streamId, w.destinationIdentities)
-		if err != nil {
-			w.engine.log.Errorw("could not publish stream trailer", err)
-		}
+		w.engine.publishStreamTrailer(w.streamId, w.destinationIdentities)
 		w.lock.Unlock()
 	}
 }
 
+// writes a list of chunks to the stream
 func (w *baseStreamWriter[T]) writeStreamBytes(chunks [][]byte, onDone *func()) {
 	w.lock.Lock()
 	chunkIndex := w.chunkIndex
@@ -136,13 +177,11 @@ func (w *baseStreamWriter[T]) writeStreamBytes(chunks [][]byte, onDone *func()) 
 
 		w.engine.waitForBufferStatusLow(protocol.DataPacket_RELIABLE)
 
-		if err := w.engine.publishStreamChunk(&protocol.DataStream_Chunk{
+		w.engine.publishStreamChunk(&protocol.DataStream_Chunk{
 			StreamId:   w.streamId,
 			Content:    chunk,
 			ChunkIndex: chunkIndex,
-		}, w.destinationIdentities); err != nil {
-			w.engine.log.Errorw("could not publish stream chunk", err)
-		}
+		}, w.destinationIdentities)
 
 		if w.onProgress != nil && w.totalSize != nil {
 			progress := float64(len(chunk)) / float64(*w.totalSize)
@@ -160,36 +199,30 @@ func (w *baseStreamWriter[T]) writeStreamBytes(chunks [][]byte, onDone *func()) 
 	}
 }
 
+// TextStreamWriter is a writer type for text streams
 type TextStreamWriter struct {
 	*baseStreamWriter[string]
 	Info TextStreamInfo
 }
 
+// create a new text stream writer
 func newTextStreamWriter(info TextStreamInfo, header *protocol.DataStream_Header, e *RTCEngine, destinationIdentities []string, onProgress *func(progress float64)) *TextStreamWriter {
-	err := e.publishStreamHeader(header, destinationIdentities)
-	if err != nil {
-		e.log.Errorw("could not publish stream header", err)
-	}
-
 	return &TextStreamWriter{
-		baseStreamWriter: newBaseStreamWriter[string](e, info.Id, destinationIdentities, info.Size, onProgress),
+		baseStreamWriter: newBaseStreamWriter[string](e, header, info.Id, destinationIdentities, info.Size, onProgress),
 		Info:             info,
 	}
 }
 
+// ByteStreamWriter is a writer type for byte streams
 type ByteStreamWriter struct {
 	*baseStreamWriter[[]byte]
 	Info ByteStreamInfo
 }
 
+// create a new byte stream writer
 func newByteStreamWriter(info ByteStreamInfo, header *protocol.DataStream_Header, e *RTCEngine, destinationIdentities []string, onProgress *func(progress float64)) *ByteStreamWriter {
-	err := e.publishStreamHeader(header, destinationIdentities)
-	if err != nil {
-		e.log.Errorw("could not publish stream header", err)
-	}
-
 	return &ByteStreamWriter{
-		baseStreamWriter: newBaseStreamWriter[[]byte](e, info.Id, destinationIdentities, info.Size, onProgress),
+		baseStreamWriter: newBaseStreamWriter[[]byte](e, header, info.Id, destinationIdentities, info.Size, onProgress),
 		Info:             info,
 	}
 }
@@ -215,6 +248,7 @@ func newBaseStreamReader(totalByteSize *uint64) *baseStreamReader {
 	return baseReader
 }
 
+// writes a chunk to the read buffer
 func (r *baseStreamReader) enqueue(chunk *protocol.DataStream_Chunk) {
 	if r.closed.Load() {
 		return
@@ -225,10 +259,13 @@ func (r *baseStreamReader) enqueue(chunk *protocol.DataStream_Chunk) {
 	r.lock.Unlock()
 }
 
+// OnProgress sets the callback function that will be called when the stream is being read
+// only called if TotalSize of the stream is set
 func (r *baseStreamReader) OnProgress(onProgress *func(progress float64)) {
 	r.onProgress = onProgress
 }
 
+// calls the OnProgress callback if the total size of the stream is set
 func (r *baseStreamReader) maybeCallOnProgress(n int) {
 	r.bytesReceived += n
 
@@ -238,16 +275,21 @@ func (r *baseStreamReader) maybeCallOnProgress(n int) {
 	}
 }
 
+// handles the EOF error before the stream is closed
 func (r *baseStreamReader) handleEOFBeforeStreamClosed(err error) error {
 	if err == io.EOF {
 		if r.closed.Load() {
 			return io.EOF
 		}
-		return EAGAIN
+		return ErrAgain
 	}
 	return err
 }
 
+// Read reads the next len(p) bytes from the stream or until the stream buffer is drained.
+// The return value is the number of bytes read.
+// If the buffer has no data to return, err is ErrAgain or io.EOF (unless len(p) is zero) depending on if the stream is closed or not.
+// Otherwise, the error is nil.
 func (r *baseStreamReader) Read(bytes []byte) (int, error) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
@@ -258,6 +300,8 @@ func (r *baseStreamReader) Read(bytes []byte) (int, error) {
 	return n, r.handleEOFBeforeStreamClosed(err)
 }
 
+// ReadByte reads and returns the next byte from the buffer.
+// If no byte is available, it returns error ErrAgain or io.EOF depending on if the stream is closed or not.
 func (r *baseStreamReader) ReadByte() (byte, error) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
@@ -268,6 +312,9 @@ func (r *baseStreamReader) ReadByte() (byte, error) {
 	return n, r.handleEOFBeforeStreamClosed(err)
 }
 
+// ReadBytes reads until the first occurrence of delim in the input, returning a slice containing the data up to and including the delimiter.
+// If ReadBytes encounters an error before finding a delimiter, it returns the data read before the error and the error itself (often io.EOF or ErrAgain).
+// ReadBytes returns err != nil if and only if the returned data does not end in delim.
 func (r *baseStreamReader) ReadBytes(delim byte) ([]byte, error) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
@@ -295,6 +342,9 @@ func NewTextStreamReader(info TextStreamInfo, totalChunkCount *uint64) *TextStre
 	}
 }
 
+// ReadRune reads and returns the next UTF-8-encoded Unicode code point from the buffer.
+// If no bytes are available, the error returned is either ErrAgain or io.EOF depending on if the stream is closed or not.
+// If the bytes are an erroneous UTF-8 encoding, it consumes one byte and returns U+FFFD, 1.
 func (r *TextStreamReader) ReadRune() (rune, int, error) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
@@ -304,6 +354,9 @@ func (r *TextStreamReader) ReadRune() (rune, int, error) {
 	return n, size, r.handleEOFBeforeStreamClosed(err)
 }
 
+// ReadString reads until the first occurrence of delim in the input, returning a string containing the data up to and including the delimiter.
+// If ReadString encounters an error before finding a delimiter, it returns the data read before the error and the error itself (often io.EOF or ErrAgain).
+// ReadString returns err != nil if and only if the returned data does not end in delim.
 func (r *TextStreamReader) ReadString(delim byte) (string, error) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
@@ -313,6 +366,8 @@ func (r *TextStreamReader) ReadString(delim byte) (string, error) {
 	return n, r.handleEOFBeforeStreamClosed(err)
 }
 
+// ReadAll reads all the data from the stream and returns it as a string.
+// This will block until the stream is closed.
 func (r *TextStreamReader) ReadAll() string {
 	// wait for the stream to be closed
 	for {
@@ -342,6 +397,8 @@ func NewByteStreamReader(info ByteStreamInfo, totalChunkCount *uint64) *ByteStre
 	}
 }
 
+// ReadAll reads all the data from the stream and returns it as a byte slice.
+// This will block until the stream is closed.
 func (r *ByteStreamReader) ReadAll() []byte {
 	// wait for the stream to be closed
 	for {
@@ -360,12 +417,17 @@ func (r *ByteStreamReader) ReadAll() []byte {
 	return n
 }
 
+// TextStreamHandler is a function that will be called when a text stream is received.
+// It will be called with the stream reader and the participant identity that sent the stream.
 type TextStreamHandler func(reader *TextStreamReader, participantIdentity string)
 
+// ByteStreamHandler is a function that will be called when a byte stream is received.
+// It will be called with the stream reader and the participant identity that sent the stream.
 type ByteStreamHandler func(reader *ByteStreamReader, participantIdentity string)
 
 // ---------------------------------------------------------
 
+// Helper function to chunk a utf8 string into chunks of a maximum size of STREAM_CHUNK_SIZE
 func chunkUtf8String(s string) [][]byte {
 	chunks := [][]byte{}
 	stringBytes := []byte(s)
@@ -392,6 +454,7 @@ func chunkUtf8String(s string) [][]byte {
 	return chunks
 }
 
+// Helper function to chunk a byte slice into chunks of a maximum size of STREAM_CHUNK_SIZE
 func chunkBytes(data []byte) [][]byte {
 	chunks := [][]byte{}
 
