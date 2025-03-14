@@ -16,6 +16,7 @@ package lksdk
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"sort"
 	"strings"
@@ -168,6 +169,8 @@ type Room struct {
 
 	sifTrailer []byte
 
+	rpcHandlers *sync.Map
+
 	lock sync.RWMutex
 }
 
@@ -184,9 +187,10 @@ func NewRoom(callback *RoomCallback) *Room {
 		sidReady:           make(chan struct{}),
 		connectionState:    ConnectionStateDisconnected,
 		regionURLProvider:  newRegionURLProvider(),
+		rpcHandlers:        &sync.Map{},
 	}
 	r.callback.Merge(callback)
-	r.LocalParticipant = newLocalParticipant(engine, r.callback)
+	r.LocalParticipant = newLocalParticipant(engine, r.callback, r.serverInfo)
 
 	// callbacks from engine
 	engine.OnSignalClientConnected = r.handleSignalClientConnected
@@ -204,6 +208,7 @@ func NewRoom(callback *RoomCallback) *Room {
 	engine.OnLocalTrackUnpublished = r.handleLocalTrackUnpublished
 	engine.OnTrackRemoteMuted = r.handleTrackRemoteMuted
 	engine.OnTranscription = r.handleTranscriptionReceived
+	engine.OnRpcRequest = r.handleIncomingRpcRequest
 
 	// callbacks engine can use to get data
 	engine.CbGetLocalParticipantSID = r.getLocalParticipantSID
@@ -674,6 +679,7 @@ func (r *Room) handleParticipantDisconnect(rp *RemoteParticipant) {
 	r.lock.Unlock()
 
 	rp.unpublishAllTracks()
+	r.LocalParticipant.handleParticipantDisconnected(rp.Identity())
 	go r.callback.OnParticipantDisconnected(rp)
 }
 
@@ -843,6 +849,8 @@ func (r *Room) cleanup() {
 	r.engine.Close()
 	r.LocalParticipant.closeTracks()
 	r.setSid("", true)
+	r.rpcHandlers = &sync.Map{}
+	r.LocalParticipant.cleanup()
 }
 
 func (r *Room) setSid(sid string, allowEmpty bool) {
@@ -922,6 +930,83 @@ func (r *Room) Simulate(scenario SimulateScenario) {
 
 func (r *Room) getLocalParticipantSID() string {
 	return r.LocalParticipant.SID()
+}
+
+// Establishes the participant as a receiver for calls of the specified RPC method.
+// Will overwrite any existing callback for the same method.
+//
+//   - @param method - The name of the indicated RPC method
+//   - @param handler - Will be invoked when an RPC request for this method is received
+//   - @returns A promise that resolves when the method is successfully registered
+//
+// Example:
+//
+//	room.LocalParticipant?.registerRpcMethod(
+//		"greet",
+//		func (data: RpcInvocationData) => {
+//			fmt.Println("Received greeting from ", data.callerIdentity, "with payload ", data.payload)
+//			return "Hello, " + data.callerIdentity + "!";
+//		}
+//	);
+//
+// The handler should return either a string or an error.
+// If unable to respond within `responseTimeout`, the request will result in an error on the caller's side.
+//
+// You may throw errors of type `RpcError` with a string `message` in the handler,
+// and they will be received on the caller's side with the message intact.
+// Other errors thrown in your handler will not be transmitted as-is, and will instead arrive to the caller as `1500` ("Application Error").
+func (r *Room) RegisterRpcMethod(method string, handler RpcHandlerFunc) error {
+	_, ok := r.rpcHandlers.Load(method)
+	if ok {
+		return fmt.Errorf("RPC handler already registered for method: %s, unregisterRpcMethod before trying to register again", method)
+	}
+	r.rpcHandlers.Store(method, handler)
+	return nil
+}
+
+// Unregisters a previously registered RPC method.
+//   - @param method - The name of the RPC method to unregister
+func (r *Room) UnregisterRpcMethod(method string) {
+	r.rpcHandlers.Delete(method)
+}
+
+func (r *Room) handleIncomingRpcRequest(callerIdentity, requestId, method, payload string, responseTimeout time.Duration, version uint32) {
+	r.engine.publishRpcAck(callerIdentity, requestId)
+
+	if version != 1 {
+		r.engine.publishRpcResponse(callerIdentity, requestId, nil, rpcErrorFromBuiltInCodes(RpcUnsupportedVersion, nil))
+		return
+	}
+
+	handler, ok := r.rpcHandlers.Load(method)
+	if !ok {
+		r.engine.publishRpcResponse(callerIdentity, requestId, nil, rpcErrorFromBuiltInCodes(RpcUnsupportedMethod, nil))
+		return
+	}
+
+	response, err := handler.(RpcHandlerFunc)(RpcInvocationData{
+		RequestID:       requestId,
+		CallerIdentity:  callerIdentity,
+		Payload:         payload,
+		ResponseTimeout: responseTimeout,
+	})
+
+	if err != nil {
+		if _, ok := err.(*RpcError); ok {
+			r.engine.publishRpcResponse(callerIdentity, requestId, nil, err.(*RpcError))
+		} else {
+			r.engine.log.Warnw("Uncaught error returned by RPC handler for method, using application error instead", err, "method", method)
+			r.engine.publishRpcResponse(callerIdentity, requestId, nil, rpcErrorFromBuiltInCodes(RpcApplicationError, nil))
+		}
+		return
+	}
+
+	if byteLength(response) > MaxDataBytes {
+		r.engine.publishRpcResponse(callerIdentity, requestId, nil, rpcErrorFromBuiltInCodes(RpcResponsePayloadTooLarge, nil))
+		return
+	}
+
+	r.engine.publishRpcResponse(callerIdentity, requestId, &response, nil)
 }
 
 // ---------------------------------------------------------

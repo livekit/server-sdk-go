@@ -84,6 +84,9 @@ type RTCEngine struct {
 	OnResumed               func()
 	OnTranscription         func(*livekit.Transcription)
 	OnSignalClientConnected func(*livekit.JoinResponse)
+	OnRpcRequest            func(callerIdentity, requestId, method, payload string, responseTimeout time.Duration, version uint32)
+	OnRpcAck                func(requestId string)
+	OnRpcResponse           func(requestId string, payload *string, error *RpcError)
 
 	// callbacks to get data
 	CbGetLocalParticipantSID func() string
@@ -577,6 +580,23 @@ func (e *RTCEngine) handleDataPacket(msg webrtc.DataChannelMessage) {
 		if e.OnTranscription != nil {
 			e.OnTranscription(msg.Transcription)
 		}
+	case *livekit.DataPacket_RpcRequest:
+		if e.OnRpcRequest != nil {
+			e.OnRpcRequest(packet.ParticipantIdentity, msg.RpcRequest.Id, msg.RpcRequest.Method, msg.RpcRequest.Payload, time.Duration(msg.RpcRequest.ResponseTimeoutMs)*time.Millisecond, msg.RpcRequest.Version)
+		}
+	case *livekit.DataPacket_RpcAck:
+		if e.OnRpcAck != nil {
+			e.OnRpcAck(msg.RpcAck.RequestId)
+		}
+	case *livekit.DataPacket_RpcResponse:
+		if e.OnRpcResponse != nil {
+			switch res := msg.RpcResponse.Value.(type) {
+			case *livekit.RpcResponse_Payload:
+				e.OnRpcResponse(msg.RpcResponse.RequestId, &res.Payload, nil)
+			case *livekit.RpcResponse_Error:
+				e.OnRpcResponse(msg.RpcResponse.RequestId, nil, fromProto(res.Error))
+			}
+		}
 	}
 }
 
@@ -754,4 +774,87 @@ func (e *RTCEngine) makeRTCConfiguration(iceServers []*livekit.ICEServer, client
 		configuration.ICETransportPolicy = webrtc.ICETransportPolicyRelay
 	}
 	return configuration
+}
+
+func (e *RTCEngine) publishDataPacket(pck *livekit.DataPacket, kind livekit.DataPacket_Kind) {
+	data, err := proto.Marshal(pck)
+	if err != nil {
+		e.log.Errorw("could not marshal data packet", err)
+		return
+	}
+
+	err = e.ensurePublisherConnected(true)
+	if err != nil {
+		e.log.Errorw("could not ensure publisher connected", err)
+		return
+	}
+
+	dc := e.GetDataChannel(kind)
+	if dc == nil {
+		e.log.Errorw("could not get data channel", nil, "kind", kind)
+		return
+	}
+
+	dc.Send(data)
+}
+
+func (e *RTCEngine) publishRpcResponse(destinationIdentity, requestId string, payload *string, error *RpcError) {
+	packet := &livekit.DataPacket{
+		DestinationIdentities: []string{destinationIdentity},
+		Kind:                  livekit.DataPacket_RELIABLE,
+		Value: &livekit.DataPacket_RpcResponse{
+			RpcResponse: &livekit.RpcResponse{
+				RequestId: requestId,
+			},
+		},
+	}
+
+	if error != nil {
+		packet.Value.(*livekit.DataPacket_RpcResponse).RpcResponse.Value = &livekit.RpcResponse_Error{
+			Error: error.toProto(),
+		}
+	} else {
+		if payload == nil {
+			emptyStr := ""
+			payload = &emptyStr
+		}
+
+		packet.Value.(*livekit.DataPacket_RpcResponse).RpcResponse.Value = &livekit.RpcResponse_Payload{
+			Payload: *payload,
+		}
+	}
+
+	e.publishDataPacket(packet, livekit.DataPacket_RELIABLE)
+}
+
+func (e *RTCEngine) publishRpcAck(destinationIdentity, requestId string) {
+	packet := &livekit.DataPacket{
+		DestinationIdentities: []string{destinationIdentity},
+		Kind:                  livekit.DataPacket_RELIABLE,
+		Value: &livekit.DataPacket_RpcAck{
+			RpcAck: &livekit.RpcAck{
+				RequestId: requestId,
+			},
+		},
+	}
+
+	e.publishDataPacket(packet, livekit.DataPacket_RELIABLE)
+}
+
+func (e *RTCEngine) publishRpcRequest(destinationIdentity, requestId, method, payload string, responseTimeout time.Duration) {
+	packet := &livekit.DataPacket{
+		DestinationIdentities: []string{destinationIdentity},
+		Kind:                  livekit.DataPacket_RELIABLE,
+		Value: &livekit.DataPacket_RpcRequest{
+			RpcRequest: &livekit.RpcRequest{
+				Id:                requestId,
+				Method:            method,
+				Payload:           payload,
+				ResponseTimeoutMs: uint32(responseTimeout.Milliseconds()),
+				Version:           1,
+			},
+		},
+	}
+
+	e.publishDataPacket(packet, livekit.DataPacket_RELIABLE)
 }
