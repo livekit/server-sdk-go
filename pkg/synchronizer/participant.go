@@ -28,8 +28,16 @@ type participantSynchronizer struct {
 	sync.Mutex
 
 	ntpStart      time.Time
+	firstReport   time.Time
 	tracks        map[uint32]*TrackSynchronizer
 	senderReports map[uint32]*rtcp.SenderReport
+}
+
+func newParticipantSynchronizer() *participantSynchronizer {
+	return &participantSynchronizer{
+		tracks:        make(map[uint32]*TrackSynchronizer),
+		senderReports: make(map[uint32]*rtcp.SenderReport),
+	}
 }
 
 func (p *participantSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
@@ -37,42 +45,37 @@ func (p *participantSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 	defer p.Unlock()
 
 	if p.ntpStart.IsZero() {
-		p.senderReports[pkt.SSRC] = pkt
-		if len(p.senderReports) == len(p.tracks) {
-			p.synchronizeTracks()
-		}
-		return
-	}
-
-	if t := p.tracks[pkt.SSRC]; t != nil {
+		p.initialize(pkt)
+	} else if t := p.tracks[pkt.SSRC]; t != nil {
 		t.onSenderReport(pkt, p.ntpStart)
 	}
 }
 
-func (p *participantSynchronizer) synchronizeTracks() {
-	// get estimated ntp start times for all tracks
-	estimatedStartTimes := make(map[uint32]time.Time)
-
-	// we will sync all tracks to the earliest
-	var earliestStart time.Time
-	for ssrc, pkt := range p.senderReports {
-		t := p.tracks[ssrc]
-		pts := t.getSenderReportPTS(pkt)
-		ntpStart := mediatransportutil.NtpTime(pkt.NTPTime).Time().Add(-pts)
-		if earliestStart.IsZero() || ntpStart.Before(earliestStart) {
-			earliestStart = ntpStart
-		}
-		estimatedStartTimes[ssrc] = ntpStart
+func (p *participantSynchronizer) initialize(pkt *rtcp.SenderReport) {
+	if p.firstReport.IsZero() {
+		p.firstReport = time.Now()
 	}
-	p.ntpStart = earliestStart
 
-	// update pts delay so all ntp start times will match the earliest
-	for ssrc, startedAt := range estimatedStartTimes {
-		t := p.tracks[ssrc]
-		if diff := startedAt.Sub(earliestStart); diff != 0 {
-			t.Lock()
-			t.ptsOffset += diff
-			t.Unlock()
+	p.senderReports[pkt.SSRC] = pkt
+	if len(p.senderReports) < len(p.tracks) && time.Since(p.firstReport) < 5*time.Second {
+		return
+	}
+
+	// update ntp start time
+	for ssrc, report := range p.senderReports {
+		if t := p.tracks[ssrc]; t != nil {
+			pts := t.getSenderReportPTS(report)
+			ntpStart := mediatransportutil.NtpTime(report.NTPTime).Time().Add(-pts)
+			if p.ntpStart.IsZero() || ntpStart.Before(p.ntpStart) {
+				p.ntpStart = ntpStart
+			}
+		}
+	}
+
+	// call onSenderReport for all tracks
+	for ssrc, report := range p.senderReports {
+		if t := p.tracks[ssrc]; t != nil {
+			t.onSenderReport(report, p.ntpStart)
 		}
 	}
 }
@@ -83,10 +86,12 @@ func (p *participantSynchronizer) getMaxOffset() time.Duration {
 	p.Lock()
 	for _, t := range p.tracks {
 		t.Lock()
-		if o := t.ptsOffset; o > maxOffset {
+		o := t.ptsOffset
+		t.Unlock()
+
+		if o > maxOffset {
 			maxOffset = o
 		}
-		t.Unlock()
 	}
 	p.Unlock()
 

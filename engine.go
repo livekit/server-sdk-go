@@ -83,6 +83,7 @@ type RTCEngine struct {
 	OnResuming              func()
 	OnResumed               func()
 	OnTranscription         func(*livekit.Transcription)
+	OnSignalClientConnected func(*livekit.JoinResponse)
 	OnRpcRequest            func(callerIdentity, requestId, method, payload string, responseTimeout time.Duration, version uint32)
 	OnRpcAck                func(requestId string)
 	OnRpcResponse           func(requestId string, payload *string, error *RpcError)
@@ -161,6 +162,10 @@ func (e *RTCEngine) JoinContext(ctx context.Context, url string, token string, p
 	err = e.configure(res.IceServers, res.ClientConfiguration, proto.Bool(res.SubscriberPrimary))
 	if err != nil {
 		return nil, err
+	}
+
+	if e.OnSignalClientConnected != nil {
+		e.OnSignalClientConnected(res)
 	}
 
 	e.client.Start()

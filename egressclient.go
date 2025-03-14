@@ -18,9 +18,10 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/twitchtv/twirp"
+
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/utils/xtwirp"
-	"github.com/twitchtv/twirp"
 )
 
 type EgressClient struct {
