@@ -5,47 +5,37 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestChunkUtf8String(t *testing.T) {
-	t.Run("Empty string", func(t *testing.T) {
+	t.Run("empty string", func(t *testing.T) {
 		chunks := chunkUtf8String("")
-		if len(chunks) != 0 {
-			t.Errorf("Expected 0 chunks for empty string, got %d", len(chunks))
-		}
+		require.Zero(t, len(chunks))
 	})
 
-	t.Run("String shorter than chunk size", func(t *testing.T) {
+	t.Run("string shorter than chunk size", func(t *testing.T) {
 		testString := strings.Repeat("a", 1000)
 		chunks := chunkUtf8String(testString)
 
-		if len(chunks) != 1 {
-			t.Errorf("Expected 1 chunk, got %d", len(chunks))
-		}
-		if string(chunks[0]) != testString {
-			t.Errorf("Chunk content doesn't match original string")
-		}
+		require.Len(t, chunks, 1)
+		require.Equal(t, testString, string(chunks[0]))
 	})
 
-	t.Run("String exactly at chunk size", func(t *testing.T) {
+	t.Run("string exactly at chunk size", func(t *testing.T) {
 		testString := strings.Repeat("a", STREAM_CHUNK_SIZE)
 		chunks := chunkUtf8String(testString)
 
-		if len(chunks) != 1 {
-			t.Errorf("Expected 1 chunk, got %d", len(chunks))
-		}
-		if string(chunks[0]) != testString {
-			t.Errorf("Chunk content doesn't match original string")
-		}
+		require.Len(t, chunks, 1)
+		require.Equal(t, testString, string(chunks[0]))
 	})
 
-	t.Run("ASCII string longer than chunk size", func(t *testing.T) {
+	t.Run("ascii string longer than chunk size", func(t *testing.T) {
 		testString := strings.Repeat("a", STREAM_CHUNK_SIZE*2+100)
 		chunks := chunkUtf8String(testString)
 
-		if len(chunks) != 3 {
-			t.Errorf("Expected 3 chunks, got %d", len(chunks))
-		}
+		require.Len(t, chunks, 3)
 
 		// Reconstruct the original string and check
 		var reconstructed []byte
@@ -53,20 +43,14 @@ func TestChunkUtf8String(t *testing.T) {
 			reconstructed = append(reconstructed, chunk...)
 		}
 
-		if string(reconstructed) != testString {
-			t.Errorf("Reconstructed string doesn't match original")
-		}
+		require.Equal(t, testString, string(reconstructed))
 
 		// First two chunks should be exactly STREAM_CHUNK_SIZE
-		if len(chunks[0]) != STREAM_CHUNK_SIZE {
-			t.Errorf("Expected first chunk to be %d bytes, got %d", STREAM_CHUNK_SIZE, len(chunks[0]))
-		}
-		if len(chunks[1]) != STREAM_CHUNK_SIZE {
-			t.Errorf("Expected second chunk to be %d bytes, got %d", STREAM_CHUNK_SIZE, len(chunks[1]))
-		}
+		require.Len(t, chunks[0], STREAM_CHUNK_SIZE)
+		require.Len(t, chunks[1], STREAM_CHUNK_SIZE)
 	})
 
-	t.Run("UTF-8 multi-byte characters at chunk boundaries", func(t *testing.T) {
+	t.Run("utf8 multi-byte characters at chunk boundaries", func(t *testing.T) {
 		// Create a string with multi-byte UTF-8 characters
 		// "你好" (ni hao) is 6 bytes (3 bytes per character)
 		multiBytePrefix := strings.Repeat("你好", 1000)
@@ -83,24 +67,16 @@ func TestChunkUtf8String(t *testing.T) {
 
 		chunks := chunkUtf8String(testString)
 
-		if len(chunks) != 2 {
-			t.Errorf("Expected 2 chunks, got %d", len(chunks))
-		}
+		require.Len(t, chunks, 2)
 
 		// Validate each chunk is valid UTF-8
 		for i, chunk := range chunks {
-			if !utf8.Valid(chunk) {
-				t.Errorf("Chunk %d is not valid UTF-8", i)
-			}
+			require.True(t, utf8.Valid(chunk))
 
 			if i == 0 {
-				if len(chunk) != len(multiBytePrefix+padding) {
-					t.Errorf("Expected first chunk to be %d bytes, got %d", len(multiBytePrefix+padding), len(chunk))
-				}
+				require.Equal(t, len(multiBytePrefix+padding), len(chunk))
 			} else if i == 1 {
-				if len(chunk) != len(multiByteSuffix) {
-					t.Errorf("Expected second chunk to be %d bytes, got %d", len(multiByteSuffix), len(chunk))
-				}
+				require.Equal(t, len(multiByteSuffix), len(chunk))
 			}
 		}
 
@@ -110,12 +86,10 @@ func TestChunkUtf8String(t *testing.T) {
 			reconstructed = append(reconstructed, chunk...)
 		}
 
-		if string(reconstructed) != testString {
-			t.Errorf("Reconstructed string doesn't match original")
-		}
+		require.Equal(t, testString, string(reconstructed))
 	})
 
-	t.Run("String with various UTF-8 characters", func(t *testing.T) {
+	t.Run("string with various UTF-8 characters", func(t *testing.T) {
 		// Mix of 1, 2, 3, and 4 byte UTF-8 characters
 		// With a pattern that doesn't divide evenly into the chunk size
 		testChars := []string{
@@ -162,20 +136,14 @@ func TestChunkUtf8String(t *testing.T) {
 		// - Total: 39,000 bytes (14,999 + 14,998 + 9003)
 		expectedSizes := []int{14999, 14998, 9003}
 		for i, expectedSize := range expectedSizes {
-			if i < len(chunks) && len(chunks[i]) != expectedSize {
-				t.Errorf("Chunk %d: expected size %d bytes, got %d bytes", i, expectedSize, len(chunks[i]))
-			}
+			require.Equal(t, expectedSize, len(chunks[i]))
 		}
 
-		if len(chunks) != len(expectedSizes) {
-			t.Errorf("Expected %d chunks, got %d", len(expectedSizes), len(chunks))
-		}
+		require.Len(t, chunks, len(expectedSizes))
 
 		// Verify each chunk is valid UTF-8
-		for i, chunk := range chunks {
-			if !utf8.Valid(chunk) {
-				t.Errorf("Chunk %d is not valid UTF-8", i)
-			}
+		for _, chunk := range chunks {
+			require.True(t, utf8.Valid(chunk))
 		}
 
 		// Reconstructed string should match the original
@@ -184,12 +152,10 @@ func TestChunkUtf8String(t *testing.T) {
 			reconstructed = append(reconstructed, chunk...)
 		}
 
-		if string(reconstructed) != testString {
-			t.Errorf("Reconstructed string doesn't match original")
-		}
+		require.Equal(t, testString, string(reconstructed))
 	})
 
-	t.Run("UTF-8 boundary detection", func(t *testing.T) {
+	t.Run("utf8 boundary detection", func(t *testing.T) {
 		// Create a string where a multi-byte character crosses the STREAM_CHUNK_SIZE boundary
 		// The Chinese character "好" takes 3 bytes
 		// We want to position it so the STREAM_CHUNK_SIZE index falls on the last byte or middle of the character
@@ -205,21 +171,14 @@ func TestChunkUtf8String(t *testing.T) {
 
 		// We expect the function to detect that the byte at position STREAM_CHUNK_SIZE is a continuation byte
 		// and back up to the start of the character
-		if len(chunks) != 2 {
-			t.Fatalf("Expected 2 chunks, got %d", len(chunks))
-		}
+		require.Len(t, chunks, 2)
 
 		// The first chunk should end before the Chinese character
-		if len(chunks[0]) != len(prefix) {
-			t.Errorf("Expected first chunk to be %d bytes, got %d", len(prefix), len(chunks[0]))
-		}
+		require.Len(t, chunks[0], len(prefix))
 
 		// The second chunk should start with the character that would have been split
 		expectedSecondChunk := "好" + "additional content"
-		if string(chunks[1]) != expectedSecondChunk {
-			t.Errorf("Second chunk doesn't match expected content: %s vs %s",
-				string(chunks[1]), expectedSecondChunk)
-		}
+		require.Equal(t, expectedSecondChunk, string(chunks[1]))
 
 		// Verify all chunks are valid UTF-8
 		validateUtf8Chunks(t, chunks)
@@ -229,13 +188,11 @@ func TestChunkUtf8String(t *testing.T) {
 		for _, chunk := range chunks {
 			reconstructed = append(reconstructed, chunk...)
 		}
-		if string(reconstructed) != testString {
-			t.Errorf("Reconstructed string doesn't match original")
-		}
+		require.Equal(t, testString, string(reconstructed))
 	})
 
 	// Add a test with 4-byte UTF-8 characters (emojis) at the boundary
-	t.Run("UTF-8 boundary with 4-byte characters", func(t *testing.T) {
+	t.Run("utf8 boundary with 4-byte characters", func(t *testing.T) {
 		// Create a string where a 4-byte character crosses the STREAM_CHUNK_SIZE boundary
 		// Position the emoji so the STREAM_CHUNK_SIZE index falls on one of its continuation bytes
 
@@ -250,27 +207,21 @@ func TestChunkUtf8String(t *testing.T) {
 
 		// We expect the function to detect that the byte at position STREAM_CHUNK_SIZE is a continuation byte
 		// and back up to the start of the character
-		if len(chunks) != 2 {
-			t.Fatalf("Expected 2 chunks, got %d", len(chunks))
-		}
+		require.Len(t, chunks, 2)
 
 		// The first chunk should end before the emoji
-		if len(chunks[0]) != len(prefix) {
-			t.Errorf("Expected first chunk to be %d bytes, got %d", len(prefix), len(chunks[0]))
-		}
+		require.Len(t, chunks[0], len(prefix))
 
 		// The second chunk should start with the emoji that would have been split
 		expectedSecondChunk := "🚀" + "more content"
-		if string(chunks[1]) != expectedSecondChunk {
-			t.Errorf("Second chunk doesn't match expected content")
-		}
+		require.Equal(t, expectedSecondChunk, string(chunks[1]))
 
 		// Verify all chunks are valid UTF-8
 		validateUtf8Chunks(t, chunks)
 	})
 
 	// Test a pathological case where a UTF-8 sequence is exactly at the chunk boundary
-	t.Run("UTF-8 sequence exactly at chunk boundary", func(t *testing.T) {
+	t.Run("utf8 sequence exactly at chunk boundary", func(t *testing.T) {
 		// Create a string that's exactly STREAM_CHUNK_SIZE - 1
 		prefix := strings.Repeat("a", STREAM_CHUNK_SIZE-1)
 
@@ -280,15 +231,11 @@ func TestChunkUtf8String(t *testing.T) {
 
 		chunks := chunkUtf8String(testString)
 
-		if len(chunks) != 3 {
-			t.Fatalf("Expected 3 chunks, got %d", len(chunks))
-		}
+		require.Len(t, chunks, 3)
 
 		expectedSizes := []int{STREAM_CHUNK_SIZE - 1, STREAM_CHUNK_SIZE, 2}
 		for i, expectedSize := range expectedSizes {
-			if len(chunks[i]) != expectedSize {
-				t.Errorf("Chunk %d expected size %d, got %d", i, expectedSize, len(chunks[i]))
-			}
+			require.Len(t, chunks[i], expectedSize)
 		}
 
 		// Verify all chunks are valid UTF-8
@@ -299,54 +246,40 @@ func TestChunkUtf8String(t *testing.T) {
 		for _, chunk := range chunks {
 			reconstructed = append(reconstructed, chunk...)
 		}
-		if string(reconstructed) != testString {
-			t.Errorf("Reconstructed string doesn't match original")
-		}
+		require.Equal(t, testString, string(reconstructed))
 	})
 }
 
 // Helper function to validate that chunks properly handle UTF-8 boundaries
 func validateUtf8Chunks(t *testing.T, chunks [][]byte) {
-	for i, chunk := range chunks {
-		if !utf8.Valid(chunk) {
-			t.Errorf("Chunk %d contains invalid UTF-8", i)
-		}
+	for _, chunk := range chunks {
+		require.True(t, utf8.Valid(chunk))
 	}
 }
 
 func TestChunkBytes(t *testing.T) {
-	t.Run("Empty byte slice", func(t *testing.T) {
+	t.Run("empty byte slice", func(t *testing.T) {
 		chunks := chunkBytes([]byte{})
-		if len(chunks) != 0 {
-			t.Errorf("Expected 0 chunks for empty byte slice, got %d", len(chunks))
-		}
+		require.Zero(t, len(chunks))
 	})
 
-	t.Run("Byte slice shorter than chunk size", func(t *testing.T) {
+	t.Run("byte slice shorter than chunk size", func(t *testing.T) {
 		testData := bytes.Repeat([]byte{1, 2, 3}, 1000)
 		chunks := chunkBytes(testData)
 
-		if len(chunks) != 1 {
-			t.Errorf("Expected 1 chunk, got %d", len(chunks))
-		}
-		if !bytes.Equal(chunks[0], testData) {
-			t.Errorf("Chunk content doesn't match original data")
-		}
+		require.Len(t, chunks, 1)
+		require.Equal(t, testData, chunks[0])
 	})
 
-	t.Run("Byte slice exactly at chunk size", func(t *testing.T) {
+	t.Run("byte slice exactly at chunk size", func(t *testing.T) {
 		testData := bytes.Repeat([]byte{1}, STREAM_CHUNK_SIZE)
 		chunks := chunkBytes(testData)
 
-		if len(chunks) != 1 {
-			t.Errorf("Expected 1 chunk, got %d", len(chunks))
-		}
-		if !bytes.Equal(chunks[0], testData) {
-			t.Errorf("Chunk content doesn't match original data")
-		}
+		require.Len(t, chunks, 1)
+		require.Equal(t, testData, chunks[0])
 	})
 
-	t.Run("Byte slice longer than chunk size", func(t *testing.T) {
+	t.Run("byte slice longer than chunk size", func(t *testing.T) {
 		testData := bytes.Repeat([]byte{1, 2, 3, 4}, STREAM_CHUNK_SIZE)
 		// Add some extra bytes
 		testData = append(testData, []byte{5, 6, 7, 8, 9, 10}...)
@@ -354,9 +287,7 @@ func TestChunkBytes(t *testing.T) {
 		chunks := chunkBytes(testData)
 
 		expectedChunks := (len(testData) + STREAM_CHUNK_SIZE - 1) / STREAM_CHUNK_SIZE
-		if len(chunks) != expectedChunks {
-			t.Errorf("Expected %d chunks, got %d", expectedChunks, len(chunks))
-		}
+		require.Len(t, chunks, expectedChunks)
 
 		// Reconstruct the original data and check
 		var reconstructed []byte
@@ -364,28 +295,22 @@ func TestChunkBytes(t *testing.T) {
 			reconstructed = append(reconstructed, chunk...)
 		}
 
-		if !bytes.Equal(reconstructed, testData) {
-			t.Errorf("Reconstructed data doesn't match original")
-		}
+		require.Equal(t, testData, reconstructed)
 
 		// Check sizes of chunks
 		for i, chunk := range chunks {
 			if i < len(chunks)-1 {
 				// All chunks except possibly the last should be exactly STREAM_CHUNK_SIZE
-				if len(chunk) != STREAM_CHUNK_SIZE {
-					t.Errorf("Chunk %d expected to be %d bytes, got %d", i, STREAM_CHUNK_SIZE, len(chunk))
-				}
+				require.Len(t, chunk, STREAM_CHUNK_SIZE)
 			} else if i == len(chunks)-1 && len(testData)%STREAM_CHUNK_SIZE != 0 {
 				// Last chunk should be the remainder
 				expectedSize := len(testData) % STREAM_CHUNK_SIZE
-				if len(chunk) != expectedSize {
-					t.Errorf("Last chunk expected to be %d bytes, got %d", expectedSize, len(chunk))
-				}
+				require.Len(t, chunk, expectedSize)
 			}
 		}
 	})
 
-	t.Run("Multiple full chunks", func(t *testing.T) {
+	t.Run("multiple full chunks", func(t *testing.T) {
 		// Create a test data exactly 2.5 times STREAM_CHUNK_SIZE
 		fullChunks := 2
 		extraBytes := STREAM_CHUNK_SIZE / 2
@@ -393,20 +318,14 @@ func TestChunkBytes(t *testing.T) {
 		testData := bytes.Repeat([]byte{42}, STREAM_CHUNK_SIZE*fullChunks+extraBytes)
 		chunks := chunkBytes(testData)
 
-		if len(chunks) != fullChunks+1 {
-			t.Errorf("Expected %d chunks, got %d", fullChunks+1, len(chunks))
-		}
+		require.Len(t, chunks, fullChunks+1)
 
 		// Verify each full chunk is exactly STREAM_CHUNK_SIZE
 		for i := 0; i < fullChunks; i++ {
-			if len(chunks[i]) != STREAM_CHUNK_SIZE {
-				t.Errorf("Chunk %d expected size %d, got %d", i, STREAM_CHUNK_SIZE, len(chunks[i]))
-			}
+			require.Len(t, chunks[i], STREAM_CHUNK_SIZE)
 		}
 
 		// Verify the last partial chunk size
-		if len(chunks[fullChunks]) != extraBytes {
-			t.Errorf("Last chunk expected size %d, got %d", extraBytes, len(chunks[fullChunks]))
-		}
+		require.Len(t, chunks[fullChunks], extraBytes)
 	})
 }
