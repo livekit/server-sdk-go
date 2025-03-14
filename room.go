@@ -169,7 +169,11 @@ type Room struct {
 
 	sifTrailer []byte
 
-	rpcHandlers *sync.Map
+	byteStreamHandlers *sync.Map
+	byteStreamReaders  *sync.Map
+	textStreamHandlers *sync.Map
+	textStreamReaders  *sync.Map
+	rpcHandlers        *sync.Map
 
 	lock sync.RWMutex
 }
@@ -187,6 +191,10 @@ func NewRoom(callback *RoomCallback) *Room {
 		sidReady:           make(chan struct{}),
 		connectionState:    ConnectionStateDisconnected,
 		regionURLProvider:  newRegionURLProvider(),
+		byteStreamHandlers: &sync.Map{},
+		byteStreamReaders:  &sync.Map{},
+		textStreamHandlers: &sync.Map{},
+		textStreamReaders:  &sync.Map{},
 		rpcHandlers:        &sync.Map{},
 	}
 	r.callback.Merge(callback)
@@ -209,6 +217,9 @@ func NewRoom(callback *RoomCallback) *Room {
 	engine.OnTrackRemoteMuted = r.handleTrackRemoteMuted
 	engine.OnTranscription = r.handleTranscriptionReceived
 	engine.OnRpcRequest = r.handleIncomingRpcRequest
+	engine.OnStreamHeader = r.handleStreamHeader
+	engine.OnStreamChunk = r.handleStreamChunk
+	engine.OnStreamTrailer = r.handleStreamTrailer
 
 	// callbacks engine can use to get data
 	engine.CbGetLocalParticipantSID = r.getLocalParticipantSID
@@ -849,6 +860,10 @@ func (r *Room) cleanup() {
 	r.engine.Close()
 	r.LocalParticipant.closeTracks()
 	r.setSid("", true)
+	r.byteStreamHandlers = &sync.Map{}
+	r.byteStreamReaders = &sync.Map{}
+	r.textStreamHandlers = &sync.Map{}
+	r.textStreamReaders = &sync.Map{}
 	r.rpcHandlers = &sync.Map{}
 	r.LocalParticipant.cleanup()
 }
@@ -956,11 +971,9 @@ func (r *Room) getLocalParticipantSID() string {
 // and they will be received on the caller's side with the message intact.
 // Other errors thrown in your handler will not be transmitted as-is, and will instead arrive to the caller as `1500` ("Application Error").
 func (r *Room) RegisterRpcMethod(method string, handler RpcHandlerFunc) error {
-	_, ok := r.rpcHandlers.Load(method)
-	if ok {
-		return fmt.Errorf("RPC handler already registered for method: %s, unregisterRpcMethod before trying to register again", method)
+	if _, ok := r.rpcHandlers.LoadOrStore(method, handler); !ok {
+		return fmt.Errorf("rpc handler already registered for method: %s, unregisterRpcMethod before trying to register again", method)
 	}
-	r.rpcHandlers.Store(method, handler)
 	return nil
 }
 
@@ -995,7 +1008,7 @@ func (r *Room) handleIncomingRpcRequest(callerIdentity, requestId, method, paylo
 		if _, ok := err.(*RpcError); ok {
 			r.engine.publishRpcResponse(callerIdentity, requestId, nil, err.(*RpcError))
 		} else {
-			r.engine.log.Warnw("Uncaught error returned by RPC handler for method, using application error instead", err, "method", method)
+			r.log.Warnw("unexpected error returned by RPC handler for method, using application error instead", err, "method", method)
 			r.engine.publishRpcResponse(callerIdentity, requestId, nil, rpcErrorFromBuiltInCodes(RpcApplicationError, nil))
 		}
 		return
@@ -1007,6 +1020,126 @@ func (r *Room) handleIncomingRpcRequest(callerIdentity, requestId, method, paylo
 	}
 
 	r.engine.publishRpcResponse(callerIdentity, requestId, &response, nil)
+}
+
+// Registers a handler for a text stream.
+// It will be called when a text stream is received for the given topic.
+// The handler will be called with the stream reader and the participant identity that sent the stream.
+func (r *Room) RegisterTextStreamHandler(topic string, handler TextStreamHandler) error {
+	if _, ok := r.textStreamHandlers.LoadOrStore(topic, handler); !ok {
+		return fmt.Errorf("text stream handler already registered for topic: %s", topic)
+	}
+	return nil
+}
+
+// Unregisters a handler for a text stream.
+func (r *Room) UnregisterTextStreamHandler(topic string) {
+	r.textStreamHandlers.Delete(topic)
+}
+
+// Registers a handler for a byte stream.
+// It will be called when a byte stream is received for the given topic.
+// The handler will be called with the stream reader and the participant identity that sent the stream.
+func (r *Room) RegisterByteStreamHandler(topic string, handler ByteStreamHandler) error {
+	if _, ok := r.byteStreamHandlers.LoadOrStore(topic, handler); !ok {
+		return fmt.Errorf("byte stream handler already registered for topic: %s", topic)
+	}
+	return nil
+}
+
+// Unregisters a handler for a byte stream.
+func (r *Room) UnregisterByteStreamHandler(topic string) {
+	r.byteStreamHandlers.Delete(topic)
+}
+
+func (r *Room) handleStreamHeader(streamHeader *livekit.DataStream_Header, participantIdentity string) {
+	switch header := streamHeader.ContentHeader.(type) {
+	case *livekit.DataStream_Header_TextHeader:
+		streamHandlerCallback, ok := r.textStreamHandlers.Load(streamHeader.Topic)
+		if !ok {
+			r.log.Debugw("ignoring incoming text stream due to no handler for topic", "topic", streamHeader.Topic)
+			return
+		}
+
+		info := TextStreamInfo{
+			baseStreamInfo: &baseStreamInfo{
+				Id:         streamHeader.StreamId,
+				MimeType:   streamHeader.MimeType,
+				Size:       streamHeader.TotalLength,
+				Topic:      streamHeader.Topic,
+				Timestamp:  streamHeader.Timestamp,
+				Attributes: streamHeader.Attributes,
+			},
+		}
+
+		textStreamReader := NewTextStreamReader(info, streamHeader.TotalLength)
+		r.textStreamReaders.Store(streamHeader.StreamId, textStreamReader)
+		go streamHandlerCallback.(TextStreamHandler)(textStreamReader, participantIdentity)
+	case *livekit.DataStream_Header_ByteHeader:
+		streamHandlerCallback, ok := r.byteStreamHandlers.Load(streamHeader.Topic)
+		if !ok {
+			r.log.Debugw("ignoring incoming byte stream due to no handler for topic", "topic", streamHeader.Topic)
+			return
+		}
+
+		info := ByteStreamInfo{
+			baseStreamInfo: &baseStreamInfo{
+				Id:         streamHeader.StreamId,
+				MimeType:   streamHeader.MimeType,
+				Size:       streamHeader.TotalLength,
+				Topic:      streamHeader.Topic,
+				Timestamp:  streamHeader.Timestamp,
+				Attributes: streamHeader.Attributes,
+			},
+			Name: &header.ByteHeader.Name,
+		}
+
+		byteStreamReader := NewByteStreamReader(info, streamHeader.TotalLength)
+		r.byteStreamReaders.Store(streamHeader.StreamId, byteStreamReader)
+		go streamHandlerCallback.(ByteStreamHandler)(byteStreamReader, participantIdentity)
+	}
+}
+
+func (r *Room) handleStreamChunk(streamChunk *livekit.DataStream_Chunk) {
+	streamId := streamChunk.StreamId
+
+	byteStreamReader, ok := r.byteStreamReaders.Load(streamId)
+	if ok {
+		if len(streamChunk.Content) > 0 {
+			byteStreamReader.(*ByteStreamReader).enqueue(streamChunk)
+		}
+	}
+
+	textStreamReader, ok := r.textStreamReaders.Load(streamId)
+	if ok {
+		if len(streamChunk.Content) > 0 {
+			textStreamReader.(*TextStreamReader).enqueue(streamChunk)
+		}
+	}
+}
+
+func (r *Room) handleStreamTrailer(streamTrailer *livekit.DataStream_Trailer) {
+	streamId := streamTrailer.StreamId
+
+	byteStreamReader, ok := r.byteStreamReaders.Load(streamId)
+	if ok {
+		reader := byteStreamReader.(*ByteStreamReader)
+		for k, v := range streamTrailer.Attributes {
+			reader.Info.Attributes[k] = v
+		}
+		reader.close()
+		r.byteStreamReaders.Delete(streamId)
+	}
+
+	textStreamReader, ok := r.textStreamReaders.Load(streamId)
+	if ok {
+		reader := textStreamReader.(*TextStreamReader)
+		for k, v := range streamTrailer.Attributes {
+			reader.Info.Attributes[k] = v
+		}
+		reader.close()
+		r.textStreamReaders.Delete(streamId)
+	}
 }
 
 // ---------------------------------------------------------

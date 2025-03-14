@@ -16,6 +16,7 @@ package lksdk
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -87,7 +88,12 @@ type RTCEngine struct {
 	OnRpcRequest            func(callerIdentity, requestId, method, payload string, responseTimeout time.Duration, version uint32)
 	OnRpcAck                func(requestId string)
 	OnRpcResponse           func(requestId string, payload *string, error *RpcError)
+	OnStreamHeader          func(*livekit.DataStream_Header, string)
+	OnStreamChunk           func(*livekit.DataStream_Chunk)
+	OnStreamTrailer         func(*livekit.DataStream_Trailer)
 
+	onClose     []func()
+	onCloseLock sync.Mutex
 	// callbacks to get data
 	CbGetLocalParticipantSID func() string
 }
@@ -128,6 +134,7 @@ func NewRTCEngine() *RTCEngine {
 		e.token.Store(refreshToken)
 	}
 	e.client.OnClose = func() { e.handleDisconnect(false) }
+	e.onClose = []func(){}
 
 	return e
 }
@@ -186,6 +193,12 @@ func (e *RTCEngine) JoinContext(ctx context.Context, url string, token string, p
 	return res, err
 }
 
+func (e *RTCEngine) OnClose(onClose func()) {
+	e.onCloseLock.Lock()
+	e.onClose = append(e.onClose, onClose)
+	e.onCloseLock.Unlock()
+}
+
 func (e *RTCEngine) Close() {
 	if !e.closed.CompareAndSwap(false, true) {
 		return
@@ -194,6 +207,15 @@ func (e *RTCEngine) Close() {
 	go func() {
 		for e.reconnecting.Load() {
 			time.Sleep(50 * time.Millisecond)
+		}
+
+		e.onCloseLock.Lock()
+		onClose := e.onClose
+		e.onClose = []func(){}
+		e.onCloseLock.Unlock()
+
+		for _, onCloseHandler := range onClose {
+			onCloseHandler()
 		}
 
 		if publisher, ok := e.Publisher(); ok {
@@ -597,6 +619,18 @@ func (e *RTCEngine) handleDataPacket(msg webrtc.DataChannelMessage) {
 				e.OnRpcResponse(msg.RpcResponse.RequestId, nil, fromProto(res.Error))
 			}
 		}
+	case *livekit.DataPacket_StreamHeader:
+		if e.OnStreamHeader != nil {
+			e.OnStreamHeader(msg.StreamHeader, identity)
+		}
+	case *livekit.DataPacket_StreamChunk:
+		if e.OnStreamChunk != nil {
+			e.OnStreamChunk(msg.StreamChunk)
+		}
+	case *livekit.DataPacket_StreamTrailer:
+		if e.OnStreamTrailer != nil {
+			e.OnStreamTrailer(msg.StreamTrailer)
+		}
 	}
 }
 
@@ -776,32 +810,42 @@ func (e *RTCEngine) makeRTCConfiguration(iceServers []*livekit.ICEServer, client
 	return configuration
 }
 
-func (e *RTCEngine) publishDataPacket(pck *livekit.DataPacket, kind livekit.DataPacket_Kind) {
+func (e *RTCEngine) publishDataPacket(pck *livekit.DataPacket, kind livekit.DataPacket_Kind) error {
 	data, err := proto.Marshal(pck)
 	if err != nil {
 		e.log.Errorw("could not marshal data packet", err)
-		return
+		return err
 	}
 
 	err = e.ensurePublisherConnected(true)
 	if err != nil {
 		e.log.Errorw("could not ensure publisher connected", err)
-		return
+		return err
 	}
 
 	dc := e.GetDataChannel(kind)
 	if dc == nil {
 		e.log.Errorw("could not get data channel", nil, "kind", kind)
-		return
+		return errors.New("datachannel not found")
 	}
 
 	dc.Send(data)
+	return nil
 }
 
-func (e *RTCEngine) publishRpcResponse(destinationIdentity, requestId string, payload *string, error *RpcError) {
+func (e *RTCEngine) publishDataPacketReliable(pck *livekit.DataPacket) error {
+	return e.publishDataPacket(pck, livekit.DataPacket_RELIABLE)
+}
+
+//lint:ignore U1000 Ignore unused function
+func (e *RTCEngine) publishDataPacketLossy(pck *livekit.DataPacket) error {
+	return e.publishDataPacket(pck, livekit.DataPacket_LOSSY)
+}
+
+// TODO: adjust RPC methods to return error on publishDataPacket failure
+func (e *RTCEngine) publishRpcResponse(destinationIdentity, requestId string, payload *string, err *RpcError) error {
 	packet := &livekit.DataPacket{
 		DestinationIdentities: []string{destinationIdentity},
-		Kind:                  livekit.DataPacket_RELIABLE,
 		Value: &livekit.DataPacket_RpcResponse{
 			RpcResponse: &livekit.RpcResponse{
 				RequestId: requestId,
@@ -809,9 +853,9 @@ func (e *RTCEngine) publishRpcResponse(destinationIdentity, requestId string, pa
 		},
 	}
 
-	if error != nil {
+	if err != nil {
 		packet.Value.(*livekit.DataPacket_RpcResponse).RpcResponse.Value = &livekit.RpcResponse_Error{
-			Error: error.toProto(),
+			Error: err.toProto(),
 		}
 	} else {
 		if payload == nil {
@@ -824,13 +868,16 @@ func (e *RTCEngine) publishRpcResponse(destinationIdentity, requestId string, pa
 		}
 	}
 
-	e.publishDataPacket(packet, livekit.DataPacket_RELIABLE)
+	publishErr := e.publishDataPacketReliable(packet)
+	if publishErr != nil {
+		e.log.Errorw("could not publish rpc response", publishErr)
+	}
+	return publishErr
 }
 
-func (e *RTCEngine) publishRpcAck(destinationIdentity, requestId string) {
+func (e *RTCEngine) publishRpcAck(destinationIdentity, requestId string) error {
 	packet := &livekit.DataPacket{
 		DestinationIdentities: []string{destinationIdentity},
-		Kind:                  livekit.DataPacket_RELIABLE,
 		Value: &livekit.DataPacket_RpcAck{
 			RpcAck: &livekit.RpcAck{
 				RequestId: requestId,
@@ -838,13 +885,16 @@ func (e *RTCEngine) publishRpcAck(destinationIdentity, requestId string) {
 		},
 	}
 
-	e.publishDataPacket(packet, livekit.DataPacket_RELIABLE)
+	publishErr := e.publishDataPacketReliable(packet)
+	if publishErr != nil {
+		e.log.Errorw("could not publish rpc ack", publishErr)
+	}
+	return publishErr
 }
 
-func (e *RTCEngine) publishRpcRequest(destinationIdentity, requestId, method, payload string, responseTimeout time.Duration) {
+func (e *RTCEngine) publishRpcRequest(destinationIdentity, requestId, method, payload string, responseTimeout time.Duration) error {
 	packet := &livekit.DataPacket{
 		DestinationIdentities: []string{destinationIdentity},
-		Kind:                  livekit.DataPacket_RELIABLE,
 		Value: &livekit.DataPacket_RpcRequest{
 			RpcRequest: &livekit.RpcRequest{
 				Id:                requestId,
@@ -856,5 +906,70 @@ func (e *RTCEngine) publishRpcRequest(destinationIdentity, requestId, method, pa
 		},
 	}
 
-	e.publishDataPacket(packet, livekit.DataPacket_RELIABLE)
+	publishErr := e.publishDataPacketReliable(packet)
+	if publishErr != nil {
+		e.log.Errorw("could not publish rpc request", publishErr)
+	}
+	return publishErr
+}
+
+func (e *RTCEngine) publishStreamHeader(header *livekit.DataStream_Header, destinationIdentities []string) error {
+	packet := &livekit.DataPacket{
+		DestinationIdentities: destinationIdentities,
+		Value: &livekit.DataPacket_StreamHeader{
+			StreamHeader: header,
+		},
+	}
+
+	publishErr := e.publishDataPacketReliable(packet)
+	if publishErr != nil {
+		e.log.Errorw("could not publish stream header", publishErr)
+	}
+	return publishErr
+}
+
+func (e *RTCEngine) publishStreamChunk(chunk *livekit.DataStream_Chunk, destinationIdentities []string) error {
+	packet := &livekit.DataPacket{
+		DestinationIdentities: destinationIdentities,
+		Value: &livekit.DataPacket_StreamChunk{
+			StreamChunk: chunk,
+		},
+	}
+
+	publishErr := e.publishDataPacketReliable(packet)
+	if publishErr != nil {
+		e.log.Errorw("could not publish stream chunk", publishErr)
+	}
+	return publishErr
+}
+
+func (e *RTCEngine) publishStreamTrailer(streamId string, destinationIdentities []string) error {
+	packet := &livekit.DataPacket{
+		DestinationIdentities: destinationIdentities,
+		Value: &livekit.DataPacket_StreamTrailer{
+			StreamTrailer: &livekit.DataStream_Trailer{
+				StreamId: streamId,
+			},
+		},
+	}
+
+	publishErr := e.publishDataPacketReliable(packet)
+	if publishErr != nil {
+		e.log.Errorw("could not publish stream trailer", publishErr)
+	}
+	return publishErr
+}
+
+func (e *RTCEngine) isBufferStatusLow(kind livekit.DataPacket_Kind) bool {
+	dc := e.GetDataChannel(kind)
+	if dc != nil {
+		return dc.BufferedAmount() <= dc.BufferedAmountLowThreshold()
+	}
+	return false
+}
+
+func (e *RTCEngine) waitForBufferStatusLow(kind livekit.DataPacket_Kind) {
+	for !e.isBufferStatusLow(kind) {
+		time.Sleep(10 * time.Millisecond)
+	}
 }
