@@ -837,6 +837,7 @@ func (e *RTCEngine) publishDataPacketReliable(pck *livekit.DataPacket) error {
 	return e.publishDataPacket(pck, livekit.DataPacket_RELIABLE)
 }
 
+//lint:ignore U1000 Ignore unused function
 func (e *RTCEngine) publishDataPacketLossy(pck *livekit.DataPacket) error {
 	return e.publishDataPacket(pck, livekit.DataPacket_LOSSY)
 }
