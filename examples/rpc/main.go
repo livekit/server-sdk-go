@@ -44,6 +44,27 @@ func performGreeting(room *lksdk.Room) {
 	logger.Infow(fmt.Sprintf("[Caller] That's nice, the greeter said: %s", *res))
 }
 
+func performGreetingWithTimeout(room *lksdk.Room) {
+	logger.Infow("[Caller] Let's try a greeting with a timeout")
+
+	timeout := 10 * time.Millisecond
+
+	res, err := room.LocalParticipant.PerformRpc(lksdk.PerformRpcParams{
+		DestinationIdentity: "greeter",
+		Method:              "arrival",
+		Payload:             "Hello",
+		ResponseTimeout:     &timeout,
+	})
+
+	if err != nil {
+		logger.Errorw(fmt.Sprintf("[Caller] RPC call failed: %s", err), nil)
+		return
+	}
+
+	logger.Infow(fmt.Sprintf("[Caller] That's nice, the greeter said: %s", *res))
+
+}
+
 func performDisconnection(room *lksdk.Room) {
 	logger.Infow("[Caller] Checking back in on the greeter...")
 	res, err := room.LocalParticipant.PerformRpc(lksdk.PerformRpcParams{
@@ -297,6 +318,7 @@ func main() {
 
 	logger.Infow("Running greeting example...")
 	performGreeting(rooms[caller])
+	performGreetingWithTimeout(rooms[caller])
 
 	logger.Infow("Running error handling example...")
 	performDivide(rooms[caller])
