@@ -235,11 +235,6 @@ type baseStreamReader struct {
 	lock   sync.Mutex
 	cond   *sync.Cond
 
-	// readerMutex is used to lock the reader when reading the stream
-	// this will prevent issues when the user tries to read from multiple methods at the same time
-	// since cond unlocks the lock before waiting, this is needed to prevent multiple read calls from fighting for data
-	readerMutex sync.Mutex
-
 	onProgress *func(progress float64)
 }
 
@@ -286,7 +281,6 @@ func (r *baseStreamReader) maybeCallOnProgress(n int) {
 func (r *baseStreamReader) waitForData() {
 	// if stream is closed, the methods will return io.EOF automatically
 	for r.readBuffer.Len() == 0 && !r.closed.Load() {
-		// cond.Wait() unlocks the lock before waiting, allowing enqueue to write to the buffer
 		r.cond.Wait()
 	}
 }
@@ -307,12 +301,8 @@ func (r *baseStreamReader) handleEOFBeforeStreamClosed(err error) error {
 // The return value is the number of bytes read.
 // If the buffer has no data to return, it will wait for a write to the stream or return io.EOF if the stream is closed.
 func (r *baseStreamReader) Read(bytes []byte) (int, error) {
-	r.readerMutex.Lock()
 	r.lock.Lock()
-	defer func() {
-		r.lock.Unlock()
-		r.readerMutex.Unlock()
-	}()
+	defer r.lock.Unlock()
 
 	r.waitForData()
 
@@ -324,12 +314,8 @@ func (r *baseStreamReader) Read(bytes []byte) (int, error) {
 // ReadByte reads and returns the next byte from the buffer.
 // If no byte is available, it will wait for a write to the stream or return io.EOF if the stream is closed.
 func (r *baseStreamReader) ReadByte() (byte, error) {
-	r.readerMutex.Lock()
 	r.lock.Lock()
-	defer func() {
-		r.lock.Unlock()
-		r.readerMutex.Unlock()
-	}()
+	defer r.lock.Unlock()
 
 	r.waitForData()
 
@@ -342,12 +328,8 @@ func (r *baseStreamReader) ReadByte() (byte, error) {
 // If ReadBytes encounters an error before finding a delimiter, it returns the data read before EOF, but does not return EOF until the stream is closed.
 // ReadBytes returns err != nil if and only if the returned data does not end in delim.
 func (r *baseStreamReader) ReadBytes(delim byte) ([]byte, error) {
-	r.readerMutex.Lock()
 	r.lock.Lock()
-	defer func() {
-		r.lock.Unlock()
-		r.readerMutex.Unlock()
-	}()
+	defer r.lock.Unlock()
 
 	r.waitForData()
 
@@ -382,12 +364,8 @@ func NewTextStreamReader(info TextStreamInfo, totalChunkCount *uint64) *TextStre
 // If no bytes are available, it will wait for a write to the stream or return io.EOF if the stream is closed.
 // If the bytes are an erroneous UTF-8 encoding, it consumes one byte and returns U+FFFD, 1.
 func (r *TextStreamReader) ReadRune() (rune, int, error) {
-	r.readerMutex.Lock()
 	r.lock.Lock()
-	defer func() {
-		r.lock.Unlock()
-		r.readerMutex.Unlock()
-	}()
+	defer r.lock.Unlock()
 
 	r.waitForData()
 
@@ -400,12 +378,8 @@ func (r *TextStreamReader) ReadRune() (rune, int, error) {
 // If ReadString encounters an error before finding a delimiter, it returns the data read before EOF, but does not return EOF until the stream is closed.
 // ReadString returns err != nil if and only if the returned data does not end in delim.
 func (r *TextStreamReader) ReadString(delim byte) (string, error) {
-	r.readerMutex.Lock()
 	r.lock.Lock()
-	defer func() {
-		r.lock.Unlock()
-		r.readerMutex.Unlock()
-	}()
+	defer r.lock.Unlock()
 
 	r.waitForData()
 
@@ -417,16 +391,11 @@ func (r *TextStreamReader) ReadString(delim byte) (string, error) {
 // ReadAll reads all the data from the stream and returns it as a string.
 // This will block until the stream is closed.
 func (r *TextStreamReader) ReadAll() string {
-	r.readerMutex.Lock()
 	r.lock.Lock()
-	defer func() {
-		r.lock.Unlock()
-		r.readerMutex.Unlock()
-	}()
+	defer r.lock.Unlock()
 
 	// wait for the stream to be closed
 	for !r.closed.Load() {
-		// cond.Wait() unlocks the lock before waiting, allowing enqueue to write to the buffer
 		r.cond.Wait()
 	}
 
@@ -450,16 +419,11 @@ func NewByteStreamReader(info ByteStreamInfo, totalChunkCount *uint64) *ByteStre
 // ReadAll reads all the data from the stream and returns it as a byte slice.
 // This will block until the stream is closed.
 func (r *ByteStreamReader) ReadAll() []byte {
-	r.readerMutex.Lock()
 	r.lock.Lock()
-	defer func() {
-		r.lock.Unlock()
-		r.readerMutex.Unlock()
-	}()
+	defer r.lock.Unlock()
 
 	// wait for the stream to be closed
 	for !r.closed.Load() {
-		// cond.Wait() unlocks the lock before waiting, allowing enqueue to write to the buffer
 		r.cond.Wait()
 	}
 
