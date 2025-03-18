@@ -12,7 +12,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/livekit/mageutil v0.0.0-20230125210925-54e8a70427c1
 	github.com/livekit/mediatransportutil v0.0.0-20241220010243-a2bdee945564
-	github.com/livekit/protocol v1.34.1-0.20250317182648-eb78e3301bb3
+	github.com/livekit/protocol v1.35.1-0.20250318182721-1664da5a9fcb
 	github.com/magefile/mage v1.15.0
 	github.com/pion/dtls/v3 v3.0.4
 	github.com/pion/interceptor v0.1.37
@@ -72,6 +72,7 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
 	go.uber.org/zap/exp v0.3.0 // indirect
+	golang.org/x/mod v0.24.0 // indirect
 	golang.org/x/net v0.35.0 // indirect
 	golang.org/x/sync v0.12.0 // indirect
 	golang.org/x/sys v0.31.0 // indirect

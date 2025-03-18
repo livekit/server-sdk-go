@@ -40,12 +40,12 @@ func (c *AgentClient) CreateAgent(ctx context.Context, req *livekit.CreateAgentR
 	return c.agentClient.CreateAgent(ctx, req)
 }
 
-func (c *AgentClient) ListAgent(ctx context.Context, req *livekit.ListAgentRequest) (*livekit.ListAgentResponse, error) {
+func (c *AgentClient) ListAgents(ctx context.Context, req *livekit.ListAgentsRequest) (*livekit.ListAgentsResponse, error) {
 	ctx, err := c.withAuth(ctx, withAgentGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
-	return c.agentClient.ListAgent(ctx, req)
+	return c.agentClient.ListAgents(ctx, req)
 }
 
 func (c *AgentClient) ListAgentVersions(ctx context.Context, req *livekit.ListAgentVersionsRequest) (*livekit.ListAgentVersionsResponse, error) {
