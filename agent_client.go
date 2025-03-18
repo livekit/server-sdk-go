@@ -103,3 +103,11 @@ func (c *AgentClient) DeployAgent(ctx context.Context, req *livekit.DeployAgentR
 	}
 	return c.agentClient.DeployAgent(ctx, req)
 }
+
+func (c *AgentClient) GetClientSettings(ctx context.Context, req *livekit.ClientSettingsRequest) (*livekit.ClientSettingsResponse, error) {
+	ctx, err := c.withAuth(ctx, withAgentGrant{Admin: true})
+	if err != nil {
+		return nil, err
+	}
+	return c.agentClient.GetClientSettings(ctx, req)
+}
