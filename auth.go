@@ -18,8 +18,9 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/livekit/protocol/auth"
 	"github.com/twitchtv/twirp"
+
+	"github.com/livekit/protocol/auth"
 )
 
 type authBase struct {
@@ -41,6 +42,12 @@ type withSIPGrant auth.SIPGrant
 
 func (g withSIPGrant) Apply(t *auth.AccessToken) {
 	t.SetSIPGrant((*auth.SIPGrant)(&g))
+}
+
+type withAgentGrant auth.AgentGrant
+
+func (g withAgentGrant) Apply(t *auth.AccessToken) {
+	t.SetAgentGrant((*auth.AgentGrant)(&g))
 }
 
 func (b authBase) withAuth(ctx context.Context, opt authOption, options ...authOption) (context.Context, error) {
