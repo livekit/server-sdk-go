@@ -71,6 +71,32 @@ func (s *SIPClient) CreateSIPOutboundTrunk(ctx context.Context, in *livekit.Crea
 	return s.sipClient.CreateSIPOutboundTrunk(ctx, in)
 }
 
+// UpdateSIPInboundTrunk updates an existing SIP Inbound Trunk.
+func (s *SIPClient) UpdateSIPInboundTrunk(ctx context.Context, in *livekit.UpdateSIPInboundTrunkRequest) (*livekit.SIPInboundTrunkInfo, error) {
+	if in == nil || in.Action == nil || in.SipTrunkId == "" {
+		return nil, ErrInvalidParameter
+	}
+
+	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
+	if err != nil {
+		return nil, err
+	}
+	return s.sipClient.UpdateSIPInboundTrunk(ctx, in)
+}
+
+// UpdateSIPOutboundTrunk updates an existing SIP Outbound Trunk.
+func (s *SIPClient) UpdateSIPOutboundTrunk(ctx context.Context, in *livekit.UpdateSIPOutboundTrunkRequest) (*livekit.SIPOutboundTrunkInfo, error) {
+	if in == nil || in.Action == nil || in.SipTrunkId == "" {
+		return nil, ErrInvalidParameter
+	}
+
+	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
+	if err != nil {
+		return nil, err
+	}
+	return s.sipClient.UpdateSIPOutboundTrunk(ctx, in)
+}
+
 // GetSIPInboundTrunksByIDs gets SIP Inbound Trunks by ID.
 // Returned slice is in the same order as the IDs. Missing IDs will have nil in the corresponding position.
 func (s *SIPClient) GetSIPInboundTrunksByIDs(ctx context.Context, ids []string) ([]*livekit.SIPInboundTrunkInfo, error) {
@@ -180,6 +206,19 @@ func (s *SIPClient) CreateSIPDispatchRule(ctx context.Context, in *livekit.Creat
 		return nil, err
 	}
 	return s.sipClient.CreateSIPDispatchRule(ctx, in)
+}
+
+// UpdateSIPDispatchRule updates an existing SIP Dispatch Rule.
+func (s *SIPClient) UpdateSIPDispatchRule(ctx context.Context, in *livekit.UpdateSIPDispatchRuleRequest) (*livekit.SIPDispatchRuleInfo, error) {
+	if in == nil || in.Action == nil || in.SipDispatchRuleId == "" {
+		return nil, ErrInvalidParameter
+	}
+
+	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
+	if err != nil {
+		return nil, err
+	}
+	return s.sipClient.UpdateSIPDispatchRule(ctx, in)
 }
 
 // GetSIPDispatchRulesByIDs gets SIP Dispatch Rules by ID.
