@@ -14,12 +14,12 @@ require (
 	github.com/livekit/mediatransportutil v0.0.0-20241220010243-a2bdee945564
 	github.com/livekit/protocol v1.35.1-0.20250320161708-6d044a0462b3
 	github.com/magefile/mage v1.15.0
-	github.com/pion/dtls/v3 v3.0.4
+	github.com/pion/dtls/v3 v3.0.6
 	github.com/pion/interceptor v0.1.37
 	github.com/pion/rtcp v1.2.15
-	github.com/pion/rtp v1.8.12
-	github.com/pion/sdp/v3 v3.0.10
-	github.com/pion/webrtc/v4 v4.0.13
+	github.com/pion/rtp v1.8.13
+	github.com/pion/sdp/v3 v3.0.11
+	github.com/pion/webrtc/v4 v4.0.14
 	github.com/stretchr/testify v1.10.0
 	github.com/twitchtv/twirp v8.1.3+incompatible
 	go.uber.org/atomic v1.11.0
@@ -54,7 +54,7 @@ require (
 	github.com/nats-io/nkeys v0.4.10 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/pion/datachannel v1.5.10 // indirect
-	github.com/pion/ice/v4 v4.0.7 // indirect
+	github.com/pion/ice/v4 v4.0.8 // indirect
 	github.com/pion/logging v0.2.3 // indirect
 	github.com/pion/mdns/v2 v2.0.7 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
