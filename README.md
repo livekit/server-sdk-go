@@ -42,7 +42,7 @@ func getJoinToken(apiKey, apiSecret, room, identity string) (string, error) {
 		RoomJoin: true,
 		Room:     room,
 	}
-	at.AddGrant(grant).
+	at.SetVideoGrant(grant).
 		SetIdentity(identity).
 		SetValidFor(time.Hour)
 
