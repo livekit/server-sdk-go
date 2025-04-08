@@ -15,7 +15,6 @@
 package lksdk
 
 import (
-	"sync"
 	"time"
 
 	"github.com/pion/webrtc/v4"
@@ -171,14 +170,7 @@ func (p *RemoteParticipant) unpublishAllTracks() {
 		}
 		return true
 	})
-	eraseSyncMap(p.tracks)
-	eraseSyncMap(p.audioTracks)
-	eraseSyncMap(p.videoTracks)
-}
-
-func eraseSyncMap(m *sync.Map) {
-	m.Range(func(key interface{}, value interface{}) bool {
-		m.Delete(key)
-		return true
-	})
+	p.tracks.Clear()
+	p.audioTracks.Clear()
+	p.videoTracks.Clear()
 }
