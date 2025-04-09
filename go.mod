@@ -2,7 +2,7 @@ module github.com/livekit/server-sdk-go/v2
 
 go 1.23.0
 
-toolchain go1.23.6
+toolchain go1.24.2
 
 require (
 	github.com/bep/debounce v1.2.1
@@ -71,7 +71,6 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
 	go.uber.org/zap/exp v0.3.0 // indirect
-	golang.org/x/mod v0.24.0 // indirect
 	golang.org/x/net v0.39.0 // indirect
 	golang.org/x/sync v0.13.0 // indirect
 	golang.org/x/sys v0.32.0 // indirect
