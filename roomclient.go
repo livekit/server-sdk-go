@@ -97,15 +97,11 @@ func (c *RoomServiceClient) RemoveParticipant(ctx context.Context, req *livekit.
 	return c.roomService.RemoveParticipant(ctx, req)
 }
 
-// Forwards a participant's track to another room. This will create a
-// participant to join the destination room that has same information
-// with the source participant except the kind to be `Forwarded`. All
-// changes to the source participant will be reflected to the forwarded
-// participant. When the source participant disconnects or the
-// `RemoveParticipant` method is called in the destination room, the
-// forwarding will be stopped. This feature is cloud only.
+// Forward a participant's track(s) to another room. Requires `roomAdmin` and `destinationRoom`. The forwarding will
+// stop when the participant leaves the room or `RemoveParticipant` has been called in the destination room.
+// A participant can be forwarded to multiple rooms. The destination room will be created if it does not exist.
 func (c *RoomServiceClient) ForwardParticipant(ctx context.Context, req *livekit.ForwardParticipantRequest) (*livekit.ForwardParticipantResponse, error) {
-	ctx, err := c.withAuth(ctx, withVideoGrant{RoomAdmin: true, Room: req.Room})
+	ctx, err := c.withAuth(ctx, withVideoGrant{RoomAdmin: true, Room: req.Room, DestinationRoom: req.DestinationRoom})
 	if err != nil {
 		return nil, err
 	}
