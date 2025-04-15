@@ -86,8 +86,16 @@ func (t *PCM16ToOpusAudioTrack) WriteSample(sample audio.PCM16Sample) error {
 func (t *PCM16ToOpusAudioTrack) processSamples() {
 	for range t.ticker.C {
 		t.mu.Lock()
+		if len(t.sampleBuffer) == 0 {
+			t.mu.Unlock()
+			continue
+		}
 		sample := t.sampleBuffer[0]
-		t.sampleBuffer = t.sampleBuffer[1:]
+		if len(t.sampleBuffer) > 1 {
+			t.sampleBuffer = t.sampleBuffer[1:]
+		} else {
+			t.sampleBuffer = make([]audio.PCM16Sample, 0)
+		}
 		t.mu.Unlock()
 		t.resampledPCMWriter.WriteSample(sample)
 	}
