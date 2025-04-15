@@ -2,7 +2,7 @@ module github.com/livekit/server-sdk-go/v2
 
 go 1.23.0
 
-toolchain go1.23.6
+toolchain go1.24.2
 
 require (
 	github.com/bep/debounce v1.2.1
