@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gammazero/deque"
 	audio "github.com/livekit/mediatransportutil/pkg/audio"
 	opus "github.com/livekit/mediatransportutil/pkg/audio/opus"
 	rtp "github.com/livekit/mediatransportutil/pkg/audio/rtp"
@@ -27,7 +28,7 @@ type PCM16ToOpusAudioTrack struct {
 
 	frameDuration time.Duration
 
-	sampleBuffer []audio.PCM16Sample
+	sampleBuffer *deque.Deque[audio.PCM16Sample]
 	started      sync.Once
 	ticker       *time.Ticker
 
@@ -60,10 +61,11 @@ func NewPCM16ToOpusAudioTrack(sampleRate int, frameDuration time.Duration, logge
 		pcmWriter:              pcmWriter,
 		resampledPCMWriter:     resampledPCMWriter,
 		frameDuration:          frameDuration,
-		// TODO: Maybe not the best thing to do, good for a PoC
-		sampleBuffer: make([]audio.PCM16Sample, 0),
+		sampleBuffer:           new(deque.Deque[audio.PCM16Sample]),
 	}
 	t.cond = sync.NewCond(&t.mu)
+
+	go t.processSamples()
 	return t, nil
 }
 
@@ -72,62 +74,55 @@ func (t *PCM16ToOpusAudioTrack) WriteSample(sample audio.PCM16Sample) error {
 		return errors.New("track is closed")
 	}
 
-	var isFirstSample bool
-	var err error
-
-	t.started.Do(func() {
-		isFirstSample = true
-		// write the first sample immediately before starting the ticker
-		err = t.resampledPCMWriter.WriteSample(sample)
-		t.ticker = time.NewTicker(t.frameDuration)
-		go t.processSamples()
-	})
-
-	if isFirstSample {
-		return err
-	}
-
 	t.mu.Lock()
-	t.sampleBuffer = append(t.sampleBuffer, sample)
+	t.sampleBuffer.PushBack(sample)
 	t.cond.Broadcast()
 	t.mu.Unlock()
 	return nil
 }
 
-func (t *PCM16ToOpusAudioTrack) processSamples() {
-	for range t.ticker.C {
-		t.mu.Lock()
-		var resetTimer bool
+func (t *PCM16ToOpusAudioTrack) waitForSamples() {
+	t.mu.Lock()
+	for t.sampleBuffer.Len() == 0 && !t.closed.Load() {
+		t.cond.Wait()
+	}
+	t.mu.Unlock()
+}
 
-		for len(t.sampleBuffer) == 0 && !t.closed.Load() {
-			t.cond.Wait()
-			resetTimer = true
-		}
+func (t *PCM16ToOpusAudioTrack) processSamples() {
+	// wait for the first sample before starting the ticker
+	t.waitForSamples()
+	t.resampledPCMWriter.WriteSample(t.sampleBuffer.PopFront())
+	t.ticker = time.NewTicker(t.frameDuration)
+
+	for range t.ticker.C {
+		isBufferEmpty := t.sampleBuffer.Len() == 0
 		if t.closed.Load() {
-			t.mu.Unlock()
 			return
 		}
-
-		sample := t.sampleBuffer[0]
-		if len(t.sampleBuffer) > 1 {
-			t.sampleBuffer = t.sampleBuffer[1:]
-		} else {
-			t.sampleBuffer = make([]audio.PCM16Sample, 0)
+		if isBufferEmpty {
+			t.waitForSamples()
 		}
 
-		if resetTimer {
+		t.mu.Lock()
+		sample := t.sampleBuffer.PopFront()
+
+		if isBufferEmpty {
 			t.ticker.Reset(t.frameDuration)
 		}
 
 		t.resampledPCMWriter.WriteSample(sample)
 		t.mu.Unlock()
 	}
+
+	t.sampleBuffer.Clear()
+	t.ticker.Stop()
 }
 
 func (t *PCM16ToOpusAudioTrack) Close() {
 	t.closed.Store(true)
 	t.cond.Broadcast()
-	t.ticker.Stop()
+
 	t.resampledPCMWriter.Close()
 	t.pcmWriter.Close()
 	t.opusWriter.Close()
