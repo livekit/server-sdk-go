@@ -87,6 +87,13 @@ func (t *PCM16ToOpusAudioTrack) processSamples() {
 	for range t.ticker.C {
 		t.mu.Lock()
 		if len(t.sampleBuffer) == 0 {
+			for {
+				if len(t.sampleBuffer) > 0 {
+					break
+				}
+				time.Sleep(time.Millisecond * 10)
+			}
+			// TODO: fix: ticker would have to be reset to the point where it gets the next sample on an empty buffer
 			t.mu.Unlock()
 			continue
 		}
