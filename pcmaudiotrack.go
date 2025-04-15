@@ -11,6 +11,7 @@ import (
 	rtp "github.com/livekit/mediatransportutil/pkg/audio/rtp"
 	protoLogger "github.com/livekit/protocol/logger"
 	"github.com/pion/webrtc/v4"
+	"go.uber.org/atomic"
 )
 
 const (
@@ -29,7 +30,10 @@ type PCM16ToOpusAudioTrack struct {
 	sampleBuffer []audio.PCM16Sample
 	started      sync.Once
 	ticker       *time.Ticker
-	mu           sync.Mutex
+
+	closed atomic.Bool
+	mu     sync.Mutex
+	cond   *sync.Cond
 }
 
 // TODO: Support stereo
@@ -50,7 +54,7 @@ func NewPCM16ToOpusAudioTrack(sampleRate int, frameDuration time.Duration, logge
 		resampledPCMWriter = audio.ResampleWriter(pcmWriter, opusSampleRate)
 	}
 
-	return &PCM16ToOpusAudioTrack{
+	t := &PCM16ToOpusAudioTrack{
 		TrackLocalStaticSample: track,
 		opusWriter:             opusWriter,
 		pcmWriter:              pcmWriter,
@@ -58,10 +62,16 @@ func NewPCM16ToOpusAudioTrack(sampleRate int, frameDuration time.Duration, logge
 		frameDuration:          frameDuration,
 		// TODO: Maybe not the best thing to do, good for a PoC
 		sampleBuffer: make([]audio.PCM16Sample, 0),
-	}, nil
+	}
+	t.cond = sync.NewCond(&t.mu)
+	return t, nil
 }
 
 func (t *PCM16ToOpusAudioTrack) WriteSample(sample audio.PCM16Sample) error {
+	if t.closed.Load() {
+		return errors.New("track is closed")
+	}
+
 	var isFirstSample bool
 	var err error
 
@@ -79,6 +89,7 @@ func (t *PCM16ToOpusAudioTrack) WriteSample(sample audio.PCM16Sample) error {
 
 	t.mu.Lock()
 	t.sampleBuffer = append(t.sampleBuffer, sample)
+	t.cond.Broadcast()
 	t.mu.Unlock()
 	return nil
 }
@@ -86,29 +97,36 @@ func (t *PCM16ToOpusAudioTrack) WriteSample(sample audio.PCM16Sample) error {
 func (t *PCM16ToOpusAudioTrack) processSamples() {
 	for range t.ticker.C {
 		t.mu.Lock()
-		if len(t.sampleBuffer) == 0 {
-			for {
-				if len(t.sampleBuffer) > 0 {
-					break
-				}
-				time.Sleep(time.Millisecond * 10)
-			}
-			// TODO: fix: ticker would have to be reset to the point where it gets the next sample on an empty buffer
-			t.mu.Unlock()
-			continue
+		defer t.mu.Unlock()
+
+		var resetTimer bool
+
+		for len(t.sampleBuffer) == 0 && !t.closed.Load() {
+			t.cond.Wait()
+			resetTimer = true
 		}
+		if t.closed.Load() {
+			return
+		}
+
 		sample := t.sampleBuffer[0]
 		if len(t.sampleBuffer) > 1 {
 			t.sampleBuffer = t.sampleBuffer[1:]
 		} else {
 			t.sampleBuffer = make([]audio.PCM16Sample, 0)
 		}
-		t.mu.Unlock()
+
+		if resetTimer {
+			t.ticker.Reset(t.frameDuration)
+		}
+
 		t.resampledPCMWriter.WriteSample(sample)
 	}
 }
 
 func (t *PCM16ToOpusAudioTrack) Close() {
+	t.closed.Store(true)
+	t.cond.Broadcast()
 	t.ticker.Stop()
 	t.resampledPCMWriter.Close()
 	t.pcmWriter.Close()
