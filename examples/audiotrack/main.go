@@ -1,3 +1,4 @@
+// TODO: document CGO behavior
 package main
 
 import (
@@ -134,7 +135,7 @@ func handleSubscribe(track *webrtc.TrackRemote, forceMono bool) (*lksdk.DecodedA
 	}
 
 	webmWriter := webm.NewPCM16Writer(fileWriter, lksdk.DefaultOpusSampleRate, channels, lksdk.DefaultOpusSampleDuration)
-	pcmTrack, err := lksdk.NewDecodedAudioTrack(track, channels, &webmWriter, lksdk.DefaultOpusSampleRate, forceMono)
+	pcmTrack, err := lksdk.NewDecodedAudioTrack(track, &webmWriter, lksdk.DefaultOpusSampleRate, channels, true)
 	if err != nil {
 		panic(err)
 	}

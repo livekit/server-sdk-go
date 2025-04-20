@@ -175,9 +175,11 @@ type DecodedAudioTrack struct {
 	logger             protoLogger.Logger
 }
 
-// TODO: fix channel messiness
+// TODO: fix channel messiness, webm writer in the example needs number of channels at the time of init
+// and NewDecodedAudioTrack is called afterwards. But, we also need to check for channels in the init function
+// to make sure user does not pass stereo as target channels for a mono track. Any suggestions on how to handle this?
 // TODO: test stereo with resampler
-func NewDecodedAudioTrack(track *webrtc.TrackRemote, targetChannels int, writer *audio.WriteCloser[audio.PCM16Sample], targetSampleRate int, handleJitter bool) (*DecodedAudioTrack, error) {
+func NewDecodedAudioTrack(track *webrtc.TrackRemote, writer *audio.WriteCloser[audio.PCM16Sample], targetSampleRate int, targetChannels int, handleJitter bool) (*DecodedAudioTrack, error) {
 	if track.Codec().MimeType != webrtc.MimeTypeOpus {
 		return nil, errors.New("track is not opus")
 	}
@@ -228,6 +230,7 @@ func (t *DecodedAudioTrack) process(handleJitter bool) {
 	}
 
 	// HandleLoop takes RTP packets from the track and writes them to the handler
+	// TODO: handle concealment
 	err := rtp.HandleLoop(t.TrackRemote, h)
 	if err != nil && !errors.Is(err, io.EOF) {
 		t.logger.Errorw("error handling rtp from track", err)
