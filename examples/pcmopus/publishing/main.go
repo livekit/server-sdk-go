@@ -1,11 +1,10 @@
 package main
 
 import (
-	"log"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	res "github.com/livekit/mediatransportutil/pkg/audio/res"
 	testdata "github.com/livekit/mediatransportutil/pkg/audio/res/testdata"
@@ -32,21 +31,22 @@ func main() {
 		ParticipantIdentity: participantIdentity,
 	}, nil)
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 
-	publishTrack, err := lksdk.NewPCM16ToOpusAudioTrack(48000, 20*time.Millisecond, logger.GetLogger())
+	publishTrack, err := lksdk.NewEncodedAudioTrack(lksdk.DefaultOpusSampleRate, 1, logger.GetLogger())
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 
 	if _, err = room.LocalParticipant.PublishTrack(publishTrack, &lksdk.TrackPublicationOptions{
 		Name: "test",
 	}); err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 
-	pcmSamples := res.ReadOggAudioFile(testdata.TestAudioOgg)
+	pcmSamples := res.ReadOggAudioFile(testdata.TestAudioOgg, lksdk.DefaultOpusSampleRate, lksdk.DefaultPCMSampleDuration)
+	fmt.Println("pcmSamples", len(pcmSamples))
 	for i := 0; i < 1000; i++ {
 		for _, sample := range pcmSamples {
 			err = publishTrack.WriteSample(sample)

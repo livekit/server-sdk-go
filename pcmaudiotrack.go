@@ -16,177 +16,324 @@ import (
 )
 
 const (
-	opusSampleRate = 48000
+	DefaultOpusSampleRate     = 48000
+	DefaultOpusSampleDuration = 20 * time.Millisecond
+
+	// DefaultPCMSampleDuration = 20 * time.Millisecond
+	DefaultPCMSampleDuration = 5000 * time.Microsecond
+
+	// smallestOpusFrameDuration = 2500 * time.Microsecond
+	smallestOpusFrameDuration = 5000 * time.Microsecond
 )
 
-type PCM16ToOpusAudioTrack struct {
+type pcmChunk struct {
+	sample        audio.PCM16Sample
+	frameDuration time.Duration
+}
+
+type EncodedAudioTrack struct {
 	*webrtc.TrackLocalStaticSample
 
 	opusWriter         audio.WriteCloser[opus.Sample]
 	pcmWriter          audio.WriteCloser[audio.PCM16Sample]
 	resampledPCMWriter audio.WriteCloser[audio.PCM16Sample]
 
-	frameDuration time.Duration
+	sourceSampleRate int
+	frameDuration    time.Duration
+	sourceChannels   int
 
-	sampleBuffer *deque.Deque[audio.PCM16Sample]
-	started      sync.Once
-	ticker       *time.Ticker
+	chunkBuffer *deque.Deque[pcmChunk]
+	started     sync.Once
+	ticker      *time.Ticker
 
 	closed atomic.Bool
 	mu     sync.Mutex
-	cond   *sync.Cond
 }
 
-// TODO: Support stereo
-func NewPCM16ToOpusAudioTrack(sampleRate int, frameDuration time.Duration, logger protoLogger.Logger) (*PCM16ToOpusAudioTrack, error) {
+// TODO: test stereo with resampler
+func NewEncodedAudioTrack(sourceSampleRate int, sourceChannels int, logger protoLogger.Logger) (*EncodedAudioTrack, error) {
 	track, err := webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus}, "test", "test")
 	if err != nil {
 		return nil, err
 	}
 
-	opusWriter := audio.FromSampleWriter[opus.Sample](track, opusSampleRate, frameDuration)
-	pcmWriter, err := opus.Encode(opusWriter, 1, logger)
+	// opusWriter writes opus samples to the track
+	opusWriter := audio.FromSampleWriter[opus.Sample](track, DefaultOpusSampleRate, DefaultPCMSampleDuration)
+	// pcmWriter encodes opus samples from PCM16 samples and writes them to opusWriter
+	pcmWriter, err := opus.Encode(opusWriter, sourceChannels, logger)
 	if err != nil {
 		return nil, err
 	}
 
 	resampledPCMWriter := pcmWriter
-	if sampleRate != opusSampleRate {
-		resampledPCMWriter = audio.ResampleWriter(pcmWriter, opusSampleRate)
+	if sourceSampleRate != DefaultOpusSampleRate {
+		resampledPCMWriter = audio.ResampleWriter(pcmWriter, sourceSampleRate)
 	}
 
-	t := &PCM16ToOpusAudioTrack{
+	t := &EncodedAudioTrack{
 		TrackLocalStaticSample: track,
 		opusWriter:             opusWriter,
 		pcmWriter:              pcmWriter,
 		resampledPCMWriter:     resampledPCMWriter,
-		frameDuration:          frameDuration,
-		sampleBuffer:           new(deque.Deque[audio.PCM16Sample]),
+		sourceSampleRate:       sourceSampleRate,
+		frameDuration:          DefaultPCMSampleDuration,
+		sourceChannels:         sourceChannels,
+		chunkBuffer:            new(deque.Deque[pcmChunk]),
 	}
-	t.cond = sync.NewCond(&t.mu)
 
 	go t.processSamples()
 	return t, nil
 }
 
-func (t *PCM16ToOpusAudioTrack) WriteSample(sample audio.PCM16Sample) error {
+func (t *EncodedAudioTrack) pushChunksToBuffer(chunks []pcmChunk) {
+	for _, chunk := range chunks {
+		t.chunkBuffer.PushBack(chunk)
+	}
+}
+
+func (t *EncodedAudioTrack) WriteSample(sample audio.PCM16Sample) error {
 	if t.closed.Load() {
 		return errors.New("track is closed")
 	}
 
 	t.mu.Lock()
-	t.sampleBuffer.PushBack(sample)
-	t.cond.Broadcast()
+	chunks := splitPCM16SampleToTargetDuration(sample, t.sourceSampleRate, t.sourceChannels, DefaultPCMSampleDuration)
+	t.pushChunksToBuffer(chunks)
+	// t.cond.Broadcast()
 	t.mu.Unlock()
 	return nil
 }
 
-func (t *PCM16ToOpusAudioTrack) waitForSamples() {
-	t.mu.Lock()
-	for t.sampleBuffer.Len() == 0 && !t.closed.Load() {
-		t.cond.Wait()
-	}
-	t.mu.Unlock()
-}
+func (t *EncodedAudioTrack) processSamples() {
+	silentChunk := generateSilentPCM16Chunk(t.sourceSampleRate, t.sourceChannels, smallestOpusFrameDuration)
+	resetTicker := false
 
-func (t *PCM16ToOpusAudioTrack) processSamples() {
 	// wait for the first sample before starting the ticker
-	t.waitForSamples()
-	t.resampledPCMWriter.WriteSample(t.sampleBuffer.PopFront())
-	t.ticker = time.NewTicker(t.frameDuration)
+	var chunk pcmChunk
+	var lastChunkDuration time.Duration
+
+	// write the first chunk and start the ticker
+	// or a silent chunk if buffer is empty
+	if t.chunkBuffer.Len() > 0 {
+		chunk = t.chunkBuffer.PopFront()
+	} else {
+		chunk = silentChunk
+	}
+	lastChunkDuration = chunk.frameDuration
+
+	t.resampledPCMWriter.WriteSample(chunk.sample)
+	// ticker to avoid writing a sample for the duration of the last written chunk
+	t.ticker = time.NewTicker(chunk.frameDuration)
 
 	for range t.ticker.C {
-		isBufferEmpty := t.sampleBuffer.Len() == 0
 		if t.closed.Load() {
 			return
 		}
-		if isBufferEmpty {
-			t.waitForSamples()
-		}
 
 		t.mu.Lock()
-		sample := t.sampleBuffer.PopFront()
-
-		if isBufferEmpty {
-			t.ticker.Reset(t.frameDuration)
+		// write silent chunk if buffer is empty
+		if t.chunkBuffer.Len() != 0 {
+			chunk = t.chunkBuffer.PopFront()
+		} else {
+			// 2.5 ms is the smallest chunk duration supported by Opus.
+			// It should be small enough to not affect audio when a chunk gets written
+			// to the buffer while silent chunk is being processed at the other end.
+			chunk = silentChunk
 		}
 
-		t.resampledPCMWriter.WriteSample(sample)
+		// In case some chunks are smaller than the default chunk duration,
+		// or in general the last chunk that was written. e.g. silent chunk duration is 2.5ms
+		// which is less than the default chunk duration of 5ms.
+		// This ensures that the ticker duration is updated with the current chunk duration.
+		if chunk.frameDuration != lastChunkDuration {
+			resetTicker = true
+		}
+		lastChunkDuration = chunk.frameDuration
+
+		t.resampledPCMWriter.WriteSample(chunk.sample)
+
+		if resetTicker {
+			t.ticker.Reset(lastChunkDuration)
+			resetTicker = false
+		}
 		t.mu.Unlock()
 	}
 
-	t.sampleBuffer.Clear()
+	t.chunkBuffer.Clear()
 	t.ticker.Stop()
 }
 
-func (t *PCM16ToOpusAudioTrack) Close() {
-	t.closed.Store(true)
-	t.cond.Broadcast()
+func (t *EncodedAudioTrack) Close() {
+	firstClose := t.closed.CompareAndSwap(false, true)
+	// avoid closing the writer multiple times
+	if firstClose {
+		t.resampledPCMWriter.Close()
+		t.pcmWriter.Close()
+		t.opusWriter.Close()
+	}
 
-	t.resampledPCMWriter.Close()
-	t.pcmWriter.Close()
-	t.opusWriter.Close()
 }
 
-type OpusToPCM16AudioTrack struct {
+type DecodedAudioTrack struct {
 	*webrtc.TrackRemote
 	channels   int
 	sampleRate int
+	once       sync.Once
 
-	opusWriter audio.WriteCloser[opus.Sample]
-	pcmMWriter audio.WriteCloser[audio.PCM16Sample]
-	logger     protoLogger.Logger
+	opusWriter         audio.WriteCloser[opus.Sample]
+	pcmMWriter         audio.WriteCloser[audio.PCM16Sample]
+	resampledPCMWriter audio.WriteCloser[audio.PCM16Sample]
+	logger             protoLogger.Logger
 }
 
-// TODO: We also have a reader API, but writer is more efficient as it is zero copy.
-// Shall we support both reader and writer?
-// Reader makes more sense while reading the code, might be easier for the end user to understand.
-// But, it's less efficient as it involves a copy.
-func NewOpusToPCM16AudioTrack(track *webrtc.TrackRemote, publication *RemoteTrackPublication, writer *audio.WriteCloser[audio.PCM16Sample], sampleRate int, handleJitter bool) (*OpusToPCM16AudioTrack, error) {
+// TODO: fix channel messiness
+// TODO: test stereo with resampler
+func NewDecodedAudioTrack(track *webrtc.TrackRemote, targetChannels int, writer *audio.WriteCloser[audio.PCM16Sample], targetSampleRate int, handleJitter bool) (*DecodedAudioTrack, error) {
 	if track.Codec().MimeType != webrtc.MimeTypeOpus {
 		return nil, errors.New("track is not opus")
 	}
 
-	channels := 1
-	if publication.TrackInfo().Stereo {
-		channels = 2
+	outputChannels := targetChannels
+	sourceChannels := DetermineOpusChannels(track)
+	if targetChannels > sourceChannels {
+		outputChannels = sourceChannels
 	}
 
 	resampledPCMWriter := *writer
-	if sampleRate != opusSampleRate {
-		resampledPCMWriter = audio.ResampleWriter(*writer, sampleRate)
+	if targetSampleRate != DefaultOpusSampleRate {
+		resampledPCMWriter = audio.ResampleWriter(*writer, targetSampleRate)
 	}
 
-	opusWriter, err := opus.Decode(resampledPCMWriter, channels, protoLogger.GetLogger())
+	// opus writer takes opus samples, decodes them to PCM16 samples
+	// and writes them to the pcmMWriter
+	opusWriter, err := opus.Decode(resampledPCMWriter, outputChannels, protoLogger.GetLogger())
 	if err != nil {
 		return nil, err
 	}
 
-	t := &OpusToPCM16AudioTrack{TrackRemote: track, opusWriter: opusWriter, pcmMWriter: resampledPCMWriter, channels: channels, sampleRate: sampleRate, logger: protoLogger.GetLogger()}
+	t := &DecodedAudioTrack{
+		TrackRemote:        track,
+		opusWriter:         opusWriter,
+		pcmMWriter:         *writer,
+		resampledPCMWriter: resampledPCMWriter,
+		sampleRate:         targetSampleRate,
+		channels:           outputChannels,
+		logger:             protoLogger.GetLogger(),
+	}
 	go t.process(handleJitter)
 	return t, nil
 }
 
-func (t *OpusToPCM16AudioTrack) process(handleJitter bool) {
+func (t *DecodedAudioTrack) process(handleJitter bool) {
+	// Handler takes RTP packets and writes the payload to opusWriter
 	var h rtp.Handler = rtp.NewMediaStreamIn[opus.Sample](t.opusWriter)
 	if handleJitter {
 		h = rtp.HandleJitter(int(t.TrackRemote.Codec().ClockRate), h)
 	}
+
+	// HandleLoop takes RTP packets from the track and writes them to the handler
 	err := rtp.HandleLoop(t.TrackRemote, h)
 	if err != nil && !errors.Is(err, io.EOF) {
 		t.logger.Errorw("error handling rtp from track", err)
 	}
 }
 
-func (t *OpusToPCM16AudioTrack) Channels() int {
+func (t *DecodedAudioTrack) Channels() int {
 	return t.channels
 }
 
-func (t *OpusToPCM16AudioTrack) SampleRate() int {
+func (t *DecodedAudioTrack) SampleRate() int {
 	return t.sampleRate
 }
 
-func (t *OpusToPCM16AudioTrack) Close() {
+func (t *DecodedAudioTrack) Close() {
 	// opus writer closes resampledPCMWriter internally
 	t.opusWriter.Close()
+}
+
+// ------------------------------------------------------------------
+
+func splitPCM16SampleToTargetDuration(samples audio.PCM16Sample, sampleRate int, channels int, targetDuration time.Duration) []pcmChunk {
+	if len(samples) == 0 || sampleRate <= 0 || channels <= 0 || targetDuration <= 0 {
+		return nil
+	}
+
+	samplesPerChunk := (sampleRate * channels * int(targetDuration/time.Nanosecond)) / 1e9
+	if samplesPerChunk == 0 {
+		samplesPerChunk = 1
+	}
+
+	totalChunks := len(samples) / samplesPerChunk
+	if len(samples)%samplesPerChunk > 0 {
+		totalChunks++
+	}
+
+	chunks := make([]pcmChunk, 0, totalChunks)
+	for i := 0; i < totalChunks; i++ {
+		startIdx := i * samplesPerChunk
+		endIdx := startIdx + samplesPerChunk
+		// TODO: fix this, maybe use 2.5ms target duration?
+		// Opus can encode frames of 2.5, 5, 10, 20, 40, or 60 ms
+		// so we need to make sure the last chunk is the correct duration
+		if endIdx > len(samples) {
+			endIdx = len(samples)
+		}
+
+		chunk := pcmChunk{
+			sample:        make(audio.PCM16Sample, endIdx-startIdx),
+			frameDuration: time.Duration(float64(endIdx-startIdx)/float64(sampleRate*channels)*1e9) * time.Nanosecond,
+		}
+
+		copy(chunk.sample, samples[startIdx:endIdx])
+		chunks = append(chunks, chunk)
+		// if chunk.frameDuration < targetDuration {
+		// 	missingDuration := targetDuration - chunk.frameDuration
+		// 	fmt.Println("missingDuration", missingDuration)
+		// 	silentChunk := generateSilentPCM16Chunk(sampleRate, channels, missingDuration)
+		// 	chunks = append(chunks, silentChunk)
+		// }
+	}
+
+	// fmt.Println("chunks", len(chunks), "samples", len(samples), "samplesPerChunk", samplesPerChunk)
+	return chunks
+}
+
+func generateSilentPCM16Chunk(sampleRate int, channels int, duration time.Duration) pcmChunk {
+	numSamples := (sampleRate * channels * int(duration/time.Nanosecond)) / 1e9
+	if numSamples == 0 {
+		numSamples = 1
+	}
+	return pcmChunk{
+		sample:        make(audio.PCM16Sample, numSamples),
+		frameDuration: duration,
+	}
+}
+
+func isOpusPacketStereo(payload []byte) bool {
+	// the table-of-contents (TOC) header byte is the first byte of the payload
+	// it is composed of a configuration number, "config", a stereo flag, "s", and a frame count code, "c"
+	// https://datatracker.ietf.org/doc/html/rfc6716#section-3.1
+	tocByte := payload[0]
+	// TOC byte format:
+	//   0
+	// 	 0 1 2 3 4 5 6 7
+	//  +-+-+-+-+-+-+-+-+
+	//  | config  |s| c |
+	//  +-+-+-+-+-+-+-+-+
+	// the 's' bit is stereo bit
+	return tocByte&0x04 != 0
+}
+
+func DetermineOpusChannels(track *webrtc.TrackRemote) int {
+	rtpPacket, _, err := track.ReadRTP()
+	if err != nil {
+		protoLogger.GetLogger().Errorw("error reading rtp from track", err)
+		return 1
+	}
+
+	stereo := isOpusPacketStereo(rtpPacket.Payload)
+	if stereo {
+		return 2
+	}
+	return 1
 }

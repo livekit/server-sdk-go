@@ -1,13 +1,11 @@
 package main
 
 import (
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
-	webm "github.com/livekit/mediatransportutil/pkg/audio/webm"
+	"github.com/livekit/mediatransportutil/pkg/audio/webm"
 	"github.com/livekit/protocol/logger"
 	lksdk "github.com/livekit/server-sdk-go/v2"
 	"github.com/pion/webrtc/v4"
@@ -25,7 +23,7 @@ func main() {
 	logger.InitFromConfig(&logger.Config{Level: "info"}, "pcmopus")
 	lksdk.SetLogger(logger.GetLogger())
 
-	var pcmTrack *lksdk.OpusToPCM16AudioTrack
+	var pcmTrack *lksdk.DecodedAudioTrack
 	var fileWriter *os.File
 
 	room, err := lksdk.ConnectToRoom(host, lksdk.ConnectInfo{
@@ -36,23 +34,25 @@ func main() {
 	}, &lksdk.RoomCallback{
 		ParticipantCallback: lksdk.ParticipantCallback{
 			OnTrackSubscribed: func(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
-				pcmTrack, fileWriter = onTrackSubscribed(track, publication)
+				if track.Codec().MimeType == webrtc.MimeTypeOpus {
+					pcmTrack, fileWriter = onTrackSubscribed(track, true)
+				}
+			},
+			OnTrackUnsubscribed: func(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
+				if pcmTrack != nil {
+					pcmTrack.Close()
+				}
+				if fileWriter != nil {
+					fileWriter.Close()
+				}
 			},
 		},
 	})
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 	defer func() {
-		// TODO: This is racey, if writer is closed before room is disconnected,
-		// it'll continue to read from the track and push to the writer, fix it.
 		room.Disconnect()
-		if pcmTrack != nil {
-			pcmTrack.Close()
-		}
-		if fileWriter != nil {
-			fileWriter.Close()
-		}
 	}()
 
 	sigChan := make(chan os.Signal, 1)
@@ -61,21 +61,21 @@ func main() {
 	<-sigChan
 }
 
-func onTrackSubscribed(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication) (*lksdk.OpusToPCM16AudioTrack, *os.File) {
-	fileWriter, err := os.Create("test-lksdk.mka")
+func onTrackSubscribed(track *webrtc.TrackRemote, forceMono bool) (*lksdk.DecodedAudioTrack, *os.File) {
+	fileWriter, err := os.Create("test-final-stereo.mka")
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 
-	channels := 1
-	if publication.TrackInfo().Stereo {
-		channels = 2
+	channels := lksdk.DetermineOpusChannels(track)
+	if forceMono {
+		channels = 1
 	}
 
-	webmWriter := webm.NewPCM16Writer(fileWriter, 48000, channels, 20*time.Millisecond)
-	pcmTrack, err := lksdk.NewOpusToPCM16AudioTrack(track, publication, &webmWriter, 48000, true)
+	webmWriter := webm.NewPCM16Writer(fileWriter, lksdk.DefaultOpusSampleRate, channels, lksdk.DefaultPCMSampleDuration)
+	pcmTrack, err := lksdk.NewDecodedAudioTrack(track, channels, &webmWriter, lksdk.DefaultOpusSampleRate, forceMono)
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 
 	return pcmTrack, fileWriter
