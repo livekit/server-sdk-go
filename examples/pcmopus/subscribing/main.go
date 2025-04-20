@@ -72,7 +72,7 @@ func onTrackSubscribed(track *webrtc.TrackRemote, forceMono bool) (*lksdk.Decode
 		channels = 1
 	}
 
-	webmWriter := webm.NewPCM16Writer(fileWriter, lksdk.DefaultOpusSampleRate, channels, lksdk.DefaultPCMSampleDuration)
+	webmWriter := webm.NewPCM16Writer(fileWriter, lksdk.DefaultOpusSampleRate, channels, lksdk.DefaultOpusSampleDuration)
 	pcmTrack, err := lksdk.NewDecodedAudioTrack(track, channels, &webmWriter, lksdk.DefaultOpusSampleRate, forceMono)
 	if err != nil {
 		panic(err)

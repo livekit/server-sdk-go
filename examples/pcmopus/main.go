@@ -39,7 +39,7 @@ func connectToRoom(cb *lksdk.RoomCallback) (*lksdk.Room, error) {
 		APISecret:           apiSecret,
 		RoomName:            roomName,
 		ParticipantIdentity: participantIdentity,
-	}, nil)
+	}, cb)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +111,7 @@ func handlePublish(room *lksdk.Room) {
 		panic(err)
 	}
 
-	pcmSamples := res.ReadOggAudioFile(testdata.TestAudioOgg, lksdk.DefaultOpusSampleRate, lksdk.DefaultOpusSampleDuration)
+	pcmSamples := res.ReadOggAudioFile(testdata.TestAudioOgg)
 	for {
 		for _, sample := range pcmSamples {
 			err = publishTrack.WriteSample(sample)

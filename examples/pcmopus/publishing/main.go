@@ -45,7 +45,7 @@ func main() {
 		panic(err)
 	}
 
-	pcmSamples := res.ReadOggAudioFile(testdata.TestAudioOgg, lksdk.DefaultOpusSampleRate, lksdk.DefaultPCMSampleDuration)
+	pcmSamples := res.ReadOggAudioFile(testdata.TestAudioOgg)
 	fmt.Println("pcmSamples", len(pcmSamples))
 	for i := 0; i < 1000; i++ {
 		for _, sample := range pcmSamples {
