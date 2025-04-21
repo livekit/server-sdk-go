@@ -26,7 +26,7 @@ const (
 var (
 	participantIdentity = "go-sdk"
 	mode                string
-	subscribePCMTrack   *lksdk.DecodedAudioTrack
+	subscribePCMTrack   *lksdk.DecodingRemoteAudioTrack
 	subscribeFileWriter *os.File
 )
 
@@ -100,7 +100,7 @@ func main() {
 }
 
 func handlePublish(room *lksdk.Room) {
-	publishTrack, err := lksdk.NewEncodedAudioTrack(lksdk.DefaultOpusSampleRate, 1, logger.GetLogger())
+	publishTrack, err := lksdk.NewEncodingLocalAudioTrack(lksdk.DefaultOpusSampleRate, 1, logger.GetLogger())
 	if err != nil {
 		panic(err)
 	}
@@ -123,7 +123,7 @@ func handlePublish(room *lksdk.Room) {
 	}
 }
 
-func handleSubscribe(track *webrtc.TrackRemote, forceMono bool) (*lksdk.DecodedAudioTrack, *os.File) {
+func handleSubscribe(track *webrtc.TrackRemote, forceMono bool) (*lksdk.DecodingRemoteAudioTrack, *os.File) {
 	fileWriter, err := os.Create("test-final-stereo.mka")
 	if err != nil {
 		panic(err)
@@ -135,7 +135,7 @@ func handleSubscribe(track *webrtc.TrackRemote, forceMono bool) (*lksdk.DecodedA
 	}
 
 	webmWriter := webm.NewPCM16Writer(fileWriter, lksdk.DefaultOpusSampleRate, channels, lksdk.DefaultOpusSampleDuration)
-	pcmTrack, err := lksdk.NewDecodedAudioTrack(track, &webmWriter, lksdk.DefaultOpusSampleRate, channels, true)
+	pcmTrack, err := lksdk.NewDecodingRemoteAudioTrack(track, &webmWriter, lksdk.DefaultOpusSampleRate, channels, true)
 	if err != nil {
 		panic(err)
 	}
