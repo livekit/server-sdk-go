@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gammazero/deque"
+	"github.com/google/uuid"
 	media "github.com/livekit/media-sdk"
 	opus "github.com/livekit/media-sdk/opus"
 	rtp "github.com/livekit/media-sdk/rtp"
@@ -41,9 +42,8 @@ type EncodingLocalAudioTrack struct {
 	sourceChannels   int
 	chunksPerSample  int
 
-	// int16 to support a little-endian PCM16 chunk that has a high byte and low byte
+	// int16 to support a LE/BE PCM16 chunk that has a high byte and low byte
 	chunkBuffer *deque.Deque[int16]
-	ticker      *time.Ticker
 
 	mu     sync.Mutex
 	closed atomic.Bool
@@ -55,7 +55,8 @@ func NewEncodingLocalAudioTrack(sourceSampleRate int, sourceChannels int, logger
 		return nil, errors.New("invalid source sample rate or channels")
 	}
 
-	track, err := webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus}, "test", "test")
+	id := uuid.New().String()[:5]
+	track, err := webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus}, "go_track"+id, "go_stream"+id)
 	if err != nil {
 		return nil, err
 	}
@@ -124,43 +125,45 @@ func (t *EncodingLocalAudioTrack) WriteSample(sample media.PCM16Sample) error {
 }
 
 func (t *EncodingLocalAudioTrack) processSamples() {
-	// write first sample before starting the ticker
-	// t.mu.Lock()
-	sample := t.getChunksFromBuffer()
-	t.resampledPCMWriter.WriteSample(sample)
-	t.ticker = time.NewTicker(t.frameDuration)
-	// t.mu.Unlock()
+	ticker := time.NewTicker(t.frameDuration)
+	defer ticker.Stop()
 
-	for range t.ticker.C {
+	for {
 		if t.closed.Load() {
 			break
 		}
 
-		// TODO: do we need locking while reading from the deque?
-		// the continuous writes from the example
-		// writes very frequently to the deque, which acquires a lock
-		// and then reading from the deque acquires another lock
-		// and it does not guarentee FIFO order, so the read might
-		// be blocked for a long time. But, since only this goroutine is reading
-		// from the deque, we might not need it. Writing still needs locking,
-		// since mutliple goroutines could be calling WriteSample that writes to the deque.
+		t.mu.Lock()
 		sample := t.getChunksFromBuffer()
 		t.resampledPCMWriter.WriteSample(sample)
+		t.mu.Unlock()
+		<-ticker.C
 	}
-
-	t.chunkBuffer.Clear()
-	t.ticker.Stop()
 }
 
 func (t *EncodingLocalAudioTrack) Close() {
 	firstClose := t.closed.CompareAndSwap(false, true)
 	// avoid closing the writer multiple times
 	if firstClose {
+		t.mu.Lock()
+		defer t.mu.Unlock()
+		t.chunkBuffer.Clear()
 		t.resampledPCMWriter.Close()
 		t.pcmWriter.Close()
 		t.opusWriter.Close()
 	}
+}
 
+type DecodingRemoteTrackParams struct {
+	HandleJitter bool
+}
+
+type DecodingRemoteTrackOption func(*DecodingRemoteTrackParams)
+
+func WithHandleJitter(handleJitter bool) DecodingRemoteTrackOption {
+	return func(p *DecodingRemoteTrackParams) {
+		p.HandleJitter = handleJitter
+	}
 }
 
 type DecodingRemoteAudioTrack struct {
@@ -179,13 +182,20 @@ type DecodingRemoteAudioTrack struct {
 // and NewDecodedAudioTrack is called afterwards. But, we also need to check for channels in the init function
 // to make sure user does not pass stereo as target channels for a mono track. Any suggestions on how to handle this?
 // TODO: test stereo with resampler
-func NewDecodingRemoteAudioTrack(track *webrtc.TrackRemote, writer *media.WriteCloser[media.PCM16Sample], targetSampleRate int, targetChannels int, handleJitter bool) (*DecodingRemoteAudioTrack, error) {
+func NewDecodingRemoteAudioTrack(track *webrtc.TrackRemote, writer *media.WriteCloser[media.PCM16Sample], targetSampleRate int, targetChannels int, opts ...DecodingRemoteTrackOption) (*DecodingRemoteAudioTrack, error) {
 	if track.Codec().MimeType != webrtc.MimeTypeOpus {
 		return nil, errors.New("track is not opus")
 	}
 
 	if targetChannels <= 0 || targetChannels > 2 || targetSampleRate <= 0 {
 		return nil, errors.New("invalid target channels or sample rate")
+	}
+
+	options := &DecodingRemoteTrackParams{
+		HandleJitter: true,
+	}
+	for _, opt := range opts {
+		opt(options)
 	}
 
 	outputChannels := targetChannels
@@ -218,7 +228,7 @@ func NewDecodingRemoteAudioTrack(track *webrtc.TrackRemote, writer *media.WriteC
 		logger:             protoLogger.GetLogger(),
 	}
 
-	go t.process(handleJitter)
+	go t.process(options.HandleJitter)
 	return t, nil
 }
 
@@ -246,8 +256,12 @@ func (t *DecodingRemoteAudioTrack) SampleRate() int {
 }
 
 func (t *DecodingRemoteAudioTrack) Close() {
+	if t.pcmMWriter.String() != t.resampledPCMWriter.String() {
+		t.pcmMWriter.Close()
+	}
 	// opus writer closes resampledPCMWriter internally
 	t.opusWriter.Close()
+
 }
 
 // ------------------------------------------------------------------

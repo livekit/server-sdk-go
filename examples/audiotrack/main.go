@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/livekit/protocol/logger"
 	lksdk "github.com/livekit/server-sdk-go/v2"
@@ -53,7 +54,7 @@ func getCbForRoom(publish bool) *lksdk.RoomCallback {
 			ParticipantCallback: lksdk.ParticipantCallback{
 				OnTrackSubscribed: func(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
 					if track.Codec().MimeType == webrtc.MimeTypeOpus {
-						subscribePCMTrack, subscribeFileWriter = handleSubscribe(track, false)
+						subscribePCMTrack, subscribeFileWriter = handleSubscribe(track, true)
 					}
 				},
 				OnTrackUnsubscribed: func(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
@@ -119,12 +120,14 @@ func handlePublish(room *lksdk.Room) {
 			if err != nil {
 				logger.Errorw("error writing sample", err)
 			}
+			// temp: some delay before writing next sample
+			time.Sleep(15 * time.Millisecond)
 		}
 	}
 }
 
 func handleSubscribe(track *webrtc.TrackRemote, forceMono bool) (*lksdk.DecodingRemoteAudioTrack, *os.File) {
-	fileWriter, err := os.Create("test-final-stereo.mka")
+	fileWriter, err := os.Create("test.mka")
 	if err != nil {
 		panic(err)
 	}
@@ -135,7 +138,7 @@ func handleSubscribe(track *webrtc.TrackRemote, forceMono bool) (*lksdk.Decoding
 	}
 
 	webmWriter := webm.NewPCM16Writer(fileWriter, lksdk.DefaultOpusSampleRate, channels, lksdk.DefaultOpusSampleDuration)
-	pcmTrack, err := lksdk.NewDecodingRemoteAudioTrack(track, &webmWriter, lksdk.DefaultOpusSampleRate, channels, true)
+	pcmTrack, err := lksdk.NewDecodingRemoteAudioTrack(track, &webmWriter, lksdk.DefaultOpusSampleRate, channels)
 	if err != nil {
 		panic(err)
 	}
