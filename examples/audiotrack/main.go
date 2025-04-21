@@ -11,9 +11,9 @@ import (
 	lksdk "github.com/livekit/server-sdk-go/v2"
 	"github.com/pion/webrtc/v4"
 
-	"github.com/livekit/mediatransportutil/pkg/audio/res"
-	"github.com/livekit/mediatransportutil/pkg/audio/res/testdata"
-	"github.com/livekit/mediatransportutil/pkg/audio/webm"
+	"github.com/livekit/media-sdk/res"
+	"github.com/livekit/media-sdk/res/testdata"
+	"github.com/livekit/media-sdk/webm"
 )
 
 const (

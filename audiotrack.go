@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/gammazero/deque"
-	audio "github.com/livekit/mediatransportutil/pkg/audio"
-	opus "github.com/livekit/mediatransportutil/pkg/audio/opus"
-	rtp "github.com/livekit/mediatransportutil/pkg/audio/rtp"
+	media "github.com/livekit/media-sdk"
+	opus "github.com/livekit/media-sdk/opus"
+	rtp "github.com/livekit/media-sdk/rtp"
 	protoLogger "github.com/livekit/protocol/logger"
 	"github.com/pion/webrtc/v4"
 	"go.uber.org/atomic"
@@ -25,16 +25,16 @@ const (
 )
 
 type pcmChunk struct {
-	sample        audio.PCM16Sample
+	sample        media.PCM16Sample
 	frameDuration time.Duration
 }
 
 type EncodedAudioTrack struct {
 	*webrtc.TrackLocalStaticSample
 
-	opusWriter         audio.WriteCloser[opus.Sample]
-	pcmWriter          audio.WriteCloser[audio.PCM16Sample]
-	resampledPCMWriter audio.WriteCloser[audio.PCM16Sample]
+	opusWriter         media.WriteCloser[opus.Sample]
+	pcmWriter          media.WriteCloser[media.PCM16Sample]
+	resampledPCMWriter media.WriteCloser[media.PCM16Sample]
 
 	sourceSampleRate int
 	frameDuration    time.Duration
@@ -61,7 +61,7 @@ func NewEncodedAudioTrack(sourceSampleRate int, sourceChannels int, logger proto
 	}
 
 	// opusWriter writes opus samples to the track
-	opusWriter := audio.FromSampleWriter[opus.Sample](track, DefaultOpusSampleRate, defaultPCMSampleDuration)
+	opusWriter := media.FromSampleWriter[opus.Sample](track, DefaultOpusSampleRate, defaultPCMSampleDuration)
 	// pcmWriter encodes opus samples from PCM16 samples and writes them to opusWriter
 	pcmWriter, err := opus.Encode(opusWriter, sourceChannels, logger)
 	if err != nil {
@@ -72,7 +72,7 @@ func NewEncodedAudioTrack(sourceSampleRate int, sourceChannels int, logger proto
 	// and writes them to pcmWriter. If no resampling is needed, we directly point resampledPCMWriter to pcmWriter.
 	resampledPCMWriter := pcmWriter
 	if sourceSampleRate != DefaultOpusSampleRate {
-		resampledPCMWriter = audio.ResampleWriter(pcmWriter, sourceSampleRate)
+		resampledPCMWriter = media.ResampleWriter(pcmWriter, sourceSampleRate)
 	}
 
 	t := &EncodedAudioTrack{
@@ -91,14 +91,14 @@ func NewEncodedAudioTrack(sourceSampleRate int, sourceChannels int, logger proto
 	return t, nil
 }
 
-func (t *EncodedAudioTrack) pushChunksToBuffer(sample audio.PCM16Sample) {
+func (t *EncodedAudioTrack) pushChunksToBuffer(sample media.PCM16Sample) {
 	for _, chunk := range sample {
 		t.chunkBuffer.PushBack(chunk)
 	}
 }
 
-func (t *EncodedAudioTrack) getChunksFromBuffer() audio.PCM16Sample {
-	chunks := make(audio.PCM16Sample, t.chunksPerSample)
+func (t *EncodedAudioTrack) getChunksFromBuffer() media.PCM16Sample {
+	chunks := make(media.PCM16Sample, t.chunksPerSample)
 	for i := 0; i < t.chunksPerSample; i++ {
 		if t.chunkBuffer.Len() == 0 {
 			// this will zero-init at index i
@@ -112,7 +112,7 @@ func (t *EncodedAudioTrack) getChunksFromBuffer() audio.PCM16Sample {
 	return chunks
 }
 
-func (t *EncodedAudioTrack) WriteSample(sample audio.PCM16Sample) error {
+func (t *EncodedAudioTrack) WriteSample(sample media.PCM16Sample) error {
 	if t.closed.Load() {
 		return errors.New("track is closed")
 	}
@@ -169,9 +169,9 @@ type DecodedAudioTrack struct {
 	sampleRate int
 	once       sync.Once
 
-	opusWriter         audio.WriteCloser[opus.Sample]
-	pcmMWriter         audio.WriteCloser[audio.PCM16Sample]
-	resampledPCMWriter audio.WriteCloser[audio.PCM16Sample]
+	opusWriter         media.WriteCloser[opus.Sample]
+	pcmMWriter         media.WriteCloser[media.PCM16Sample]
+	resampledPCMWriter media.WriteCloser[media.PCM16Sample]
 	logger             protoLogger.Logger
 }
 
@@ -179,7 +179,7 @@ type DecodedAudioTrack struct {
 // and NewDecodedAudioTrack is called afterwards. But, we also need to check for channels in the init function
 // to make sure user does not pass stereo as target channels for a mono track. Any suggestions on how to handle this?
 // TODO: test stereo with resampler
-func NewDecodedAudioTrack(track *webrtc.TrackRemote, writer *audio.WriteCloser[audio.PCM16Sample], targetSampleRate int, targetChannels int, handleJitter bool) (*DecodedAudioTrack, error) {
+func NewDecodedAudioTrack(track *webrtc.TrackRemote, writer *media.WriteCloser[media.PCM16Sample], targetSampleRate int, targetChannels int, handleJitter bool) (*DecodedAudioTrack, error) {
 	if track.Codec().MimeType != webrtc.MimeTypeOpus {
 		return nil, errors.New("track is not opus")
 	}
@@ -198,7 +198,7 @@ func NewDecodedAudioTrack(track *webrtc.TrackRemote, writer *audio.WriteCloser[a
 	// writes them to the writer. If no resampling is needed, we directly point resampledPCMWriter to writer.
 	resampledPCMWriter := *writer
 	if targetSampleRate != DefaultOpusSampleRate {
-		resampledPCMWriter = audio.ResampleWriter(*writer, targetSampleRate)
+		resampledPCMWriter = media.ResampleWriter(*writer, targetSampleRate)
 	}
 
 	// opus writer takes opus samples, decodes them to PCM16 samples
