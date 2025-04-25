@@ -167,7 +167,7 @@ func (e *RTCEngine) JoinContext(ctx context.Context, url string, token string, p
 	e.connParams = params
 
 	usedIceServers := params.ICEServers
-	if usedIceServers == nil {
+	if len(usedIceServers) == 0 {
 		usedIceServers = res.IceServers
 	}
 	clientConfig := res.ClientConfiguration
@@ -280,7 +280,6 @@ func (e *RTCEngine) configure(
 		clientConfig = &livekit.ClientConfiguration{}
 	}
 	clientConfig.ForceRelay = livekit.ClientConfigSetting_ENABLED
-	logger.Infow("using ICE servers", "servers", iceServers)
 
 	configuration := e.makeRTCConfiguration(iceServers, clientConfig)
 	e.pclock.Lock()
