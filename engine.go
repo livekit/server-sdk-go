@@ -16,11 +16,7 @@ package lksdk
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha1"
-	"encoding/base64"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
@@ -170,7 +166,18 @@ func (e *RTCEngine) JoinContext(ctx context.Context, url string, token string, p
 	e.token.Store(token)
 	e.connParams = params
 
-	err = e.configure(res.IceServers, res.ClientConfiguration, proto.Bool(res.SubscriberPrimary))
+	usedIceServers := params.ICEServers
+	if usedIceServers == nil {
+		usedIceServers = res.IceServers
+	}
+	clientConfig := res.ClientConfiguration
+	if clientConfig == nil {
+		clientConfig = &livekit.ClientConfiguration{}
+	}
+	if params.ForceRelay {
+		clientConfig.ForceRelay = livekit.ClientConfigSetting_ENABLED
+	}
+	err = e.configure(usedIceServers, clientConfig, proto.Bool(res.SubscriberPrimary))
 	if err != nil {
 		return nil, err
 	}
@@ -264,58 +271,15 @@ func (e *RTCEngine) setRTT(rtt uint32) {
 	}
 }
 
-type Credential struct {
-	Username string
-	Password string
-}
-
-// newCredential creates a new Credential object
-func NewCredential(secretkey string) *Credential {
-	if len(secretkey) == 0 {
-		// Default for test case
-		secretkey = "north"
-	}
-	usercombo := generateUser()
-
-	return &Credential{
-		Username: usercombo,
-		Password: generatePassword(secretkey, usercombo),
-	}
-}
-
-// usercombo -> "timestamp:userid"
-// turn user -> usercombo
-// generaUser according to what is expected by coturn
-// the user is available only for 60 second
-func generateUser() string {
-	now := time.Now()
-	timestamp := now.Unix()
-	timestamp += 60
-	return fmt.Sprintf("%d:%s", timestamp, "unblu")
-}
-
-// generate a password
-func generatePassword(secretkey string, usercombo string) string {
-	mac := hmac.New(sha1.New, []byte(secretkey))
-	mac.Write([]byte(usercombo))
-	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
-}
-
 func (e *RTCEngine) configure(
 	iceServers []*livekit.ICEServer,
 	clientConfig *livekit.ClientConfiguration,
 	subscriberPrimary *bool) error {
 
-	var credential = NewCredential("ggg")
-	iceServers = []*livekit.ICEServer{
-		{
-			Urls: []string{
-				"stun:abc:3478",
-			},
-			Username:   credential.Username,
-			Credential: credential.Password,
-		},
+	if clientConfig == nil {
+		clientConfig = &livekit.ClientConfiguration{}
 	}
+	clientConfig.ForceRelay = livekit.ClientConfigSetting_ENABLED
 	logger.Infow("using ICE servers", "servers", iceServers)
 
 	configuration := e.makeRTCConfiguration(iceServers, clientConfig)
