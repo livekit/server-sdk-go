@@ -171,10 +171,10 @@ func (e *RTCEngine) JoinContext(ctx context.Context, url string, token string, p
 		usedIceServers = res.IceServers
 	}
 	clientConfig := res.ClientConfiguration
-	if clientConfig == nil {
-		clientConfig = &livekit.ClientConfiguration{}
-	}
 	if params.ForceRelay {
+		if clientConfig == nil {
+			clientConfig = &livekit.ClientConfiguration{}
+		}
 		clientConfig.ForceRelay = livekit.ClientConfigSetting_ENABLED
 	}
 	err = e.configure(usedIceServers, clientConfig, proto.Bool(res.SubscriberPrimary))
@@ -275,11 +275,6 @@ func (e *RTCEngine) configure(
 	iceServers []*livekit.ICEServer,
 	clientConfig *livekit.ClientConfiguration,
 	subscriberPrimary *bool) error {
-
-	if clientConfig == nil {
-		clientConfig = &livekit.ClientConfiguration{}
-	}
-	clientConfig.ForceRelay = livekit.ClientConfigSetting_ENABLED
 
 	configuration := e.makeRTCConfiguration(iceServers, clientConfig)
 	e.pclock.Lock()
