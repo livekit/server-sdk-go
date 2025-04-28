@@ -22,7 +22,7 @@ const (
 
 	// using the smallest opus frame duration to minimize
 	// the silent filler chunks
-	defaultPCMSampleDuration = 2500 * time.Microsecond
+	defaultPCMSampleDuration = 10000 * time.Microsecond
 )
 
 type pcmChunk struct {
@@ -46,6 +46,7 @@ type EncodingLocalAudioTrack struct {
 	chunkBuffer *deque.Deque[int16]
 
 	mu     sync.Mutex
+	cond   *sync.Cond
 	closed atomic.Bool
 }
 
@@ -88,6 +89,8 @@ func NewEncodingLocalAudioTrack(sourceSampleRate int, sourceChannels int, logger
 		chunksPerSample:        (sourceSampleRate * sourceChannels * int(defaultPCMSampleDuration/time.Nanosecond)) / 1e9,
 	}
 
+	t.cond = sync.NewCond(&t.mu)
+
 	go t.processSamples()
 	return t, nil
 }
@@ -98,19 +101,32 @@ func (t *EncodingLocalAudioTrack) pushChunksToBuffer(sample media.PCM16Sample) {
 	}
 }
 
-func (t *EncodingLocalAudioTrack) getChunksFromBuffer() media.PCM16Sample {
-	chunks := make(media.PCM16Sample, t.chunksPerSample)
-	for i := 0; i < t.chunksPerSample; i++ {
-		if t.chunkBuffer.Len() == 0 {
-			// this will zero-init at index i
-			// which will be a silent chunk
-			continue
-		} else {
-			chunks[i] = t.chunkBuffer.PopFront()
-		}
+func (t *EncodingLocalAudioTrack) waitUntilBufferHasChunks(count int) bool {
+	var didWait bool
+
+	for t.chunkBuffer.Len() < count && !t.closed.Load() {
+		t.cond.Wait()
+		didWait = true
 	}
 
-	return chunks
+	return didWait
+}
+
+func (t *EncodingLocalAudioTrack) getChunksFromBuffer() (media.PCM16Sample, bool) {
+	chunks := make(media.PCM16Sample, t.chunksPerSample)
+
+	// if buffer is empty at the start, we wait until it has chunks
+	didWait := t.waitUntilBufferHasChunks(t.chunksPerSample)
+
+	if t.closed.Load() {
+		return nil, false
+	}
+
+	for i := 0; i < t.chunksPerSample; i++ {
+		chunks[i] = t.chunkBuffer.PopFront()
+	}
+
+	return chunks, didWait
 }
 
 func (t *EncodingLocalAudioTrack) WriteSample(sample media.PCM16Sample) error {
@@ -120,6 +136,7 @@ func (t *EncodingLocalAudioTrack) WriteSample(sample media.PCM16Sample) error {
 
 	t.mu.Lock()
 	t.pushChunksToBuffer(sample)
+	t.cond.Broadcast()
 	t.mu.Unlock()
 	return nil
 }
@@ -134,8 +151,13 @@ func (t *EncodingLocalAudioTrack) processSamples() {
 		}
 
 		t.mu.Lock()
-		sample := t.getChunksFromBuffer()
-		t.resampledPCMWriter.WriteSample(sample)
+		sample, didWait := t.getChunksFromBuffer()
+		if sample != nil {
+			t.resampledPCMWriter.WriteSample(sample)
+		}
+		if didWait {
+			ticker.Reset(t.frameDuration)
+		}
 		t.mu.Unlock()
 		<-ticker.C
 	}
@@ -147,6 +169,7 @@ func (t *EncodingLocalAudioTrack) Close() {
 	if firstClose {
 		t.mu.Lock()
 		defer t.mu.Unlock()
+		t.cond.Broadcast()
 		t.chunkBuffer.Clear()
 		t.resampledPCMWriter.Close()
 		t.pcmWriter.Close()
@@ -198,12 +221,6 @@ func NewDecodingRemoteAudioTrack(track *webrtc.TrackRemote, writer *media.WriteC
 		opt(options)
 	}
 
-	outputChannels := targetChannels
-	sourceChannels := DetermineOpusChannels(track)
-	if targetChannels > sourceChannels {
-		outputChannels = sourceChannels
-	}
-
 	// resampledPCMWriter resamples the PCM16 samples from DefaultOpusSampleRate to targetSampleRate and
 	// writes them to the writer. If no resampling is needed, we directly point resampledPCMWriter to writer.
 	resampledPCMWriter := *writer
@@ -213,7 +230,7 @@ func NewDecodingRemoteAudioTrack(track *webrtc.TrackRemote, writer *media.WriteC
 
 	// opus writer takes opus samples, decodes them to PCM16 samples
 	// and writes them to the pcmMWriter
-	opusWriter, err := opus.Decode(resampledPCMWriter, outputChannels, protoLogger.GetLogger())
+	opusWriter, err := opus.Decode(resampledPCMWriter, targetChannels, protoLogger.GetLogger())
 	if err != nil {
 		return nil, err
 	}
@@ -224,7 +241,7 @@ func NewDecodingRemoteAudioTrack(track *webrtc.TrackRemote, writer *media.WriteC
 		pcmMWriter:         *writer,
 		resampledPCMWriter: resampledPCMWriter,
 		sampleRate:         targetSampleRate,
-		channels:           outputChannels,
+		channels:           targetChannels,
 		logger:             protoLogger.GetLogger(),
 	}
 

@@ -3,10 +3,13 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	_ "embed"
 
 	"github.com/livekit/protocol/logger"
 	lksdk "github.com/livekit/server-sdk-go/v2"
@@ -16,6 +19,9 @@ import (
 	"github.com/livekit/media-sdk/res/testdata"
 	"github.com/livekit/media-sdk/webm"
 )
+
+//go:embed test.ogg
+var Audio24k []byte
 
 const (
 	host      = "ws://localhost:7880"
@@ -54,7 +60,7 @@ func getCbForRoom(publish bool) *lksdk.RoomCallback {
 			ParticipantCallback: lksdk.ParticipantCallback{
 				OnTrackSubscribed: func(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
 					if track.Codec().MimeType == webrtc.MimeTypeOpus {
-						subscribePCMTrack, subscribeFileWriter = handleSubscribe(track, true)
+						subscribePCMTrack, subscribeFileWriter = handleSubscribe(track)
 					}
 				},
 				OnTrackUnsubscribed: func(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
@@ -113,7 +119,7 @@ func handlePublish(room *lksdk.Room) {
 		panic(err)
 	}
 
-	pcmSamples := res.ReadOggAudioFile(testdata.TestAudioOgg)
+	pcmSamples := res.ReadOggAudioFile(testdata.TestAudioOgg, 48000, 1)
 	for {
 		for _, sample := range pcmSamples {
 			err = publishTrack.WriteSample(sample)
@@ -121,22 +127,21 @@ func handlePublish(room *lksdk.Room) {
 				logger.Errorw("error writing sample", err)
 			}
 			// temp: some delay before writing next sample
-			time.Sleep(15 * time.Millisecond)
+			time.Sleep(25 * time.Millisecond)
 		}
 	}
 }
 
-func handleSubscribe(track *webrtc.TrackRemote, forceMono bool) (*lksdk.DecodingRemoteAudioTrack, *os.File) {
-	fileWriter, err := os.Create("test.mka")
+func handleSubscribe(track *webrtc.TrackRemote) (*lksdk.DecodingRemoteAudioTrack, *os.File) {
+	sampleRate := track.Codec().ClockRate
+	fmt.Println("sampleRate", sampleRate)
+
+	fileWriter, err := os.Create("test-reset-decoder.mka")
 	if err != nil {
 		panic(err)
 	}
 
-	channels := lksdk.DetermineOpusChannels(track)
-	if forceMono {
-		channels = 1
-	}
-
+	channels := 2
 	webmWriter := webm.NewPCM16Writer(fileWriter, lksdk.DefaultOpusSampleRate, channels, lksdk.DefaultOpusSampleDuration)
 	pcmTrack, err := lksdk.NewDecodingRemoteAudioTrack(track, &webmWriter, lksdk.DefaultOpusSampleRate, channels)
 	if err != nil {
