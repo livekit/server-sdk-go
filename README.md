@@ -338,7 +338,7 @@ if err != nil {
 }
 ```
 
-The SDK will then read the provided remote track, decode the audio and write the PCM16 samples to the provided writer. Resampling to the target sample rate is handled internally, and so it upmixing/downmixing to the target channel count.
+The SDK will then read the provided remote track, decode the audio and write the PCM16 samples to the provided writer. Resampling to the target sample rate is handled internally, and so is upmixing/downmixing to the target channel count.
 
 The API also provides an option to handle jitter, this is enabled by default but you can disable it using:
 

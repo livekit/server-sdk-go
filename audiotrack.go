@@ -95,6 +95,10 @@ func NewPCMLocalTrack(sourceSampleRate int, sourceChannels int, logger protoLogg
 		resampledPCMWriter = media.ResampleWriter(pcmWriter, sourceSampleRate)
 	}
 
+	// the final chain of writers:
+	// WriteSample -> resamplesPCMWriter (resamples source to target sample rate as necessary)
+	// -> PCMWriter (encodes PCM -> Opus)
+	// -> opusWriter (writes opus frames to the track) -> track
 	t := &PCMLocalTrack{
 		TrackLocalStaticSample: track,
 		opusWriter:             opusWriter,
@@ -193,9 +197,7 @@ func (t *PCMLocalTrack) processSamples() {
 }
 
 func (t *PCMLocalTrack) Close() {
-	firstClose := t.closed.CompareAndSwap(false, true)
-	// avoid closing the writer multiple times
-	if firstClose {
+	if t.closed.CompareAndSwap(false, true) {
 		t.mu.Lock()
 		defer t.mu.Unlock()
 		t.chunkBuffer.Clear()
@@ -269,6 +271,9 @@ func NewPCMRemoteTrack(track *webrtc.TrackRemote, writer *media.WriteCloser[medi
 		return nil, err
 	}
 
+	// the final chain of writers:
+	// trackRemote -> rtp handlers (reads RTP packets from the track) -> opusWriter (decodes opus -> PCM16) -> resampledPCMWriter (resamples to target sample rate as necessary)
+	// -> user provided writer (writes the final PCM16 samples)
 	t := &PCMRemoteTrack{
 		trackRemote:        track,
 		opusWriter:         opusWriter,
