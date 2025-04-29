@@ -2,6 +2,8 @@ module github.com/livekit/server-sdk-go/v2
 
 go 1.24.2
 
+replace github.com/livekit/media-sdk => ../media-sdk
+
 require (
 	github.com/bep/debounce v1.2.1
 	github.com/go-logr/logr v1.4.2

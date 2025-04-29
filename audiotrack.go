@@ -59,7 +59,12 @@ type PCMLocalTrack struct {
 	closed atomic.Bool
 }
 
-// TODO: test stereo with resampler
+// NewPCMLocalTrack creates a wrapper around a webrtc.TrackLocalStaticSample that accepts PCM16 samples via the WriteSample method,
+// encodes them to opus, and writes them to the track.
+// PCMLocalTrack can directly be used as a local track to publish to a room.
+// The sourceSampleRate and sourceChannels are the sample rate and channels of the source audio.
+// It also provides an option to write silence when no data is available, which is disabled by default.
+// Stereo tracks are not supported, they may result in unpleasant audio.
 func NewPCMLocalTrack(sourceSampleRate int, sourceChannels int, logger protoLogger.Logger, opts ...PCMLocalTrackOption) (*PCMLocalTrack, error) {
 	if sourceChannels <= 0 || sourceChannels > 2 || sourceSampleRate <= 0 {
 		return nil, errors.New("invalid source sample rate or channels")
@@ -233,6 +238,7 @@ type PCMRemoteTrack struct {
 // and a WriterCloser interface that writes implements a WriteSample method to write PCM16 samples, where the user desires.
 // The PCMRemoteTrack will read RTP packets from the remote track, decode them to PCM16 samples, and write them to the writer.
 // Audio is resampled to targetSampleRate and upmixed/downmixed to targetChannels.
+// It also provides an option to handle jitter, which is enabled by default.
 // Stereo remote tracks are currently not supported, and are known to have a lot of unpleasant noise.
 func NewPCMRemoteTrack(track *webrtc.TrackRemote, writer *media.WriteCloser[media.PCM16Sample], targetSampleRate int, targetChannels int, opts ...PCMRemoteTrackOption) (*PCMRemoteTrack, error) {
 	if track.Codec().MimeType != webrtc.MimeTypeOpus {
