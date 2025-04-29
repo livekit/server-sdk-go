@@ -19,10 +19,7 @@ import (
 const (
 	DefaultOpusSampleRate     = 48000
 	DefaultOpusSampleDuration = 20 * time.Millisecond
-
-	// using the smallest opus frame duration to minimize
-	// the silent filler chunks
-	defaultPCMSampleDuration = 10000 * time.Microsecond
+	defaultPCMSampleDuration  = 10000 * time.Microsecond
 )
 
 type PCMLocalTrackParams struct {
