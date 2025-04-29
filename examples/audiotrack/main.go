@@ -58,6 +58,9 @@ func getCbForRoom(publish bool) *lksdk.RoomCallback {
 					}
 				},
 				OnTrackUnsubscribed: func(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
+					// delay to ensure the final read before track is closed
+					// is written to the writer (and the file in this case)
+					time.Sleep(1 * time.Second)
 					if subscribePCMTrack != nil {
 						subscribePCMTrack.Close()
 					}

@@ -304,10 +304,14 @@ import (
 	media "github.com/livekit/media-sdk"
 )
 
-type PCM16Writer struct {}
+type PCM16Writer struct {
+	closed atomic.Bool
+}
 
 func (w *PCM16Writer) WriteSample(sample media.PCM16Sample) error {
-	// Use the sample however you want
+	if !w.closed.Load() {
+		// Use the sample however you want
+	}
 }
 
 func (w *PCM16Writer) SampleRate() int {
@@ -321,6 +325,7 @@ func (w *PCM16Writer) String() string {
 }
 
 func (w *PCM16Writer) Close() error {
+	w.closed.Store(true)
 	// close the writer
 }
 
