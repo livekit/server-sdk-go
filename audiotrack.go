@@ -224,7 +224,6 @@ type PCMRemoteTrack struct {
 	trackRemote *webrtc.TrackRemote
 	channels    int
 	sampleRate  int
-	once        sync.Once
 	isResampled bool
 
 	opusWriter         media.WriteCloser[opus.Sample]
