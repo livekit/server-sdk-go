@@ -2,8 +2,6 @@ module github.com/livekit/server-sdk-go/v2
 
 go 1.24.2
 
-replace github.com/livekit/media-sdk => ../media-sdk
-
 require (
 	github.com/bep/debounce v1.2.1
 	github.com/go-logr/logr v1.4.2
@@ -17,9 +15,9 @@ require (
 	github.com/pion/dtls/v3 v3.0.6
 	github.com/pion/interceptor v0.1.37
 	github.com/pion/rtcp v1.2.15
-	github.com/pion/rtp v1.8.13
+	github.com/pion/rtp v1.8.15
 	github.com/pion/sdp/v3 v3.0.11
-	github.com/pion/webrtc/v4 v4.0.15
+	github.com/pion/webrtc/v4 v4.1.0
 	github.com/stretchr/testify v1.10.0
 	github.com/twitchtv/twirp v8.1.3+incompatible
 	go.uber.org/atomic v1.11.0
@@ -56,7 +54,7 @@ require (
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
 	github.com/lithammer/shortuuid/v4 v4.2.0 // indirect
-	github.com/livekit/media-sdk v0.0.0-20250421051233-52a30ea1213d
+	github.com/livekit/media-sdk v0.0.0-20250429173258-cce3de982844
 	github.com/livekit/psrpc v0.6.1-0.20250205181828-a0beed2e4126 // indirect
 	github.com/nats-io/nats.go v1.41.1 // indirect
 	github.com/nats-io/nkeys v0.4.10 // indirect
@@ -66,7 +64,7 @@ require (
 	github.com/pion/logging v0.2.3 // indirect
 	github.com/pion/mdns/v2 v2.0.7 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
-	github.com/pion/sctp v1.8.38 // indirect
+	github.com/pion/sctp v1.8.39 // indirect
 	github.com/pion/srtp/v3 v3.0.4 // indirect
 	github.com/pion/stun/v3 v3.0.0 // indirect
 	github.com/pion/transport/v3 v3.0.7 // indirect
