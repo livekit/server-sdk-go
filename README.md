@@ -298,12 +298,6 @@ example saves the audio/video in the LiveKit room to the local disk.
 To get PCM audio out of a remote Opus audio track, you can use the following API:
 
 ```go
-import (
-	...
-
-	media "github.com/livekit/media-sdk"
-)
-
 type PCM16Writer struct {
 	closed atomic.Bool
 }
@@ -337,7 +331,7 @@ func (w *PCM16Writer) Close() error {
 
 ...
 
-var writer media.WriteCloser[media.PCM16Sample] = &PCM16Writer{}
+writer := &PCM16Writer{}
 pcmTrack, err := lksdk.NewPCMRemoteTrack(remoteTrack, writer)
 if err != nil {
 	return err
