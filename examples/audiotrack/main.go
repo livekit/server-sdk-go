@@ -10,6 +10,7 @@ import (
 
 	"github.com/livekit/protocol/logger"
 	lksdk "github.com/livekit/server-sdk-go/v2"
+	lkmedia "github.com/livekit/server-sdk-go/v2/pkg/media"
 	"github.com/pion/webrtc/v4"
 
 	"github.com/livekit/media-sdk/res"
@@ -27,7 +28,7 @@ const (
 var (
 	participantIdentity = "go-sdk"
 	mode                string
-	subscribePCMTrack   *lksdk.PCMRemoteTrack
+	subscribePCMTrack   *lkmedia.PCMRemoteTrack
 	subscribeFileWriter *os.File
 )
 
@@ -104,7 +105,7 @@ func main() {
 }
 
 func handlePublish(room *lksdk.Room) {
-	publishTrack, err := lksdk.NewPCMLocalTrack(lksdk.DefaultOpusSampleRate, 1, logger.GetLogger())
+	publishTrack, err := lkmedia.NewPCMLocalTrack(lkmedia.DefaultOpusSampleRate, 1, logger.GetLogger())
 	if err != nil {
 		panic(err)
 	}
@@ -129,14 +130,14 @@ func handlePublish(room *lksdk.Room) {
 	}
 }
 
-func handleSubscribe(track *webrtc.TrackRemote, targetChannels int) (*lksdk.PCMRemoteTrack, *os.File) {
+func handleSubscribe(track *webrtc.TrackRemote, targetChannels int) (*lkmedia.PCMRemoteTrack, *os.File) {
 	fileWriter, err := os.Create("test.mka")
 	if err != nil {
 		panic(err)
 	}
 
-	webmWriter := webm.NewPCM16Writer(fileWriter, lksdk.DefaultOpusSampleRate, targetChannels, lksdk.DefaultOpusSampleDuration)
-	pcmTrack, err := lksdk.NewPCMRemoteTrack(track, &webmWriter, lksdk.DefaultOpusSampleRate, targetChannels)
+	webmWriter := webm.NewPCM16Writer(fileWriter, lkmedia.DefaultOpusSampleRate, targetChannels, lkmedia.DefaultOpusSampleDuration)
+	pcmTrack, err := lkmedia.NewPCMRemoteTrack(track, &webmWriter, lkmedia.DefaultOpusSampleRate, targetChannels)
 	if err != nil {
 		panic(err)
 	}
