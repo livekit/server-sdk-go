@@ -24,6 +24,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/pion/webrtc/v4"
@@ -158,9 +159,13 @@ func (c *SignalClient) connectContext(ctx context.Context, urlPrefix string, tok
 	}
 
 	header := newHeaderWithToken(token)
+	startedAt := time.Now()
 	conn, hresp, err := websocket.DefaultDialer.DialContext(ctx, u.String(), header)
 	if err != nil {
-		var fields []interface{}
+		fields := []interface{}{
+			"duration", time.Since(startedAt),
+			"address", conn.RemoteAddr().String(),
+		}
 		if hresp != nil {
 			body, _ := io.ReadAll(hresp.Body)
 			fields = append(fields, "status", hresp.StatusCode, "response", string(body))
