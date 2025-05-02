@@ -163,7 +163,7 @@ func (c *SignalClient) connectContext(ctx context.Context, urlPrefix string, tok
 		var fields []interface{}
 		if hresp != nil {
 			body, _ := io.ReadAll(hresp.Body)
-			fields = append(fields, "status", hresp.StatusCode, "responseBody", string(body))
+			fields = append(fields, "status", hresp.StatusCode, "response", string(body))
 		}
 		c.log.Errorw("error establishing signal connection", err, fields...)
 
