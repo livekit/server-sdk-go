@@ -1,4 +1,4 @@
-package lksdk
+package media
 
 import (
 	"errors"
