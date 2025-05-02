@@ -26,11 +26,12 @@ import (
 	"sync"
 
 	"github.com/gorilla/websocket"
-	protoLogger "github.com/livekit/protocol/logger"
 	"github.com/pion/webrtc/v4"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+
+	protoLogger "github.com/livekit/protocol/logger"
 
 	"github.com/livekit/protocol/livekit"
 )
@@ -162,7 +163,8 @@ func (c *SignalClient) connectContext(ctx context.Context, urlPrefix string, tok
 	if err != nil {
 		var fields []interface{}
 		if hresp != nil {
-			fields = append(fields, "status", hresp.StatusCode)
+			body, _ := io.ReadAll(hresp.Body)
+			fields = append(fields, "status", hresp.StatusCode, "responseBody", string(body))
 		}
 		c.log.Errorw("error establishing signal connection", err, fields...)
 
