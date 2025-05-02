@@ -208,6 +208,11 @@ func (t *PCMLocalTrack) Close() {
 	}
 }
 
+type PCMRemoteTrackWriter interface {
+	media.WriteCloser[media.PCM16Sample]
+	Channels() int
+}
+
 type PCMRemoteTrackParams struct {
 	HandleJitter bool
 }
@@ -238,11 +243,13 @@ type PCMRemoteTrack struct {
 // Audio is resampled to targetSampleRate and upmixed/downmixed to targetChannels.
 // It also provides an option to handle jitter, which is enabled by default.
 // Stereo remote tracks are currently not supported, and are known to have a lot of unpleasant noise.
-func NewPCMRemoteTrack(track *webrtc.TrackRemote, writer *media.WriteCloser[media.PCM16Sample], targetSampleRate int, targetChannels int, opts ...PCMRemoteTrackOption) (*PCMRemoteTrack, error) {
+func NewPCMRemoteTrack(track *webrtc.TrackRemote, writer PCMRemoteTrackWriter, opts ...PCMRemoteTrackOption) (*PCMRemoteTrack, error) {
 	if track.Codec().MimeType != webrtc.MimeTypeOpus {
 		return nil, errors.New("track is not opus")
 	}
 
+	targetChannels := writer.Channels()
+	targetSampleRate := writer.SampleRate()
 	if targetChannels <= 0 || targetChannels > 2 || targetSampleRate <= 0 {
 		return nil, errors.New("invalid target channels or sample rate")
 	}
@@ -257,10 +264,12 @@ func NewPCMRemoteTrack(track *webrtc.TrackRemote, writer *media.WriteCloser[medi
 	// resampledPCMWriter resamples the PCM16 samples from DefaultOpusSampleRate to targetSampleRate and
 	// writes them to the writer. If no resampling is needed, we directly point resampledPCMWriter to writer.
 	var isResampled bool
-	resampledPCMWriter := *writer
+	var resampledPCMWriter media.WriteCloser[media.PCM16Sample]
 	if targetSampleRate != DefaultOpusSampleRate {
-		resampledPCMWriter = media.ResampleWriter(*writer, targetSampleRate)
+		resampledPCMWriter = media.ResampleWriter(writer, DefaultOpusSampleRate)
 		isResampled = true
+	} else {
+		resampledPCMWriter = writer
 	}
 
 	// opus writer takes opus samples, decodes them to PCM16 samples
@@ -276,7 +285,7 @@ func NewPCMRemoteTrack(track *webrtc.TrackRemote, writer *media.WriteCloser[medi
 	t := &PCMRemoteTrack{
 		trackRemote:        track,
 		opusWriter:         opusWriter,
-		pcmMWriter:         *writer,
+		pcmMWriter:         writer,
 		resampledPCMWriter: resampledPCMWriter,
 		sampleRate:         targetSampleRate,
 		channels:           targetChannels,

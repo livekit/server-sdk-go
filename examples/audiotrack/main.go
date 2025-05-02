@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/livekit/media-sdk"
 	"github.com/livekit/protocol/logger"
 	lksdk "github.com/livekit/server-sdk-go/v2"
 	lkmedia "github.com/livekit/server-sdk-go/v2/pkg/media"
@@ -137,10 +138,24 @@ func handleSubscribe(track *webrtc.TrackRemote, targetChannels int) (*lkmedia.PC
 	}
 
 	webmWriter := webm.NewPCM16Writer(fileWriter, lkmedia.DefaultOpusSampleRate, targetChannels, lkmedia.DefaultOpusSampleDuration)
-	pcmTrack, err := lkmedia.NewPCMRemoteTrack(track, &webmWriter, lkmedia.DefaultOpusSampleRate, targetChannels)
+	writerWrapper := &webmWriterWrapper{
+		WriteCloser: webmWriter,
+		channels:    targetChannels,
+	}
+
+	pcmTrack, err := lkmedia.NewPCMRemoteTrack(track, writerWrapper)
 	if err != nil {
 		panic(err)
 	}
 
 	return pcmTrack, fileWriter
+}
+
+type webmWriterWrapper struct {
+	media.WriteCloser[media.PCM16Sample]
+	channels int
+}
+
+func (w *webmWriterWrapper) Channels() int {
+	return w.channels
 }
