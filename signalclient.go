@@ -31,9 +31,8 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
-	protoLogger "github.com/livekit/protocol/logger"
-
 	"github.com/livekit/protocol/livekit"
+	protoLogger "github.com/livekit/protocol/logger"
 )
 
 const PROTOCOL = 12
