@@ -25,13 +25,13 @@ import (
 	"sync"
 
 	"github.com/gorilla/websocket"
-	protoLogger "github.com/livekit/protocol/logger"
 	"github.com/pion/webrtc/v4"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/livekit/protocol/livekit"
+	protoLogger "github.com/livekit/protocol/logger"
 )
 
 const PROTOCOL = 12
@@ -151,7 +151,8 @@ func (c *SignalClient) connect(urlPrefix string, token string, params SignalClie
 	if err != nil {
 		var fields []interface{}
 		if hresp != nil {
-			fields = append(fields, "status", hresp.StatusCode)
+			body, _ := io.ReadAll(hresp.Body)
+			fields = append(fields, "status", hresp.StatusCode, "response", string(body))
 		}
 		c.log.Errorw("error establishing signal connection", err, fields...)
 
