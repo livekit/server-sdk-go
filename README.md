@@ -298,12 +298,6 @@ example saves the audio/video in the LiveKit room to the local disk.
 To get PCM audio out of a remote Opus audio track, you can use the following API:
 
 ```go
-import (
-	...
-
-	media "github.com/livekit/media-sdk"
-)
-
 type PCM16Writer struct {
 	closed atomic.Bool
 }
@@ -315,8 +309,14 @@ func (w *PCM16Writer) WriteSample(sample media.PCM16Sample) error {
 }
 
 func (w *PCM16Writer) SampleRate() int {
-	// return sample rate of the writer
-	// it'll be the same as targetSampleRate used below
+	// return the sample rate of the writer
+	// the SDK will resample if the remote track is 
+	// using a different sampling rate (48000 kHz)
+}
+
+func (w* PCM16Writer) Channels() int {
+	// return the channel count of the writer
+	// the sdk will then upmix/downmix the remote track accordingly
 }
 
 func (w *PCM16Writer) String() string {
@@ -331,8 +331,8 @@ func (w *PCM16Writer) Close() error {
 
 ...
 
-var writer media.WriteCloser[media.PCM16Sample] = &PCM16Writer{}
-pcmTrack, err := lksdk.NewPCMRemoteTrack(remoteTrack, &writer, targetSampleRate, targetChannels)
+writer := &PCM16Writer{}
+pcmTrack, err := lksdk.NewPCMRemoteTrack(remoteTrack, writer)
 if err != nil {
 	return err
 }
@@ -343,7 +343,7 @@ The SDK will then read the provided remote track, decode the audio and write the
 The API also provides an option to handle jitter, this is enabled by default but you can disable it using:
 
 ```go
-pcmTrack, err := lksdk.NewPCMRemoteTrack(remoteTrack, &writer, targetSampleRate, targetChannels, lksdk.WithHandleJitter(false))
+pcmTrack, err := lksdk.NewPCMRemoteTrack(remoteTrack, writer, lksdk.WithHandleJitter(false))
 ```
 
 **Note**: Stereo remote tracks are currently not supported, they may result in unpleasant audio.
