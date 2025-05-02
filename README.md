@@ -220,7 +220,14 @@ example sends all audio/video files in the current directory.
 In order to publish audio from PCM16 Samples, you can use the NewPCMLocalTrack API as follows:
 
 ```go
-publishTrack, err := lksdk.NewPCMLocalTrack(sourceSampleRate, sourceChannels, logger.GetLogger())
+import (
+	...
+	lkmedia "github.com/livekit/server-sdk-go/v2/pkg/media"
+)
+
+...
+
+publishTrack, err := lkmedia.NewPCMLocalTrack(sourceSampleRate, sourceChannels, logger.GetLogger())
 if err != nil {
 	return err
 }
@@ -246,7 +253,7 @@ The SDK will encode the sample to Opus and write it to the track. If the sourceS
 The API also provides an option to write silence to the track when no data is available, this is disabled by default but you can enable it using:
 
 ```go
-publishTrack, err := lksdk.NewPCMLocalTrack(sourceSampleRate, sourceChannels, logger.GetLogger(), lksdk.WithWriteSilenceOnNoData(true))
+publishTrack, err := lkmedia.NewPCMLocalTrack(sourceSampleRate, sourceChannels, logger.GetLogger(), lkmedia.WithWriteSilenceOnNoData(true))
 ```
 
 **Note**: Stereo audio is currently not supported, it may result in unpleasant audio.
@@ -298,6 +305,12 @@ example saves the audio/video in the LiveKit room to the local disk.
 To get PCM audio out of a remote Opus audio track, you can use the following API:
 
 ```go
+import (
+	...
+	media "github.com/livekit/media-sdk"
+	lkmedia "github.com/livekit/server-sdk-go/v2/pkg/media"
+)
+
 type PCM16Writer struct {
 	closed atomic.Bool
 }
@@ -332,7 +345,7 @@ func (w *PCM16Writer) Close() error {
 ...
 
 writer := &PCM16Writer{}
-pcmTrack, err := lksdk.NewPCMRemoteTrack(remoteTrack, writer)
+pcmTrack, err := lkmedia.NewPCMRemoteTrack(remoteTrack, writer)
 if err != nil {
 	return err
 }
@@ -343,7 +356,7 @@ The SDK will then read the provided remote track, decode the audio and write the
 The API also provides an option to handle jitter, this is enabled by default but you can disable it using:
 
 ```go
-pcmTrack, err := lksdk.NewPCMRemoteTrack(remoteTrack, writer, lksdk.WithHandleJitter(false))
+pcmTrack, err := lkmedia.NewPCMRemoteTrack(remoteTrack, writer, lkmedia.WithHandleJitter(false))
 ```
 
 **Note**: Stereo remote tracks are currently not supported, they may result in unpleasant audio.
