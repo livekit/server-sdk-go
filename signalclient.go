@@ -164,7 +164,6 @@ func (c *SignalClient) connectContext(ctx context.Context, urlPrefix string, tok
 	if err != nil {
 		fields := []interface{}{
 			"duration", time.Since(startedAt),
-			"address", conn.RemoteAddr().String(),
 		}
 		if hresp != nil {
 			body, _ := io.ReadAll(hresp.Body)
