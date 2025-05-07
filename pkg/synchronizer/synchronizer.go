@@ -80,7 +80,6 @@ func (s *Synchronizer) RemoveTrack(trackID string) {
 		ts.sync = nil
 	}
 	delete(p.tracks, ssrc)
-	delete(p.senderReports, ssrc)
 	p.Unlock()
 }
 
