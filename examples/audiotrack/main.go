@@ -1,4 +1,3 @@
-// TODO: document CGO behavior
 package main
 
 import (
