@@ -321,22 +321,6 @@ func (w *PCM16Writer) WriteSample(sample media.PCM16Sample) error {
 	}
 }
 
-func (w *PCM16Writer) SampleRate() int {
-	// return the sample rate of the writer
-	// the SDK will resample if the remote track is 
-	// using a different sampling rate (48000 kHz)
-}
-
-func (w* PCM16Writer) Channels() int {
-	// return the channel count of the writer
-	// the sdk will then upmix/downmix the remote track accordingly
-}
-
-func (w *PCM16Writer) String() string {
-	// return a desired string
-	// can be used to monitor writer stages or config, etc.
-}
-
 func (w *PCM16Writer) Close() error {
 	w.closed.Store(true)
 	// close the writer
@@ -351,7 +335,13 @@ if err != nil {
 }
 ```
 
-The SDK will then read the provided remote track, decode the audio and write the PCM16 samples to the provided writer. Resampling to the target sample rate is handled internally, and so is upmixing/downmixing to the target channel count.
+The SDK will then read the provided remote track, decode the audio and write the PCM16 samples to the provided writer. By defeault, it pushes out 48kHz mono audio. The output sample rate and channels can also be configured by passsing as an option:
+
+```go
+pcmTrack, err := lkmedia.NewPCMRemoteTrack(remoteTrack, writer, lkmedia.WithTargetSampleRate(24000), lkmedia.WithTargetChannels(2))
+```
+
+Resampling to the target sample rate is handled internally, and so is upmixing/downmixing to the target channel count.
 
 The API also provides an option to handle jitter, this is enabled by default but you can disable it using:
 

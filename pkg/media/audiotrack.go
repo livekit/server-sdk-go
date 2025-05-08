@@ -2,6 +2,7 @@ package media
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 	"time"
@@ -209,12 +210,27 @@ func (t *PCMLocalTrack) Close() {
 }
 
 type PCMRemoteTrackWriter interface {
-	media.WriteCloser[media.PCM16Sample]
-	Channels() int
+	WriteSample(sample media.PCM16Sample) error
+	Close() error
+}
+
+type internalPCMRemoteTrackWriter struct {
+	PCMRemoteTrackWriter
+	sampleRate int
+}
+
+func (w *internalPCMRemoteTrackWriter) SampleRate() int {
+	return w.sampleRate
+}
+
+func (w *internalPCMRemoteTrackWriter) String() string {
+	return fmt.Sprintf("PCMRemoteTrackWriter(%d)", w.sampleRate)
 }
 
 type PCMRemoteTrackParams struct {
-	HandleJitter bool
+	HandleJitter     bool
+	TargetSampleRate int
+	TargetChannels   int
 }
 
 type PCMRemoteTrackOption func(*PCMRemoteTrackParams)
@@ -222,6 +238,18 @@ type PCMRemoteTrackOption func(*PCMRemoteTrackParams)
 func WithHandleJitter(handleJitter bool) PCMRemoteTrackOption {
 	return func(p *PCMRemoteTrackParams) {
 		p.HandleJitter = handleJitter
+	}
+}
+
+func WithTargetSampleRate(targetSampleRate int) PCMRemoteTrackOption {
+	return func(p *PCMRemoteTrackParams) {
+		p.TargetSampleRate = targetSampleRate
+	}
+}
+
+func WithTargetChannels(targetChannels int) PCMRemoteTrackOption {
+	return func(p *PCMRemoteTrackParams) {
+		p.TargetChannels = targetChannels
 	}
 }
 
@@ -248,17 +276,24 @@ func NewPCMRemoteTrack(track *webrtc.TrackRemote, writer PCMRemoteTrackWriter, o
 		return nil, errors.New("track is not opus")
 	}
 
-	targetChannels := writer.Channels()
-	targetSampleRate := writer.SampleRate()
+	options := &PCMRemoteTrackParams{
+		HandleJitter:     true,
+		TargetSampleRate: DefaultOpusSampleRate,
+		TargetChannels:   1,
+	}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	targetChannels := options.TargetChannels
+	targetSampleRate := options.TargetSampleRate
 	if targetChannels <= 0 || targetChannels > 2 || targetSampleRate <= 0 {
 		return nil, errors.New("invalid target channels or sample rate")
 	}
 
-	options := &PCMRemoteTrackParams{
-		HandleJitter: true,
-	}
-	for _, opt := range opts {
-		opt(options)
+	internalWriter := &internalPCMRemoteTrackWriter{
+		PCMRemoteTrackWriter: writer,
+		sampleRate:           targetSampleRate,
 	}
 
 	// resampledPCMWriter resamples the PCM16 samples from DefaultOpusSampleRate to targetSampleRate and
@@ -266,10 +301,10 @@ func NewPCMRemoteTrack(track *webrtc.TrackRemote, writer PCMRemoteTrackWriter, o
 	var isResampled bool
 	var resampledPCMWriter media.WriteCloser[media.PCM16Sample]
 	if targetSampleRate != DefaultOpusSampleRate {
-		resampledPCMWriter = media.ResampleWriter(writer, DefaultOpusSampleRate)
+		resampledPCMWriter = media.ResampleWriter(internalWriter, DefaultOpusSampleRate)
 		isResampled = true
 	} else {
-		resampledPCMWriter = writer
+		resampledPCMWriter = internalWriter
 	}
 
 	// opus writer takes opus samples, decodes them to PCM16 samples
@@ -285,7 +320,7 @@ func NewPCMRemoteTrack(track *webrtc.TrackRemote, writer PCMRemoteTrackWriter, o
 	t := &PCMRemoteTrack{
 		trackRemote:        track,
 		opusWriter:         opusWriter,
-		pcmMWriter:         writer,
+		pcmMWriter:         internalWriter,
 		resampledPCMWriter: resampledPCMWriter,
 		sampleRate:         targetSampleRate,
 		channels:           targetChannels,
