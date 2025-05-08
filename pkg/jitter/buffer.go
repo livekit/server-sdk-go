@@ -18,10 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/pion/rtp"
-
-	"github.com/livekit/protocol/logger"
 )
 
 type Buffer struct {
@@ -30,17 +27,18 @@ type Buffer struct {
 	out          chan []*rtp.Packet
 	onPacketLoss func()
 
-	stats  *BufferStats
-	logger logger.Logger
+	mu sync.Mutex
 
-	mu          sync.Mutex
-	timer       *time.Timer
-	pool        *packet
-	size        int
 	initialized bool
 	prevSN      uint16
 	head        *packet
 	tail        *packet
+
+	stats *BufferStats
+	timer *time.Timer
+
+	pool *packet
+	size int
 }
 
 type BufferStats struct {
@@ -56,18 +54,15 @@ func NewBuffer(
 	depacketizer rtp.Depacketizer,
 	latency time.Duration,
 	out chan []*rtp.Packet,
-	opts ...Option,
+	onPacketLoss func(),
 ) *Buffer {
 	b := &Buffer{
 		depacketizer: depacketizer,
 		latency:      latency,
 		out:          out,
+		onPacketLoss: onPacketLoss,
 		stats:        &BufferStats{},
-		logger:       logger.LogRLogger(logr.Discard()),
 		timer:        time.NewTimer(latency),
-	}
-	for _, opt := range opts {
-		opt(b)
 	}
 
 	go func() {

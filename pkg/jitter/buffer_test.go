@@ -29,7 +29,7 @@ const testBufferLatency = 800 * time.Millisecond
 
 func TestJitterBuffer(t *testing.T) {
 	out := make(chan []*rtp.Packet, 100)
-	b := NewBuffer(&testDepacketizer{}, testBufferLatency, out)
+	b := NewBuffer(&testDepacketizer{}, testBufferLatency, out, nil)
 	s := newTestStream()
 
 	i := 0
@@ -54,7 +54,7 @@ func TestJitterBuffer(t *testing.T) {
 
 func TestSamples(t *testing.T) {
 	out := make(chan []*rtp.Packet, 100)
-	b := NewBuffer(&testDepacketizer{}, testBufferLatency, out)
+	b := NewBuffer(&testDepacketizer{}, testBufferLatency, out, nil)
 	s := newTestStream()
 
 	i := 0
@@ -77,7 +77,7 @@ func TestSamples(t *testing.T) {
 
 func TestJitter(t *testing.T) {
 	out := make(chan []*rtp.Packet, 100)
-	b := NewBuffer(&testDepacketizer{}, testBufferLatency, out)
+	b := NewBuffer(&testDepacketizer{}, testBufferLatency, out, nil)
 	s := newTestStream()
 
 	i := 0
@@ -111,7 +111,7 @@ func TestJitter(t *testing.T) {
 
 func TestDiscontinuity(t *testing.T) {
 	out := make(chan []*rtp.Packet, 100)
-	b := NewBuffer(&testDepacketizer{}, testBufferLatency, out)
+	b := NewBuffer(&testDepacketizer{}, testBufferLatency, out, nil)
 	s := newTestStream()
 
 	i := 0
@@ -136,7 +136,7 @@ func TestDiscontinuity(t *testing.T) {
 
 func TestLostPackets(t *testing.T) {
 	out := make(chan []*rtp.Packet, 100)
-	b := NewBuffer(&testDepacketizer{}, testBufferLatency, out)
+	b := NewBuffer(&testDepacketizer{}, testBufferLatency, out, nil)
 	s := newTestStream()
 
 	i := 0
@@ -170,7 +170,7 @@ func TestLostPackets(t *testing.T) {
 
 func TestDroppedPackets(t *testing.T) {
 	out := make(chan []*rtp.Packet, 100)
-	b := NewBuffer(&testDepacketizer{}, testBufferLatency, out)
+	b := NewBuffer(&testDepacketizer{}, testBufferLatency, out, nil)
 	s := newTestStream()
 
 	i := 0
