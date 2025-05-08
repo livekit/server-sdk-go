@@ -20,13 +20,13 @@ import (
 	"sync"
 	"time"
 
-	protoLogger "github.com/livekit/protocol/logger"
 	"github.com/pion/webrtc/v4"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/livekit/protocol/livekit"
+	protoLogger "github.com/livekit/protocol/logger"
 )
 
 const (

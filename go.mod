@@ -4,11 +4,11 @@ go 1.24.2
 
 require (
 	github.com/bep/debounce v1.2.1
-	github.com/go-logr/logr v1.4.2
 	github.com/go-logr/stdr v1.2.2
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/livekit/mageutil v0.0.0-20230125210925-54e8a70427c1
+	github.com/livekit/media-sdk v0.0.0-20250508224232-a4ae2be11f9e
 	github.com/livekit/mediatransportutil v0.0.0-20250310153736-45596af895b6
 	github.com/livekit/protocol v1.36.2-0.20250415074849-d67a6a9f9604
 	github.com/magefile/mage v1.15.0
@@ -27,16 +27,11 @@ require (
 )
 
 require (
-	github.com/at-wat/ebml-go v0.17.1 // indirect
-	github.com/opencontainers/runc v1.1.14 // indirect
-	gopkg.in/hraban/opus.v2 v2.0.0-20230925203106-0188a62cb302 // indirect
-)
-
-require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.6-20250307204501-0409229c3780.1 // indirect
 	buf.build/go/protoyaml v0.3.2 // indirect
 	cel.dev/expr v0.23.1 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
+	github.com/at-wat/ebml-go v0.17.1 // indirect
 	github.com/benbjohnson/clock v1.3.5 // indirect
 	github.com/bufbuild/protovalidate-go v0.9.2 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -47,6 +42,7 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/gammazero/deque v1.0.0
 	github.com/go-jose/go-jose/v3 v3.0.4 // indirect
+	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/google/cel-go v0.24.1 // indirect
 	github.com/jfreymuth/oggvorbis v1.0.5 // indirect
 	github.com/jfreymuth/vorbis v1.0.2 // indirect
@@ -54,11 +50,11 @@ require (
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
 	github.com/lithammer/shortuuid/v4 v4.2.0 // indirect
-	github.com/livekit/media-sdk v0.0.0-20250429173258-cce3de982844
 	github.com/livekit/psrpc v0.6.1-0.20250205181828-a0beed2e4126 // indirect
 	github.com/nats-io/nats.go v1.41.1 // indirect
 	github.com/nats-io/nkeys v0.4.10 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
+	github.com/opencontainers/runc v1.1.14 // indirect
 	github.com/pion/datachannel v1.5.10 // indirect
 	github.com/pion/ice/v4 v4.0.10 // indirect
 	github.com/pion/logging v0.2.3 // indirect
@@ -85,5 +81,6 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20250407143221-ac9807e6c755 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250407143221-ac9807e6c755 // indirect
 	google.golang.org/grpc v1.71.1 // indirect
+	gopkg.in/hraban/opus.v2 v2.0.0-20230925203106-0188a62cb302 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

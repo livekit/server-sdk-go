@@ -9,12 +9,13 @@ import (
 
 	"github.com/gammazero/deque"
 	"github.com/google/uuid"
-	media "github.com/livekit/media-sdk"
-	opus "github.com/livekit/media-sdk/opus"
-	rtp "github.com/livekit/media-sdk/rtp"
-	protoLogger "github.com/livekit/protocol/logger"
 	"github.com/pion/webrtc/v4"
 	"go.uber.org/atomic"
+
+	"github.com/livekit/media-sdk"
+	"github.com/livekit/media-sdk/opus"
+	"github.com/livekit/media-sdk/rtp"
+	protoLogger "github.com/livekit/protocol/logger"
 )
 
 const (
@@ -336,7 +337,7 @@ func (t *PCMRemoteTrack) process(handleJitter bool) {
 	// Handler takes RTP packets and writes the payload to opusWriter
 	var h rtp.Handler = rtp.NewMediaStreamIn[opus.Sample](t.opusWriter)
 	if handleJitter {
-		h = rtp.HandleJitter(int(t.trackRemote.Codec().ClockRate), h)
+		h = rtp.HandleJitter(h)
 	}
 
 	// HandleLoop takes RTP packets from the track and writes them to the handler

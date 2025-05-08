@@ -23,7 +23,6 @@ import (
 	"sync"
 	"time"
 
-	protoLogger "github.com/livekit/protocol/logger"
 	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
@@ -34,6 +33,7 @@ import (
 	"go.uber.org/atomic"
 
 	"github.com/livekit/protocol/livekit"
+	protoLogger "github.com/livekit/protocol/logger"
 	"github.com/livekit/protocol/utils/guid"
 )
 
