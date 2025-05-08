@@ -103,6 +103,8 @@ type SignalClientConnectParams struct {
 	Interceptors []interceptor.Factory
 
 	ICETransportPolicy webrtc.ICETransportPolicy
+	ICEServers         []*livekit.ICEServer
+	ForceRelay         bool
 }
 
 type ConnectOption func(*SignalClientConnectParams)
@@ -144,6 +146,18 @@ func WithICETransportPolicy(iceTransportPolicy webrtc.ICETransportPolicy) Connec
 func WithDisableRegionDiscovery() ConnectOption {
 	return func(p *SignalClientConnectParams) {
 		p.DisableRegionDiscovery = true
+	}
+}
+
+func WithICEServers(iceServers []*livekit.ICEServer) ConnectOption {
+	return func(p *SignalClientConnectParams) {
+		p.ICEServers = iceServers
+	}
+}
+
+func WithForceRelay(forceRelay bool) ConnectOption {
+	return func(p *SignalClientConnectParams) {
+		p.ForceRelay = forceRelay
 	}
 }
 
