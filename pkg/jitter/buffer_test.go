@@ -15,7 +15,6 @@
 package jitter
 
 import (
-	"fmt"
 	"math"
 	"math/rand"
 	"testing"
@@ -35,12 +34,7 @@ func TestJitterBuffer(t *testing.T) {
 	i := 0
 	for ; i < 100; i++ {
 		b.Push(s.gen(true, true))
-		select {
-		case sample := <-out:
-			require.Equal(t, 1, len(sample))
-		default:
-			t.Fatal(fmt.Sprintf("expected to receive packet %d", i))
-		}
+		checkSample(t, out, 1)
 	}
 
 	checkStats(t, b, &BufferStats{
