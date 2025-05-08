@@ -15,6 +15,9 @@
 package jitter
 
 import (
+	"fmt"
+	"math"
+	"math/rand"
 	"testing"
 	"time"
 
@@ -22,158 +25,267 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const testBufferLatency = 800 * time.Millisecond
+
 func TestJitterBuffer(t *testing.T) {
-	onPacketDroppedCalled := 0
-	onPacketDropped := func() { onPacketDroppedCalled++ }
-	b := NewBuffer(&testDepacketizer{}, 30, time.Second, WithPacketDroppedHandler(onPacketDropped))
+	out := make(chan []*rtp.Packet, 100)
+	b := NewBuffer(&testDepacketizer{}, testBufferLatency, out)
+	s := newTestStream()
 
-	// ooo
-	b.Push(testTailPacket(5, 31))
-
-	require.Len(t, b.Pop(false), 0)
-
-	b.Push(testPacket(3, 31))
-	b.Push(testHeadPacket(1, 31))
-	b.Push(testHeadPacket(6, 32))
-
-	require.Len(t, b.Pop(false), 0)
-
-	b.Push(testPacket(2, 31))
-	b.Push(testPacket(4, 31))
-
-	pkts := b.Pop(false)
-	require.Len(t, pkts, 5)
-	for i, pkt := range pkts {
-		require.Equal(t, uint16(i+1), pkt.SequenceNumber)
+	i := 0
+	for ; i < 100; i++ {
+		b.Push(s.gen(true, true))
+		select {
+		case sample := <-out:
+			require.Equal(t, 1, len(sample))
+		default:
+			t.Fatal(fmt.Sprintf("expected to receive packet %d", i))
+		}
 	}
 
-	// push and pop (not empty)
-	b.Push(testTailPacket(7, 32))
-
-	require.Len(t, b.Pop(false), 2)
-
-	// push and pop (empty)
-	b.Push(testHeadPacket(8, 33))
-	b.Push(testTailPacket(9, 33))
-
-	require.Len(t, b.Pop(false), 2)
-
-	// sn jump
-	ts := uint32(34)
-	for i := uint16(5000); i < 5058; i += 2 {
-		b.Push(testHeadPacket(i, ts))
-		b.Push(testTailPacket(i+1, ts))
-		ts++
-		require.Len(t, b.Pop(false), 0)
-	}
-
-	b.Push(testHeadPacket(5058, ts))
-	b.Push(testTailPacket(5059, ts))
-	require.Len(t, b.Pop(false), 60)
-
-	// sn wrap
-	for i := uint16(65478); i > 65000; i += 2 {
-		b.Push(testHeadPacket(i, ts))
-		b.Push(testTailPacket(i+1, ts))
-		ts++
-	}
-	require.Len(t, b.Pop(false), 0)
-
-	b.Push(testHeadPacket(0, ts))
-	b.Push(testTailPacket(1, ts))
-	ts++
-	require.Len(t, b.Pop(false), 60)
-	require.Equal(t, 0, onPacketDroppedCalled)
-
-	// dropped packets
-	b.Push(testHeadPacket(2, ts))
-	ts += 31
-	b.Push(testHeadPacket(64, ts))
-	b.Push(testTailPacket(65, ts))
-	ts++
-
-	require.Len(t, b.Pop(false), 0)
-	// packet 2 dropped
-	require.Equal(t, 1, onPacketDroppedCalled)
-
-	// push packets 66-126
-	for i := uint16(66); i < 122; i += 2 {
-		b.Push(testHeadPacket(i, ts))
-		b.Push(testTailPacket(i+1, ts))
-		ts++
-
-		// still waiting on packets 3-63
-		require.Len(t, b.Pop(false), 0)
-	}
-
-	b.Push(testHeadPacket(122, ts))
-	b.Push(testTailPacket(123, ts))
-
-	require.Len(t, b.Pop(false), 60)
-	// packets 3-63 lost
-	require.Equal(t, 2, onPacketDroppedCalled)
-
-	// ts wrap
-	ts = 4294967280
-	for i := uint16(15000); i < 15058; i += 2 {
-		b.Push(testHeadPacket(i, ts))
-		b.Push(testTailPacket(i+1, ts))
-		ts++
-		require.Len(t, b.Pop(false), 0)
-	}
-	b.Push(testHeadPacket(15058, ts))
-	b.Push(testTailPacket(15059, ts))
-	ts++
-	require.Len(t, b.Pop(false), 60)
-
-	// sn and ts jumps with drops
-	b.Push(testTailPacket(15061, ts))
-	b.Push(testHeadPacket(4000, 20000))
-	b.Push(testTailPacket(4001, 20000))
-	b.Push(testHeadPacket(15060, ts))
-	b.Push(testHeadPacket(15062, ts+1))
-	b.Push(testTailPacket(4003, 20001))
-
-	require.Len(t, b.Pop(false), 2)
-
-	ts = 20002
-	for i := uint16(4004); i < 4062; i += 2 {
-		b.Push(testHeadPacket(i, ts))
-		b.Push(testTailPacket(i+1, ts))
-		ts++
-		require.Len(t, b.Pop(false), 0)
-	}
-
-	b.Push(testHeadPacket(4062, ts))
-	b.Push(testTailPacket(4063, ts))
-	ts++
-
-	require.Len(t, b.Pop(false), 2)
-	// packet 15062 dropped
-	require.Equal(t, 3, onPacketDroppedCalled)
-
-	b.Push(testHeadPacket(4064, ts))
-	b.Push(testTailPacket(4065, ts))
-	ts++
-
-	// packet 4002 lost, 4003 dropped
-	require.Len(t, b.Pop(false), 62)
-	require.Equal(t, 4, onPacketDroppedCalled)
-
-	// samples
-	b.Push(testHeadPacket(4066, ts))
-	b.Push(testTailPacket(4067, ts))
-	ts++
-	b.Push(testHeadPacket(4068, ts))
-	b.Push(testTailPacket(4069, ts))
-	ts++
-
-	require.Len(t, b.PopSamples(false), 2)
+	checkStats(t, b, &BufferStats{
+		PacketsPushed:  100,
+		PacketsLost:    0,
+		PacketsDropped: 0,
+		PacketsPopped:  100,
+		SamplesPopped:  100,
+	})
 }
 
-type testDepacketizer struct{}
+func TestSamples(t *testing.T) {
+	out := make(chan []*rtp.Packet, 100)
+	b := NewBuffer(&testDepacketizer{}, testBufferLatency, out)
+	s := newTestStream()
+
+	i := 0
+	for ; i < 50; i++ {
+		b.Push(s.gen(true, false))
+		checkSample(t, out, 0)
+
+		b.Push(s.gen(false, true))
+		checkSample(t, out, 2)
+	}
+
+	checkStats(t, b, &BufferStats{
+		PacketsPushed:  100,
+		PacketsLost:    0,
+		PacketsDropped: 0,
+		PacketsPopped:  100,
+		SamplesPopped:  50,
+	})
+}
+
+func TestJitter(t *testing.T) {
+	out := make(chan []*rtp.Packet, 100)
+	b := NewBuffer(&testDepacketizer{}, testBufferLatency, out)
+	s := newTestStream()
+
+	i := 0
+	for ; i < 17; i++ {
+		b.Push(s.gen(true, true))
+		checkSample(t, out, 1)
+	}
+
+	ooo := []*rtp.Packet{
+		s.gen(true, true),
+		s.gen(true, true),
+		s.gen(true, true),
+	}
+	b.Push(ooo[1])
+	b.Push(ooo[2])
+	checkSample(t, out, 0)
+
+	b.Push(ooo[0])
+	checkSample(t, out, 1)
+	checkSample(t, out, 1)
+	checkSample(t, out, 1)
+
+	checkStats(t, b, &BufferStats{
+		PacketsPushed:  20,
+		PacketsLost:    0,
+		PacketsDropped: 0,
+		PacketsPopped:  20,
+		SamplesPopped:  20,
+	})
+}
+
+func TestDiscontinuity(t *testing.T) {
+	out := make(chan []*rtp.Packet, 100)
+	b := NewBuffer(&testDepacketizer{}, testBufferLatency, out)
+	s := newTestStream()
+
+	i := 0
+	for ; i < 50; i++ {
+		b.Push(s.gen(true, true))
+		checkSample(t, out, 1)
+	}
+	s.discont()
+	for ; i < 100; i++ {
+		b.Push(s.gen(true, true))
+		checkSample(t, out, 1)
+	}
+
+	checkStats(t, b, &BufferStats{
+		PacketsPushed:  100,
+		PacketsLost:    0,
+		PacketsDropped: 0,
+		PacketsPopped:  100,
+		SamplesPopped:  100,
+	})
+}
+
+func TestLostPackets(t *testing.T) {
+	out := make(chan []*rtp.Packet, 100)
+	b := NewBuffer(&testDepacketizer{}, testBufferLatency, out)
+	s := newTestStream()
+
+	i := 0
+	for ; i < 10; i++ {
+		b.Push(s.gen(true, true))
+		checkSample(t, out, 1)
+	}
+
+	// packet loss
+	_ = s.gen(true, true)
+
+	for ; i < 20; i++ {
+		b.Push(s.gen(true, true))
+		checkSample(t, out, 0)
+	}
+
+	// latency
+	time.Sleep(time.Second)
+	for range 10 {
+		checkSample(t, out, 1)
+	}
+
+	checkStats(t, b, &BufferStats{
+		PacketsPushed:  20,
+		PacketsLost:    1,
+		PacketsDropped: 0,
+		PacketsPopped:  20,
+		SamplesPopped:  20,
+	})
+}
+
+func TestDroppedPackets(t *testing.T) {
+	out := make(chan []*rtp.Packet, 100)
+	b := NewBuffer(&testDepacketizer{}, testBufferLatency, out)
+	s := newTestStream()
+
+	i := 0
+	for ; i < 10; i++ {
+		b.Push(s.gen(true, false))
+		b.Push(s.gen(false, true))
+		checkSample(t, out, 2)
+	}
+
+	// packet loss - missing head
+	_ = s.gen(true, false)
+	b.Push(s.gen(false, true))
+	checkSample(t, out, 0)
+
+	for ; i < 20; i++ {
+		b.Push(s.gen(true, false))
+		b.Push(s.gen(false, true))
+		checkSample(t, out, 0)
+	}
+
+	time.Sleep(time.Millisecond * 500)
+
+	// packet loss - missing tail
+	b.Push(s.gen(true, false))
+	_ = s.gen(false, true)
+	checkSample(t, out, 0)
+
+	for ; i < 30; i++ {
+		b.Push(s.gen(true, false))
+		b.Push(s.gen(false, true))
+		checkSample(t, out, 0)
+	}
+
+	time.Sleep(time.Millisecond * 500)
+
+	// first incomplete sample expired
+	for range 10 {
+		checkSample(t, out, 2)
+	}
+	checkSample(t, out, 0)
+
+	time.Sleep(time.Millisecond * 500)
+
+	// second incomplete sample expired
+	for range 10 {
+		checkSample(t, out, 2)
+	}
+
+	checkStats(t, b, &BufferStats{
+		PacketsPushed:  62,
+		PacketsLost:    2,
+		PacketsDropped: 2,
+		PacketsPopped:  60,
+		SamplesPopped:  30,
+	})
+}
+
+func checkSample(t *testing.T, out chan []*rtp.Packet, expected int) {
+	select {
+	case sample := <-out:
+		if expected == 0 {
+			t.Fatal("received unexpected sample")
+		} else {
+			require.Equal(t, expected, len(sample))
+		}
+	default:
+		if expected > 0 {
+			t.Fatal("expected to receive sample")
+		}
+	}
+}
+
+func checkStats(t *testing.T, b *Buffer, expected *BufferStats) {
+	stats := b.Stats()
+	require.Equal(t, expected.PacketsPushed, stats.PacketsPushed)
+	require.Equal(t, expected.PacketsLost, stats.PacketsLost)
+	require.Equal(t, expected.PacketsDropped, stats.PacketsDropped)
+	require.Equal(t, expected.PacketsPopped, stats.PacketsPopped)
+	require.Equal(t, expected.SamplesPopped, stats.SamplesPopped)
+}
+
+type stream struct {
+	seq uint16
+}
+
+func newTestStream() *stream {
+	return &stream{
+		seq: uint16(rand.Uint32()),
+	}
+}
+
+func (s *stream) gen(head, tail bool) *rtp.Packet {
+	p := &rtp.Packet{
+		Header: rtp.Header{
+			Marker:         tail,
+			SequenceNumber: s.seq,
+		},
+		Payload: make([]byte, defaultPacketSize),
+	}
+	if head {
+		copy(p.Payload, headerBytes)
+	}
+	s.seq++
+	return p
+}
+
+func (s *stream) discont() {
+	s.seq += math.MaxUint16 / 2
+}
+
+const defaultPacketSize = 200
 
 var headerBytes = []byte{0xaa, 0xaa}
+
+type testDepacketizer struct{}
 
 func (d *testDepacketizer) Unmarshal(r []byte) ([]byte, error) {
 	return r, nil
@@ -193,40 +305,4 @@ func (d *testDepacketizer) IsPartitionHead(payload []byte) bool {
 
 func (d *testDepacketizer) IsPartitionTail(marker bool, _ []byte) bool {
 	return marker
-}
-
-const defaultPacketSize = 200
-
-func testPacket(sn uint16, ts uint32) *rtp.Packet {
-	return &rtp.Packet{
-		Header: rtp.Header{
-			SequenceNumber: sn,
-			Timestamp:      ts,
-		},
-		Payload: make([]byte, defaultPacketSize),
-	}
-}
-
-func testHeadPacket(sn uint16, ts uint32) *rtp.Packet {
-	p := &rtp.Packet{
-		Header: rtp.Header{
-			SequenceNumber: sn,
-			Timestamp:      ts,
-		},
-		Payload: make([]byte, defaultPacketSize),
-	}
-	copy(p.Payload, headerBytes)
-	return p
-}
-
-func testTailPacket(sn uint16, ts uint32) *rtp.Packet {
-	p := &rtp.Packet{
-		Header: rtp.Header{
-			Marker:         true,
-			SequenceNumber: sn,
-			Timestamp:      ts,
-		},
-		Payload: make([]byte, defaultPacketSize),
-	}
-	return p
 }

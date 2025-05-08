@@ -20,9 +20,9 @@ type Option func(b *Buffer)
 
 // WithPacketDroppedHandler sets a callback that's called when a packet
 // is dropped. This signifies packet loss.
-func WithPacketDroppedHandler(f func()) Option {
+func WithPacketLossHandler(f func()) Option {
 	return func(b *Buffer) {
-		b.onPacketDropped = f
+		b.onPacketLoss = f
 	}
 }
 
