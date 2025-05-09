@@ -19,11 +19,11 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/twitchtv/twirp"
+	"google.golang.org/protobuf/types/known/emptypb"
+
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/utils/xtwirp"
-	"github.com/twitchtv/twirp"
-	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 //lint:file-ignore SA1019 We still support some deprecated functions for backward compatibility
@@ -315,14 +315,5 @@ func (s *SIPClient) TransferSIPParticipant(ctx context.Context, in *livekit.Tran
 
 // SIPStatusFrom unwraps an error and returns associated SIP call status, if any.
 func SIPStatusFrom(err error) *livekit.SIPStatus {
-	st, ok := status.FromError(err)
-	if !ok {
-		return nil
-	}
-	for _, d := range st.Details() {
-		if e, ok := d.(*livekit.SIPStatus); ok {
-			return e
-		}
-	}
-	return nil
+	return livekit.SIPStatusFrom(err)
 }

@@ -18,7 +18,6 @@ import (
 	"mime"
 	"os"
 	"path/filepath"
-
 	"sort"
 	"sync"
 	"time"
@@ -545,8 +544,10 @@ func (p *LocalParticipant) handleParticipantDisconnected(identity string) {
 
 	p.rpcPendingResponses.Range(func(key, value interface{}) bool {
 		if value.(rpcPendingResponseHandler).participantIdentity == identity {
-			value.(rpcPendingResponseHandler).resolve(nil, rpcErrorFromBuiltInCodes(RpcRecipientDisconnected, nil))
-			p.rpcPendingResponses.Delete(key)
+			value, ok := p.rpcPendingResponses.LoadAndDelete(key)
+			if ok {
+				value.(rpcPendingResponseHandler).resolve(nil, rpcErrorFromBuiltInCodes(RpcRecipientDisconnected, nil))
+			}
 		}
 		return true
 	})
@@ -660,8 +661,8 @@ func (p *LocalParticipant) PerformRpc(params PerformRpcParams) (*string, error) 
 }
 
 func (p *LocalParticipant) cleanup() {
-	p.rpcPendingAcks = &sync.Map{}
-	p.rpcPendingResponses = &sync.Map{}
+	p.rpcPendingAcks.Clear()
+	p.rpcPendingResponses.Clear()
 }
 
 // StreamText creates a new text stream writer with the provided options.

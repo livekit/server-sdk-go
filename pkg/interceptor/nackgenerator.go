@@ -17,10 +17,11 @@ package interceptor
 import (
 	"sync"
 
-	"github.com/livekit/mediatransportutil/pkg/nack"
 	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
 	"go.uber.org/atomic"
+
+	"github.com/livekit/mediatransportutil/pkg/nack"
 )
 
 type NackGeneratorInterceptorFactory struct {

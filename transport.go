@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/bep/debounce"
-	protoLogger "github.com/livekit/protocol/logger"
 	"github.com/pion/dtls/v3"
 	"github.com/pion/interceptor"
 	"github.com/pion/interceptor/pkg/nack"
@@ -32,8 +31,8 @@ import (
 
 	lkinterceptor "github.com/livekit/mediatransportutil/pkg/interceptor"
 	"github.com/livekit/mediatransportutil/pkg/pacer"
+	protoLogger "github.com/livekit/protocol/logger"
 	lksdp "github.com/livekit/protocol/sdp"
-
 	sdkinterceptor "github.com/livekit/server-sdk-go/v2/pkg/interceptor"
 )
 

@@ -1,8 +1,9 @@
 package lksdk
 
 import (
-	"github.com/livekit/protocol/livekit"
 	"google.golang.org/protobuf/proto"
+
+	"github.com/livekit/protocol/livekit"
 )
 
 // Data types

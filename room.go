@@ -860,11 +860,11 @@ func (r *Room) cleanup() {
 	r.engine.Close()
 	r.LocalParticipant.closeTracks()
 	r.setSid("", true)
-	r.byteStreamHandlers = &sync.Map{}
-	r.byteStreamReaders = &sync.Map{}
-	r.textStreamHandlers = &sync.Map{}
-	r.textStreamReaders = &sync.Map{}
-	r.rpcHandlers = &sync.Map{}
+	r.byteStreamHandlers.Clear()
+	r.byteStreamReaders.Clear()
+	r.textStreamHandlers.Clear()
+	r.textStreamReaders.Clear()
+	r.rpcHandlers.Clear()
 	r.LocalParticipant.cleanup()
 }
 

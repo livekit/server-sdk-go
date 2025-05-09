@@ -19,10 +19,11 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
+	"github.com/twitchtv/twirp"
+
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/utils/xtwirp"
-	"github.com/twitchtv/twirp"
 )
 
 type RoomServiceClient struct {
@@ -95,6 +96,28 @@ func (c *RoomServiceClient) RemoveParticipant(ctx context.Context, req *livekit.
 	}
 
 	return c.roomService.RemoveParticipant(ctx, req)
+}
+
+// Forward a participant's track(s) to another room. Requires `roomAdmin` and `destinationRoom`. The forwarding will
+// stop when the participant leaves the room or `RemoveParticipant` has been called in the destination room.
+// A participant can be forwarded to multiple rooms. The destination room will be created if it does not exist.
+func (c *RoomServiceClient) ForwardParticipant(ctx context.Context, req *livekit.ForwardParticipantRequest) (*livekit.ForwardParticipantResponse, error) {
+	ctx, err := c.withAuth(ctx, withVideoGrant{RoomAdmin: true, Room: req.Room, DestinationRoom: req.DestinationRoom})
+	if err != nil {
+		return nil, err
+	}
+	return c.roomService.ForwardParticipant(ctx, req)
+}
+
+// Move a connected participant to a different room. Requires `roomAdmin` and `destinationRoom`.
+// The participant will be removed from the current room and added to the destination room.
+// From other observers' perspective, the participant would've disconnected from the previous room and joined the new one.
+func (c *RoomServiceClient) MoveParticipant(ctx context.Context, req *livekit.MoveParticipantRequest) (*livekit.MoveParticipantResponse, error) {
+	ctx, err := c.withAuth(ctx, withVideoGrant{RoomAdmin: true, Room: req.Room, DestinationRoom: req.DestinationRoom})
+	if err != nil {
+		return nil, err
+	}
+	return c.roomService.MoveParticipant(ctx, req)
 }
 
 func (c *RoomServiceClient) MutePublishedTrack(ctx context.Context, req *livekit.MuteRoomTrackRequest) (*livekit.MuteRoomTrackResponse, error) {

@@ -15,8 +15,9 @@
 package lksdk
 
 import (
-	"github.com/livekit/protocol/livekit"
 	"github.com/pion/webrtc/v4"
+
+	"github.com/livekit/protocol/livekit"
 )
 
 type Track interface {

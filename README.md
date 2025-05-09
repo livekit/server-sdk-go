@@ -42,7 +42,7 @@ func getJoinToken(apiKey, apiSecret, room, identity string) (string, error) {
 		RoomJoin: true,
 		Room:     room,
 	}
-	at.AddGrant(grant).
+	at.SetVideoGrant(grant).
 		SetIdentity(identity).
 		SetValidFor(time.Hour)
 
@@ -215,6 +215,49 @@ if _, err = room.LocalParticipant.PublishTrack(track, &lksdk.TrackPublicationOpt
 For a full working example, refer to [filesender](https://github.com/livekit/server-sdk-go/blob/main/examples/filesender/main.go). This
 example sends all audio/video files in the current directory.
 
+### Publishing audio from PCM16 Samples
+
+In order to publish audio from PCM16 Samples, you can use the NewPCMLocalTrack API as follows:
+
+```go
+import (
+	...
+	lkmedia "github.com/livekit/server-sdk-go/v2/pkg/media"
+)
+
+...
+
+publishTrack, err := lkmedia.NewPCMLocalTrack(sourceSampleRate, sourceChannels, logger.GetLogger())
+if err != nil {
+	return err
+}
+
+if _, err = room.LocalParticipant.PublishTrack(publishTrack, &lksdk.TrackPublicationOptions{
+	Name: "test",
+}); err != nil {
+	return err
+}
+```
+
+You can then write PCM16 samples to the `publishTrack` like:
+
+```go
+err = publishTrack.WriteSample(sample)
+if err != nil {
+	logger.Errorw("error writing sample", err)
+}
+```
+
+The SDK will encode the sample to Opus and write it to the track. If the sourceSampleRate is not 48000, resampling is also handled internally.
+
+The API also provides an option to write silence to the track when no data is available, this is disabled by default but you can enable it using:
+
+```go
+publishTrack, err := lkmedia.NewPCMLocalTrack(sourceSampleRate, sourceChannels, logger.GetLogger(), lkmedia.WithWriteSilenceOnNoData(true))
+```
+
+**Note**: Stereo audio is currently not supported, it may result in unpleasant audio.
+
 ### Publish from other sources
 
 In order to publish from non-file sources, you will have to implement your own `SampleProvider`, that could provide frames of data with a `NextSample` method.
@@ -257,6 +300,56 @@ With the Go SDK, you can accept media from the room.
 For a full working example, refer to [filesaver](https://github.com/livekit/server-sdk-go/blob/main/examples/filesaver/main.go). This
 example saves the audio/video in the LiveKit room to the local disk.
 
+### Decoding an Opus track to PCM16
+
+To get PCM audio out of a remote Opus audio track, you can use the following API:
+
+```go
+import (
+	...
+	media "github.com/livekit/media-sdk"
+	lkmedia "github.com/livekit/server-sdk-go/v2/pkg/media"
+)
+
+type PCM16Writer struct {
+	closed atomic.Bool
+}
+
+func (w *PCM16Writer) WriteSample(sample media.PCM16Sample) error {
+	if !w.closed.Load() {
+		// Use the sample however you want
+	}
+}
+
+func (w *PCM16Writer) Close() error {
+	w.closed.Store(true)
+	// close the writer
+}
+
+...
+
+writer := &PCM16Writer{}
+pcmTrack, err := lkmedia.NewPCMRemoteTrack(remoteTrack, writer)
+if err != nil {
+	return err
+}
+```
+
+The SDK will then read the provided remote track, decode the audio and write the PCM16 samples to the provided writer. By defeault, it pushes out 48kHz mono audio. The output sample rate and channels can also be configured by passsing as an option:
+
+```go
+pcmTrack, err := lkmedia.NewPCMRemoteTrack(remoteTrack, writer, lkmedia.WithTargetSampleRate(24000), lkmedia.WithTargetChannels(2))
+```
+
+Resampling to the target sample rate is handled internally, and so is upmixing/downmixing to the target channel count.
+
+The API also provides an option to handle jitter, this is enabled by default but you can disable it using:
+
+```go
+pcmTrack, err := lkmedia.NewPCMRemoteTrack(remoteTrack, writer, lkmedia.WithHandleJitter(false))
+```
+
+**Note**: Stereo remote tracks are currently not supported, they may result in unpleasant audio.
 
 ## Receiving webhooks
 

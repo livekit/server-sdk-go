@@ -3,9 +3,10 @@ package interceptor
 import (
 	"sync"
 
-	"github.com/livekit/mediatransportutil/pkg/pacer"
 	"github.com/pion/interceptor"
 	"github.com/pion/rtp"
+
+	"github.com/livekit/mediatransportutil/pkg/pacer"
 )
 
 type PacerInterceptorFactory struct {

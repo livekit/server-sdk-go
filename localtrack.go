@@ -23,7 +23,6 @@ import (
 	"sync"
 	"time"
 
-	protoLogger "github.com/livekit/protocol/logger"
 	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
@@ -34,6 +33,7 @@ import (
 	"go.uber.org/atomic"
 
 	"github.com/livekit/protocol/livekit"
+	protoLogger "github.com/livekit/protocol/logger"
 	"github.com/livekit/protocol/utils/guid"
 )
 
@@ -630,6 +630,8 @@ func payloaderForCodec(codec webrtc.RTPCodecCapability) (rtp.Payloader, error) {
 	switch strings.ToLower(codec.MimeType) {
 	case strings.ToLower(webrtc.MimeTypeH264):
 		return &codecs.H264Payloader{}, nil
+	case strings.ToLower(webrtc.MimeTypeH265):
+		return &codecs.H265Payloader{}, nil
 	case strings.ToLower(webrtc.MimeTypeOpus):
 		return &codecs.OpusPayloader{}, nil
 	case strings.ToLower(webrtc.MimeTypeVP8):
