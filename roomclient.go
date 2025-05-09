@@ -19,10 +19,11 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
+	"github.com/twitchtv/twirp"
+
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/utils/xtwirp"
-	"github.com/twitchtv/twirp"
 )
 
 type RoomServiceClient struct {

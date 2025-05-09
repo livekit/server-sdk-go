@@ -1,9 +1,10 @@
 package interceptor
 
 import (
-	"github.com/livekit/mediatransportutil"
 	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
+
+	"github.com/livekit/mediatransportutil"
 )
 
 type RTTInterceptorFactory struct {

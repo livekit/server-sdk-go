@@ -19,10 +19,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/livekit/protocol/livekit"
-	"github.com/livekit/protocol/utils/xtwirp"
 	"github.com/twitchtv/twirp"
 	"google.golang.org/protobuf/types/known/emptypb"
+
+	"github.com/livekit/protocol/livekit"
+	"github.com/livekit/protocol/utils/xtwirp"
 )
 
 //lint:file-ignore SA1019 We still support some deprecated functions for backward compatibility

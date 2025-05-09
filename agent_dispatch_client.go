@@ -18,8 +18,9 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/livekit/protocol/livekit"
 	"github.com/twitchtv/twirp"
+
+	"github.com/livekit/protocol/livekit"
 )
 
 type AgentDispatchClient struct {

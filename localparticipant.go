@@ -18,7 +18,6 @@ import (
 	"mime"
 	"os"
 	"path/filepath"
-
 	"sort"
 	"sync"
 	"time"

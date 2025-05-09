@@ -57,7 +57,7 @@ type RTCPWithError struct {
 }
 
 // NewMockStream creates a new MockStream
-func NewMockStream(info *interceptor.StreamInfo, i interceptor.Interceptor) *MockStream { //nolint
+func NewMockStream(info *interceptor.StreamInfo, i interceptor.Interceptor) *MockStream { // nolint
 	s := &MockStream{
 		interceptor:     i,
 		rtcpIn:          make(chan []rtcp.Packet, 1000),
