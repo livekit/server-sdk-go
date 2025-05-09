@@ -130,8 +130,11 @@ const (
 	RejectedByUser     DisconnectionReason = "rejected by remote user"
 	Failed             DisconnectionReason = "connection to room failed"
 	RoomClosed         DisconnectionReason = "room closed"
+	RoomDeleted        DisconnectionReason = "room deleted"
 	ParticipantRemoved DisconnectionReason = "removed by server"
 	DuplicateIdentity  DisconnectionReason = "duplicate identity"
+	Migration          DisconnectionReason = "migration"
+	ServerShutdown     DisconnectionReason = "server shutdown"
 	OtherReason        DisconnectionReason = "other reasons"
 )
 
@@ -147,11 +150,21 @@ func GetDisconnectionReason(reason livekit.DisconnectReason) DisconnectionReason
 		r = RejectedByUser
 	case livekit.DisconnectReason_ROOM_CLOSED:
 		r = RoomClosed
+	case livekit.DisconnectReason_ROOM_DELETED:
+		r = RoomDeleted
 	case livekit.DisconnectReason_PARTICIPANT_REMOVED:
 		r = ParticipantRemoved
 	case livekit.DisconnectReason_DUPLICATE_IDENTITY:
 		r = DuplicateIdentity
-	case livekit.DisconnectReason_JOIN_FAILURE, livekit.DisconnectReason_SIGNAL_CLOSE, livekit.DisconnectReason_STATE_MISMATCH:
+	case livekit.DisconnectReason_MIGRATION:
+		r = Migration
+	case livekit.DisconnectReason_SERVER_SHUTDOWN:
+		r = ServerShutdown
+	case livekit.DisconnectReason_JOIN_FAILURE,
+		livekit.DisconnectReason_SIGNAL_CLOSE,
+		livekit.DisconnectReason_STATE_MISMATCH,
+		livekit.DisconnectReason_CONNECTION_TIMEOUT,
+		livekit.DisconnectReason_SIP_TRUNK_FAILURE:
 		r = Failed
 	}
 	return r
