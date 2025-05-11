@@ -8,9 +8,9 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/livekit/mageutil v0.0.0-20250511045019-0f1ff63f7731
-	github.com/livekit/media-sdk v0.0.0-20250509163513-c48cb4191db9
-	github.com/livekit/mediatransportutil v0.0.0-20250310153736-45596af895b6
-	github.com/livekit/protocol v1.38.0
+	github.com/livekit/media-sdk v0.0.0-20250511052300-a374399fa4a0
+	github.com/livekit/mediatransportutil v0.0.0-20250511051814-c3eac11ffadf
+	github.com/livekit/protocol v1.38.1-0.20250511051327-eb5e002fe0bd
 	github.com/magefile/mage v1.15.0
 	github.com/pion/dtls/v3 v3.0.6
 	github.com/pion/interceptor v0.1.37
