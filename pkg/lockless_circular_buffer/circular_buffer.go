@@ -2,15 +2,16 @@ package lockless_circular_buffer
 
 import (
 	"runtime"
-	"sync/atomic"
 	"time"
 	"unsafe"
+
+	"go.uber.org/atomic"
 )
 
 type CircularBuffer[T any] struct {
 	buffer []T
-	head   uint32
-	tail   uint32
+	head   *atomic.Uint32
+	tail   *atomic.Uint32
 	mask   uint32
 	size   uint32
 
@@ -35,8 +36,8 @@ func NewCircularBuffer[T any](capacity uint32) *CircularBuffer[T] {
 
 	return &CircularBuffer[T]{
 		buffer: make([]T, capacity),
-		head:   0,
-		tail:   0,
+		head:   atomic.NewUint32(0),
+		tail:   atomic.NewUint32(0),
 		mask:   capacity - 1,
 		size:   capacity,
 	}
@@ -47,8 +48,8 @@ func (cb *CircularBuffer[T]) Push(item T) {
 	backoffMax := 32
 
 	for {
-		tail := atomic.LoadUint32(&cb.tail)
-		head := atomic.LoadUint32(&cb.head)
+		tail := cb.tail.Load()
+		head := cb.head.Load()
 
 		nextTail := (tail + 1) & cb.mask
 		if nextTail == head {
@@ -60,7 +61,7 @@ func (cb *CircularBuffer[T]) Push(item T) {
 			continue
 		}
 
-		if atomic.CompareAndSwapUint32(&cb.tail, tail, nextTail) {
+		if cb.tail.CompareAndSwap(tail, nextTail) {
 			cb.buffer[tail] = item
 			return
 		}
@@ -75,15 +76,15 @@ func (cb *CircularBuffer[T]) TryPush(item T) bool {
 	const maxAttempts = 5
 
 	for i := 0; i < maxAttempts; i++ {
-		tail := atomic.LoadUint32(&cb.tail)
-		head := atomic.LoadUint32(&cb.head)
+		tail := cb.tail.Load()
+		head := cb.head.Load()
 
 		nextTail := (tail + 1) & cb.mask
 		if nextTail == head {
 			return false
 		}
 
-		if atomic.CompareAndSwapUint32(&cb.tail, tail, nextTail) {
+		if cb.tail.CompareAndSwap(tail, nextTail) {
 			cb.buffer[tail] = item
 			return true
 		}
@@ -99,8 +100,8 @@ func (cb *CircularBuffer[T]) PushTimeout(item T, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 
 	for time.Now().Before(deadline) {
-		tail := atomic.LoadUint32(&cb.tail)
-		head := atomic.LoadUint32(&cb.head)
+		tail := cb.tail.Load()
+		head := cb.head.Load()
 
 		nextTail := (tail + 1) & cb.mask
 		if nextTail == head {
@@ -108,7 +109,7 @@ func (cb *CircularBuffer[T]) PushTimeout(item T, timeout time.Duration) bool {
 			continue
 		}
 
-		if atomic.CompareAndSwapUint32(&cb.tail, tail, nextTail) {
+		if cb.tail.CompareAndSwap(tail, nextTail) {
 			cb.buffer[tail] = item
 			return true
 		}
@@ -122,15 +123,15 @@ func (cb *CircularBuffer[T]) Pop() (T, bool) {
 	const maxAttempts = 5
 
 	for i := 0; i < maxAttempts; i++ {
-		head := atomic.LoadUint32(&cb.head)
-		tail := atomic.LoadUint32(&cb.tail)
+		head := cb.head.Load()
+		tail := cb.tail.Load()
 
 		if head == tail {
 			return zero, false
 		}
 
 		nextHead := (head + 1) & cb.mask
-		if atomic.CompareAndSwapUint32(&cb.head, head, nextHead) {
+		if cb.head.CompareAndSwap(head, nextHead) {
 			item := cb.buffer[head]
 			return item, true
 		}
@@ -147,8 +148,8 @@ func (cb *CircularBuffer[T]) PushBatch(items []T) int {
 		return 0
 	}
 
-	head := atomic.LoadUint32(&cb.head)
-	tail := atomic.LoadUint32(&cb.tail)
+	head := cb.head.Load()
+	tail := cb.tail.Load()
 
 	var availableSpace uint32
 	if head <= tail {
@@ -168,8 +169,8 @@ func (cb *CircularBuffer[T]) PushBatch(items []T) int {
 
 	pushed := uint32(0)
 	for pushed < batchSize {
-		tail = atomic.LoadUint32(&cb.tail)
-		head = atomic.LoadUint32(&cb.head)
+		tail = cb.tail.Load()
+		head = cb.head.Load()
 
 		if head <= tail {
 			availableSpace = cb.size - (tail - head) - 1
@@ -188,7 +189,7 @@ func (cb *CircularBuffer[T]) PushBatch(items []T) int {
 
 		newTail := (tail + currentBatchSize) & cb.mask
 
-		if atomic.CompareAndSwapUint32(&cb.tail, tail, newTail) {
+		if cb.tail.CompareAndSwap(tail, newTail) {
 			for i := uint32(0); i < currentBatchSize; i++ {
 				slotIndex := (tail + i) & cb.mask
 				cb.buffer[slotIndex] = items[pushed+i]
@@ -217,8 +218,8 @@ func (cb *CircularBuffer[T]) PopBatch(maxItems int) (int, []T) {
 		return 0, nil
 	}
 
-	head := atomic.LoadUint32(&cb.head)
-	tail := atomic.LoadUint32(&cb.tail)
+	head := cb.head.Load()
+	tail := cb.tail.Load()
 
 	var availableItems uint32
 	if tail >= head {
@@ -240,8 +241,8 @@ func (cb *CircularBuffer[T]) PopBatch(maxItems int) (int, []T) {
 	popped := uint32(0)
 
 	for popped < batchSize {
-		head = atomic.LoadUint32(&cb.head)
-		tail = atomic.LoadUint32(&cb.tail)
+		head = cb.head.Load()
+		tail = cb.tail.Load()
 
 		if tail >= head {
 			availableItems = tail - head
@@ -260,7 +261,7 @@ func (cb *CircularBuffer[T]) PopBatch(maxItems int) (int, []T) {
 
 		newHead := (head + currentBatchSize) & cb.mask
 
-		if atomic.CompareAndSwapUint32(&cb.head, head, newHead) {
+		if cb.head.CompareAndSwap(head, newHead) {
 			for i := uint32(0); i < currentBatchSize; i++ {
 				slotIndex := (head + i) & cb.mask
 				result = append(result, cb.buffer[slotIndex])
@@ -282,15 +283,15 @@ func (cb *CircularBuffer[T]) AddPreloaded(items []T) int {
 		return 0
 	}
 
-	prefetch(unsafe.Pointer(&cb.head))
-	prefetch(unsafe.Pointer(&cb.tail))
+	prefetch(unsafe.Pointer(cb.head))
+	prefetch(unsafe.Pointer(cb.tail))
 
 	return cb.PushBatch(items)
 }
 
 func (cb *CircularBuffer[T]) Size() uint32 {
-	head := atomic.LoadUint32(&cb.head)
-	tail := atomic.LoadUint32(&cb.tail)
+	head := cb.head.Load()
+	tail := cb.tail.Load()
 
 	if head == tail {
 		return 0
@@ -308,21 +309,21 @@ func (cb *CircularBuffer[T]) Capacity() uint32 {
 }
 
 func (cb *CircularBuffer[T]) IsEmpty() bool {
-	return atomic.LoadUint32(&cb.head) == atomic.LoadUint32(&cb.tail)
+	return cb.head.Load() == cb.tail.Load()
 }
 
 func (cb *CircularBuffer[T]) IsFull() bool {
-	head := atomic.LoadUint32(&cb.head)
-	tail := atomic.LoadUint32(&cb.tail)
+	head := cb.head.Load()
+	tail := cb.tail.Load()
 
 	return ((tail + 1) & cb.mask) == head
 }
 
 func (cb *CircularBuffer[T]) Clear() {
-	tail := atomic.LoadUint32(&cb.tail)
+	tail := cb.tail.Load()
 	for {
-		head := atomic.LoadUint32(&cb.head)
-		if head == tail || atomic.CompareAndSwapUint32(&cb.head, head, tail) {
+		head := cb.head.Load()
+		if head == tail || cb.head.CompareAndSwap(head, tail) {
 			break
 		}
 		runtime.Gosched()
