@@ -53,8 +53,12 @@ type PCMLocalTrack struct {
 	// TODO(anunaym14): switch out deque for a ring buffer
 	chunkBuffer *deque.Deque[int16]
 
-	mu     sync.Mutex
-	cond   *sync.Cond
+	mu   sync.Mutex
+	cond *sync.Cond
+
+	emptyBufMu   sync.Mutex
+	emptyBufCond *sync.Cond
+
 	closed atomic.Bool
 }
 
@@ -115,7 +119,7 @@ func NewPCMLocalTrack(sourceSampleRate int, sourceChannels int, logger protoLogg
 	}
 
 	t.cond = sync.NewCond(&t.mu)
-
+	t.emptyBufCond = sync.NewCond(&t.emptyBufMu)
 	go t.processSamples()
 	return t, nil
 }
@@ -130,6 +134,9 @@ func (t *PCMLocalTrack) waitUntilBufferHasChunks(count int) bool {
 	var didWait bool
 
 	for t.chunkBuffer.Len() < count && !t.closed.Load() {
+		t.emptyBufMu.Lock()
+		t.emptyBufCond.Broadcast()
+		t.emptyBufMu.Unlock()
 		t.cond.Wait()
 		didWait = true
 	}
@@ -145,7 +152,7 @@ func (t *PCMLocalTrack) getChunksFromBuffer() (media.PCM16Sample, bool) {
 		didWait = t.waitUntilBufferHasChunks(t.chunksPerSample)
 	}
 
-	if t.closed.Load() {
+	if t.closed.Load() && t.chunkBuffer.Len() == 0 {
 		return nil, false
 	}
 
@@ -179,7 +186,7 @@ func (t *PCMLocalTrack) processSamples() {
 	defer ticker.Stop()
 
 	for {
-		if t.closed.Load() {
+		if t.closed.Load() && t.chunkBuffer.Len() == 0 {
 			break
 		}
 
@@ -198,11 +205,25 @@ func (t *PCMLocalTrack) processSamples() {
 	}
 }
 
+func (t *PCMLocalTrack) WaitForPlayout() {
+	t.emptyBufMu.Lock()
+	defer t.emptyBufMu.Unlock()
+
+	for t.chunkBuffer.Len() > t.chunksPerSample {
+		t.emptyBufCond.Wait()
+	}
+}
+
+func (t *PCMLocalTrack) ClearQueue() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.chunkBuffer.Clear()
+}
+
 func (t *PCMLocalTrack) Close() {
 	if t.closed.CompareAndSwap(false, true) {
 		t.mu.Lock()
 		defer t.mu.Unlock()
-		t.chunkBuffer.Clear()
 		t.cond.Broadcast()
 		t.resampledPCMWriter.Close()
 		t.pcmWriter.Close()
