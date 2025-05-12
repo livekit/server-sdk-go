@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gammazero/deque"
 	"github.com/google/uuid"
 	"github.com/pion/webrtc/v4"
 	"go.uber.org/atomic"
@@ -16,12 +15,15 @@ import (
 	"github.com/livekit/media-sdk/opus"
 	"github.com/livekit/media-sdk/rtp"
 	protoLogger "github.com/livekit/protocol/logger"
+	buffer "github.com/livekit/server-sdk-go/v2/pkg/lockless_circular_buffer"
 )
 
 const (
 	DefaultOpusSampleRate     = 48000
 	DefaultOpusSampleDuration = 20 * time.Millisecond
 	defaultPCMSampleDuration  = 10000 * time.Microsecond
+	// todo(anunaym14): make this configurable
+	defaultBufferCapacity = 32768
 )
 
 type PCMLocalTrackParams struct {
@@ -49,13 +51,10 @@ type PCMLocalTrack struct {
 	chunksPerSample      int
 	writeSilenceOnNoData bool
 
-	// int16 to support a LE/BE PCM16 chunk that has a high byte and low byte
-	// TODO(anunaym14): switch out deque for a ring buffer
-	chunkBuffer *deque.Deque[int16]
+	chunkBuffer *buffer.CircularBuffer[int16]
 
-	mu   sync.Mutex
-	cond *sync.Cond
-
+	writeBufMu   sync.Mutex
+	writeBufCond *sync.Cond
 	emptyBufMu   sync.Mutex
 	emptyBufCond *sync.Cond
 
@@ -113,58 +112,48 @@ func NewPCMLocalTrack(sourceSampleRate int, sourceChannels int, logger protoLogg
 		sourceSampleRate:       sourceSampleRate,
 		frameDuration:          defaultPCMSampleDuration,
 		sourceChannels:         sourceChannels,
-		chunkBuffer:            new(deque.Deque[int16]),
+		chunkBuffer:            buffer.NewCircularBuffer[int16](defaultBufferCapacity),
 		chunksPerSample:        (sourceSampleRate * sourceChannels * int(defaultPCMSampleDuration/time.Nanosecond)) / 1e9,
 		writeSilenceOnNoData:   params.WriteSilenceOnNoData,
 	}
 
-	t.cond = sync.NewCond(&t.mu)
+	t.writeBufCond = sync.NewCond(&t.writeBufMu)
 	t.emptyBufCond = sync.NewCond(&t.emptyBufMu)
 	go t.processSamples()
 	return t, nil
 }
 
-func (t *PCMLocalTrack) pushChunksToBuffer(sample media.PCM16Sample) {
-	for _, chunk := range sample {
-		t.chunkBuffer.PushBack(chunk)
-	}
-}
-
 func (t *PCMLocalTrack) waitUntilBufferHasChunks(count int) bool {
-	var didWait bool
+	t.writeBufMu.Lock()
+	defer t.writeBufMu.Unlock()
 
-	for t.chunkBuffer.Len() < count && !t.closed.Load() {
+	didWait := false
+	for int(t.chunkBuffer.Size()) < count && !t.closed.Load() {
 		t.emptyBufMu.Lock()
 		t.emptyBufCond.Broadcast()
 		t.emptyBufMu.Unlock()
-		t.cond.Wait()
+
 		didWait = true
+		t.writeBufCond.Wait()
 	}
 
 	return didWait
 }
 
 func (t *PCMLocalTrack) getChunksFromBuffer() (media.PCM16Sample, bool) {
-	chunks := make(media.PCM16Sample, t.chunksPerSample)
-
 	var didWait = false
+
 	if !t.writeSilenceOnNoData {
 		didWait = t.waitUntilBufferHasChunks(t.chunksPerSample)
 	}
 
-	if t.closed.Load() && t.chunkBuffer.Len() == 0 {
+	if t.closed.Load() && t.chunkBuffer.IsEmpty() {
 		return nil, false
 	}
 
-	for i := 0; i < t.chunksPerSample; i++ {
-		if t.chunkBuffer.Len() == 0 {
-			// this will zero-init at index i, which will be a silent chunk.
-			// if writeSilenceOnNoData is false, this condition will never be true.
-			continue
-		} else {
-			chunks[i] = t.chunkBuffer.PopFront()
-		}
-	}
+	_, items := t.chunkBuffer.PopBatch(t.chunksPerSample)
+	chunks := make(media.PCM16Sample, t.chunksPerSample)
+	copy(chunks, items)
 
 	return chunks, didWait
 }
@@ -174,10 +163,13 @@ func (t *PCMLocalTrack) WriteSample(sample media.PCM16Sample) error {
 		return errors.New("track is closed")
 	}
 
-	t.mu.Lock()
-	t.pushChunksToBuffer(sample)
-	t.cond.Broadcast()
-	t.mu.Unlock()
+	t.chunkBuffer.PushBatchBlocking(sample)
+
+	// Signal waiting goroutines that new samples are available
+	t.writeBufMu.Lock()
+	t.writeBufCond.Broadcast()
+	t.writeBufMu.Unlock()
+
 	return nil
 }
 
@@ -186,11 +178,10 @@ func (t *PCMLocalTrack) processSamples() {
 	defer ticker.Stop()
 
 	for {
-		if t.closed.Load() && t.chunkBuffer.Len() == 0 {
+		if t.closed.Load() && int(t.chunkBuffer.Size()) > t.chunksPerSample {
 			break
 		}
 
-		t.mu.Lock()
 		sample, didWait := t.getChunksFromBuffer()
 		if sample != nil {
 			// sample is only nil when the track is closed, so we don't need to
@@ -200,34 +191,40 @@ func (t *PCMLocalTrack) processSamples() {
 				ticker.Reset(t.frameDuration)
 			}
 		}
-		t.mu.Unlock()
 		<-ticker.C
 	}
+
+	t.resampledPCMWriter.Close()
+	t.pcmWriter.Close()
+	t.opusWriter.Close()
 }
 
 func (t *PCMLocalTrack) WaitForPlayout() {
 	t.emptyBufMu.Lock()
 	defer t.emptyBufMu.Unlock()
 
-	for t.chunkBuffer.Len() > t.chunksPerSample {
+	for t.chunkBuffer.Size() > uint32(t.chunksPerSample) {
 		t.emptyBufCond.Wait()
 	}
 }
 
 func (t *PCMLocalTrack) ClearQueue() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
 	t.chunkBuffer.Clear()
+
+	t.emptyBufMu.Lock()
+	t.emptyBufCond.Broadcast()
+	t.emptyBufMu.Unlock()
 }
 
 func (t *PCMLocalTrack) Close() {
 	if t.closed.CompareAndSwap(false, true) {
-		t.mu.Lock()
-		defer t.mu.Unlock()
-		t.cond.Broadcast()
-		t.resampledPCMWriter.Close()
-		t.pcmWriter.Close()
-		t.opusWriter.Close()
+		t.writeBufMu.Lock()
+		t.writeBufCond.Broadcast()
+		t.writeBufMu.Unlock()
+
+		t.emptyBufMu.Lock()
+		t.emptyBufCond.Broadcast()
+		t.emptyBufMu.Unlock()
 	}
 }
 

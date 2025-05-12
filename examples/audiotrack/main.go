@@ -126,8 +126,6 @@ func handlePublish(room *lksdk.Room) {
 			if err != nil {
 				logger.Errorw("error writing sample", err)
 			}
-			// temp: some delay before writing next sample
-			time.Sleep(15 * time.Millisecond)
 		}
 	}
 }
