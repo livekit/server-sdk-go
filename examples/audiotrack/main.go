@@ -108,7 +108,10 @@ func handlePublish(room *lksdk.Room) {
 	if err != nil {
 		panic(err)
 	}
-	defer publishTrack.Close()
+	defer func() {
+		publishTrack.ClearQueue()
+		publishTrack.Close()
+	}()
 
 	if _, err = room.LocalParticipant.PublishTrack(publishTrack, &lksdk.TrackPublicationOptions{
 		Name: "test",
