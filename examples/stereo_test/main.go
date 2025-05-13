@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	media "github.com/livekit/media-sdk"
 	opus "github.com/livekit/media-sdk/opus"
@@ -17,6 +18,8 @@ import (
 
 //go:embed stereo.opus
 var stereoOpus []byte
+
+var totalDuration = 0 * time.Nanosecond
 
 type PCM16Writer struct {
 	file       *os.File
@@ -74,6 +77,11 @@ func processOggOpus(reader io.Reader, opusDecoder media.WriteCloser[opus.Sample]
 		}
 
 		if len(packet) > 0 {
+			duration, err := oggreader.ParsePacketDuration(packet)
+			if err != nil {
+				return fmt.Errorf("failed to parse ogg packet duration: %w", err)
+			}
+			totalDuration += duration
 			err = opusDecoder.WriteSample(opus.Sample(packet))
 			if err != nil {
 				return fmt.Errorf("failed to write opus packet: %w", err)
@@ -111,4 +119,5 @@ func main() {
 		fmt.Printf("Error processing Ogg opus: %v\n", err)
 		return
 	}
+	fmt.Printf("Total duration: %v\n", totalDuration)
 }
