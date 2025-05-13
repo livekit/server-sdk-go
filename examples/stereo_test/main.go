@@ -20,6 +20,7 @@ import (
 var stereoOpus []byte
 
 var totalDuration = 0 * time.Nanosecond
+var totalPCMDuration = 0 * time.Nanosecond
 
 type PCM16Writer struct {
 	file       *os.File
@@ -38,6 +39,8 @@ func (w *PCM16Writer) WriteSample(sample media.PCM16Sample) error {
 	for i := 0; i < len(sample); i++ {
 		binary.LittleEndian.PutUint16(sampleBytes[i*2:], uint16(sample[i]))
 	}
+
+	totalPCMDuration += time.Duration(len(sample)) * time.Second / time.Duration(w.sampleRate)
 
 	_, err := w.file.Write(sampleBytes)
 	return err
@@ -120,4 +123,5 @@ func main() {
 		return
 	}
 	fmt.Printf("Total duration: %v\n", totalDuration)
+	fmt.Printf("Total PCM duration: %v\n", totalPCMDuration)
 }
