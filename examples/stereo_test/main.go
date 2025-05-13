@@ -40,7 +40,7 @@ func (w *PCM16Writer) WriteSample(sample media.PCM16Sample) error {
 		binary.LittleEndian.PutUint16(sampleBytes[i*2:], uint16(sample[i]))
 	}
 
-	totalPCMDuration += time.Duration(len(sample)) * time.Second / time.Duration(w.sampleRate)
+	totalPCMDuration += time.Duration(len(sample)/2) * time.Second / time.Duration(w.sampleRate)
 
 	_, err := w.file.Write(sampleBytes)
 	return err
