@@ -133,10 +133,16 @@ func (t *PCMLocalTrack) pushChunksToBuffer(sample media.PCM16Sample) {
 func (t *PCMLocalTrack) waitUntilBufferHasChunks(count int) bool {
 	var didWait bool
 
+	if t.closed.Load() && t.chunkBuffer.Len() > 0 {
+		// write whatever is left, with silence as filler
+		return false
+	}
+
 	for t.chunkBuffer.Len() < count && !t.closed.Load() {
 		t.emptyBufMu.Lock()
 		t.emptyBufCond.Broadcast()
 		t.emptyBufMu.Unlock()
+
 		t.cond.Wait()
 		didWait = true
 	}
@@ -159,7 +165,8 @@ func (t *PCMLocalTrack) getChunksFromBuffer() (media.PCM16Sample, bool) {
 	for i := 0; i < t.chunksPerSample; i++ {
 		if t.chunkBuffer.Len() == 0 {
 			// this will zero-init at index i, which will be a silent chunk.
-			// if writeSilenceOnNoData is false, this condition will never be true.
+			// if writeSilenceOnNoData is false, this condition will only be true
+			// when the track is closed and the buffer does not have enough chunks.
 			continue
 		} else {
 			chunks[i] = t.chunkBuffer.PopFront()
@@ -203,14 +210,26 @@ func (t *PCMLocalTrack) processSamples() {
 		t.mu.Unlock()
 		<-ticker.C
 	}
+
+	// closing the writers here because we continue to write on close
+	// until the buffer is empty
+	t.resampledPCMWriter.Close()
+	t.pcmWriter.Close()
+	t.opusWriter.Close()
 }
 
 func (t *PCMLocalTrack) WaitForPlayout() {
 	t.emptyBufMu.Lock()
 	defer t.emptyBufMu.Unlock()
 
-	for t.chunkBuffer.Len() > t.chunksPerSample {
-		t.emptyBufCond.Wait()
+	if t.writeSilenceOnNoData {
+		for t.chunkBuffer.Len() > 0 {
+			t.emptyBufCond.Wait()
+		}
+	} else {
+		for t.chunkBuffer.Len() > t.chunksPerSample {
+			t.emptyBufCond.Wait()
+		}
 	}
 }
 
@@ -223,11 +242,8 @@ func (t *PCMLocalTrack) ClearQueue() {
 func (t *PCMLocalTrack) Close() {
 	if t.closed.CompareAndSwap(false, true) {
 		t.mu.Lock()
-		defer t.mu.Unlock()
 		t.cond.Broadcast()
-		t.resampledPCMWriter.Close()
-		t.pcmWriter.Close()
-		t.opusWriter.Close()
+		t.mu.Unlock()
 	}
 }
 
