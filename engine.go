@@ -382,10 +382,11 @@ func (e *RTCEngine) configure(
 	}
 
 	trueVal := true
+	falseVal := false
 	maxRetries := uint16(1)
 	e.dclock.Lock()
 	e.lossyDC, err = e.publisher.PeerConnection().CreateDataChannel(lossyDataChannelName, &webrtc.DataChannelInit{
-		Ordered:        &trueVal,
+		Ordered:        &falseVal,
 		MaxRetransmits: &maxRetries,
 	})
 	if err != nil {
