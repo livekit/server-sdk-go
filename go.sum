@@ -93,8 +93,8 @@ github.com/lithammer/shortuuid/v4 v4.2.0 h1:LMFOzVB3996a7b8aBuEXxqOBflbfPQAiVzkI
 github.com/lithammer/shortuuid/v4 v4.2.0/go.mod h1:D5noHZ2oFw/YaKCfGy0YxyE7M0wMbezmMjPdhyEFe6Y=
 github.com/livekit/mageutil v0.0.0-20250511045019-0f1ff63f7731 h1:9x+U2HGLrSw5ATTo469PQPkqzdoU7be46ryiCDO3boc=
 github.com/livekit/mageutil v0.0.0-20250511045019-0f1ff63f7731/go.mod h1:Rs3MhFwutWhGwmY1VQsygw28z5bWcnEYmS1OG9OxjOQ=
-github.com/livekit/media-sdk v0.0.0-20250511054059-f220dcc74840 h1:35pTREMDJNg0e8su/Wku34np5ktektnE5jRM43HA+Kk=
-github.com/livekit/media-sdk v0.0.0-20250511054059-f220dcc74840/go.mod h1:Fz80YG1ZoEG0uHqTPmk6LDO8WGzygO0ED39MLKuw3EY=
+github.com/livekit/media-sdk v0.0.0-20250514070716-74b488e25cc7 h1:eSyu9SDuyo+cjkCUwCc667veeiHioYeD4P8iB+RTjNo=
+github.com/livekit/media-sdk v0.0.0-20250514070716-74b488e25cc7/go.mod h1:/Ir+SFEo0m6Aip2ZxjjSUS2jfoUX932YakBudnPLn5M=
 github.com/livekit/mediatransportutil v0.0.0-20250511054114-5f8c73435f62 h1:ooMExsbtVSrv0A/I47XDZ6sS7hhs31Ds5KV7JLNkMOA=
 github.com/livekit/mediatransportutil v0.0.0-20250511054114-5f8c73435f62/go.mod h1:wD1D23CU9z/WWoHrcd0mwVMayzYtRpkUgtOrgwk4m3c=
 github.com/livekit/protocol v1.38.1-0.20250511053429-f8ea8179871e h1:qa0NFwLRJy0UJft8gxMkujMSoo6B6wg+FMRmLKlW4ks=
