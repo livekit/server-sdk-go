@@ -351,8 +351,6 @@ The API also provides an option to handle jitter, this is enabled by default but
 pcmTrack, err := lkmedia.NewPCMRemoteTrack(remoteTrack, writer, lkmedia.WithHandleJitter(false))
 ```
 
-**Note**: Stereo remote tracks are currently not supported, they may result in unpleasant audio.
-
 ## Receiving webhooks
 
 The Go SDK helps you to verify and decode webhook callbacks to ensure their authenticity.
