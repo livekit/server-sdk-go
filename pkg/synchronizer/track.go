@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	maxAdjustment = time.Millisecond * 10
+	maxAdjustment = time.Millisecond * 5
 	maxTSDiff     = time.Minute
 )
 
@@ -57,19 +57,10 @@ type TrackSynchronizer struct {
 	// offsets
 	currentPTSOffset time.Duration // presentation timestamp offset (used for a/v sync)
 	desiredPTSOffset time.Duration // desired presentation timestamp offset (used for a/v sync)
-	ptsOffset        time.Duration // current PTS offset
 
 	// sender reports
 	lastSR uint32
-	stats  *trackStats
-}
-
-type trackStats struct {
-	drift time.Duration
-}
-
-func (s *trackStats) updateDrift(drift time.Duration) {
-	s.drift = drift
+	onSR   func(duration time.Duration)
 }
 
 func newTrackSynchronizer(s *Synchronizer, track TrackRemote) *TrackSynchronizer {
@@ -78,10 +69,16 @@ func newTrackSynchronizer(s *Synchronizer, track TrackRemote) *TrackSynchronizer
 		track:        track,
 		logger:       logger.GetLogger().WithValues("trackID", track.ID(), "codec", track.Codec().MimeType),
 		rtpConverter: newRTPConverter(int64(track.Codec().ClockRate)),
-		stats:        &trackStats{},
 	}
 
 	return t
+}
+
+func (t *TrackSynchronizer) OnSenderReport(f func(drift time.Duration)) {
+	t.Lock()
+	defer t.Unlock()
+
+	t.onSR = f
 }
 
 // Initialize should be called as soon as the first packet is received
@@ -93,6 +90,7 @@ func (t *TrackSynchronizer) Initialize(pkt *rtp.Packet) {
 	defer t.Unlock()
 
 	t.currentPTSOffset = time.Duration(now.UnixNano() - startedAt)
+	t.desiredPTSOffset = t.currentPTSOffset
 
 	t.startRTP = pkt.Timestamp
 	t.lastTS = pkt.Timestamp
@@ -162,6 +160,10 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 	}
 
 	offset := mediatransportutil.NtpTime(pkt.NTPTime).Time().Sub(t.startTime.Add(pts))
+	if t.onSR != nil {
+		t.onSR(offset - t.desiredPTSOffset)
+	}
+
 	if !acceptable(offset) {
 		return
 	}
