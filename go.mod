@@ -8,7 +8,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/livekit/mageutil v0.0.0-20250511045019-0f1ff63f7731
-	github.com/livekit/media-sdk v0.0.0-20250511054059-f220dcc74840
+	github.com/livekit/media-sdk v0.0.0-20250514070716-74b488e25cc7
 	github.com/livekit/mediatransportutil v0.0.0-20250511054114-5f8c73435f62
 	github.com/livekit/protocol v1.38.1-0.20250511053429-f8ea8179871e
 	github.com/magefile/mage v1.15.0
