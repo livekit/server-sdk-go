@@ -36,7 +36,7 @@ import (
 	protoLogger "github.com/livekit/protocol/logger"
 )
 
-const PROTOCOL = 12
+const PROTOCOL = 16
 
 type SignalClient struct {
 	log             protoLogger.Logger
@@ -55,6 +55,7 @@ type SignalClient struct {
 	OnSpeakersChanged       func([]*livekit.SpeakerInfo)
 	OnConnectionQuality     func([]*livekit.ConnectionQualityInfo)
 	OnRoomUpdate            func(room *livekit.Room)
+	OnRoomMoved             func(moved *livekit.RoomMovedResponse)
 	OnTrackRemoteMuted      func(request *livekit.MuteTrackRequest)
 	OnLocalTrackUnpublished func(response *livekit.TrackUnpublishedResponse)
 	OnTokenRefresh          func(refreshToken string)
@@ -385,6 +386,15 @@ func (c *SignalClient) handleResponse(res *livekit.SignalResponse) {
 		if c.OnRoomUpdate != nil {
 			c.OnRoomUpdate(msg.RoomUpdate.Room)
 		}
+	case *livekit.SignalResponse_RoomMoved:
+		if c.OnTokenRefresh != nil {
+			c.OnTokenRefresh(msg.RoomMoved.Token)
+		}
+
+		if c.OnRoomMoved != nil {
+			c.OnRoomMoved(msg.RoomMoved)
+		}
+
 	case *livekit.SignalResponse_Leave:
 		if c.OnLeave != nil {
 			c.OnLeave(msg.Leave)
