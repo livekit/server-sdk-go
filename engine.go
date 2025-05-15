@@ -79,6 +79,7 @@ type RTCEngine struct {
 	OnDataPacket            func(identity string, dataPacket DataPacket)
 	OnConnectionQuality     func([]*livekit.ConnectionQualityInfo)
 	OnRoomUpdate            func(room *livekit.Room)
+	OnRoomMoved             func(moved *livekit.RoomMovedResponse)
 	OnRestarting            func()
 	OnRestarted             func(*livekit.JoinResponse)
 	OnResuming              func()
@@ -127,6 +128,11 @@ func NewRTCEngine() *RTCEngine {
 	e.client.OnRoomUpdate = func(room *livekit.Room) {
 		if f := e.OnRoomUpdate; f != nil {
 			f(room)
+		}
+	}
+	e.client.OnRoomMoved = func(moved *livekit.RoomMovedResponse) {
+		if f := e.OnRoomMoved; f != nil {
+			f(moved)
 		}
 	}
 	e.client.OnLeave = e.handleLeave
@@ -783,18 +789,23 @@ func (e *RTCEngine) createPublisherAnswerAndSend() error {
 }
 
 func (e *RTCEngine) handleLeave(leave *livekit.LeaveRequest) {
-	if leave.GetCanReconnect() {
-		e.handleDisconnect(true)
-	} else {
+	e.log.Debugw("received leave request", "action", leave.GetAction())
+	switch leave.GetAction() {
+	case livekit.LeaveRequest_DISCONNECT:
+		e.Close()
 		reason := leave.GetReason()
-		e.log.Infow("server initiated leave",
-			"reason", reason,
-			"canReconnect", leave.GetCanReconnect(),
-		)
+		e.log.Infow("server initiated leave", "reason", reason)
 		if e.OnDisconnected != nil {
-			// TODO: migrate to LeaveRequest.Action
 			e.OnDisconnected(GetDisconnectionReason(reason))
 		}
+
+	case livekit.LeaveRequest_RECONNECT:
+		e.handleDisconnect(true)
+
+	case livekit.LeaveRequest_RESUME:
+		e.handleDisconnect(false)
+
+	default:
 	}
 }
 

@@ -209,6 +209,7 @@ func NewRoom(callback *RoomCallback) *Room {
 	engine.OnDataPacket = r.handleDataReceived
 	engine.OnConnectionQuality = r.handleConnectionQualityUpdate
 	engine.OnRoomUpdate = r.handleRoomUpdate
+	engine.OnRoomMoved = r.handleRoomMoved
 	engine.OnRestarting = r.handleRestarting
 	engine.OnRestarted = r.handleRestarted
 	engine.OnResuming = r.handleResuming
@@ -758,6 +759,22 @@ func (r *Room) handleRoomUpdate(room *livekit.Room) {
 	if metadataChanged {
 		go r.callback.OnRoomMetadataChanged(room.Metadata)
 	}
+}
+
+func (r *Room) handleRoomMoved(moved *livekit.RoomMovedResponse) {
+	r.log.Infow("room moved", "newRoom", moved.Room.Name)
+	r.handleRoomUpdate(moved.Room)
+
+	for _, rp := range r.GetRemoteParticipants() {
+		r.handleParticipantDisconnect(rp)
+	}
+
+	go r.callback.OnRoomMoved(moved.Room.Name, moved.Token)
+
+	infos := make([]*livekit.ParticipantInfo, 0, len(moved.OtherParticipants)+1)
+	infos = append(infos, moved.Participant)
+	infos = append(infos, moved.OtherParticipants...)
+	r.handleParticipantUpdate(infos)
 }
 
 func (r *Room) handleTrackRemoteMuted(msg *livekit.MuteTrackRequest) {
