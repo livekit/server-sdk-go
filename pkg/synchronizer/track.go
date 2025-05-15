@@ -15,9 +15,7 @@
 package synchronizer
 
 import (
-	"errors"
 	"io"
-	"math"
 	"sync"
 	"time"
 
@@ -30,15 +28,9 @@ import (
 )
 
 const (
-	ewmaWeight           = 0.9
-	maxAdjustment        = time.Millisecond * 15
-	maxTSDiff            = time.Minute
-	maxSNDropout         = 3000 // max sequence number skip
-	uint32Half     int64 = 2147483648
-	uint32Overflow int64 = 4294967296
+	maxAdjustment = time.Millisecond * 5
+	maxTSDiff     = time.Minute
 )
-
-var ErrBackwardsPTS = errors.New("backwards pts")
 
 type TrackRemote interface {
 	ID() string
@@ -52,31 +44,23 @@ type TrackSynchronizer struct {
 	sync   *Synchronizer
 	track  TrackRemote
 	logger logger.Logger
+	*rtpConverter
 
-	// track stats
-	stats        *TrackStats
-	rtpConverter rtpConverter
+	// timing info
+	startTime       time.Time     // time first packet was pushed
+	startRTP        uint32        // RTP timestamp of PTS 0
+	lastTS          uint32        // previous RTP timestamp
+	lastPTS         time.Duration // previous presentation timestamp
+	lastPTSAdjusted time.Duration // previous adjusted presentation timestamp
+	maxPTS          time.Duration // maximum valid PTS (set after EOS)
+
+	// offsets
+	currentPTSOffset time.Duration // presentation timestamp offset (used for a/v sync)
+	desiredPTSOffset time.Duration // desired presentation timestamp offset (used for a/v sync)
 
 	// sender reports
 	lastSR uint32
-
-	// timing info
-	startedAt time.Time     // starting time
-	firstTS   int64         // first RTP timestamp received
-	maxPTS    time.Duration // maximum valid PTS (set after EOS)
-
-	// previous packet info
-	backwards  int
-	lastPacket time.Time     // previous packet received
-	lastSN     uint16        // previous sequence number
-	lastTS     int64         // previous RTP timestamp
-	lastPTS    time.Duration // previous presentation timestamp
-	lastValid  bool          // previous packet did not cause a reset
-	inserted   int64         // number of frames inserted
-
-	// offsets
-	snOffset  uint16        // sequence number offset (increases with each blank frame inserted)
-	ptsOffset time.Duration // presentation timestamp offset (used for a/v sync)
+	onSR   func(duration time.Duration)
 }
 
 func newTrackSynchronizer(s *Synchronizer, track TrackRemote) *TrackSynchronizer {
@@ -84,32 +68,34 @@ func newTrackSynchronizer(s *Synchronizer, track TrackRemote) *TrackSynchronizer
 		sync:         s,
 		track:        track,
 		logger:       logger.GetLogger().WithValues("trackID", track.ID(), "codec", track.Codec().MimeType),
-		stats:        &TrackStats{},
 		rtpConverter: newRTPConverter(int64(track.Codec().ClockRate)),
-	}
-
-	switch track.Kind() {
-	case webrtc.RTPCodecTypeAudio:
-		// opus default packet size is 20ms
-		t.stats.AvgSampleDuration = float64(track.Codec().ClockRate) / 50
-	default:
-		// 30 fps for video
-		t.stats.AvgSampleDuration = float64(track.Codec().ClockRate) / 30
 	}
 
 	return t
 }
 
+func (t *TrackSynchronizer) OnSenderReport(f func(drift time.Duration)) {
+	t.Lock()
+	defer t.Unlock()
+
+	t.onSR = f
+}
+
 // Initialize should be called as soon as the first packet is received
 func (t *TrackSynchronizer) Initialize(pkt *rtp.Packet) {
-	now := time.Now().UnixNano()
-	startedAt := t.sync.getOrSetStartedAt(now)
+	now := time.Now()
+	startedAt := t.sync.getOrSetStartedAt(now.UnixNano())
 
 	t.Lock()
-	t.startedAt = time.Unix(0, startedAt)
-	t.firstTS = int64(pkt.Timestamp)
-	t.ptsOffset = time.Duration(now - startedAt)
-	t.Unlock()
+	defer t.Unlock()
+
+	t.currentPTSOffset = time.Duration(now.UnixNano() - startedAt)
+	t.desiredPTSOffset = t.currentPTSOffset
+
+	t.startRTP = pkt.Timestamp
+	t.lastTS = pkt.Timestamp
+	t.lastPTS = 0
+	t.lastPTSAdjusted = t.currentPTSOffset
 }
 
 // GetPTS will reset sequence numbers and/or offsets if necessary
@@ -118,297 +104,99 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 	t.Lock()
 	defer t.Unlock()
 
-	ts, pts, valid := t.adjust(pkt)
-	if pts < t.lastPTS {
-		if t.backwards == 0 {
-			t.logger.Warnw("backwards pts", ErrBackwardsPTS,
-				"timestamp", pkt.Timestamp,
-				"sequence number", pkt.SequenceNumber,
-				"pts", pts,
-				"last pts", t.lastPTS,
-				"last timestamp", t.lastTS,
-				"last sn", t.lastSN,
-			)
-		}
-		t.backwards++
-		return 0, ErrBackwardsPTS
-	} else if t.backwards > 0 {
-		t.logger.Warnw("packet dropped", ErrBackwardsPTS,
-			"count", t.backwards,
-		)
-		t.backwards = 0
+	if t.startTime.IsZero() {
+		t.startTime = time.Now()
 	}
 
-	// update frame duration if this is a new frame and both packets are valid
-	if valid && t.lastValid && pkt.SequenceNumber == t.lastSN+1 {
-		t.stats.updateSampleDuration(ts - t.lastTS)
+	ts := pkt.Timestamp
+	if ts == t.lastTS {
+		return t.lastPTSAdjusted, nil
 	}
+
+	pts := t.lastPTS + t.toDuration(ts-t.lastTS)
+	estimatedPTS := time.Since(t.startTime)
+	if pts < t.lastPTS || !acceptable(pts-estimatedPTS) {
+		pts = estimatedPTS
+		t.startRTP = ts - t.toRTP(pts)
+	}
+
+	if t.currentPTSOffset > t.desiredPTSOffset {
+		t.currentPTSOffset = max(t.currentPTSOffset-maxAdjustment, t.desiredPTSOffset)
+	} else if t.currentPTSOffset < t.desiredPTSOffset {
+		t.currentPTSOffset = min(t.currentPTSOffset+maxAdjustment, t.desiredPTSOffset)
+	}
+	adjusted := pts + t.currentPTSOffset
 
 	// if past end time, return EOF
-	if t.maxPTS > 0 && (pts > t.maxPTS || !valid) {
+	if t.maxPTS > 0 && (adjusted > t.maxPTS) {
 		return 0, io.EOF
 	}
 
 	// update previous values
-	t.lastPacket = time.Now()
 	t.lastTS = ts
-	t.lastSN = pkt.SequenceNumber
 	t.lastPTS = pts
-	t.lastValid = valid
-	t.inserted = 0
+	t.lastPTSAdjusted = adjusted
 
-	return pts, nil
-}
-
-// adjust accounts for uint32 overflow, and will reset sequence numbers or rtp time if necessary
-func (t *TrackSynchronizer) adjust(pkt *rtp.Packet) (int64, time.Duration, bool) {
-	if t.lastPacket.IsZero() {
-		ts := int64(pkt.Timestamp)
-		for ts < t.firstTS-uint32Half {
-			ts += uint32Overflow
-		}
-		pts := t.getPTS(ts)
-		return ts, pts, true
-	}
-
-	// adjust sequence number and reset if needed
-	pkt.SequenceNumber += t.snOffset
-	if t.lastTS != 0 &&
-		pkt.SequenceNumber-t.lastSN > maxSNDropout &&
-		t.lastSN-pkt.SequenceNumber > maxSNDropout {
-
-		// reset sequence numbers
-		t.snOffset += t.lastSN + 1 - pkt.SequenceNumber
-		pkt.SequenceNumber = t.lastSN + 1
-
-		// reset RTP timestamps
-		ts, pts := t.resetRTP(pkt, []any{"reason", "SN gap"})
-		return ts, pts, false
-	}
-
-	// adjust timestamp for uint32 wrap
-	ts := int64(pkt.Timestamp)
-	for ts < t.lastTS-uint32Half {
-		ts += uint32Overflow
-	}
-
-	// use the previous pts if this packet has the same timestamp
-	if ts == t.lastTS {
-		return ts, t.lastPTS, t.lastValid
-	}
-
-	// sanity check
-	pts := t.getPTS(ts)
-	if expected := time.Since(t.startedAt.Add(t.ptsOffset)); pts > expected+maxTSDiff {
-		// reset RTP timestamps
-		ts, pts = t.resetRTP(pkt, []any{
-			"reason", "pts out of bounds",
-			"pts", pts,
-			"expectedPTS", expected,
-		})
-		return ts, pts, false
-	}
-
-	return ts, pts, true
-}
-
-func (t *TrackSynchronizer) getPTS(ts int64) time.Duration {
-	return t.rtpConverter.toDuration(ts-t.firstTS) + t.ptsOffset
-}
-
-func (t *TrackSynchronizer) resetRTP(pkt *rtp.Packet, fields []any) (int64, time.Duration) {
-	frameDuration := t.getFrameDuration()                     // avg frame duration
-	frames := int64(time.Since(t.lastPacket) / frameDuration) // number of frames we expect since the last packet
-	duration := t.getFrameDurationRTP() * frames              // expected increase in RTP time
-	ts := t.lastTS + duration                                 // expected new RTP time
-	pts := t.lastPTS + t.rtpConverter.toDuration(duration)    // expected new PTS
-
-	t.firstTS += int64(pkt.Timestamp) - ts // reset firstTS to align with new ts
-
-	fields = append(fields,
-		"pktTS", pkt.Timestamp,
-		"pktSN", pkt.SequenceNumber,
-		"prevTS", t.lastTS,
-		"prevSN", t.lastSN,
-		"frameDuration", frameDuration,
-		"prevPTS", t.lastPTS,
-		"adjustedTS", ts,
-		"adjustedPTS", pts,
-	)
-
-	t.logger.Infow("resetting track synchronizer", fields...)
-
-	return ts, pts
-}
-
-// InsertFrame is used to inject frames (usually blank) into the stream
-// It updates the timestamp and sequence number of the packet, as well as offsets for all future packets
-func (t *TrackSynchronizer) InsertFrame(pkt *rtp.Packet) time.Duration {
-	t.Lock()
-	defer t.Unlock()
-
-	pts, _ := t.insertFrameBefore(pkt, nil)
-	return pts
-}
-
-// InsertFrameBefore updates the packet and offsets only if it is at least one frame duration before next
-func (t *TrackSynchronizer) InsertFrameBefore(pkt *rtp.Packet, next *rtp.Packet) (time.Duration, bool) {
-	t.Lock()
-	defer t.Unlock()
-
-	return t.insertFrameBefore(pkt, next)
-}
-
-func (t *TrackSynchronizer) insertFrameBefore(pkt *rtp.Packet, next *rtp.Packet) (time.Duration, bool) {
-	t.inserted++
-	t.snOffset++
-	t.lastValid = false
-
-	frameDurationRTP := t.getFrameDurationRTP()
-	ts := t.lastTS + (t.inserted * frameDurationRTP)
-	if next != nil {
-		nextTS, _, _ := t.adjust(next)
-		if ts+frameDurationRTP > nextTS {
-			// too long, drop
-			return 0, false
-		}
-	}
-
-	// update packet
-	pkt.SequenceNumber = t.lastSN + uint16(t.inserted)
-	pkt.Timestamp = uint32(ts)
-
-	pts := t.lastPTS + t.rtpConverter.toDuration(frameDurationRTP*t.inserted)
-	return pts, true
-}
-
-// GetFrameDuration returns frame duration in seconds
-func (t *TrackSynchronizer) GetFrameDuration() time.Duration {
-	t.Lock()
-	defer t.Unlock()
-
-	return t.getFrameDuration()
-}
-
-func (t *TrackSynchronizer) getFrameDuration() time.Duration {
-	switch t.track.Kind() {
-	case webrtc.RTPCodecTypeAudio:
-		// round opus packets to 2.5ms
-		round := float64(t.track.Codec().ClockRate) / 400
-		return time.Duration(math.Round(t.stats.AvgSampleDuration/round)) * 2500 * time.Microsecond
-	default:
-		// round video to 1/3000th of a second
-		round := float64(t.track.Codec().ClockRate) / 3000
-		return time.Duration(math.Round(math.Round(t.stats.AvgSampleDuration/round) * 1e6 / 3))
-	}
-}
-
-// getFrameDurationRTP returns frame duration in RTP time
-func (t *TrackSynchronizer) getFrameDurationRTP() int64 {
-	switch t.track.Kind() {
-	case webrtc.RTPCodecTypeAudio:
-		// round opus packets to 2.5ms
-		round := float64(t.track.Codec().ClockRate) / 400
-		return int64(math.Round(t.stats.AvgSampleDuration/round) * round)
-	default:
-		// round video to 1/30th of a second
-		round := float64(t.track.Codec().ClockRate) / 3000
-		return int64(math.Round(t.stats.AvgSampleDuration/round) * round)
-	}
-}
-
-func (t *TrackSynchronizer) GetTrackStats() TrackStats {
-	return *t.stats
-}
-
-func (t *TrackSynchronizer) getSenderReportPTS(pkt *rtcp.SenderReport) time.Duration {
-	t.Lock()
-	defer t.Unlock()
-
-	return t.getSenderReportPTSLocked(pkt)
-}
-
-func (t *TrackSynchronizer) getSenderReportPTSLocked(pkt *rtcp.SenderReport) time.Duration {
-	ts := int64(pkt.RTPTime)
-	for ts < t.lastTS-(uint32Overflow/2) {
-		ts += uint32Overflow
-	}
-
-	return t.getPTS(ts)
+	return adjusted, nil
 }
 
 // onSenderReport handles pts adjustments for a track
-func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport, ntpStart time.Time) {
+func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 	t.Lock()
 	defer t.Unlock()
 
-	if pkt.RTPTime == t.lastSR || t.startedAt.IsZero() {
+	if pkt.RTPTime == t.lastSR || t.startTime.IsZero() {
 		return
 	}
 
-	pts := t.getSenderReportPTSLocked(pkt)
-	calculatedNTPStart := mediatransportutil.NtpTime(pkt.NTPTime).Time().Add(-pts)
-	drift := calculatedNTPStart.Sub(ntpStart)
+	var pts time.Duration
+	if pkt.RTPTime > t.lastTS {
+		pts = t.lastPTS + t.toDuration(pkt.RTPTime-t.lastTS)
+	} else {
+		pts = t.lastPTS - t.toDuration(t.lastTS-pkt.RTPTime)
+	}
+	if !acceptable(pts - time.Since(t.startTime)) {
+		return
+	}
 
-	t.adjustOffsetLocked(drift)
+	offset := mediatransportutil.NtpTime(pkt.NTPTime).Time().Sub(t.startTime.Add(pts))
+	if t.onSR != nil {
+		t.onSR(offset - t.desiredPTSOffset)
+	}
+
+	if !acceptable(offset) {
+		return
+	}
+
+	t.desiredPTSOffset = offset
 	t.lastSR = pkt.RTPTime
 }
 
-func (t *TrackSynchronizer) adjustOffsetLocked(drift time.Duration) {
-	if drift == 0 {
-		return
-	}
-
-	t.stats.updateDrift(drift)
-	if drift > maxAdjustment {
-		drift = maxAdjustment
-	} else if drift < -maxAdjustment {
-		drift = -maxAdjustment
-	}
-	t.ptsOffset += drift
-}
-
-type TrackStats struct {
-	AvgSampleDuration float64
-	AvgDrift          float64
-	MaxDrift          time.Duration
-}
-
-func (t *TrackStats) updateDrift(drift time.Duration) {
-	if drift < 0 {
-		drift = -drift
-	}
-
-	t.AvgDrift = ewmaWeight*t.AvgDrift + (1-ewmaWeight)*float64(drift)
-	if drift > t.MaxDrift {
-		t.MaxDrift = drift
-	}
-}
-
-func (t *TrackStats) updateSampleDuration(duration int64) {
-	if duration > 1 {
-		t.AvgSampleDuration = ewmaWeight*t.AvgSampleDuration + (1-ewmaWeight)*float64(duration)
-	}
+func acceptable(d time.Duration) bool {
+	return d > -maxTSDiff && d < maxTSDiff
 }
 
 type rtpConverter struct {
-	n uint64
-	d uint64
+	ts  uint64
+	rtp uint64
 }
 
-func newRTPConverter(clockRate int64) rtpConverter {
-	n := int64(1000000000)
-	d := clockRate
+func newRTPConverter(clockRate int64) *rtpConverter {
+	ts := int64(time.Second)
 	for _, i := range []int64{10, 3, 2} {
-		for n%i == 0 && d%i == 0 {
-			n /= i
-			d /= i
+		for ts%i == 0 && clockRate%i == 0 {
+			ts /= i
+			clockRate /= i
 		}
 	}
 
-	return rtpConverter{n: uint64(n), d: uint64(d)}
+	return &rtpConverter{ts: uint64(ts), rtp: uint64(clockRate)}
 }
 
-func (c rtpConverter) toDuration(rtpDuration int64) time.Duration {
-	return time.Duration(uint64(rtpDuration) * c.n / c.d)
+func (c *rtpConverter) toDuration(rtpDuration uint32) time.Duration {
+	return time.Duration(uint64(rtpDuration) * c.ts / c.rtp)
+}
+
+func (c *rtpConverter) toRTP(duration time.Duration) uint32 {
+	return uint32(uint64(duration.Nanoseconds()) * c.rtp / c.ts)
 }
