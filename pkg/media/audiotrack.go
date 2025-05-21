@@ -139,11 +139,16 @@ func (t *PCMLocalTrack) waitUntilBufferHasChunks(count int) bool {
 	}
 
 	for t.chunkBuffer.Len() < count && !t.closed.Load() {
+		fmt.Println("AnunayDebug: acquiring emptyBufMu")
 		t.emptyBufMu.Lock()
 		t.emptyBufCond.Broadcast()
+		fmt.Println("AnunayDebug: broadcast emptyBufCond")
 		t.emptyBufMu.Unlock()
+		fmt.Println("AnunayDebug: released emptyBufMu")
 
+		fmt.Println("AnunayDebug: waiting for cond")
 		t.cond.Wait()
+		fmt.Println("AnunayDebug: cond.Wait() returned")
 		didWait = true
 	}
 
@@ -155,10 +160,13 @@ func (t *PCMLocalTrack) getChunksFromBuffer() (media.PCM16Sample, bool) {
 
 	var didWait = false
 	if !t.writeSilenceOnNoData {
+		fmt.Println("AnunayDebug: waiting until buffer has chunks")
 		didWait = t.waitUntilBufferHasChunks(t.chunksPerSample)
+		fmt.Println("AnunayDebug: waitUntilBufferHasChunks returned")
 	}
 
 	if t.closed.Load() && t.chunkBuffer.Len() == 0 {
+		fmt.Println("AnunayDebug: buffer is empty and track is closed, returning nil")
 		return nil, false
 	}
 
@@ -178,13 +186,19 @@ func (t *PCMLocalTrack) getChunksFromBuffer() (media.PCM16Sample, bool) {
 
 func (t *PCMLocalTrack) WriteSample(sample media.PCM16Sample) error {
 	if t.closed.Load() {
+		fmt.Println("AnunayDebug: track is closed, returning error")
 		return errors.New("track is closed")
 	}
 
+	fmt.Println("AnunayDebug: acquiring writer mu")
 	t.mu.Lock()
+	fmt.Println("AnunayDebug: acquired writer mu")
 	t.pushChunksToBuffer(sample)
+	fmt.Println("AnunayDebug: pushed chunks to buffer")
 	t.cond.Broadcast()
+	fmt.Println("AnunayDebug: broadcast cond for writer")
 	t.mu.Unlock()
+	fmt.Println("AnunayDebug: released writer mu")
 	return nil
 }
 
@@ -194,56 +208,80 @@ func (t *PCMLocalTrack) processSamples() {
 
 	for {
 		if t.closed.Load() && t.chunkBuffer.Len() == 0 {
+			fmt.Println("AnunayDebug: track is closed and buffer is empty, breaking from processSamples")
 			break
 		}
 
+		fmt.Println("AnunayDebug: acquiring reader mu")
 		t.mu.Lock()
+		fmt.Println("AnunayDebug: acquired reader mu")
 		sample, didWait := t.getChunksFromBuffer()
 		if sample != nil {
 			// sample is only nil when the track is closed, so we don't need to
 			// adjust ticker for this case.
-			t.resampledPCMWriter.WriteSample(sample)
+			fmt.Println("AnunayDebug: writing sample to writer: ", t.resampledPCMWriter.String())
+			err := t.resampledPCMWriter.WriteSample(sample)
+			if err != nil {
+				fmt.Println("AnunayDebug: error writing sample to writer: ", err)
+			}
 			if didWait {
 				ticker.Reset(t.frameDuration)
 			}
 		}
 		t.mu.Unlock()
+		fmt.Println("AnunayDebug: released reader mu")
 		<-ticker.C
 	}
 
 	// closing the writers here because we continue to write on close
 	// until the buffer is empty
+	fmt.Println("AnunayDebug: closing writers")
 	t.resampledPCMWriter.Close()
 	t.pcmWriter.Close()
 	t.opusWriter.Close()
 }
 
 func (t *PCMLocalTrack) WaitForPlayout() {
+	fmt.Println("AnunayDebug: acquiring emptyBufMu for WaitForPlayout")
 	t.emptyBufMu.Lock()
+	fmt.Println("AnunayDebug: acquired emptyBufMu for WaitForPlayout")
 	defer t.emptyBufMu.Unlock()
+	fmt.Println("AnunayDebug: released emptyBufMu for WaitForPlayout")
 
 	if t.writeSilenceOnNoData {
 		for t.chunkBuffer.Len() > 0 {
+			fmt.Println("AnunayDebug: WaitForPlayout with silence: emptyBufCond.Wait()")
 			t.emptyBufCond.Wait()
+			fmt.Println("AnunayDebug: WaitForPlayout with silence: emptyBufCond.Wait() returned")
 		}
 	} else {
 		for t.chunkBuffer.Len() > t.chunksPerSample {
+			fmt.Println("AnunayDebug: WaitForPlayout: emptyBufCond.Wait()")
 			t.emptyBufCond.Wait()
+			fmt.Println("AnunayDebug: WaitForPlayout: emptyBufCond.Wait() returned")
 		}
 	}
 }
 
 func (t *PCMLocalTrack) ClearQueue() {
+	fmt.Println("AnunayDebug: acquiring writer mu for ClearQueue")
 	t.mu.Lock()
+	fmt.Println("AnunayDebug: acquired writer mu for ClearQueue")
 	defer t.mu.Unlock()
+	fmt.Println("AnunayDebug: released writer mu for ClearQueue")
 	t.chunkBuffer.Clear()
+	fmt.Println("AnunayDebug: cleared buffer for ClearQueue")
 }
 
 func (t *PCMLocalTrack) Close() {
 	if t.closed.CompareAndSwap(false, true) {
+		fmt.Println("AnunayDebug: acquiring writer mu for Close")
 		t.mu.Lock()
+		fmt.Println("AnunayDebug: acquired writer mu for Close")
 		t.cond.Broadcast()
+		fmt.Println("AnunayDebug: broadcast cond for Close")
 		t.mu.Unlock()
+		fmt.Println("AnunayDebug: released writer mu for Close")
 	}
 }
 
