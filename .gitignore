@@ -29,3 +29,6 @@ bin/
 
 # data stream test files
 *.mp4
+
+#env
+.env
