@@ -135,12 +135,15 @@ func (t *PCMLocalTrack) waitUntilBufferHasChunks(count int) bool {
 
 	if t.closed.Load() && t.chunkBuffer.Len() > 0 {
 		// write whatever is left, with silence as filler
+		fmt.Println("AnunayDebug: track is closed and buffer has chunks, returning them")
 		return false
 	}
 
 	for t.chunkBuffer.Len() < count && !t.closed.Load() {
+		fmt.Println("AnunayDebug: in wait loop with buffer len: ", t.chunkBuffer.Len())
 		fmt.Println("AnunayDebug: acquiring emptyBufMu")
 		t.emptyBufMu.Lock()
+		fmt.Println("AnunayDebug: acquired emptyBufMu")
 		t.emptyBufCond.Broadcast()
 		fmt.Println("AnunayDebug: broadcast emptyBufCond")
 		t.emptyBufMu.Unlock()
@@ -148,7 +151,7 @@ func (t *PCMLocalTrack) waitUntilBufferHasChunks(count int) bool {
 
 		fmt.Println("AnunayDebug: waiting for cond")
 		t.cond.Wait()
-		fmt.Println("AnunayDebug: cond.Wait() returned")
+		fmt.Println("AnunayDebug: cond.Wait() returned, buffer len: ", t.chunkBuffer.Len())
 		didWait = true
 	}
 
@@ -175,6 +178,7 @@ func (t *PCMLocalTrack) getChunksFromBuffer() (media.PCM16Sample, bool) {
 			// this will zero-init at index i, which will be a silent chunk.
 			// if writeSilenceOnNoData is false, this condition will only be true
 			// when the track is closed and the buffer does not have enough chunks.
+			fmt.Println("AnunayDebug: buffer is empty, returning silent chunk")
 			continue
 		} else {
 			chunks[i] = t.chunkBuffer.PopFront()
@@ -225,8 +229,11 @@ func (t *PCMLocalTrack) processSamples() {
 				fmt.Println("AnunayDebug: error writing sample to writer: ", err)
 			}
 			if didWait {
+				fmt.Println("AnunayDebug: resetting ticker")
 				ticker.Reset(t.frameDuration)
 			}
+		} else {
+			fmt.Println("AnunayDebug: sample is nil, ignoring")
 		}
 		t.mu.Unlock()
 		fmt.Println("AnunayDebug: released reader mu")
