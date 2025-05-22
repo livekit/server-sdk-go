@@ -130,15 +130,15 @@ func (t *PCMLocalTrack) pushChunksToBuffer(sample media.PCM16Sample) {
 	}
 }
 
-func (t *PCMLocalTrack) waitUntilBufferHasChunks(count int) bool {
+func (t *PCMLocalTrack) waitUntilBufferHasChunks() bool {
 	var didWait bool
 
-	if t.closed.Load() && t.chunkBuffer.Len() > 0 {
+	if t.closed.Load() || t.chunkBuffer.Len() > 0 {
 		// write whatever is left, with silence as filler
 		return false
 	}
 
-	for t.chunkBuffer.Len() < count && !t.closed.Load() {
+	for t.chunkBuffer.Len() < t.chunksPerSample && !t.closed.Load() {
 		t.emptyBufMu.Lock()
 		t.emptyBufCond.Broadcast()
 		t.emptyBufMu.Unlock()
@@ -155,7 +155,7 @@ func (t *PCMLocalTrack) getChunksFromBuffer() (media.PCM16Sample, bool) {
 
 	var didWait = false
 	if !t.writeSilenceOnNoData {
-		didWait = t.waitUntilBufferHasChunks(t.chunksPerSample)
+		didWait = t.waitUntilBufferHasChunks()
 	}
 
 	if t.closed.Load() && t.chunkBuffer.Len() == 0 {
@@ -222,14 +222,8 @@ func (t *PCMLocalTrack) WaitForPlayout() {
 	t.emptyBufMu.Lock()
 	defer t.emptyBufMu.Unlock()
 
-	if t.writeSilenceOnNoData {
-		for t.chunkBuffer.Len() > 0 {
-			t.emptyBufCond.Wait()
-		}
-	} else {
-		for t.chunkBuffer.Len() > t.chunksPerSample {
-			t.emptyBufCond.Wait()
-		}
+	for t.chunkBuffer.Len() > 0 {
+		t.emptyBufCond.Wait()
 	}
 }
 
