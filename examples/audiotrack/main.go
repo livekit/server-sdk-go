@@ -138,7 +138,7 @@ func handleSubscribe(track *webrtc.TrackRemote, targetChannels int) (*lkmedia.PC
 		panic(err)
 	}
 
-	webmWriter := webm.NewPCM16Writer(fileWriter, lkmedia.DefaultOpusSampleRate, targetChannels, lkmedia.DefaultOpusSampleDuration)
+	webmWriter := webm.NewPCM16Writer(fileWriter, lkmedia.DefaultOpusSampleRate, targetChannels, lkmedia.DefaultOpusFrameDuration)
 	pcmTrack, err := lkmedia.NewPCMRemoteTrack(track, webmWriter)
 	if err != nil {
 		panic(err)
