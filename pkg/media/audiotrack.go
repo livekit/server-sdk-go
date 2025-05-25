@@ -124,7 +124,7 @@ func NewPCMLocalTrack(sourceSampleRate int, sourceChannels int, logger protoLogg
 	return t, nil
 }
 
-func (t *PCMLocalTrack) pushChunksToBuffer(chunk media.PCM16Sample) {
+func (t *PCMLocalTrack) pushChunkToBuffer(chunk media.PCM16Sample) {
 	if len(chunk) != 0 {
 		chunkCopy := make(media.PCM16Sample, len(chunk))
 		copy(chunkCopy, chunk)
@@ -184,13 +184,13 @@ func (t *PCMLocalTrack) getNumSamplesInChunkBuffer() int {
 	return numSamples
 }
 
-func (t *PCMLocalTrack) WriteSample(sample media.PCM16Sample) error {
+func (t *PCMLocalTrack) WriteSample(chunk media.PCM16Sample) error {
 	if t.closed.Load() {
 		return errors.New("track is closed")
 	}
 
 	t.mu.Lock()
-	t.pushChunksToBuffer(sample)
+	t.pushChunkToBuffer(chunk)
 	t.cond.Broadcast()
 	t.mu.Unlock()
 	return nil
