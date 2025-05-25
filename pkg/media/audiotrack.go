@@ -126,7 +126,9 @@ func NewPCMLocalTrack(sourceSampleRate int, sourceChannels int, logger protoLogg
 
 func (t *PCMLocalTrack) pushChunksToBuffer(chunk media.PCM16Sample) {
 	if len(chunk) != 0 {
-		t.chunkBuffer.PushBack(chunk)
+		chunkCopy := make(media.PCM16Sample, len(chunk))
+		copy(chunkCopy, chunk)
+		t.chunkBuffer.PushBack(chunkCopy)
 	}
 }
 
