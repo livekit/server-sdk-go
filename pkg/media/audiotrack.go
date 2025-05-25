@@ -19,9 +19,9 @@ import (
 )
 
 const (
-	DefaultOpusSampleRate    = 48000
-	DefaultOpusFrameDuration = 20 * time.Millisecond
-	defaultPCMFrameDuration  = 10 * time.Millisecond
+	DefaultOpusSampleRate     = 48000
+	DefaultOpusSampleDuration = 20 * time.Millisecond
+	defaultPCMFrameDuration   = 10 * time.Millisecond
 )
 
 type PCMLocalTrackParams struct {
