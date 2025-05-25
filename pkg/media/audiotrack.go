@@ -21,7 +21,7 @@ import (
 const (
 	DefaultOpusSampleRate     = 48000
 	DefaultOpusSampleDuration = 20 * time.Millisecond
-	defaultPCMSampleDuration  = 10000 * time.Microsecond
+	defaultPCMFrameDuration   = 10 * time.Millisecond
 )
 
 type PCMLocalTrackParams struct {
@@ -46,12 +46,12 @@ type PCMLocalTrack struct {
 	sourceSampleRate     int
 	frameDuration        time.Duration
 	sourceChannels       int
-	chunksPerSample      int
+	samplesPerFrame      int
 	writeSilenceOnNoData bool
 
 	// int16 to support a LE/BE PCM16 chunk that has a high byte and low byte
 	// TODO(anunaym14): switch out deque for a ring buffer
-	chunkBuffer *deque.Deque[int16]
+	chunkBuffer *deque.Deque[media.PCM16Sample]
 
 	mu   sync.Mutex
 	cond *sync.Cond
@@ -87,7 +87,7 @@ func NewPCMLocalTrack(sourceSampleRate int, sourceChannels int, logger protoLogg
 	}
 
 	// opusWriter writes opus samples to the track
-	opusWriter := media.FromSampleWriter[opus.Sample](track, DefaultOpusSampleRate, defaultPCMSampleDuration)
+	opusWriter := media.FromSampleWriter[opus.Sample](track, DefaultOpusSampleRate, defaultPCMFrameDuration)
 	// pcmWriter encodes opus samples from PCM16 samples and writes them to opusWriter
 	pcmWriter, err := opus.Encode(opusWriter, sourceChannels, logger)
 	if err != nil {
@@ -111,10 +111,10 @@ func NewPCMLocalTrack(sourceSampleRate int, sourceChannels int, logger protoLogg
 		pcmWriter:              pcmWriter,
 		resampledPCMWriter:     resampledPCMWriter,
 		sourceSampleRate:       sourceSampleRate,
-		frameDuration:          defaultPCMSampleDuration,
+		frameDuration:          defaultPCMFrameDuration,
 		sourceChannels:         sourceChannels,
-		chunkBuffer:            new(deque.Deque[int16]),
-		chunksPerSample:        (sourceSampleRate * sourceChannels * int(defaultPCMSampleDuration/time.Nanosecond)) / 1e9,
+		chunkBuffer:            new(deque.Deque[media.PCM16Sample]),
+		samplesPerFrame:        (sourceSampleRate * sourceChannels * int(defaultPCMFrameDuration/time.Nanosecond)) / 1e9,
 		writeSilenceOnNoData:   params.WriteSilenceOnNoData,
 	}
 
@@ -124,21 +124,23 @@ func NewPCMLocalTrack(sourceSampleRate int, sourceChannels int, logger protoLogg
 	return t, nil
 }
 
-func (t *PCMLocalTrack) pushChunksToBuffer(sample media.PCM16Sample) {
-	for _, chunk := range sample {
-		t.chunkBuffer.PushBack(chunk)
+func (t *PCMLocalTrack) pushChunkToBuffer(chunk media.PCM16Sample) {
+	if len(chunk) != 0 {
+		chunkCopy := make(media.PCM16Sample, len(chunk))
+		copy(chunkCopy, chunk)
+		t.chunkBuffer.PushBack(chunkCopy)
 	}
 }
 
-func (t *PCMLocalTrack) waitUntilBufferHasChunks(count int) bool {
+func (t *PCMLocalTrack) waitUntilBufferHasSamples(count int) bool {
 	var didWait bool
 
-	if t.closed.Load() && t.chunkBuffer.Len() > 0 {
+	if t.closed.Load() && t.getNumSamplesInChunkBuffer() > 0 {
 		// write whatever is left, with silence as filler
 		return false
 	}
 
-	for t.chunkBuffer.Len() < count && !t.closed.Load() {
+	for t.getNumSamplesInChunkBuffer() < count && !t.closed.Load() {
 		t.emptyBufMu.Lock()
 		t.emptyBufCond.Broadcast()
 		t.emptyBufMu.Unlock()
@@ -150,39 +152,45 @@ func (t *PCMLocalTrack) waitUntilBufferHasChunks(count int) bool {
 	return didWait
 }
 
-func (t *PCMLocalTrack) getChunksFromBuffer() (media.PCM16Sample, bool) {
-	chunks := make(media.PCM16Sample, t.chunksPerSample)
+func (t *PCMLocalTrack) getFrameFromChunkBuffer() (media.PCM16Sample, bool) {
+	frame := make(media.PCM16Sample, 0, t.samplesPerFrame)
 
 	var didWait = false
 	if !t.writeSilenceOnNoData {
-		didWait = t.waitUntilBufferHasChunks(t.chunksPerSample)
+		didWait = t.waitUntilBufferHasSamples(t.samplesPerFrame)
 	}
 
-	if t.closed.Load() && t.chunkBuffer.Len() == 0 {
+	if t.closed.Load() && t.getNumSamplesInChunkBuffer() == 0 {
 		return nil, false
 	}
 
-	for i := 0; i < t.chunksPerSample; i++ {
-		if t.chunkBuffer.Len() == 0 {
-			// this will zero-init at index i, which will be a silent chunk.
-			// if writeSilenceOnNoData is false, this condition will only be true
-			// when the track is closed and the buffer does not have enough chunks.
-			continue
-		} else {
-			chunks[i] = t.chunkBuffer.PopFront()
+	for len(frame) < t.samplesPerFrame && t.chunkBuffer.Len() != 0 {
+		chunk := t.chunkBuffer.PopFront()
+		remaining := min(t.samplesPerFrame-len(frame), len(chunk))
+		frame = append(frame, chunk[:remaining]...)
+		if remaining < len(chunk) {
+			t.chunkBuffer.PushFront(chunk[remaining:])
 		}
 	}
 
-	return chunks, didWait
+	return frame, didWait
 }
 
-func (t *PCMLocalTrack) WriteSample(sample media.PCM16Sample) error {
+func (t *PCMLocalTrack) getNumSamplesInChunkBuffer() int {
+	numSamples := 0
+	for i := 0; i < t.chunkBuffer.Len(); i++ {
+		numSamples += len(t.chunkBuffer.At(i))
+	}
+	return numSamples
+}
+
+func (t *PCMLocalTrack) WriteSample(chunk media.PCM16Sample) error {
 	if t.closed.Load() {
 		return errors.New("track is closed")
 	}
 
 	t.mu.Lock()
-	t.pushChunksToBuffer(sample)
+	t.pushChunkToBuffer(chunk)
 	t.cond.Broadcast()
 	t.mu.Unlock()
 	return nil
@@ -193,16 +201,16 @@ func (t *PCMLocalTrack) processSamples() {
 	defer ticker.Stop()
 
 	for {
-		if t.closed.Load() && t.chunkBuffer.Len() == 0 {
+		if t.closed.Load() && t.getNumSamplesInChunkBuffer() == 0 {
 			break
 		}
 
 		t.mu.Lock()
-		sample, didWait := t.getChunksFromBuffer()
-		if sample != nil {
-			// sample is only nil when the track is closed, so we don't need to
+		frame, didWait := t.getFrameFromChunkBuffer()
+		if frame != nil {
+			// frame is only nil when the track is closed, so we don't need to
 			// adjust ticker for this case.
-			t.resampledPCMWriter.WriteSample(sample)
+			t.resampledPCMWriter.WriteSample(frame)
 			if didWait {
 				ticker.Reset(t.frameDuration)
 			}
@@ -222,14 +230,12 @@ func (t *PCMLocalTrack) WaitForPlayout() {
 	t.emptyBufMu.Lock()
 	defer t.emptyBufMu.Unlock()
 
-	if t.writeSilenceOnNoData {
-		for t.chunkBuffer.Len() > 0 {
-			t.emptyBufCond.Wait()
-		}
-	} else {
-		for t.chunkBuffer.Len() > t.chunksPerSample {
-			t.emptyBufCond.Wait()
-		}
+	samplesThreshold := 0
+	if !t.writeSilenceOnNoData {
+		samplesThreshold = t.samplesPerFrame
+	}
+	for t.getNumSamplesInChunkBuffer() > samplesThreshold {
+		t.emptyBufCond.Wait()
 	}
 }
 
