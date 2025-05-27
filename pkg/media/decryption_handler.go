@@ -6,6 +6,8 @@ import (
 
 	"github.com/livekit/media-sdk/rtp"
 	lksdk "github.com/livekit/server-sdk-go/v2"
+
+	"go.uber.org/atomic"
 )
 
 type Decryptor interface {
@@ -13,7 +15,7 @@ type Decryptor interface {
 }
 
 type GCMDecryptor struct {
-	cipherBlock cipher.Block
+	cipherBlock atomic.Value
 	sifTrailer  []byte
 }
 
@@ -23,11 +25,23 @@ func NewGCMDecryptor(key []byte, sifTrailer []byte) (*GCMDecryptor, error) {
 		return nil, err
 	}
 
-	return &GCMDecryptor{cipherBlock: cipherBlock, sifTrailer: sifTrailer}, nil
+	d := &GCMDecryptor{sifTrailer: sifTrailer}
+	d.cipherBlock.Store(cipherBlock)
+	return d, nil
+}
+
+func (d *GCMDecryptor) UpdateKey(key []byte) error {
+	cipherBlock, err := aes.NewCipher(key)
+	if err != nil {
+		return err
+	}
+	d.cipherBlock.Store(cipherBlock)
+	return nil
 }
 
 func (d *GCMDecryptor) DecryptSample(payload []byte) ([]byte, error) {
-	return lksdk.DecryptGCMAudioSampleCustomCipher(payload, d.sifTrailer, d.cipherBlock)
+	cipherBlock := d.cipherBlock.Load().(cipher.Block)
+	return lksdk.DecryptGCMAudioSampleCustomCipher(payload, d.sifTrailer, cipherBlock)
 }
 
 type CustomDecryptor struct {
