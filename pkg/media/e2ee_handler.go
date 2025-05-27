@@ -3,6 +3,7 @@ package media
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"sync"
 
 	"github.com/livekit/media-sdk"
 	"github.com/livekit/media-sdk/rtp"
@@ -18,39 +19,43 @@ type Encryptor interface {
 }
 
 type GCMEncryptor struct {
-	cipherBlock atomic.Value
-	kid         atomic.Uint32
+	cipherBlock cipher.Block
+	kid         uint8
+
+	mu *sync.Mutex
 }
 
-func NewGCMEncryptor(key []byte, kid int) (*GCMEncryptor, error) {
+func NewGCMEncryptor(key []byte, kid uint8) (*GCMEncryptor, error) {
 	cipherBlock, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
 	}
 
-	e := &GCMEncryptor{}
-	e.cipherBlock.Store(cipherBlock)
-	e.kid.Store(uint32(kid))
-	return e, nil
+	return &GCMEncryptor{
+		cipherBlock: cipherBlock,
+		kid:         kid,
+	}, nil
 }
 
-func (e *GCMEncryptor) UpdateKey(key []byte) error {
+func (e *GCMEncryptor) UpdateKeyAndKid(key []byte, kid uint8) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
 	cipherBlock, err := aes.NewCipher(key)
 	if err != nil {
 		return err
 	}
-	e.cipherBlock.Store(cipherBlock)
+
+	e.cipherBlock = cipherBlock
+	e.kid = kid
 	return nil
 }
 
-func (e *GCMEncryptor) UpdateKid(kid int) {
-	e.kid.Store(uint32(kid))
-}
-
 func (e *GCMEncryptor) EncryptSample(payload []byte) ([]byte, error) {
-	cipherBlock := e.cipherBlock.Load().(cipher.Block)
-	kid := uint8(e.kid.Load())
-	return lksdk.EncryptGCMAudioSampleCustomCipher(payload, kid, cipherBlock)
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	return lksdk.EncryptGCMAudioSampleCustomCipher(payload, e.kid, e.cipherBlock)
 }
 
 type CustomEncryptor struct {
@@ -65,17 +70,17 @@ func (e *CustomEncryptor) EncryptSample(payload []byte) ([]byte, error) {
 	return e.encryptFunc(payload)
 }
 
-type EncryptionHandler struct {
+type encryptionHandler struct {
 	writer     media.MediaSampleWriter
 	encryptor  Encryptor
 	sampleRate int
 }
 
-func NewEncryptionHandler(writer media.MediaSampleWriter, encryptor Encryptor, sampleRate int) *EncryptionHandler {
-	return &EncryptionHandler{writer: writer, encryptor: encryptor, sampleRate: sampleRate}
+func newEncryptionHandler(writer media.MediaSampleWriter, encryptor Encryptor, sampleRate int) *encryptionHandler {
+	return &encryptionHandler{writer: writer, encryptor: encryptor, sampleRate: sampleRate}
 }
 
-func (e *EncryptionHandler) WriteSample(sample pmedia.Sample) error {
+func (e *encryptionHandler) WriteSample(sample pmedia.Sample) error {
 	encryptedSampleData, err := e.encryptor.EncryptSample(sample.Data)
 	if err != nil {
 		return err
@@ -85,7 +90,7 @@ func (e *EncryptionHandler) WriteSample(sample pmedia.Sample) error {
 	return e.writer.WriteSample(sample)
 }
 
-func (e *EncryptionHandler) SampleRate() int {
+func (e *encryptionHandler) SampleRate() int {
 	return e.sampleRate
 }
 
@@ -136,19 +141,19 @@ func (d *CustomDecryptor) DecryptSample(payload []byte) ([]byte, error) {
 	return d.decryptionFunc(payload, d.sifTrailer)
 }
 
-type DecryptionHandler struct {
+type decryptionHandler struct {
 	handler   rtp.Handler
 	decryptor Decryptor
 }
 
-func NewDecryptionHandler(h rtp.Handler, decryptor Decryptor) *DecryptionHandler {
-	return &DecryptionHandler{
+func newDecryptionHandler(h rtp.Handler, decryptor Decryptor) *decryptionHandler {
+	return &decryptionHandler{
 		handler:   h,
 		decryptor: decryptor,
 	}
 }
 
-func (d *DecryptionHandler) HandleRTP(h *rtp.Header, payload []byte) error {
+func (d *decryptionHandler) HandleRTP(h *rtp.Header, payload []byte) error {
 	sample, err := d.decryptor.DecryptSample(payload)
 	if err != nil {
 		return err
@@ -161,6 +166,6 @@ func (d *DecryptionHandler) HandleRTP(h *rtp.Header, payload []byte) error {
 	return d.handler.HandleRTP(h, sample)
 }
 
-func (d *DecryptionHandler) String() string {
+func (d *decryptionHandler) String() string {
 	return "DecryptionHandler " + d.handler.String()
 }

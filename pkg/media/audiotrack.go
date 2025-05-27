@@ -97,7 +97,7 @@ func NewPCMLocalTrack(sourceSampleRate int, sourceChannels int, logger protoLogg
 	// opusWriter writes opus samples to the track
 	var opusWriter media.WriteCloser[opus.Sample]
 	if params.Encryptor != nil {
-		encryptionHandler := NewEncryptionHandler(track, params.Encryptor, sourceSampleRate)
+		encryptionHandler := newEncryptionHandler(track, params.Encryptor, sourceSampleRate)
 		opusWriter = media.FromSampleWriter[opus.Sample](encryptionHandler, sourceSampleRate, defaultPCMFrameDuration)
 	} else {
 		opusWriter = media.FromSampleWriter[opus.Sample](track, DefaultOpusSampleRate, defaultPCMFrameDuration)
@@ -412,7 +412,7 @@ func (t *PCMRemoteTrack) process(handleJitter bool) {
 		// Before decrypting, I would like to check here if
 		// the decryption handler is handling the correct type of
 		// encryption, but, couldn't figure out a way without making the public API messy.
-		h = NewDecryptionHandler(h, t.decryptor)
+		h = newDecryptionHandler(h, t.decryptor)
 	}
 
 	if handleJitter {
