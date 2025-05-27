@@ -275,6 +275,7 @@ type PCMRemoteTrackParams struct {
 	HandleJitter     bool
 	TargetSampleRate int
 	TargetChannels   int
+	Decryptor        Decryptor
 }
 
 type PCMRemoteTrackOption func(*PCMRemoteTrackParams)
@@ -297,6 +298,12 @@ func WithTargetChannels(targetChannels int) PCMRemoteTrackOption {
 	}
 }
 
+func WithDecryptor(decryptor Decryptor) PCMRemoteTrackOption {
+	return func(p *PCMRemoteTrackParams) {
+		p.Decryptor = decryptor
+	}
+}
+
 type PCMRemoteTrack struct {
 	trackRemote *webrtc.TrackRemote
 	channels    int
@@ -307,6 +314,8 @@ type PCMRemoteTrack struct {
 	pcmMWriter         media.WriteCloser[media.PCM16Sample]
 	resampledPCMWriter media.WriteCloser[media.PCM16Sample]
 	logger             protoLogger.Logger
+
+	decryptor Decryptor
 }
 
 // PCMRemoteTrack takes a remote track (currently only opus is supported)
@@ -324,6 +333,7 @@ func NewPCMRemoteTrack(track *webrtc.TrackRemote, writer PCMRemoteTrackWriter, o
 		HandleJitter:     true,
 		TargetSampleRate: DefaultOpusSampleRate,
 		TargetChannels:   1,
+		Decryptor:        nil,
 	}
 	for _, opt := range opts {
 		opt(options)
@@ -370,6 +380,7 @@ func NewPCMRemoteTrack(track *webrtc.TrackRemote, writer PCMRemoteTrackWriter, o
 		channels:           targetChannels,
 		logger:             protoLogger.GetLogger(),
 		isResampled:        isResampled,
+		decryptor:          options.Decryptor,
 	}
 
 	go t.process(options.HandleJitter)
@@ -379,6 +390,17 @@ func NewPCMRemoteTrack(track *webrtc.TrackRemote, writer PCMRemoteTrackWriter, o
 func (t *PCMRemoteTrack) process(handleJitter bool) {
 	// Handler takes RTP packets and writes the payload to opusWriter
 	var h rtp.Handler = rtp.NewMediaStreamIn[opus.Sample](t.opusWriter)
+
+	// Should it be done before or after jitter handling?
+	// seems to work either way.
+	// Currently it's after jitter handling.
+	if t.decryptor != nil {
+		// Before decrypting, I would like to check here if
+		// the decryption handler is handling the correct type of
+		// encryption, but, couldn't figure out a way without making the public API messy.
+		h = NewDecryptionHandler(h, t.decryptor)
+	}
+
 	if handleJitter {
 		h = rtp.HandleJitter(h)
 	}
