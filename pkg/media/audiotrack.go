@@ -26,6 +26,7 @@ const (
 
 type PCMLocalTrackParams struct {
 	WriteSilenceOnNoData bool
+	Encryptor            Encryptor
 }
 
 type PCMLocalTrackOption func(*PCMLocalTrackParams)
@@ -33,6 +34,12 @@ type PCMLocalTrackOption func(*PCMLocalTrackParams)
 func WithWriteSilenceOnNoData(writeSilenceOnNoData bool) PCMLocalTrackOption {
 	return func(p *PCMLocalTrackParams) {
 		p.WriteSilenceOnNoData = writeSilenceOnNoData
+	}
+}
+
+func WithEncryptor(encryptor Encryptor) PCMLocalTrackOption {
+	return func(p *PCMLocalTrackParams) {
+		p.Encryptor = encryptor
 	}
 }
 
@@ -75,6 +82,7 @@ func NewPCMLocalTrack(sourceSampleRate int, sourceChannels int, logger protoLogg
 
 	params := &PCMLocalTrackParams{
 		WriteSilenceOnNoData: false,
+		Encryptor:            nil,
 	}
 	for _, opt := range opts {
 		opt(params)
@@ -87,7 +95,13 @@ func NewPCMLocalTrack(sourceSampleRate int, sourceChannels int, logger protoLogg
 	}
 
 	// opusWriter writes opus samples to the track
-	opusWriter := media.FromSampleWriter[opus.Sample](track, DefaultOpusSampleRate, defaultPCMFrameDuration)
+	var opusWriter media.WriteCloser[opus.Sample]
+	if params.Encryptor != nil {
+		encryptionHandler := NewEncryptionHandler(track, params.Encryptor, sourceSampleRate)
+		opusWriter = media.FromSampleWriter[opus.Sample](encryptionHandler, sourceSampleRate, defaultPCMFrameDuration)
+	} else {
+		opusWriter = media.FromSampleWriter[opus.Sample](track, DefaultOpusSampleRate, defaultPCMFrameDuration)
+	}
 	// pcmWriter encodes opus samples from PCM16 samples and writes them to opusWriter
 	pcmWriter, err := opus.Encode(opusWriter, sourceChannels, logger)
 	if err != nil {
