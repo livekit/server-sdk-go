@@ -173,6 +173,11 @@ func (t *PCMLocalTrack) getFrameFromChunkBuffer() (media.PCM16Sample, bool) {
 		}
 	}
 
+	if len(frame) < t.samplesPerFrame {
+		zeros := make(media.PCM16Sample, t.samplesPerFrame-len(frame))
+		frame = append(frame, zeros...)
+	}
+
 	return frame, didWait
 }
 
