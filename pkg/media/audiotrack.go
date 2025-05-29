@@ -405,13 +405,11 @@ func (t *PCMRemoteTrack) process(handleJitter bool) {
 	// Handler takes RTP packets and writes the payload to opusWriter
 	var h rtp.Handler = rtp.NewMediaStreamIn[opus.Sample](t.opusWriter)
 
-	// Should it be done before or after jitter handling?
-	// seems to work either way.
-	// Currently it's after jitter handling.
 	if t.decryptor != nil {
-		// Before decrypting, I would like to check here if
-		// the decryption handler is handling the correct type of
-		// encryption, but, couldn't figure out a way without making the public API messy.
+		// Ideally, we should check if the track is encrypted with the
+		// the encryption type of the decryptor. But, encryption type is
+		// found on the RemoteTrackPublication object which we don't have access to here.
+		// So, the user is responsible for passing the correct decryptor.
 		h = newDecryptionHandler(h, t.decryptor)
 	}
 
