@@ -26,6 +26,7 @@ const (
 
 type PCMLocalTrackParams struct {
 	WriteSilenceOnNoData bool
+	Encryptor            Encryptor
 }
 
 type PCMLocalTrackOption func(*PCMLocalTrackParams)
@@ -33,6 +34,12 @@ type PCMLocalTrackOption func(*PCMLocalTrackParams)
 func WithWriteSilenceOnNoData(writeSilenceOnNoData bool) PCMLocalTrackOption {
 	return func(p *PCMLocalTrackParams) {
 		p.WriteSilenceOnNoData = writeSilenceOnNoData
+	}
+}
+
+func WithEncryptor(encryptor Encryptor) PCMLocalTrackOption {
+	return func(p *PCMLocalTrackParams) {
+		p.Encryptor = encryptor
 	}
 }
 
@@ -75,6 +82,7 @@ func NewPCMLocalTrack(sourceSampleRate int, sourceChannels int, logger protoLogg
 
 	params := &PCMLocalTrackParams{
 		WriteSilenceOnNoData: false,
+		Encryptor:            nil,
 	}
 	for _, opt := range opts {
 		opt(params)
@@ -87,7 +95,13 @@ func NewPCMLocalTrack(sourceSampleRate int, sourceChannels int, logger protoLogg
 	}
 
 	// opusWriter writes opus samples to the track
-	opusWriter := media.FromSampleWriter[opus.Sample](track, DefaultOpusSampleRate, defaultPCMFrameDuration)
+	var opusWriter media.WriteCloser[opus.Sample]
+	if params.Encryptor != nil {
+		encryptionHandler := newEncryptionHandler(track, params.Encryptor, sourceSampleRate)
+		opusWriter = media.FromSampleWriter[opus.Sample](encryptionHandler, sourceSampleRate, defaultPCMFrameDuration)
+	} else {
+		opusWriter = media.FromSampleWriter[opus.Sample](track, DefaultOpusSampleRate, defaultPCMFrameDuration)
+	}
 	// pcmWriter encodes opus samples from PCM16 samples and writes them to opusWriter
 	pcmWriter, err := opus.Encode(opusWriter, sourceChannels, logger)
 	if err != nil {
@@ -279,6 +293,7 @@ type PCMRemoteTrackParams struct {
 	HandleJitter     bool
 	TargetSampleRate int
 	TargetChannels   int
+	Decryptor        Decryptor
 }
 
 type PCMRemoteTrackOption func(*PCMRemoteTrackParams)
@@ -301,6 +316,12 @@ func WithTargetChannels(targetChannels int) PCMRemoteTrackOption {
 	}
 }
 
+func WithDecryptor(decryptor Decryptor) PCMRemoteTrackOption {
+	return func(p *PCMRemoteTrackParams) {
+		p.Decryptor = decryptor
+	}
+}
+
 type PCMRemoteTrack struct {
 	trackRemote *webrtc.TrackRemote
 	channels    int
@@ -311,6 +332,8 @@ type PCMRemoteTrack struct {
 	pcmMWriter         media.WriteCloser[media.PCM16Sample]
 	resampledPCMWriter media.WriteCloser[media.PCM16Sample]
 	logger             protoLogger.Logger
+
+	decryptor Decryptor
 }
 
 // PCMRemoteTrack takes a remote track (currently only opus is supported)
@@ -328,6 +351,7 @@ func NewPCMRemoteTrack(track *webrtc.TrackRemote, writer PCMRemoteTrackWriter, o
 		HandleJitter:     true,
 		TargetSampleRate: DefaultOpusSampleRate,
 		TargetChannels:   1,
+		Decryptor:        nil,
 	}
 	for _, opt := range opts {
 		opt(options)
@@ -374,6 +398,7 @@ func NewPCMRemoteTrack(track *webrtc.TrackRemote, writer PCMRemoteTrackWriter, o
 		channels:           targetChannels,
 		logger:             protoLogger.GetLogger(),
 		isResampled:        isResampled,
+		decryptor:          options.Decryptor,
 	}
 
 	go t.process(options.HandleJitter)
@@ -383,6 +408,15 @@ func NewPCMRemoteTrack(track *webrtc.TrackRemote, writer PCMRemoteTrackWriter, o
 func (t *PCMRemoteTrack) process(handleJitter bool) {
 	// Handler takes RTP packets and writes the payload to opusWriter
 	var h rtp.Handler = rtp.NewMediaStreamIn[opus.Sample](t.opusWriter)
+
+	if t.decryptor != nil {
+		// Ideally, we should check if the track is encrypted with the
+		// the encryption type of the decryptor. But, encryption type is
+		// found on the RemoteTrackPublication object which we don't have access to here.
+		// So, the user is responsible for passing the correct decryptor.
+		h = newDecryptionHandler(h, t.decryptor)
+	}
+
 	if handleJitter {
 		h = rtp.HandleJitter(h)
 	}
