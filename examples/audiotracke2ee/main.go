@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/aes"
 	"flag"
 	"os"
 	"os/signal"
@@ -12,6 +13,7 @@ import (
 	"github.com/livekit/media-sdk/res"
 	"github.com/livekit/media-sdk/res/testdata"
 	"github.com/livekit/media-sdk/webm"
+	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
 	lksdk "github.com/livekit/server-sdk-go/v2"
 	lkmedia "github.com/livekit/server-sdk-go/v2/pkg/media"
@@ -29,6 +31,7 @@ var (
 	mode                string
 	subscribePCMTrack   *lkmedia.PCMRemoteTrack
 	subscribeFileWriter *os.File
+	sifTrailer          []byte
 )
 
 func init() {
@@ -42,6 +45,7 @@ func connectToRoom(cb *lksdk.RoomCallback) (*lksdk.Room, error) {
 		RoomName:            roomName,
 		ParticipantIdentity: participantIdentity,
 	}, cb)
+
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +58,7 @@ func getCbForRoom(publish bool) *lksdk.RoomCallback {
 			ParticipantCallback: lksdk.ParticipantCallback{
 				OnTrackSubscribed: func(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
 					if track.Codec().MimeType == webrtc.MimeTypeOpus {
-						subscribePCMTrack, subscribeFileWriter = handleSubscribe(track, 1)
+						subscribePCMTrack, subscribeFileWriter = handleSubscribe(track, publication, 1)
 					}
 				},
 				OnTrackUnsubscribed: func(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
@@ -91,6 +95,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	sifTrailer = room.SifTrailer()
 	defer room.Disconnect()
 
 	if publish {
@@ -104,7 +109,16 @@ func main() {
 }
 
 func handlePublish(room *lksdk.Room) {
-	publishTrack, err := lkmedia.NewPCMLocalTrack(lkmedia.DefaultOpusSampleRate, 1, logger.GetLogger())
+	key, err := lksdk.DeriveKeyFromString("helloworld")
+	if err != nil {
+		panic(err)
+	}
+	encryptor, err := lkmedia.NewGCMEncryptor(key, 0)
+	if err != nil {
+		panic(err)
+	}
+
+	publishTrack, err := lkmedia.NewPCMLocalTrack(lkmedia.DefaultOpusSampleRate, 1, logger.GetLogger(), lkmedia.WithEncryptor(encryptor))
 	if err != nil {
 		panic(err)
 	}
@@ -114,7 +128,8 @@ func handlePublish(room *lksdk.Room) {
 	}()
 
 	if _, err = room.LocalParticipant.PublishTrack(publishTrack, &lksdk.TrackPublicationOptions{
-		Name: "test",
+		Name:       "test",
+		Encryption: livekit.Encryption_GCM,
 	}); err != nil {
 		panic(err)
 	}
@@ -132,14 +147,39 @@ func handlePublish(room *lksdk.Room) {
 	}
 }
 
-func handleSubscribe(track *webrtc.TrackRemote, targetChannels int) (*lkmedia.PCMRemoteTrack, *os.File) {
+func handleSubscribe(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, targetChannels int) (*lkmedia.PCMRemoteTrack, *os.File) {
 	fileWriter, err := os.Create("test.mka")
 	if err != nil {
 		panic(err)
 	}
 
+	var decryptor lkmedia.Decryptor
+	key, err := lksdk.DeriveKeyFromString("helloworld")
+	if err != nil {
+		panic(err)
+	}
+
+	switch encryption_type := publication.TrackInfo().GetEncryption(); encryption_type {
+	case livekit.Encryption_GCM:
+		decryptor, err = lkmedia.NewGCMDecryptor(key, sifTrailer)
+		if err != nil {
+			panic(err)
+		}
+	case livekit.Encryption_CUSTOM:
+		decryptorFunc := func(payload []byte, sifTrailer []byte) ([]byte, error) {
+			cipherBlock, err := aes.NewCipher(key)
+			if err != nil {
+				panic(err)
+			}
+			return lksdk.DecryptGCMAudioSampleCustomCipher(payload, sifTrailer, cipherBlock)
+		}
+		decryptor = lkmedia.NewCustomDecryptor(decryptorFunc, sifTrailer)
+	default:
+		// zero-init i.e. nil
+	}
+
 	webmWriter := webm.NewPCM16Writer(fileWriter, lkmedia.DefaultOpusSampleRate, targetChannels, lkmedia.DefaultOpusSampleDuration)
-	pcmTrack, err := lkmedia.NewPCMRemoteTrack(track, webmWriter)
+	pcmTrack, err := lkmedia.NewPCMRemoteTrack(track, webmWriter, lkmedia.WithDecryptor(decryptor))
 	if err != nil {
 		panic(err)
 	}
