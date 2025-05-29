@@ -25,17 +25,10 @@ const (
 )
 
 type PCMLocalTrackParams struct {
-	WriteSilenceOnNoData bool
-	Encryptor            Encryptor
+	Encryptor Encryptor
 }
 
 type PCMLocalTrackOption func(*PCMLocalTrackParams)
-
-func WithWriteSilenceOnNoData(writeSilenceOnNoData bool) PCMLocalTrackOption {
-	return func(p *PCMLocalTrackParams) {
-		p.WriteSilenceOnNoData = writeSilenceOnNoData
-	}
-}
 
 func WithEncryptor(encryptor Encryptor) PCMLocalTrackOption {
 	return func(p *PCMLocalTrackParams) {
@@ -50,11 +43,10 @@ type PCMLocalTrack struct {
 	pcmWriter          media.WriteCloser[media.PCM16Sample]
 	resampledPCMWriter media.WriteCloser[media.PCM16Sample]
 
-	sourceSampleRate     int
-	frameDuration        time.Duration
-	sourceChannels       int
-	samplesPerFrame      int
-	writeSilenceOnNoData bool
+	sourceSampleRate int
+	frameDuration    time.Duration
+	sourceChannels   int
+	samplesPerFrame  int
 
 	// int16 to support a LE/BE PCM16 chunk that has a high byte and low byte
 	// TODO(anunaym14): switch out deque for a ring buffer
@@ -73,16 +65,18 @@ type PCMLocalTrack struct {
 // encodes them to opus, and writes them to the track.
 // PCMLocalTrack can directly be used as a local track to publish to a room.
 // The sourceSampleRate and sourceChannels are the sample rate and channels of the source audio.
-// It also provides an option to write silence when no data is available, which is disabled by default.
-// Stereo tracks are not supported, they may result in unpleasant audio.
-func NewPCMLocalTrack(sourceSampleRate int, sourceChannels int, logger protoLogger.Logger, opts ...PCMLocalTrackOption) (*PCMLocalTrack, error) {
+func NewPCMLocalTrack(
+	sourceSampleRate int,
+	sourceChannels int,
+	logger protoLogger.Logger,
+	opts ...PCMLocalTrackOption,
+) (*PCMLocalTrack, error) {
 	if sourceChannels <= 0 || sourceChannels > 2 || sourceSampleRate <= 0 {
 		return nil, errors.New("invalid source sample rate or channels")
 	}
 
 	params := &PCMLocalTrackParams{
-		WriteSilenceOnNoData: false,
-		Encryptor:            nil,
+		Encryptor: nil,
 	}
 	for _, opt := range opts {
 		opt(params)
@@ -129,7 +123,6 @@ func NewPCMLocalTrack(sourceSampleRate int, sourceChannels int, logger protoLogg
 		sourceChannels:         sourceChannels,
 		chunkBuffer:            new(deque.Deque[media.PCM16Sample]),
 		samplesPerFrame:        (sourceSampleRate * sourceChannels * int(defaultPCMFrameDuration/time.Nanosecond)) / 1e9,
-		writeSilenceOnNoData:   params.WriteSilenceOnNoData,
 	}
 
 	t.cond = sync.NewCond(&t.mu)
@@ -138,46 +131,12 @@ func NewPCMLocalTrack(sourceSampleRate int, sourceChannels int, logger protoLogg
 	return t, nil
 }
 
-func (t *PCMLocalTrack) pushChunkToBuffer(chunk media.PCM16Sample) {
-	if len(chunk) != 0 {
-		chunkCopy := make(media.PCM16Sample, len(chunk))
-		copy(chunkCopy, chunk)
-		t.chunkBuffer.PushBack(chunkCopy)
-	}
-}
-
-func (t *PCMLocalTrack) waitUntilBufferHasSamples(count int) bool {
-	var didWait bool
-
-	if t.closed.Load() && t.getNumSamplesInChunkBuffer() > 0 {
-		// write whatever is left, with silence as filler
-		return false
-	}
-
-	for t.getNumSamplesInChunkBuffer() < count && !t.closed.Load() {
-		t.emptyBufMu.Lock()
-		t.emptyBufCond.Broadcast()
-		t.emptyBufMu.Unlock()
-
-		t.cond.Wait()
-		didWait = true
-	}
-
-	return didWait
-}
-
-func (t *PCMLocalTrack) getFrameFromChunkBuffer() (media.PCM16Sample, bool) {
-	frame := make(media.PCM16Sample, 0, t.samplesPerFrame)
-
-	var didWait = false
-	if !t.writeSilenceOnNoData {
-		didWait = t.waitUntilBufferHasSamples(t.samplesPerFrame)
-	}
-
+func (t *PCMLocalTrack) getFrameFromChunkBuffer() media.PCM16Sample {
 	if t.closed.Load() && t.getNumSamplesInChunkBuffer() == 0 {
-		return nil, false
+		return nil
 	}
 
+	frame := make(media.PCM16Sample, 0, t.samplesPerFrame)
 	for len(frame) < t.samplesPerFrame && t.chunkBuffer.Len() != 0 {
 		chunk := t.chunkBuffer.PopFront()
 		remaining := min(t.samplesPerFrame-len(frame), len(chunk))
@@ -191,7 +150,13 @@ func (t *PCMLocalTrack) getFrameFromChunkBuffer() (media.PCM16Sample, bool) {
 		frame = append(frame, make(media.PCM16Sample, t.samplesPerFrame-len(frame))...)
 	}
 
-	return frame, didWait
+	if t.chunkBuffer.Len() == 0 {
+		t.emptyBufMu.Lock()
+		t.emptyBufCond.Broadcast()
+		t.emptyBufMu.Unlock()
+	}
+
+	return frame
 }
 
 func (t *PCMLocalTrack) getNumSamplesInChunkBuffer() int {
@@ -207,8 +172,15 @@ func (t *PCMLocalTrack) WriteSample(chunk media.PCM16Sample) error {
 		return errors.New("track is closed")
 	}
 
+	if len(chunk) == 0 {
+		return nil
+	}
+
+	chunkCopy := make(media.PCM16Sample, len(chunk))
+	copy(chunkCopy, chunk)
+
 	t.mu.Lock()
-	t.pushChunkToBuffer(chunk)
+	t.chunkBuffer.PushBack(chunkCopy)
 	t.cond.Broadcast()
 	t.mu.Unlock()
 	return nil
@@ -224,14 +196,9 @@ func (t *PCMLocalTrack) processSamples() {
 		}
 
 		t.mu.Lock()
-		frame, didWait := t.getFrameFromChunkBuffer()
+		frame := t.getFrameFromChunkBuffer()
 		if frame != nil {
-			// frame is only nil when the track is closed, so we don't need to
-			// adjust ticker for this case.
 			t.resampledPCMWriter.WriteSample(frame)
-			if didWait {
-				ticker.Reset(t.frameDuration)
-			}
 		}
 		t.mu.Unlock()
 		<-ticker.C
@@ -248,11 +215,7 @@ func (t *PCMLocalTrack) WaitForPlayout() {
 	t.emptyBufMu.Lock()
 	defer t.emptyBufMu.Unlock()
 
-	samplesThreshold := 0
-	if !t.writeSilenceOnNoData {
-		samplesThreshold = t.samplesPerFrame
-	}
-	for t.getNumSamplesInChunkBuffer() > samplesThreshold {
+	for t.getNumSamplesInChunkBuffer() > 0 {
 		t.emptyBufCond.Wait()
 	}
 }

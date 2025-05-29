@@ -250,12 +250,6 @@ if err != nil {
 
 The SDK will encode the sample to Opus and write it to the track. If the sourceSampleRate is not 48000, resampling is also handled internally.
 
-The API also provides an option to write silence to the track when no data is available, this is disabled by default but you can enable it using:
-
-```go
-publishTrack, err := lkmedia.NewPCMLocalTrack(sourceSampleRate, sourceChannels, logger.GetLogger(), lkmedia.WithWriteSilenceOnNoData(true))
-```
-
 To close the track, you can call `Close()` on the `publishTrack`, this will stop accepting samples, write the existing buffer and then close the track. If you wish to clear the buffer manually, use the `ClearQeuue()` on the track. There's also a `WaitForPlayout()` API if you want to wait for existing buffer to be written before writing something to the track.
 
 **Note**: Stereo audio is currently not supported, it may result in unpleasant audio.
