@@ -85,16 +85,9 @@ func handlePublish(room *lksdk.Room, audioWriterChan chan media.PCM16Sample) {
 		panic(err)
 	}
 
-	for {
-		select {
-		case sample, ok := <-audioWriterChan:
-			if !ok {
-				return
-			}
-
-			if err := publishTrack.WriteSample(sample); err != nil {
-				logger.Errorw("Failed to write sample", err)
-			}
+	for sample := range audioWriterChan {
+		if err := publishTrack.WriteSample(sample); err != nil {
+			logger.Errorw("Failed to write sample", err)
 		}
 	}
 }
