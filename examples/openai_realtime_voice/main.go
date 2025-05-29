@@ -70,7 +70,7 @@ func main() {
 }
 
 func handlePublish(room *lksdk.Room, audioWriterChan chan media.PCM16Sample) {
-	publishTrack, err := lkmedia.NewPCMLocalTrack(24000, 1, logger.GetLogger(), lkmedia.WithWriteSilenceOnNoData(true))
+	publishTrack, err := lkmedia.NewPCMLocalTrack(24000, 1, logger.GetLogger())
 	if err != nil {
 		panic(err)
 	}
