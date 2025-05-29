@@ -215,11 +215,7 @@ func (t *PCMLocalTrack) WaitForPlayout() {
 	t.emptyBufMu.Lock()
 	defer t.emptyBufMu.Unlock()
 
-	samplesThreshold := 0
-	if !t.writeSilenceOnNoData {
-		samplesThreshold = t.samplesPerFrame
-	}
-	for t.getNumSamplesInChunkBuffer() > samplesThreshold {
+	for t.getNumSamplesInChunkBuffer() > 0 {
 		t.emptyBufCond.Wait()
 	}
 }
