@@ -12,6 +12,8 @@ import (
 	protoLogger "github.com/livekit/protocol/logger"
 	"github.com/pion/webrtc/v4"
 	"go.uber.org/atomic"
+
+	lksdk "github.com/livekit/server-sdk-go/v2"
 )
 
 type PCMLocalTrackParams struct {
@@ -127,6 +129,10 @@ func (t *PCMLocalTrack) getFrameFromChunkBuffer() media.PCM16Sample {
 		return nil
 	}
 
+	if t.muted.Load() {
+		return nil
+	}
+
 	frame := make(media.PCM16Sample, 0, t.samplesPerFrame)
 	for len(frame) < t.samplesPerFrame && t.chunkBuffer.Len() != 0 {
 		chunk := t.chunkBuffer.PopFront()
@@ -207,23 +213,19 @@ func (t *PCMLocalTrack) processSamples() {
 	t.opusWriter.Close()
 }
 
-func (t *PCMLocalTrack) SetMuted(muted bool) error {
+func (t *PCMLocalTrack) setMuted(muted bool) error {
 	if t.closed.Load() {
 		return errors.New("track is closed")
 	}
 
-	// Mute on the PCMLocalTrack can either be called directly by the user
-	// or via the SDK through the LocalTrackPublication object.
-	// In both cases, we need to clear the queue, but we continue but the processSamples goroutine
-	// continues to write silence to the track. If the mute was via the publication object, the signal
-	// client will notify the SFU and it'll start dropping the packets and write silence of it's own.
-	// But, if the mute was directly called on the PCMLocalTrack, we need to continue writing silence
-	// and match the SFU's behavior.
 	if !t.muted.Swap(muted) && muted {
 		t.ClearQueue()
 	}
-
 	return nil
+}
+
+func (t *PCMLocalTrack) GetMuteFunc(muted bool) lksdk.Private[lksdk.MuteFunc] {
+	return lksdk.MakePrivate(lksdk.MuteFunc(t.setMuted))
 }
 
 func (t *PCMLocalTrack) WaitForPlayout() {
