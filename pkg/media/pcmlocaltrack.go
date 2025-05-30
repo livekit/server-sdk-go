@@ -129,10 +129,6 @@ func (t *PCMLocalTrack) getFrameFromChunkBuffer() media.PCM16Sample {
 		return nil
 	}
 
-	if t.muted.Load() {
-		return nil
-	}
-
 	frame := make(media.PCM16Sample, 0, t.samplesPerFrame)
 	for len(frame) < t.samplesPerFrame && t.chunkBuffer.Len() != 0 {
 		chunk := t.chunkBuffer.PopFront()
@@ -218,6 +214,11 @@ func (t *PCMLocalTrack) setMuted(muted bool) error {
 		return errors.New("track is closed")
 	}
 
+	// We will continue to write silence on mute to not mess
+	// up the RTP timestamps. An edge case here is that the mute
+	// value will be checked on every tick (10ms), so any new data on unmute
+	// might be delayed by at most 10ms, which is not much and keeps RTP/RTCP
+	// in sync. The packets will be dropped by the SFU anyway.
 	if !t.muted.Swap(muted) && muted {
 		t.ClearQueue()
 	}
