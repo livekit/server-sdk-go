@@ -4,6 +4,6 @@ type Private[T any] struct {
 	v T
 }
 
-func MakePrivate[T any](f T) Private[T] {
-	return Private[T]{f}
+func MakePrivate[T any](v T) Private[T] {
+	return Private[T]{v}
 }
