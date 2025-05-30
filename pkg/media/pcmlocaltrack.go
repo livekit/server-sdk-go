@@ -49,6 +49,7 @@ type PCMLocalTrack struct {
 	emptyBufCond *sync.Cond
 
 	closed atomic.Bool
+	muted  atomic.Bool
 }
 
 // NewPCMLocalTrack creates a wrapper around a webrtc.TrackLocalStaticSample that accepts PCM16 samples via the WriteSample method,
@@ -162,6 +163,10 @@ func (t *PCMLocalTrack) WriteSample(chunk media.PCM16Sample) error {
 		return errors.New("track is closed")
 	}
 
+	if t.muted.Load() {
+		return errors.New("track is muted")
+	}
+
 	if len(chunk) == 0 {
 		return nil
 	}
@@ -191,6 +196,7 @@ func (t *PCMLocalTrack) processSamples() {
 			t.resampledPCMWriter.WriteSample(frame)
 		}
 		t.mu.Unlock()
+
 		<-ticker.C
 	}
 
@@ -199,6 +205,25 @@ func (t *PCMLocalTrack) processSamples() {
 	t.resampledPCMWriter.Close()
 	t.pcmWriter.Close()
 	t.opusWriter.Close()
+}
+
+func (t *PCMLocalTrack) SetMuted(muted bool) error {
+	if t.closed.Load() {
+		return errors.New("track is closed")
+	}
+
+	// Mute on the PCMLocalTrack can either be called directly by the user
+	// or via the SDK through the LocalTrackPublication object.
+	// In both cases, we need to clear the queue, but we continue but the processSamples goroutine
+	// continues to write silence to the track. If the mute was via the publication object, the signal
+	// client will notify the SFU and it'll start dropping the packets and write silence of it's own.
+	// But, if the mute was directly called on the PCMLocalTrack, we need to continue writing silence
+	// and match the SFU's behavior.
+	if !t.muted.Swap(muted) && muted {
+		t.ClearQueue()
+	}
+
+	return nil
 }
 
 func (t *PCMLocalTrack) WaitForPlayout() {
@@ -214,6 +239,10 @@ func (t *PCMLocalTrack) ClearQueue() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.chunkBuffer.Clear()
+
+	t.emptyBufMu.Lock()
+	t.emptyBufCond.Broadcast()
+	t.emptyBufMu.Unlock()
 }
 
 func (t *PCMLocalTrack) Close() {

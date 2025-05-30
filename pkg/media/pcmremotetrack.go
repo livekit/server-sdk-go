@@ -142,11 +142,11 @@ func NewPCMRemoteTrack(track *webrtc.TrackRemote, writer PCMRemoteTrackWriter, o
 		decryptor:          options.Decryptor,
 	}
 
-	go t.process(options.HandleJitter)
+	go t.processSamples(options.HandleJitter)
 	return t, nil
 }
 
-func (t *PCMRemoteTrack) process(handleJitter bool) {
+func (t *PCMRemoteTrack) processSamples(handleJitter bool) {
 	// Handler takes RTP packets and writes the payload to opusWriter
 	var h rtp.Handler = rtp.NewMediaStreamIn[opus.Sample](t.opusWriter)
 

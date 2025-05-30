@@ -16,6 +16,7 @@ package lksdk
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -330,6 +331,12 @@ func (p *LocalTrackPublication) setMuted(muted bool, byRemote bool) {
 		switch t := track.(type) {
 		case *LocalTrack:
 			t.setMuted(muted)
+		default:
+			if fmt.Sprintf("%T", track) == "*media.PCMLocalTrack" {
+				if setter, ok := t.(interface{ SetMuted(bool) error }); ok {
+					setter.SetMuted(muted)
+				}
+			}
 		}
 	}
 
