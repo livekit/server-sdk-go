@@ -2,26 +2,18 @@ package media
 
 import (
 	"errors"
-	"fmt"
-	"io"
 	"sync"
 	"time"
 
 	"github.com/gammazero/deque"
 	"github.com/google/uuid"
+	"github.com/livekit/media-sdk"
+	"github.com/livekit/media-sdk/opus"
+	protoLogger "github.com/livekit/protocol/logger"
 	"github.com/pion/webrtc/v4"
 	"go.uber.org/atomic"
 
-	"github.com/livekit/media-sdk"
-	"github.com/livekit/media-sdk/opus"
-	"github.com/livekit/media-sdk/rtp"
-	protoLogger "github.com/livekit/protocol/logger"
-)
-
-const (
-	DefaultOpusSampleRate     = 48000
-	DefaultOpusSampleDuration = 20 * time.Millisecond
-	defaultPCMFrameDuration   = 10 * time.Millisecond
+	lksdk "github.com/livekit/server-sdk-go/v2"
 )
 
 type PCMLocalTrackParams struct {
@@ -59,6 +51,7 @@ type PCMLocalTrack struct {
 	emptyBufCond *sync.Cond
 
 	closed atomic.Bool
+	muted  atomic.Bool
 }
 
 // NewPCMLocalTrack creates a wrapper around a webrtc.TrackLocalStaticSample that accepts PCM16 samples via the WriteSample method,
@@ -172,6 +165,10 @@ func (t *PCMLocalTrack) WriteSample(chunk media.PCM16Sample) error {
 		return errors.New("track is closed")
 	}
 
+	if t.muted.Load() {
+		return errors.New("track is muted")
+	}
+
 	if len(chunk) == 0 {
 		return nil
 	}
@@ -201,6 +198,7 @@ func (t *PCMLocalTrack) processSamples() {
 			t.resampledPCMWriter.WriteSample(frame)
 		}
 		t.mu.Unlock()
+
 		<-ticker.C
 	}
 
@@ -209,6 +207,26 @@ func (t *PCMLocalTrack) processSamples() {
 	t.resampledPCMWriter.Close()
 	t.pcmWriter.Close()
 	t.opusWriter.Close()
+}
+
+func (t *PCMLocalTrack) setMuted(muted bool) error {
+	if t.closed.Load() {
+		return errors.New("track is closed")
+	}
+
+	// We will continue to write silence on mute to not mess
+	// up the RTP timestamps. An edge case here is that the mute
+	// value will be checked on every tick (10ms), so any new data on unmute
+	// might be delayed by at most 10ms, which is not much and keeps RTP/RTCP
+	// in sync. The packets will be dropped by the SFU anyway.
+	if !t.muted.Swap(muted) && muted {
+		t.ClearQueue()
+	}
+	return nil
+}
+
+func (t *PCMLocalTrack) GetMuteFunc(muted bool) lksdk.Private[lksdk.MuteFunc] {
+	return lksdk.MakePrivate(lksdk.MuteFunc(t.setMuted))
 }
 
 func (t *PCMLocalTrack) WaitForPlayout() {
@@ -224,6 +242,10 @@ func (t *PCMLocalTrack) ClearQueue() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.chunkBuffer.Clear()
+
+	t.emptyBufMu.Lock()
+	t.emptyBufCond.Broadcast()
+	t.emptyBufMu.Unlock()
 }
 
 func (t *PCMLocalTrack) Close() {
@@ -232,170 +254,4 @@ func (t *PCMLocalTrack) Close() {
 		t.cond.Broadcast()
 		t.mu.Unlock()
 	}
-}
-
-type PCMRemoteTrackWriter interface {
-	WriteSample(sample media.PCM16Sample) error
-	Close() error
-}
-
-type internalPCMRemoteTrackWriter struct {
-	PCMRemoteTrackWriter
-	sampleRate int
-}
-
-func (w *internalPCMRemoteTrackWriter) SampleRate() int {
-	return w.sampleRate
-}
-
-func (w *internalPCMRemoteTrackWriter) String() string {
-	return fmt.Sprintf("PCMRemoteTrackWriter(%d)", w.sampleRate)
-}
-
-type PCMRemoteTrackParams struct {
-	HandleJitter     bool
-	TargetSampleRate int
-	TargetChannels   int
-	Decryptor        Decryptor
-}
-
-type PCMRemoteTrackOption func(*PCMRemoteTrackParams)
-
-func WithHandleJitter(handleJitter bool) PCMRemoteTrackOption {
-	return func(p *PCMRemoteTrackParams) {
-		p.HandleJitter = handleJitter
-	}
-}
-
-func WithTargetSampleRate(targetSampleRate int) PCMRemoteTrackOption {
-	return func(p *PCMRemoteTrackParams) {
-		p.TargetSampleRate = targetSampleRate
-	}
-}
-
-func WithTargetChannels(targetChannels int) PCMRemoteTrackOption {
-	return func(p *PCMRemoteTrackParams) {
-		p.TargetChannels = targetChannels
-	}
-}
-
-func WithDecryptor(decryptor Decryptor) PCMRemoteTrackOption {
-	return func(p *PCMRemoteTrackParams) {
-		p.Decryptor = decryptor
-	}
-}
-
-type PCMRemoteTrack struct {
-	trackRemote *webrtc.TrackRemote
-	channels    int
-	sampleRate  int
-	isResampled bool
-
-	opusWriter         media.WriteCloser[opus.Sample]
-	pcmMWriter         media.WriteCloser[media.PCM16Sample]
-	resampledPCMWriter media.WriteCloser[media.PCM16Sample]
-	logger             protoLogger.Logger
-
-	decryptor Decryptor
-}
-
-// PCMRemoteTrack takes a remote track (currently only opus is supported)
-// and a WriterCloser interface that writes implements a WriteSample method to write PCM16 samples, where the user desires.
-// The PCMRemoteTrack will read RTP packets from the remote track, decode them to PCM16 samples, and write them to the writer.
-// Audio is resampled to targetSampleRate and upmixed/downmixed to targetChannels.
-// It also provides an option to handle jitter, which is enabled by default.
-// Stereo remote tracks are currently not supported, and are known to have a lot of unpleasant noise.
-func NewPCMRemoteTrack(track *webrtc.TrackRemote, writer PCMRemoteTrackWriter, opts ...PCMRemoteTrackOption) (*PCMRemoteTrack, error) {
-	if track.Codec().MimeType != webrtc.MimeTypeOpus {
-		return nil, errors.New("track is not opus")
-	}
-
-	options := &PCMRemoteTrackParams{
-		HandleJitter:     true,
-		TargetSampleRate: DefaultOpusSampleRate,
-		TargetChannels:   1,
-		Decryptor:        nil,
-	}
-	for _, opt := range opts {
-		opt(options)
-	}
-
-	targetChannels := options.TargetChannels
-	targetSampleRate := options.TargetSampleRate
-	if targetChannels <= 0 || targetChannels > 2 || targetSampleRate <= 0 {
-		return nil, errors.New("invalid target channels or sample rate")
-	}
-
-	internalWriter := &internalPCMRemoteTrackWriter{
-		PCMRemoteTrackWriter: writer,
-		sampleRate:           targetSampleRate,
-	}
-
-	// resampledPCMWriter resamples the PCM16 samples from DefaultOpusSampleRate to targetSampleRate and
-	// writes them to the writer. If no resampling is needed, we directly point resampledPCMWriter to writer.
-	var isResampled bool
-	var resampledPCMWriter media.WriteCloser[media.PCM16Sample]
-	if targetSampleRate != DefaultOpusSampleRate {
-		resampledPCMWriter = media.ResampleWriter(internalWriter, DefaultOpusSampleRate)
-		isResampled = true
-	} else {
-		resampledPCMWriter = internalWriter
-	}
-
-	// opus writer takes opus samples, decodes them to PCM16 samples
-	// and writes them to the pcmMWriter
-	opusWriter, err := opus.Decode(resampledPCMWriter, targetChannels, protoLogger.GetLogger())
-	if err != nil {
-		return nil, err
-	}
-
-	// the final chain of writers:
-	// trackRemote -> rtp handlers (reads RTP packets from the track) -> opusWriter (decodes opus -> PCM16) -> resampledPCMWriter (resamples to target sample rate as necessary)
-	// -> user provided writer (writes the final PCM16 samples)
-	t := &PCMRemoteTrack{
-		trackRemote:        track,
-		opusWriter:         opusWriter,
-		pcmMWriter:         internalWriter,
-		resampledPCMWriter: resampledPCMWriter,
-		sampleRate:         targetSampleRate,
-		channels:           targetChannels,
-		logger:             protoLogger.GetLogger(),
-		isResampled:        isResampled,
-		decryptor:          options.Decryptor,
-	}
-
-	go t.process(options.HandleJitter)
-	return t, nil
-}
-
-func (t *PCMRemoteTrack) process(handleJitter bool) {
-	// Handler takes RTP packets and writes the payload to opusWriter
-	var h rtp.Handler = rtp.NewMediaStreamIn[opus.Sample](t.opusWriter)
-
-	if t.decryptor != nil {
-		// Ideally, we should check if the track is encrypted with the
-		// the encryption type of the decryptor. But, encryption type is
-		// found on the RemoteTrackPublication object which we don't have access to here.
-		// So, the user is responsible for passing the correct decryptor.
-		h = newDecryptionHandler(h, t.decryptor)
-	}
-
-	if handleJitter {
-		h = rtp.HandleJitter(h)
-	}
-
-	// HandleLoop takes RTP packets from the track and writes them to the handler
-	// TODO(anunaym14): handle concealment
-	err := rtp.HandleLoop(t.trackRemote, h)
-	if err != nil && !errors.Is(err, io.EOF) {
-		t.logger.Errorw("error handling rtp from track", err)
-	}
-}
-
-func (t *PCMRemoteTrack) Close() {
-	if t.isResampled {
-		t.pcmMWriter.Close()
-	}
-	// opus writer closes resampledPCMWriter internally
-	t.opusWriter.Close()
 }

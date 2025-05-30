@@ -330,6 +330,8 @@ func (p *LocalTrackPublication) setMuted(muted bool, byRemote bool) {
 		switch t := track.(type) {
 		case *LocalTrack:
 			t.setMuted(muted)
+		case interface{ GetMuteFunc() Private[MuteFunc] }:
+			t.GetMuteFunc().v(muted)
 		}
 	}
 
@@ -419,3 +421,5 @@ type TrackPublicationOptions struct {
 	// encryption type
 	Encryption livekit.Encryption_Type
 }
+
+type MuteFunc func(muted bool) error
