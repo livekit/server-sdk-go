@@ -98,6 +98,8 @@ type SignalClientConnectParams struct {
 
 	RetransmitBufferSize uint16
 
+	Attributes map[string]string // See WithExtraAttributes
+
 	Pacer pacer.Factory
 
 	Interceptors []interceptor.Factory
@@ -144,6 +146,20 @@ func WithICETransportPolicy(iceTransportPolicy webrtc.ICETransportPolicy) Connec
 func WithDisableRegionDiscovery() ConnectOption {
 	return func(p *SignalClientConnectParams) {
 		p.DisableRegionDiscovery = true
+	}
+}
+
+func WithExtraAttributes(attrs map[string]string) ConnectOption {
+	return func(p *SignalClientConnectParams) {
+		if len(attrs) != 0 && p.Attributes == nil {
+			p.Attributes = make(map[string]string, len(attrs))
+		}
+		for k, v := range attrs {
+			if v == "" {
+				continue
+			}
+			p.Attributes[k] = v
+		}
 	}
 }
 
