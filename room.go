@@ -221,6 +221,7 @@ func NewRoom(callback *RoomCallback) *Room {
 	engine.OnStreamHeader = r.handleStreamHeader
 	engine.OnStreamChunk = r.handleStreamChunk
 	engine.OnStreamTrailer = r.handleStreamTrailer
+	engine.OnLocalTrackSubscribed = r.handleLocalTrackSubscribed
 
 	// callbacks engine can use to get data
 	engine.CbGetLocalParticipantSID = r.getLocalParticipantSID
@@ -815,6 +816,15 @@ func (r *Room) handleTranscriptionReceived(transcription *livekit.Transcription)
 	transcriptionSegments := ExtractTranscriptionSegments(transcription)
 
 	r.callback.OnTranscriptionReceived(transcriptionSegments, p, publication)
+}
+
+func (r *Room) handleLocalTrackSubscribed(trackSubscribed *livekit.TrackSubscribed) {
+	trackPublication := r.LocalParticipant.getLocalPublication(trackSubscribed.TrackSid)
+	if trackPublication == nil {
+		r.log.Debugw("recieved track subscribed for unknown track", "trackID", trackSubscribed.TrackSid)
+		return
+	}
+	r.callback.OnLocalTrackSubscribed(trackPublication, r.LocalParticipant)
 }
 
 func (r *Room) sendSyncState() {

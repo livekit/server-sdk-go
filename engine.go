@@ -92,6 +92,7 @@ type RTCEngine struct {
 	OnStreamHeader          func(*livekit.DataStream_Header, string)
 	OnStreamChunk           func(*livekit.DataStream_Chunk)
 	OnStreamTrailer         func(*livekit.DataStream_Trailer)
+	OnLocalTrackSubscribed  func(trackSubscribed *livekit.TrackSubscribed)
 
 	onClose     []func()
 	onCloseLock sync.Mutex
@@ -138,6 +139,11 @@ func NewRTCEngine() *RTCEngine {
 	e.client.OnLeave = e.handleLeave
 	e.client.OnTokenRefresh = func(refreshToken string) {
 		e.token.Store(refreshToken)
+	}
+	e.client.OnLocalTrackSubscribed = func(trackSubscribed *livekit.TrackSubscribed) {
+		if f := e.OnLocalTrackSubscribed; f != nil {
+			f(trackSubscribed)
+		}
 	}
 	e.client.OnClose = func() { e.handleDisconnect(false) }
 	e.onClose = []func(){}
