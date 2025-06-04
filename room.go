@@ -821,7 +821,7 @@ func (r *Room) handleTranscriptionReceived(transcription *livekit.Transcription)
 func (r *Room) handleLocalTrackSubscribed(trackSubscribed *livekit.TrackSubscribed) {
 	trackPublication := r.LocalParticipant.getLocalPublication(trackSubscribed.TrackSid)
 	if trackPublication == nil {
-		r.log.Debugw("recieved track subscribed for unknown track", "track", trackSubscribed.TrackSid)
+		r.log.Debugw("recieved track subscribed for unknown track", "trackID", trackSubscribed.TrackSid)
 		return
 	}
 	r.callback.OnLocalTrackSubscribed(trackPublication, r.LocalParticipant)
