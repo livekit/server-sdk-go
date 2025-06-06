@@ -16,6 +16,8 @@ package lksdk
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -152,6 +154,14 @@ func (c *SignalClient) connectContext(ctx context.Context, urlPrefix string, tok
 		if participantSID != "" {
 			urlSuffix += fmt.Sprintf("&sid=%s", participantSID)
 		}
+	}
+	if len(params.Attributes) != 0 {
+		data, err := json.Marshal(params.Attributes)
+		if err != nil {
+			return nil, ErrInvalidParameter
+		}
+		str := base64.URLEncoding.EncodeToString(data)
+		urlSuffix += "&attributes=" + str
 	}
 	urlSuffix += getStatsParamString()
 
