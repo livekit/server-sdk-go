@@ -13,10 +13,10 @@ require (
 	github.com/livekit/protocol v1.39.0
 	github.com/magefile/mage v1.15.0
 	github.com/pion/dtls/v3 v3.0.6
-	github.com/pion/interceptor v0.1.37
+	github.com/pion/interceptor v0.1.38
 	github.com/pion/rtcp v1.2.15
-	github.com/pion/rtp v1.8.15
-	github.com/pion/sdp/v3 v3.0.11
+	github.com/pion/rtp v1.8.18
+	github.com/pion/sdp/v3 v3.0.13
 	github.com/pion/webrtc/v4 v4.1.1
 	github.com/stretchr/testify v1.10.0
 	github.com/twitchtv/twirp v8.1.3+incompatible
