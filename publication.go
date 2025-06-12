@@ -73,7 +73,15 @@ func (p *trackPublicationBase) Track() Track {
 
 func (p *trackPublicationBase) MimeType() string {
 	if info, ok := p.info.Load().(*livekit.TrackInfo); ok {
-		return info.MimeType
+		if info.MimeType != "" {
+			return info.MimeType
+		}
+
+		for _, codec := range info.Codecs {
+			if codec.MimeType != "" {
+				return codec.MimeType
+			}
+		}
 	}
 	return ""
 }

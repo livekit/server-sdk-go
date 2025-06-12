@@ -852,7 +852,7 @@ func (r *Room) handleSubscribedQualityUpdate(subscribedQualityUpdate *livekit.Su
 	}
 
 	for _, subscribedCodec := range subscribedQualityUpdate.SubscribedCodecs {
-		if trackPublication.MimeType() != "" && !strings.HasSuffix(strings.ToLower(trackPublication.MimeType()), subscribedCodec.Codec) {
+		if !strings.HasSuffix(strings.ToLower(trackPublication.MimeType()), subscribedCodec.Codec) {
 			continue
 		}
 
