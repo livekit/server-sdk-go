@@ -424,7 +424,6 @@ func (c *SignalClient) handleResponse(res *livekit.SignalResponse) {
 			c.OnLocalTrackSubscribed(msg.TrackSubscribed)
 		}
 	case *livekit.SignalResponse_SubscribedQualityUpdate:
-		fmt.Printf("got squ\n") // REMOVE
 		if c.OnSubscribedQualityUpdate != nil {
 			c.OnSubscribedQualityUpdate(msg.SubscribedQualityUpdate)
 		}
