@@ -602,7 +602,7 @@ func (s *LocalTrack) writeWorker(provider SampleProvider, onComplete func()) {
 				}
 			}
 
-			sample.Timestamp = time.Now()
+			sample.Timestamp = nextSampleTime
 			if err := s.WriteSample(sample, opts); err != nil {
 				s.log.Errorw("could not write sample", err)
 				return
