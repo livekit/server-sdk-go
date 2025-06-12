@@ -93,8 +93,11 @@ func (p *RemoteParticipant) updateInfo(pi *livekit.ParticipantInfo) {
 	}
 }
 
-func (p *RemoteParticipant) addSubscribedMediaTrack(track *webrtc.TrackRemote, trackSID string,
-	receiver *webrtc.RTPReceiver) {
+func (p *RemoteParticipant) addSubscribedMediaTrack(
+	track *webrtc.TrackRemote,
+	trackSID string,
+	receiver *webrtc.RTPReceiver,
+) {
 	pub := p.getPublication(trackSID)
 	if pub == nil {
 		// wait for metadata to arrive

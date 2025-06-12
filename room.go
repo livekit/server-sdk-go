@@ -238,6 +238,7 @@ func NewRoom(callback *RoomCallback) *Room {
 	engine.OnStreamChunk = r.handleStreamChunk
 	engine.OnStreamTrailer = r.handleStreamTrailer
 	engine.OnLocalTrackSubscribed = r.handleLocalTrackSubscribed
+	engine.OnSubscribedQualityUpdate = r.handleSubscribedQualityUpdate
 
 	// callbacks engine can use to get data
 	engine.CbGetLocalParticipantSID = r.getLocalParticipantSID
@@ -841,6 +842,39 @@ func (r *Room) handleLocalTrackSubscribed(trackSubscribed *livekit.TrackSubscrib
 		return
 	}
 	r.callback.OnLocalTrackSubscribed(trackPublication, r.LocalParticipant)
+}
+
+func (r *Room) handleSubscribedQualityUpdate(subscribedQualityUpdate *livekit.SubscribedQualityUpdate) {
+	trackPublication := r.LocalParticipant.getLocalPublication(subscribedQualityUpdate.TrackSid)
+	if trackPublication == nil {
+		r.log.Debugw("recieved subscribed quality update for unknown track", "trackID", subscribedQualityUpdate.TrackSid)
+		return
+	}
+
+	r.log.Infow(
+		"handling subscribed quality update",
+		"trackID", trackPublication.SID(),
+		"mime", trackPublication.MimeType(),
+		"subscribedQualityUpdate", protoLogger.Proto(subscribedQualityUpdate),
+	)
+	for _, subscribedCodec := range subscribedQualityUpdate.SubscribedCodecs {
+		if !strings.HasSuffix(strings.ToLower(trackPublication.MimeType()), subscribedCodec.Codec) {
+			continue
+		}
+
+		for _, subscribedQuality := range subscribedCodec.Qualities {
+			track := trackPublication.GetSimulcastTrack(subscribedQuality.Quality)
+			if track != nil {
+				track.setMuted(!subscribedQuality.Enabled)
+				r.log.Infow(
+					"updating layer enable",
+					"trackID", trackPublication.SID(),
+					"quality", subscribedQuality.Quality,
+					"enabled", subscribedQuality.Enabled,
+				)
+			}
+		}
+	}
 }
 
 func (r *Room) sendSyncState() {
