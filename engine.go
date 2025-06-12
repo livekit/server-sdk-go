@@ -69,30 +69,31 @@ type RTCEngine struct {
 	JoinTimeout time.Duration
 
 	// callbacks
-	OnLocalTrackUnpublished func(response *livekit.TrackUnpublishedResponse)
-	OnTrackRemoteMuted      func(request *livekit.MuteTrackRequest)
-	OnDisconnected          func(reason DisconnectionReason)
-	OnMediaTrack            func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver)
-	OnParticipantUpdate     func([]*livekit.ParticipantInfo)
-	OnSpeakersChanged       func([]*livekit.SpeakerInfo)
-	OnDataReceived          func(userPacket *livekit.UserPacket) // Deprecated: Use OnDataPacket instead
-	OnDataPacket            func(identity string, dataPacket DataPacket)
-	OnConnectionQuality     func([]*livekit.ConnectionQualityInfo)
-	OnRoomUpdate            func(room *livekit.Room)
-	OnRoomMoved             func(moved *livekit.RoomMovedResponse)
-	OnRestarting            func()
-	OnRestarted             func(*livekit.JoinResponse)
-	OnResuming              func()
-	OnResumed               func()
-	OnTranscription         func(*livekit.Transcription)
-	OnSignalClientConnected func(*livekit.JoinResponse)
-	OnRpcRequest            func(callerIdentity, requestId, method, payload string, responseTimeout time.Duration, version uint32)
-	OnRpcAck                func(requestId string)
-	OnRpcResponse           func(requestId string, payload *string, error *RpcError)
-	OnStreamHeader          func(*livekit.DataStream_Header, string)
-	OnStreamChunk           func(*livekit.DataStream_Chunk)
-	OnStreamTrailer         func(*livekit.DataStream_Trailer)
-	OnLocalTrackSubscribed  func(trackSubscribed *livekit.TrackSubscribed)
+	OnLocalTrackUnpublished   func(response *livekit.TrackUnpublishedResponse)
+	OnTrackRemoteMuted        func(request *livekit.MuteTrackRequest)
+	OnDisconnected            func(reason DisconnectionReason)
+	OnMediaTrack              func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver)
+	OnParticipantUpdate       func([]*livekit.ParticipantInfo)
+	OnSpeakersChanged         func([]*livekit.SpeakerInfo)
+	OnDataReceived            func(userPacket *livekit.UserPacket) // Deprecated: Use OnDataPacket instead
+	OnDataPacket              func(identity string, dataPacket DataPacket)
+	OnConnectionQuality       func([]*livekit.ConnectionQualityInfo)
+	OnRoomUpdate              func(room *livekit.Room)
+	OnRoomMoved               func(moved *livekit.RoomMovedResponse)
+	OnRestarting              func()
+	OnRestarted               func(*livekit.JoinResponse)
+	OnResuming                func()
+	OnResumed                 func()
+	OnTranscription           func(*livekit.Transcription)
+	OnSignalClientConnected   func(*livekit.JoinResponse)
+	OnRpcRequest              func(callerIdentity, requestId, method, payload string, responseTimeout time.Duration, version uint32)
+	OnRpcAck                  func(requestId string)
+	OnRpcResponse             func(requestId string, payload *string, error *RpcError)
+	OnStreamHeader            func(*livekit.DataStream_Header, string)
+	OnStreamChunk             func(*livekit.DataStream_Chunk)
+	OnStreamTrailer           func(*livekit.DataStream_Trailer)
+	OnLocalTrackSubscribed    func(trackSubscribed *livekit.TrackSubscribed)
+	OnSubscribedQualityUpdate func(subscribedQualityUpdate *livekit.SubscribedQualityUpdate)
 
 	onClose     []func()
 	onCloseLock sync.Mutex
@@ -143,6 +144,11 @@ func NewRTCEngine() *RTCEngine {
 	e.client.OnLocalTrackSubscribed = func(trackSubscribed *livekit.TrackSubscribed) {
 		if f := e.OnLocalTrackSubscribed; f != nil {
 			f(trackSubscribed)
+		}
+	}
+	e.client.OnSubscribedQualityUpdate = func(subscribedQualityUpdate *livekit.SubscribedQualityUpdate) {
+		if f := e.OnSubscribedQualityUpdate; f != nil {
+			f(subscribedQualityUpdate)
 		}
 	}
 	e.client.OnClose = func() { e.handleDisconnect(false) }
