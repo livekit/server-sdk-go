@@ -851,17 +851,17 @@ func (r *Room) handleSubscribedQualityUpdate(subscribedQualityUpdate *livekit.Su
 		return
 	}
 
+	r.log.Infow(
+		"handling subscribed quality update",
+		"trackID", trackPublication.SID(),
+		"mime", trackPublication.MimeType(),
+		"subscribedQualityUpdate", protoLogger.Proto(subscribedQualityUpdate),
+	)
 	for _, subscribedCodec := range subscribedQualityUpdate.SubscribedCodecs {
 		if !strings.HasSuffix(strings.ToLower(trackPublication.MimeType()), subscribedCodec.Codec) {
 			continue
 		}
 
-		r.log.Infow(
-			"updating subscribed quality",
-			"trackID", trackPublication.SID(),
-			"mime", trackPublication.MimeType(),
-			"subscribedCodec", protoLogger.Proto(subscribedCodec),
-		)
 		for _, subscribedQuality := range subscribedCodec.Qualities {
 			track := trackPublication.GetSimulcastTrack(subscribedQuality.Quality)
 			if track != nil {
