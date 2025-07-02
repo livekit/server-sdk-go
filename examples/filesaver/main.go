@@ -21,12 +21,14 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/pion/rtp/codecs"
 	"github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media"
 	"github.com/pion/webrtc/v4/pkg/media/h264writer"
+	"github.com/pion/webrtc/v4/pkg/media/h265writer"
 	"github.com/pion/webrtc/v4/pkg/media/ivfwriter"
 	"github.com/pion/webrtc/v4/pkg/media/oggwriter"
 
@@ -37,6 +39,8 @@ import (
 
 var (
 	host, apiKey, apiSecret, roomName, identity string
+
+	writeWG sync.WaitGroup
 )
 
 func init() {
@@ -74,6 +78,7 @@ func main() {
 
 	<-sigChan
 	room.Disconnect()
+	writeWG.Wait()
 }
 
 func onTrackSubscribed(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
@@ -113,6 +118,12 @@ func NewTrackWriter(track *webrtc.TrackRemote, pliWriter lksdk.PLIWriter, fileNa
 		}))
 		writer, err = h264writer.New(fileName + ".h264")
 
+	case strings.EqualFold(track.Codec().MimeType, "video/h265"):
+		sb = samplebuilder.New(maxVideoLate, &codecs.H265Packet{}, track.Codec().ClockRate, samplebuilder.WithPacketDroppedHandler(func() {
+			pliWriter(track.SSRC())
+		}))
+		writer, err = h265writer.New(fileName + ".h265")
+
 	case strings.EqualFold(track.Codec().MimeType, "audio/opus"):
 		sb = samplebuilder.New(maxAudioLate, &codecs.OpusPacket{}, track.Codec().ClockRate)
 		writer, err = oggwriter.New(fileName+".ogg", 48000, track.Codec().Channels)
@@ -130,21 +141,29 @@ func NewTrackWriter(track *webrtc.TrackRemote, pliWriter lksdk.PLIWriter, fileNa
 		writer: writer,
 		track:  track,
 	}
+	writeWG.Add(1)
 	go t.start()
 	return t, nil
 }
 
 func (t *TrackWriter) start() {
-	defer t.writer.Close()
+	defer func() {
+		t.writer.Close()
+		writeWG.Done()
+	}()
+
 	for {
 		pkt, _, err := t.track.ReadRTP()
 		if err != nil {
+			logger.Errorw("failed to read rtp packet", err)
 			break
 		}
 		t.sb.Push(pkt)
 
 		for _, p := range t.sb.PopPackets() {
-			t.writer.WriteRTP(p)
+			if err := t.writer.WriteRTP(p); err != nil {
+				logger.Errorw("failed to write rtp packet", err)
+			}
 		}
 	}
 }
