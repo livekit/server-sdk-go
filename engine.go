@@ -45,6 +45,7 @@ type RTCEngine struct {
 	publisher  *PCTransport
 	subscriber *PCTransport
 	client     *SignalClient
+	clientv2   *Signalv2Client
 
 	dclock        sync.RWMutex
 	reliableDC    *webrtc.DataChannel
@@ -105,6 +106,7 @@ func NewRTCEngine() *RTCEngine {
 	e := &RTCEngine{
 		log:                     logger,
 		client:                  NewSignalClient(),
+		clientv2:                NewSignalv2Client(),
 		trackPublishedListeners: make(map[string]chan *livekit.TrackPublishedResponse),
 		JoinTimeout:             15 * time.Second,
 	}
@@ -161,6 +163,7 @@ func NewRTCEngine() *RTCEngine {
 func (e *RTCEngine) SetLogger(l protoLogger.Logger) {
 	e.log = l
 	e.client.SetLogger(l)
+	e.clientv2.SetLogger(l)
 	if e.publisher != nil {
 		e.publisher.SetLogger(l)
 	}
@@ -175,6 +178,14 @@ func (e *RTCEngine) Join(url string, token string, params *SignalClientConnectPa
 }
 
 func (e *RTCEngine) JoinContext(ctx context.Context, url string, token string, params *SignalClientConnectParams) (*livekit.JoinResponse, error) {
+	if e.clientv2 != nil {
+		err := e.clientv2.JoinContext(ctx, url, token, *params)
+		if err != nil {
+			logger.Errorw("could not join", err)
+		}
+		return nil, errors.New("unimplemented") // RAJA-TODO
+	}
+
 	res, err := e.client.JoinContext(ctx, url, token, *params)
 	if err != nil {
 		return nil, err
