@@ -47,11 +47,13 @@ type RTCEngine struct {
 	client     *SignalClient
 	clientv2   *Signalv2Client
 
-	dclock        sync.RWMutex
-	reliableDC    *webrtc.DataChannel
-	lossyDC       *webrtc.DataChannel
-	reliableDCSub *webrtc.DataChannel
-	lossyDCSub    *webrtc.DataChannel
+	dclock          sync.RWMutex
+	reliableDC      *webrtc.DataChannel
+	lossyDC         *webrtc.DataChannel
+	reliableDCSub   *webrtc.DataChannel
+	lossyDCSub      *webrtc.DataChannel
+	reliableMsgLock sync.Mutex
+	reliableMsgSeq  uint32
 
 	trackPublishedListenersLock sync.Mutex
 	trackPublishedListeners     map[string]chan *livekit.TrackPublishedResponse
@@ -109,6 +111,7 @@ func NewRTCEngine() *RTCEngine {
 		clientv2:                NewSignalv2Client(),
 		trackPublishedListeners: make(map[string]chan *livekit.TrackPublishedResponse),
 		JoinTimeout:             15 * time.Second,
+		reliableMsgSeq:          1,
 	}
 
 	e.client.OnParticipantUpdate = func(info []*livekit.ParticipantInfo) {
@@ -295,6 +298,12 @@ func (e *RTCEngine) configure(
 	subscriberPrimary *bool) error {
 
 	configuration := e.makeRTCConfiguration(iceServers, clientConfig)
+
+	// reset reliable message sequence
+	e.reliableMsgLock.Lock()
+	e.reliableMsgSeq = 1
+	e.reliableMsgLock.Unlock()
+
 	e.pclock.Lock()
 	defer e.pclock.Unlock()
 
@@ -846,13 +855,7 @@ func (e *RTCEngine) makeRTCConfiguration(iceServers []*livekit.ICEServer, client
 }
 
 func (e *RTCEngine) publishDataPacket(pck *livekit.DataPacket, kind livekit.DataPacket_Kind) error {
-	data, err := proto.Marshal(pck)
-	if err != nil {
-		e.log.Errorw("could not marshal data packet", err)
-		return err
-	}
-
-	err = e.ensurePublisherConnected(true)
+	err := e.ensurePublisherConnected(true)
 	if err != nil {
 		e.log.Errorw("could not ensure publisher connected", err)
 		return err
@@ -862,6 +865,20 @@ func (e *RTCEngine) publishDataPacket(pck *livekit.DataPacket, kind livekit.Data
 	if dc == nil {
 		e.log.Errorw("could not get data channel", nil, "kind", kind)
 		return errors.New("datachannel not found")
+	}
+
+	if kind == livekit.DataPacket_RELIABLE {
+		e.reliableMsgLock.Lock()
+		defer e.reliableMsgLock.Unlock()
+
+		pck.Sequence = e.reliableMsgSeq
+		e.reliableMsgSeq++
+	}
+
+	data, err := proto.Marshal(pck)
+	if err != nil {
+		e.log.Errorw("could not marshal data packet", err)
+		return err
 	}
 
 	dc.Send(data)

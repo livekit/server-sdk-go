@@ -25,6 +25,7 @@ import (
 	"github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media"
 	"github.com/pion/webrtc/v4/pkg/media/h264reader"
+	"github.com/pion/webrtc/v4/pkg/media/h265reader"
 	"github.com/pion/webrtc/v4/pkg/media/ivfreader"
 
 	"github.com/livekit/server-sdk-go/v2/pkg/oggreader"
@@ -54,6 +55,9 @@ type ReaderSampleProvider struct {
 
 	// for h264
 	h264reader *h264reader.H264Reader
+
+	// for h265
+	h265reader *h265reader.H265Reader
 
 	// for ogg
 	oggReader *oggreader.OggReader
@@ -126,6 +130,8 @@ func NewLocalFileTrack(file string, options ...ReaderSampleProviderOption) (*Loc
 			return nil, ErrCannotDetermineMime
 		}
 		_, _ = fp.Seek(0, 0)
+	case ".h265":
+		mime = webrtc.MimeTypeH265
 	case ".ogg":
 		mime = webrtc.MimeTypeOpus
 	default:
@@ -156,7 +162,7 @@ func NewLocalReaderTrack(in io.ReadCloser, mime string, options ...ReaderSampleP
 
 	// check if mime type is supported
 	switch provider.Mime {
-	case webrtc.MimeTypeH264, webrtc.MimeTypeOpus, webrtc.MimeTypeVP8, webrtc.MimeTypeVP9:
+	case webrtc.MimeTypeH264, webrtc.MimeTypeH265, webrtc.MimeTypeOpus, webrtc.MimeTypeVP8, webrtc.MimeTypeVP9:
 	// allow
 	default:
 		return nil, ErrUnsupportedFileType
@@ -178,7 +184,7 @@ func NewLocalReaderTrack(in io.ReadCloser, mime string, options ...ReaderSampleP
 
 func (p *ReaderSampleProvider) OnBind() error {
 	// If we are not closing on unbind, don't do anything on rebind
-	if p.ivfReader != nil || p.h264reader != nil || p.oggReader != nil {
+	if p.ivfReader != nil || p.h264reader != nil || p.oggReader != nil || p.h265reader != nil {
 		return nil
 	}
 
@@ -186,6 +192,8 @@ func (p *ReaderSampleProvider) OnBind() error {
 	switch p.Mime {
 	case webrtc.MimeTypeH264:
 		p.h264reader, err = h264reader.NewReader(p.reader)
+	case webrtc.MimeTypeH265:
+		p.h265reader, err = h265reader.NewReader(p.reader)
 	case webrtc.MimeTypeVP8, webrtc.MimeTypeVP9:
 		var ivfHeader *ivfreader.IVFFileHeader
 		p.ivfReader, ivfHeader, err = ivfreader.NewWith(p.reader)
@@ -244,6 +252,46 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 			return sample, nil
 		}
 		sample.Duration = defaultH264FrameDuration
+	case webrtc.MimeTypeH265:
+		var (
+			isFrame    bool
+			needPrefix bool
+		)
+
+		for {
+			nal, err := p.h265reader.NextNAL()
+			if err != nil {
+				return sample, err
+			}
+
+			// aggregate vps,sps,pps into a single AP packet (chrome requires this)
+			if nal.NalUnitType == 32 || nal.NalUnitType == 33 || nal.NalUnitType == 34 {
+				sample.Data = append(sample.Data, []byte{0, 0, 0, 1}...) // add NAL prefix
+				sample.Data = append(sample.Data, nal.Data...)
+				needPrefix = true
+				continue
+			}
+
+			if needPrefix {
+				sample.Data = append(sample.Data, []byte{0, 0, 0, 1}...) // add NAL prefix
+				sample.Data = append(sample.Data, nal.Data...)
+			} else {
+				sample.Data = nal.Data
+			}
+
+			if !isFrame {
+				isFrame = nal.NalUnitType < 32
+			}
+
+			if !isFrame {
+				// return it without duration
+				return sample, nil
+			}
+
+			sample.Duration = defaultH264FrameDuration
+			break
+		}
+
 	case webrtc.MimeTypeVP8, webrtc.MimeTypeVP9:
 		frame, header, err := p.ivfReader.ParseNextFrame()
 		if err != nil {
