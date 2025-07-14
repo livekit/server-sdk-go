@@ -38,9 +38,11 @@ type Signalv2Client struct {
 	pendingResponse *livekit.SignalResponse
 	readerClosedCh  chan struct{}
 	*/
-	lock             sync.RWMutex
-	isStarted        bool
-	messageId        uint32
+	lock      sync.RWMutex
+	isStarted bool
+
+	messageId uint32
+
 	httpSignalling   *httpSignalling
 	activeSignalling signalTransport
 
@@ -156,8 +158,9 @@ func (c *Signalv2Client) connectv2Context(
 	}
 
 	connectRequest := &livekit.ConnectRequest{
-		ClientInfo:         clientInfo,
-		ConnectionSettings: connectionSettings,
+		ClientInfo:            clientInfo,
+		ConnectionSettings:    connectionSettings,
+		ParticipantAttributes: params.Attributes,
 	}
 
 	signalv2ClientMessage := &livekit.Signalv2ClientMessage{
