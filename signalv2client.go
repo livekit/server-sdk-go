@@ -164,14 +164,15 @@ func (c *Signalv2Client) connectv2Context(
 		ParticipantAttributes: params.Attributes,
 	}
 
-	signalv2ClientMessage := &livekit.Signalv2ClientMessage{
+	connectRequestMessage := &livekit.Signalv2ClientMessage{
 		Message: &livekit.Signalv2ClientMessage_ConnectRequest{
 			ConnectRequest: connectRequest,
 		},
 	}
 
 	// RAJA-TODO: need locking to ensure message sequence and delivery order
-	_, err := c.activeSignalling.SendMessage(c.makeSignalv2ClientEnvelope(signalv2ClientMessage), token)
+	// RAJA-TODO _, err := c.activeSignalling.SendMessage(c.makeSignalv2ClientEnvelope(signalv2ClientMessage), token)
+	_, err := c.activeSignalling.SendMessage(connectRequestMessage, token)
 	return err
 }
 
@@ -403,7 +404,7 @@ func (c *Signalv2Client) makeSignalv2ClientEnvelope(msg *livekit.Signalv2ClientM
 // ----------------------------------------------
 
 type signalTransport interface {
-	SendMessage(msg *livekit.Signalv2ClientEnvelope, token string) (*livekit.Signalv2ServerEnvelope, error)
+	SendMessage(msg *livekit.Signalv2ClientMessage, token string) (*livekit.Signalv2ServerMessage, error)
 }
 
 // -----------------------------------------------
@@ -420,7 +421,7 @@ func (h *httpSignalling) SetUrlPrefix(urlPrefix string) {
 	h.urlPrefix = ToHttpURL(urlPrefix)
 }
 
-func (h *httpSignalling) SendMessage(msg *livekit.Signalv2ClientEnvelope, token string) (*livekit.Signalv2ServerEnvelope, error) {
+func (h *httpSignalling) SendMessage(msg *livekit.Signalv2ClientMessage, token string) (*livekit.Signalv2ServerMessage, error) {
 	if len(h.urlPrefix) == 0 {
 		return nil, ErrURLNotProvided
 	}
@@ -463,7 +464,7 @@ func (h *httpSignalling) SendMessage(msg *livekit.Signalv2ClientEnvelope, token 
 		return nil, errors.New(string(body))
 	}
 
-	respMsg := &livekit.Signalv2ServerEnvelope{}
+	respMsg := &livekit.Signalv2ServerMessage{}
 	if err := proto.Unmarshal(body, respMsg); err != nil {
 		return nil, err
 	}
