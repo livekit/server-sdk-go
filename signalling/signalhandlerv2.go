@@ -76,13 +76,15 @@ func (s *signalhandlerv2) HandleMessage(msg proto.Message) error {
 				)
 			}
 
+			// SIGNALLING-V2-TODO: ask for replay if there are gaps
+
 			// SIGNALLING-V2-TODO: process messages
 			switch payload := serverMessage.GetMessage().(type) {
 			case *livekit.Signalv2ServerMessage_PublisherSdp:
-				s.params.Processor.OnOffer(protosignalling.FromProtoSessionDescription(payload.PublisherSdp))
+				s.params.Processor.OnAnswer(protosignalling.FromProtoSessionDescription(payload.PublisherSdp))
 
 			case *livekit.Signalv2ServerMessage_SubscriberSdp:
-				s.params.Processor.OnAnswer(protosignalling.FromProtoSessionDescription(payload.SubscriberSdp))
+				s.params.Processor.OnOffer(protosignalling.FromProtoSessionDescription(payload.SubscriberSdp))
 			}
 
 			s.lastProcessedRemoteMessageId.Store(serverMessage.Sequencer.MessageId)

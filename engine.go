@@ -115,7 +115,8 @@ const (
 type RTCEngine struct {
 	log protoLogger.Logger
 
-	engineHandler engineHandler
+	engineHandler            engineHandler
+	cbGetLocalParticipantSID func() string
 
 	pclock          sync.Mutex
 	publisher       *PCTransport
@@ -150,17 +151,16 @@ type RTCEngine struct {
 
 	onClose     []func()
 	onCloseLock sync.Mutex
-	// callbacks to get data
-	CbGetLocalParticipantSID func() string
 }
 
-func NewRTCEngine(engineHandler engineHandler) *RTCEngine {
+func NewRTCEngine(engineHandler engineHandler, getLocalParticipantSID func() string) *RTCEngine {
 	e := &RTCEngine{
-		log:                     logger,
-		engineHandler:           engineHandler,
-		trackPublishedListeners: make(map[string]chan *livekit.TrackPublishedResponse),
-		joinTimeout:             15 * time.Second,
-		reliableMsgSeq:          1,
+		log:                      logger,
+		engineHandler:            engineHandler,
+		cbGetLocalParticipantSID: getLocalParticipantSID,
+		trackPublishedListeners:  make(map[string]chan *livekit.TrackPublishedResponse),
+		joinTimeout:              15 * time.Second,
+		reliableMsgSeq:           1,
 	}
 	// SIGNALLING-V2-TODO: have to instantiate objects based on signal version & transport
 	e.signalling = signalling.NewSignalling(signalling.SignallingParams{
@@ -666,7 +666,7 @@ func (e *RTCEngine) handleDisconnect(fullReconnect bool) {
 
 func (e *RTCEngine) resumeConnection() error {
 	/* RAJA-TODO
-	reconnect, err := e.client.Reconnect(e.url, e.token.Load(), *e.connParams, e.CbGetLocalParticipantSID())
+	reconnect, err := e.client.Reconnect(e.url, e.token.Load(), *e.connParams, e.cbGetLocalParticipantSID())
 	if err != nil {
 		return err
 	}

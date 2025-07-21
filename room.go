@@ -204,13 +204,8 @@ func NewRoom(callback *RoomCallback) *Room {
 	}
 	r.callback.Merge(callback)
 
-	r.engine = NewRTCEngine(r)
+	r.engine = NewRTCEngine(r, r.getLocalParticipantSID)
 	r.LocalParticipant = newLocalParticipant(r.engine, r.callback, r.serverInfo)
-
-	// RAJA-TODO: fix this to pass this maybe
-	// callbacks engine can use to get data
-	r.engine.CbGetLocalParticipantSID = r.getLocalParticipantSID
-
 	return r
 }
 
@@ -594,7 +589,11 @@ func (r *Room) Simulate(scenario SimulateScenario) {
 }
 
 func (r *Room) getLocalParticipantSID() string {
-	return r.LocalParticipant.SID()
+	if r.LocalParticipant != nil {
+		return r.LocalParticipant.SID()
+	}
+
+	return ""
 }
 
 // Establishes the participant as a receiver for calls of the specified RPC method.
