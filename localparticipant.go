@@ -44,18 +44,13 @@ type LocalParticipant struct {
 }
 
 func newLocalParticipant(engine *RTCEngine, roomcallback *RoomCallback, serverInfo *livekit.ServerInfo) *LocalParticipant {
-	p := &LocalParticipant{
+	return &LocalParticipant{
 		baseParticipant:     *newBaseParticipant(roomcallback),
 		engine:              engine,
 		serverInfo:          serverInfo,
 		rpcPendingAcks:      &sync.Map{},
 		rpcPendingResponses: &sync.Map{},
 	}
-
-	engine.OnRpcAck = p.handleIncomingRpcAck
-	engine.OnRpcResponse = p.handleIncomingRpcResponse
-
-	return p
 }
 
 func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPublicationOptions) (*LocalTrackPublication, error) {
@@ -553,7 +548,7 @@ func (p *LocalParticipant) handleParticipantDisconnected(identity string) {
 	})
 }
 
-func (p *LocalParticipant) handleIncomingRpcAck(requestId string) {
+func (p *LocalParticipant) HandleIncomingRpcAck(requestId string) {
 	handler, ok := p.rpcPendingAcks.Load(requestId)
 	if !ok {
 		p.engine.log.Errorw("ack received for unexpected RPC request", nil, "requestId", requestId)
@@ -563,7 +558,7 @@ func (p *LocalParticipant) handleIncomingRpcAck(requestId string) {
 	}
 }
 
-func (p *LocalParticipant) handleIncomingRpcResponse(requestId string, payload *string, error *RpcError) {
+func (p *LocalParticipant) HandleIncomingRpcResponse(requestId string, payload *string, error *RpcError) {
 	handler, ok := p.rpcPendingResponses.Load(requestId)
 	if !ok {
 		p.engine.log.Errorw("response received for unexpected RPC request", nil, "requestId", requestId)

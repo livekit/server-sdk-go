@@ -27,7 +27,69 @@ import (
 
 	"github.com/livekit/protocol/livekit"
 	protoLogger "github.com/livekit/protocol/logger"
+	protosignalling "github.com/livekit/protocol/signalling"
+	"github.com/livekit/server-sdk-go/v2/signalling"
 )
+
+// -------------------------------------------
+
+type engineHandler interface {
+	OnLocalTrackUnpublished(response *livekit.TrackUnpublishedResponse)
+	OnTrackRemoteMuted(request *livekit.MuteTrackRequest)
+	OnDisconnected(reason DisconnectionReason)
+	OnMediaTrack(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver)
+	OnParticipantUpdate([]*livekit.ParticipantInfo)
+	OnSpeakersChanged([]*livekit.SpeakerInfo)
+	OnDataPacket(identity string, dataPacket DataPacket)
+	OnConnectionQuality([]*livekit.ConnectionQualityInfo)
+	OnRoomUpdate(room *livekit.Room)
+	OnRoomMoved(moved *livekit.RoomMovedResponse)
+	OnRestarting()
+	OnRestarted(*livekit.JoinResponse)
+	OnResuming()
+	OnResumed()
+	OnTranscription(*livekit.Transcription)
+	OnSignalClientConnected(*livekit.JoinResponse)
+	OnRpcRequest(callerIdentity, requestId, method, payload string, responseTimeout time.Duration, version uint32)
+	OnRpcAck(requestId string)
+	OnRpcResponse(requestId string, payload *string, error *RpcError)
+	OnStreamHeader(*livekit.DataStream_Header, string)
+	OnStreamChunk(*livekit.DataStream_Chunk)
+	OnStreamTrailer(*livekit.DataStream_Trailer)
+	OnLocalTrackSubscribed(trackSubscribed *livekit.TrackSubscribed)
+	OnSubscribedQualityUpdate(subscribedQualityUpdate *livekit.SubscribedQualityUpdate)
+}
+
+type nullEngineHandler struct{}
+
+func (n *nullEngineHandler) OnLocalTrackUnpublished(response *livekit.TrackUnpublishedResponse)   {}
+func (n *nullEngineHandler) OnTrackRemoteMuted(request *livekit.MuteTrackRequest)                 {}
+func (n *nullEngineHandler) OnDisconnected(reason DisconnectionReason)                            {}
+func (n *nullEngineHandler) OnMediaTrack(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {}
+func (n *nullEngineHandler) OnParticipantUpdate([]*livekit.ParticipantInfo)                       {}
+func (n *nullEngineHandler) OnSpeakersChanged([]*livekit.SpeakerInfo)                             {}
+func (n *nullEngineHandler) OnDataPacket(identity string, dataPacket DataPacket)                  {}
+func (n *nullEngineHandler) OnConnectionQuality([]*livekit.ConnectionQualityInfo)                 {}
+func (n *nullEngineHandler) OnRoomUpdate(room *livekit.Room)                                      {}
+func (n *nullEngineHandler) OnRoomMoved(moved *livekit.RoomMovedResponse)                         {}
+func (n *nullEngineHandler) OnRestarting()                                                        {}
+func (n *nullEngineHandler) OnRestarted(*livekit.JoinResponse)                                    {}
+func (n *nullEngineHandler) OnResuming()                                                          {}
+func (n *nullEngineHandler) OnResumed()                                                           {}
+func (n *nullEngineHandler) OnTranscription(*livekit.Transcription)                               {}
+func (n *nullEngineHandler) OnSignalClientConnected(*livekit.JoinResponse)                        {}
+func (n *nullEngineHandler) OnRpcRequest(callerIdentity, requestId, method, payload string, responseTimeout time.Duration, version uint32) {
+}
+func (n *nullEngineHandler) OnRpcAck(requestId string)                                        {}
+func (n *nullEngineHandler) OnRpcResponse(requestId string, payload *string, error *RpcError) {}
+func (n *nullEngineHandler) OnStreamHeader(*livekit.DataStream_Header, string)                {}
+func (n *nullEngineHandler) OnStreamChunk(*livekit.DataStream_Chunk)                          {}
+func (n *nullEngineHandler) OnStreamTrailer(*livekit.DataStream_Trailer)                      {}
+func (n *nullEngineHandler) OnLocalTrackSubscribed(trackSubscribed *livekit.TrackSubscribed)  {}
+func (n *nullEngineHandler) OnSubscribedQualityUpdate(subscribedQualityUpdate *livekit.SubscribedQualityUpdate) {
+}
+
+// -------------------------------------------
 
 const (
 	reliableDataChannelName = "_reliable"
@@ -41,11 +103,16 @@ const (
 type RTCEngine struct {
 	log protoLogger.Logger
 
-	pclock     sync.Mutex
-	publisher  *PCTransport
-	subscriber *PCTransport
-	client     *SignalClient
-	clientv2   *Signalv2Client
+	engineHandler engineHandler
+
+	pclock          sync.Mutex
+	publisher       *PCTransport
+	subscriber      *PCTransport
+	client          *SignalClient   // RAJA-REMOVE
+	clientv2        *Signalv2Client // RAJA-REMOVE
+	signalling      signalling.Signalling
+	signalHandler   signalling.SignalHandler
+	signalTransport signalling.SignalTransport
 
 	dclock          sync.RWMutex
 	reliableDC      *webrtc.DataChannel
@@ -69,34 +136,7 @@ type RTCEngine struct {
 	token      atomic.String
 	connParams *SignalClientConnectParams
 
-	JoinTimeout time.Duration
-
-	// callbacks
-	OnLocalTrackUnpublished   func(response *livekit.TrackUnpublishedResponse)
-	OnTrackRemoteMuted        func(request *livekit.MuteTrackRequest)
-	OnDisconnected            func(reason DisconnectionReason)
-	OnMediaTrack              func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver)
-	OnParticipantUpdate       func([]*livekit.ParticipantInfo)
-	OnSpeakersChanged         func([]*livekit.SpeakerInfo)
-	OnDataReceived            func(userPacket *livekit.UserPacket) // Deprecated: Use OnDataPacket instead
-	OnDataPacket              func(identity string, dataPacket DataPacket)
-	OnConnectionQuality       func([]*livekit.ConnectionQualityInfo)
-	OnRoomUpdate              func(room *livekit.Room)
-	OnRoomMoved               func(moved *livekit.RoomMovedResponse)
-	OnRestarting              func()
-	OnRestarted               func(*livekit.JoinResponse)
-	OnResuming                func()
-	OnResumed                 func()
-	OnTranscription           func(*livekit.Transcription)
-	OnSignalClientConnected   func(*livekit.JoinResponse)
-	OnRpcRequest              func(callerIdentity, requestId, method, payload string, responseTimeout time.Duration, version uint32)
-	OnRpcAck                  func(requestId string)
-	OnRpcResponse             func(requestId string, payload *string, error *RpcError)
-	OnStreamHeader            func(*livekit.DataStream_Header, string)
-	OnStreamChunk             func(*livekit.DataStream_Chunk)
-	OnStreamTrailer           func(*livekit.DataStream_Trailer)
-	OnLocalTrackSubscribed    func(trackSubscribed *livekit.TrackSubscribed)
-	OnSubscribedQualityUpdate func(subscribedQualityUpdate *livekit.SubscribedQualityUpdate)
+	joinTimeout time.Duration
 
 	onClose     []func()
 	onCloseLock sync.Mutex
@@ -104,59 +144,31 @@ type RTCEngine struct {
 	CbGetLocalParticipantSID func() string
 }
 
-func NewRTCEngine() *RTCEngine {
+func NewRTCEngine(engineHandler engineHandler) *RTCEngine {
 	e := &RTCEngine{
 		log:                     logger,
+		engineHandler:           engineHandler,
 		client:                  NewSignalClient(),
 		clientv2:                NewSignalv2Client(),
 		trackPublishedListeners: make(map[string]chan *livekit.TrackPublishedResponse),
-		JoinTimeout:             15 * time.Second,
+		joinTimeout:             15 * time.Second,
 		reliableMsgSeq:          1,
 	}
+	// SIGNALLING-V2-TODO: have to instantiate objects based on signal version & transport
+	e.signalling = signalling.NewSignalling(signalling.SignallingParams{
+		Logger: e.log,
+	})
+	e.signalHandler = signalling.NewSignalHandler(signalling.SignalHandlerParams{
+		Logger:    e.log,
+		Processor: e,
+	})
+	e.signalTransport = signalling.NewSignalTransportWebSocket(signalling.SignalTransportWebSocketParams{
+		Logger: e.log,
+	})
 
-	e.client.OnParticipantUpdate = func(info []*livekit.ParticipantInfo) {
-		if f := e.OnParticipantUpdate; f != nil {
-			f(info)
-		}
-	}
-	e.client.OnSpeakersChanged = func(si []*livekit.SpeakerInfo) {
-		if f := e.OnSpeakersChanged; f != nil {
-			f(si)
-		}
-	}
-	e.client.OnLocalTrackPublished = e.handleLocalTrackPublished
-	e.client.OnLocalTrackUnpublished = e.handleLocalTrackUnpublished
-	e.client.OnTrackRemoteMuted = e.handleTrackRemoteMuted
-	e.client.OnConnectionQuality = func(cqi []*livekit.ConnectionQualityInfo) {
-		if f := e.OnConnectionQuality; f != nil {
-			f(cqi)
-		}
-	}
-	e.client.OnRoomUpdate = func(room *livekit.Room) {
-		if f := e.OnRoomUpdate; f != nil {
-			f(room)
-		}
-	}
-	e.client.OnRoomMoved = func(moved *livekit.RoomMovedResponse) {
-		if f := e.OnRoomMoved; f != nil {
-			f(moved)
-		}
-	}
-	e.client.OnLeave = e.handleLeave
-	e.client.OnTokenRefresh = func(refreshToken string) {
-		e.token.Store(refreshToken)
-	}
-	e.client.OnLocalTrackSubscribed = func(trackSubscribed *livekit.TrackSubscribed) {
-		if f := e.OnLocalTrackSubscribed; f != nil {
-			f(trackSubscribed)
-		}
-	}
-	e.client.OnSubscribedQualityUpdate = func(subscribedQualityUpdate *livekit.SubscribedQualityUpdate) {
-		if f := e.OnSubscribedQualityUpdate; f != nil {
-			f(subscribedQualityUpdate)
-		}
-	}
-	e.client.OnClose = func() { e.handleDisconnect(false) }
+	/* SIGNALLING-V2-TODO
+	e.client.OnClose = func() { e.handleDisconnect(false) }	// SIGNALLING-V2-TODO: need OnClose on SignalTransport
+	*/
 	e.onClose = []func(){}
 
 	return e
@@ -167,6 +179,7 @@ func (e *RTCEngine) SetLogger(l protoLogger.Logger) {
 	e.log = l
 	e.client.SetLogger(l)
 	e.clientv2.SetLogger(l)
+	e.signalTransport.SetLogger(l)
 	if e.publisher != nil {
 		e.publisher.SetLogger(l)
 	}
@@ -175,12 +188,13 @@ func (e *RTCEngine) SetLogger(l protoLogger.Logger) {
 	}
 }
 
-// Deprecated, use JoinContext.
-func (e *RTCEngine) Join(url string, token string, params *SignalClientConnectParams) (*livekit.JoinResponse, error) {
-	return e.JoinContext(context.TODO(), url, token, params)
-}
-
-func (e *RTCEngine) JoinContext(ctx context.Context, url string, token string, params *SignalClientConnectParams) (*livekit.JoinResponse, error) {
+// RAJA-TODO: get a new type as return from signal handler or let signal handler callback with JoinResponse or ConnectResponse
+func (e *RTCEngine) JoinContext(
+	ctx context.Context,
+	url string,
+	token string,
+	params *SignalClientConnectParams,
+) (proto.Message, error) {
 	if e.clientv2 != nil {
 		err := e.clientv2.JoinContext(ctx, url, token, *params)
 		if err != nil {
@@ -203,9 +217,7 @@ func (e *RTCEngine) JoinContext(ctx context.Context, url string, token string, p
 		return nil, err
 	}
 
-	if e.OnSignalClientConnected != nil {
-		e.OnSignalClientConnected(res)
-	}
+	e.engineHandler.OnSignalClientConnected(res)
 
 	e.client.Start()
 
@@ -394,9 +406,7 @@ func (e *RTCEngine) configure(
 	})
 
 	e.subscriber.pc.OnTrack(func(remote *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
-		if e.OnMediaTrack != nil {
-			e.OnMediaTrack(remote, receiver)
-		}
+		e.engineHandler.OnMediaTrack(remote, receiver)
 	})
 
 	e.subscriber.pc.OnDataChannel(func(c *webrtc.DataChannel) {
@@ -443,7 +453,7 @@ func (e *RTCEngine) configure(
 	e.dclock.Unlock()
 
 	// configure client
-	e.client.OnAnswer = func(sd webrtc.SessionDescription) {
+	e.client.OnAnswer = func(sd webrtc.SessionDescription, answerId uint32) {
 		if e.closed.Load() {
 			e.log.Debugw("ignoring SDP answer after closed")
 			return
@@ -475,7 +485,7 @@ func (e *RTCEngine) configure(
 			e.log.Errorw("could not add ICE candidate", err)
 		}
 	}
-	e.client.OnOffer = func(sd webrtc.SessionDescription) {
+	e.client.OnOffer = func(sd webrtc.SessionDescription, offerId uint32) {
 		if e.closed.Load() {
 			e.log.Debugw("ignoring SDP offer after closed")
 			return
@@ -531,7 +541,7 @@ func waitUntilConnected(d time.Duration, test func() bool) error {
 }
 
 func (e *RTCEngine) waitUntilConnected() error {
-	return waitUntilConnected(e.JoinTimeout, func() bool {
+	return waitUntilConnected(e.joinTimeout, func() bool {
 		if e.IsConnected() {
 			e.requiresFullReconnect.Store(false)
 			return true
@@ -549,7 +559,7 @@ func (e *RTCEngine) ensurePublisherConnected(ensureDataReady bool) error {
 	}
 
 	var negotiated bool
-	return waitUntilConnected(e.JoinTimeout, func() bool {
+	return waitUntilConnected(e.joinTimeout, func() bool {
 		if publisher, ok := e.Publisher(); ok {
 			if publisher.IsConnected() && (!ensureDataReady || e.dataPubChannelReady()) {
 				return true
@@ -581,28 +591,6 @@ func (e *RTCEngine) UnregisterTrackPublishedListener(cid string) {
 	e.trackPublishedListenersLock.Unlock()
 }
 
-func (e *RTCEngine) handleLocalTrackPublished(res *livekit.TrackPublishedResponse) {
-	e.trackPublishedListenersLock.Lock()
-	listener, ok := e.trackPublishedListeners[res.Cid]
-	e.trackPublishedListenersLock.Unlock()
-
-	if ok {
-		listener <- res
-	}
-}
-
-func (e *RTCEngine) handleLocalTrackUnpublished(res *livekit.TrackUnpublishedResponse) {
-	if e.OnLocalTrackUnpublished != nil {
-		e.OnLocalTrackUnpublished(res)
-	}
-}
-
-func (e *RTCEngine) handleTrackRemoteMuted(request *livekit.MuteTrackRequest) {
-	if e.OnTrackRemoteMuted != nil {
-		e.OnTrackRemoteMuted(request)
-	}
-}
-
 func (e *RTCEngine) handleDataPacket(msg webrtc.DataChannelMessage) {
 	packet, err := e.readDataPacket(msg)
 	if err != nil {
@@ -620,56 +608,43 @@ func (e *RTCEngine) handleDataPacket(msg webrtc.DataChannelMessage) {
 		if ptr := &m.DestinationIdentities; len(*ptr) == 0 {
 			*ptr = packet.DestinationIdentities
 		}
-		if onDataReceived := e.OnDataReceived; onDataReceived != nil {
-			onDataReceived(m)
+
+		if identity == "" {
+			//lint:ignore SA1019 backward compatibility
+			identity = m.ParticipantIdentity
 		}
-		if e.OnDataPacket != nil {
-			if identity == "" {
-				//lint:ignore SA1019 backward compatibility
-				identity = m.ParticipantIdentity
-			}
-			e.OnDataPacket(identity, &UserDataPacket{
-				Payload: m.Payload,
-				Topic:   m.GetTopic(),
-			})
-		}
+		e.engineHandler.OnDataPacket(identity, &UserDataPacket{
+			Payload: m.Payload,
+			Topic:   m.GetTopic(),
+		})
 	case *livekit.DataPacket_SipDtmf:
-		if e.OnDataPacket != nil {
-			e.OnDataPacket(identity, msg.SipDtmf)
-		}
+		e.engineHandler.OnDataPacket(identity, msg.SipDtmf)
 	case *livekit.DataPacket_Transcription:
-		if e.OnTranscription != nil {
-			e.OnTranscription(msg.Transcription)
-		}
+		e.engineHandler.OnTranscription(msg.Transcription)
 	case *livekit.DataPacket_RpcRequest:
-		if e.OnRpcRequest != nil {
-			e.OnRpcRequest(packet.ParticipantIdentity, msg.RpcRequest.Id, msg.RpcRequest.Method, msg.RpcRequest.Payload, time.Duration(msg.RpcRequest.ResponseTimeoutMs)*time.Millisecond, msg.RpcRequest.Version)
-		}
+		e.engineHandler.OnRpcRequest(
+			packet.ParticipantIdentity,
+			msg.RpcRequest.Id,
+			msg.RpcRequest.Method,
+			msg.RpcRequest.Payload,
+			time.Duration(msg.RpcRequest.ResponseTimeoutMs)*time.Millisecond,
+			msg.RpcRequest.Version,
+		)
 	case *livekit.DataPacket_RpcAck:
-		if e.OnRpcAck != nil {
-			e.OnRpcAck(msg.RpcAck.RequestId)
-		}
+		e.engineHandler.OnRpcAck(msg.RpcAck.RequestId)
 	case *livekit.DataPacket_RpcResponse:
-		if e.OnRpcResponse != nil {
-			switch res := msg.RpcResponse.Value.(type) {
-			case *livekit.RpcResponse_Payload:
-				e.OnRpcResponse(msg.RpcResponse.RequestId, &res.Payload, nil)
-			case *livekit.RpcResponse_Error:
-				e.OnRpcResponse(msg.RpcResponse.RequestId, nil, fromProto(res.Error))
-			}
+		switch res := msg.RpcResponse.Value.(type) {
+		case *livekit.RpcResponse_Payload:
+			e.engineHandler.OnRpcResponse(msg.RpcResponse.RequestId, &res.Payload, nil)
+		case *livekit.RpcResponse_Error:
+			e.engineHandler.OnRpcResponse(msg.RpcResponse.RequestId, nil, fromProto(res.Error))
 		}
 	case *livekit.DataPacket_StreamHeader:
-		if e.OnStreamHeader != nil {
-			e.OnStreamHeader(msg.StreamHeader, identity)
-		}
+		e.engineHandler.OnStreamHeader(msg.StreamHeader, identity)
 	case *livekit.DataPacket_StreamChunk:
-		if e.OnStreamChunk != nil {
-			e.OnStreamChunk(msg.StreamChunk)
-		}
+		e.engineHandler.OnStreamChunk(msg.StreamChunk)
 	case *livekit.DataPacket_StreamTrailer:
-		if e.OnStreamTrailer != nil {
-			e.OnStreamTrailer(msg.StreamTrailer)
-		}
+		e.engineHandler.OnStreamTrailer(msg.StreamTrailer)
 	}
 }
 
@@ -703,8 +678,8 @@ func (e *RTCEngine) handleDisconnect(fullReconnect bool) {
 				fullReconnect = true
 			}
 			if fullReconnect {
-				if reconnectCount == 0 && e.OnRestarting != nil {
-					e.OnRestarting()
+				if reconnectCount == 0 {
+					e.engineHandler.OnRestarting()
 				}
 				e.log.Infow("restarting connection...", "reconnectCount", reconnectCount)
 				if err := e.restartConnection(); err != nil {
@@ -713,8 +688,8 @@ func (e *RTCEngine) handleDisconnect(fullReconnect bool) {
 					return
 				}
 			} else {
-				if reconnectCount == 0 && e.OnResuming != nil {
-					e.OnResuming()
+				if reconnectCount == 0 {
+					e.engineHandler.OnResuming()
 				}
 				e.log.Infow("resuming connection...", "reconnectCount", reconnectCount)
 				if err := e.resumeConnection(); err != nil {
@@ -733,9 +708,7 @@ func (e *RTCEngine) handleDisconnect(fullReconnect bool) {
 			}
 		}
 
-		if e.OnDisconnected != nil {
-			e.OnDisconnected(Failed)
-		}
+		e.engineHandler.OnDisconnected(Failed)
 	}()
 }
 
@@ -779,9 +752,7 @@ func (e *RTCEngine) resumeConnection() error {
 		return err
 	}
 
-	if e.OnResumed != nil {
-		e.OnResumed()
-	}
+	e.engineHandler.OnResumed()
 	return nil
 }
 
@@ -792,14 +763,14 @@ func (e *RTCEngine) restartConnection() error {
 	}
 	e.client.Close()
 
-	res, err := e.Join(e.url, e.token.Load(), e.connParams)
+	res, err := e.JoinContext(context.TODO(), e.url, e.token.Load(), e.connParams)
 	if err != nil {
 		return err
 	}
 
-	if e.OnRestarted != nil {
-		e.OnRestarted(res)
-	}
+	// SIGNALLING-V2-TODO: can this type assertion be removed? can signalling client type abstract it?
+	joinResponse := res.(*livekit.JoinResponse)
+	e.engineHandler.OnRestarted(joinResponse)
 	return nil
 }
 
@@ -820,29 +791,8 @@ func (e *RTCEngine) createPublisherAnswerAndSend() error {
 	return nil
 }
 
-func (e *RTCEngine) handleLeave(leave *livekit.LeaveRequest) {
-	e.log.Debugw("received leave request", "action", leave.GetAction())
-	switch leave.GetAction() {
-	case livekit.LeaveRequest_DISCONNECT:
-		e.Close()
-		reason := leave.GetReason()
-		e.log.Infow("server initiated leave", "reason", reason)
-		if e.OnDisconnected != nil {
-			e.OnDisconnected(GetDisconnectionReason(reason))
-		}
-
-	case livekit.LeaveRequest_RECONNECT:
-		e.handleDisconnect(true)
-
-	case livekit.LeaveRequest_RESUME:
-		e.handleDisconnect(false)
-
-	default:
-	}
-}
-
 func (e *RTCEngine) makeRTCConfiguration(iceServers []*livekit.ICEServer, clientConfig *livekit.ClientConfiguration) webrtc.Configuration {
-	rtcICEServers := FromProtoIceServers(iceServers)
+	rtcICEServers := protosignalling.FromProtoIceServers(iceServers)
 	configuration := webrtc.Configuration{
 		ICEServers:         rtcICEServers,
 		ICETransportPolicy: e.connParams.ICETransportPolicy,
@@ -1024,4 +974,125 @@ func (e *RTCEngine) waitForBufferStatusLow(kind livekit.DataPacket_Kind) {
 	for !e.isBufferStatusLow(kind) {
 		time.Sleep(10 * time.Millisecond)
 	}
+}
+
+// signalling.SignalProcessor implementation
+func (e *RTCEngine) OnJoinResponse(joinRepsonse *livekit.JoinResponse) {
+	// RAJA-TODO
+}
+
+func (e *RTCEngine) OnAnswer(sd webrtc.SessionDescription, answerId uint32) {
+	if e.closed.Load() {
+		e.log.Debugw("ignoring SDP answer after closed")
+		return
+	}
+
+	if err := e.publisher.SetRemoteDescription(sd); err != nil {
+		e.log.Errorw("could not set remote description", err)
+	} else {
+		e.log.Debugw("successfully set publisher answer")
+	}
+}
+
+func (e *RTCEngine) OnOffer(sd webrtc.SessionDescription, offerId uint32) {
+	if e.closed.Load() {
+		e.log.Debugw("ignoring SDP offer after closed")
+		return
+	}
+
+	e.log.Debugw("received offer for subscriber")
+	if err := e.subscriber.SetRemoteDescription(sd); err != nil {
+		e.log.Errorw("could not set remote description", err)
+		return
+	}
+}
+
+func (e *RTCEngine) OnTrickle(init webrtc.ICECandidateInit, target livekit.SignalTarget) {
+	if e.closed.Load() {
+		e.log.Debugw("ignoring trickle after closed")
+		return
+	}
+
+	var err error
+	e.log.Debugw("remote ICE candidate",
+		"target", target,
+		"candidate", init.Candidate,
+	)
+	if target == livekit.SignalTarget_PUBLISHER {
+		err = e.publisher.AddICECandidate(init)
+	} else if target == livekit.SignalTarget_SUBSCRIBER {
+		err = e.subscriber.AddICECandidate(init)
+	}
+	if err != nil {
+		e.log.Errorw("could not add ICE candidate", err)
+	}
+}
+
+func (e *RTCEngine) OnParticipantUpdate(info []*livekit.ParticipantInfo) {
+	e.engineHandler.OnParticipantUpdate(info)
+}
+
+func (e *RTCEngine) OnLocalTrackPublished(res *livekit.TrackPublishedResponse) {
+	e.trackPublishedListenersLock.Lock()
+	listener, ok := e.trackPublishedListeners[res.Cid]
+	e.trackPublishedListenersLock.Unlock()
+
+	if ok {
+		listener <- res
+	}
+}
+
+func (e *RTCEngine) OnLocalTrackUnpublished(res *livekit.TrackUnpublishedResponse) {
+	e.engineHandler.OnLocalTrackUnpublished(res)
+}
+
+func (e *RTCEngine) OnSpeakersChanged(si []*livekit.SpeakerInfo) {
+	e.engineHandler.OnSpeakersChanged(si)
+}
+
+func (e *RTCEngine) OnConnectionQuality(cqi []*livekit.ConnectionQualityInfo) {
+	e.engineHandler.OnConnectionQuality(cqi)
+}
+
+func (e *RTCEngine) OnRoomUpdate(room *livekit.Room) {
+	e.engineHandler.OnRoomUpdate(room)
+}
+
+func (e *RTCEngine) OnRoomMoved(moved *livekit.RoomMovedResponse) {
+	e.engineHandler.OnRoomMoved(moved)
+}
+
+func (e *RTCEngine) OnTrackRemoteMuted(request *livekit.MuteTrackRequest) {
+	e.engineHandler.OnTrackRemoteMuted(request)
+}
+
+func (e *RTCEngine) OnTokenRefresh(refreshToken string) {
+	e.token.Store(refreshToken)
+}
+
+func (e *RTCEngine) OnLeave(leave *livekit.LeaveRequest) {
+	e.log.Debugw("received leave request", "action", leave.GetAction())
+	switch leave.GetAction() {
+	case livekit.LeaveRequest_DISCONNECT:
+		e.Close()
+		reason := leave.GetReason()
+		e.log.Infow("server initiated leave", "reason", reason)
+		e.engineHandler.OnDisconnected(GetDisconnectionReason(reason))
+
+	case livekit.LeaveRequest_RECONNECT:
+		e.handleDisconnect(true)
+
+	case livekit.LeaveRequest_RESUME:
+		e.handleDisconnect(false)
+
+	default:
+	}
+}
+
+func (e *RTCEngine) OnLocalTrackSubscribed(trackSubscribed *livekit.TrackSubscribed) {
+	e.engineHandler.OnLocalTrackSubscribed(trackSubscribed)
+}
+
+func (e *RTCEngine) OnSubscribedQualityUpdate(subscribedQualityUpdate *livekit.SubscribedQualityUpdate) {
+	e.engineHandler.OnSubscribedQualityUpdate(subscribedQualityUpdate)
 }

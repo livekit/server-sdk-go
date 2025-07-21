@@ -12,71 +12,44 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package lksdk
+package signalling
 
 import (
-	"context"
-	"encoding/base64"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"runtime"
-	"strings"
-	"sync"
-	"time"
-
-	"github.com/gorilla/websocket"
-	"github.com/pion/webrtc/v4"
-	"go.uber.org/atomic"
-	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/proto"
-
-	"github.com/livekit/protocol/livekit"
-	protoLogger "github.com/livekit/protocol/logger"
-	protosignalling "github.com/livekit/protocol/signalling"
+	"github.com/livekit/protocol/logger"
 )
 
-const PROTOCOL = 16
+var _ SignalTransport = (*signalTransportWebSocket)(nil)
 
-type SignalClient struct {
-	log             protoLogger.Logger
+type SignalTransportWebSocketParams struct {
+	Logger        logger.Logger
+	SignalHandler SignalHandler
+}
+
+type signalTransportWebSocket struct {
+	signalTransportUnimplemented
+
+	params SignalTransportWebSocketParams
+
+	/* RAJA-TODO
 	conn            atomic.Pointer[websocket.Conn]
 	lock            sync.Mutex
 	isStarted       atomic.Bool
 	pendingResponse *livekit.SignalResponse
 	readerClosedCh  chan struct{}
-
-	OnClose                   func()
-	OnAnswer                  func(sd webrtc.SessionDescription, answerId uint32)
-	OnOffer                   func(sd webrtc.SessionDescription, offerId uint32)
-	OnTrickle                 func(init webrtc.ICECandidateInit, target livekit.SignalTarget)
-	OnParticipantUpdate       func([]*livekit.ParticipantInfo)
-	OnLocalTrackPublished     func(response *livekit.TrackPublishedResponse)
-	OnSpeakersChanged         func([]*livekit.SpeakerInfo)
-	OnConnectionQuality       func([]*livekit.ConnectionQualityInfo)
-	OnRoomUpdate              func(room *livekit.Room)
-	OnRoomMoved               func(moved *livekit.RoomMovedResponse)
-	OnTrackRemoteMuted        func(request *livekit.MuteTrackRequest)
-	OnLocalTrackUnpublished   func(response *livekit.TrackUnpublishedResponse)
-	OnTokenRefresh            func(refreshToken string)
-	OnLeave                   func(*livekit.LeaveRequest)
-	OnLocalTrackSubscribed    func(trackSubscribed *livekit.TrackSubscribed)
-	OnSubscribedQualityUpdate func(subscribedQualityUpdate *livekit.SubscribedQualityUpdate)
+	*/
 }
 
-func NewSignalClient() *SignalClient {
-	c := &SignalClient{log: logger}
-	return c
+func NewSignalTransportWebSocket(params SignalTransportWebSocketParams) SignalTransport {
+	return &signalTransportWebSocket{
+		params: params,
+	}
 }
 
-// SetLogger overrides default logger.
-func (c *SignalClient) SetLogger(l protoLogger.Logger) {
-	c.log = l
+func (s *signalTransportWebSocket) SetLogger(l logger.Logger) {
+	s.params.Logger = l
 }
 
+/* RAJA-REMOVE
 func (c *SignalClient) Start() {
 	if c.isStarted.Swap(true) {
 		return
@@ -250,7 +223,7 @@ func (c *SignalClient) Close() {
 func (c *SignalClient) SendICECandidate(candidate webrtc.ICECandidateInit, target livekit.SignalTarget) error {
 	return c.SendRequest(&livekit.SignalRequest{
 		Message: &livekit.SignalRequest_Trickle{
-			Trickle: protosignalling.ToProtoTrickle(candidate, target, false),
+			Trickle: ToProtoTrickle(candidate, target),
 		},
 	})
 }
@@ -258,7 +231,7 @@ func (c *SignalClient) SendICECandidate(candidate webrtc.ICECandidateInit, targe
 func (c *SignalClient) SendOffer(sd webrtc.SessionDescription) error {
 	return c.SendRequest(&livekit.SignalRequest{
 		Message: &livekit.SignalRequest_Offer{
-			Offer: protosignalling.ToProtoSessionDescription(sd, 0), // SIGNALLING-V2-TODO: offerId
+			Offer: ToProtoSessionDescription(sd),
 		},
 	})
 }
@@ -266,7 +239,7 @@ func (c *SignalClient) SendOffer(sd webrtc.SessionDescription) error {
 func (c *SignalClient) SendAnswer(sd webrtc.SessionDescription) error {
 	return c.SendRequest(&livekit.SignalRequest{
 		Message: &livekit.SignalRequest_Answer{
-			Answer: protosignalling.ToProtoSessionDescription(sd, 0), // SIGNALLING-V2-TODO: answerId
+			Answer: ToProtoSessionDescription(sd),
 		},
 	})
 }
@@ -365,18 +338,15 @@ func (c *SignalClient) handleResponse(res *livekit.SignalResponse) {
 	switch msg := res.Message.(type) {
 	case *livekit.SignalResponse_Answer:
 		if c.OnAnswer != nil {
-			c.OnAnswer(protosignalling.FromProtoSessionDescription(msg.Answer))
+			c.OnAnswer(FromProtoSessionDescription(msg.Answer))
 		}
 	case *livekit.SignalResponse_Offer:
 		if c.OnOffer != nil {
-			c.OnOffer(protosignalling.FromProtoSessionDescription(msg.Offer))
+			c.OnOffer(FromProtoSessionDescription(msg.Offer))
 		}
 	case *livekit.SignalResponse_Trickle:
 		if c.OnTrickle != nil {
-			ci, err := protosignalling.FromProtoTrickle(msg.Trickle)
-			if err == nil {
-				c.OnTrickle(ci, msg.Trickle.Target)
-			}
+			c.OnTrickle(FromProtoTrickle(msg.Trickle), msg.Trickle.Target)
 		}
 	case *livekit.SignalResponse_Update:
 		if c.OnParticipantUpdate != nil {
@@ -479,3 +449,4 @@ func getStatsParamString() string {
 	params := "&sdk=go&os=" + runtime.GOOS
 	return params
 }
+*/
