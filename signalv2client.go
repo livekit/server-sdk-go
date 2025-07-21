@@ -171,8 +171,7 @@ func (c *Signalv2Client) connectv2Context(
 	}
 
 	// RAJA-TODO: need locking to ensure message sequence and delivery order
-	// RAJA-TODO _, err := c.activeSignalling.SendMessage(c.makeSignalv2ClientEnvelope(signalv2ClientMessage), token)
-	_, err := c.activeSignalling.SendMessage(connectRequestMessage, token)
+	_, err := c.activeSignalling.SendMessage(c.makeSignalv2Envelope(connectRequestMessage), token)
 	return err
 }
 
@@ -392,19 +391,25 @@ func (c *Signalv2Client) readWorker(readerClosedCh chan struct{}) {
 // RAJA-TODO
 // 1. Cache of unacked messages
 // 2. Client envelope builder to allow adding messages to the envelope and send envelope whenever
-func (c *Signalv2Client) makeSignalv2ClientEnvelope(msg *livekit.Signalv2ClientMessage) *livekit.Signalv2ClientEnvelope {
-	msg.MessageId = c.messageId
+func (c *Signalv2Client) makeSignalv2Envelope(msg *livekit.Signalv2ClientMessage) *livekit.Signalv2WireMessage {
+	msg.Sequencer = &livekit.Sequencer{
+		MessageId: c.messageId,
+	}
 	c.messageId++
 
-	return &livekit.Signalv2ClientEnvelope{
-		ClientMessages: []*livekit.Signalv2ClientMessage{msg},
+	return &livekit.Signalv2WireMessage{
+		Message: &livekit.Signalv2WireMessage_Envelope{
+			Envelope: &livekit.Envelope{
+				ClientMessages: []*livekit.Signalv2ClientMessage{msg},
+			},
+		},
 	}
 }
 
 // ----------------------------------------------
 
 type signalTransport interface {
-	SendMessage(msg *livekit.Signalv2ClientMessage, token string) (*livekit.Signalv2ServerMessage, error)
+	SendMessage(msg *livekit.Signalv2WireMessage, token string) (*livekit.Signalv2WireMessage, error)
 }
 
 // -----------------------------------------------
@@ -421,7 +426,7 @@ func (h *httpSignalling) SetUrlPrefix(urlPrefix string) {
 	h.urlPrefix = ToHttpURL(urlPrefix)
 }
 
-func (h *httpSignalling) SendMessage(msg *livekit.Signalv2ClientMessage, token string) (*livekit.Signalv2ServerMessage, error) {
+func (h *httpSignalling) SendMessage(msg *livekit.Signalv2WireMessage, token string) (*livekit.Signalv2WireMessage, error) {
 	if len(h.urlPrefix) == 0 {
 		return nil, ErrURLNotProvided
 	}
@@ -458,16 +463,16 @@ func (h *httpSignalling) SendMessage(msg *livekit.Signalv2ClientMessage, token s
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("Response Status:", resp.Status)
-	fmt.Println("Response Body:", string(body))
+	fmt.Println("Response Status:", resp.Status) // REMOVE
 	if resp.StatusCode != http.StatusOK {
 		return nil, errors.New(string(body))
 	}
 
-	respMsg := &livekit.Signalv2ServerMessage{}
+	respMsg := &livekit.Signalv2WireMessage{}
 	if err := proto.Unmarshal(body, respMsg); err != nil {
 		return nil, err
 	}
+	protoLogger.Infow("response from server", "resp", protoLogger.Proto(respMsg)) // REMOVE
 
 	return respMsg, nil
 }
