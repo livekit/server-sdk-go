@@ -50,6 +50,10 @@ func NewSignalHandlerv2(params SignalHandlerv2Params) SignalHandler {
 	}
 }
 
+func (s *signalhandlerv2) SetLogger(l logger.Logger) {
+	s.params.Logger = l
+}
+
 func (s *signalhandlerv2) HandleMessage(msg proto.Message) error {
 	wireMessage, ok := msg.(*livekit.Signalv2WireMessage)
 	if !ok {

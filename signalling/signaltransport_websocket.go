@@ -15,14 +15,35 @@
 package signalling
 
 import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"runtime"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/gorilla/websocket"
+	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 var _ SignalTransport = (*signalTransportWebSocket)(nil)
 
 type SignalTransportWebSocketParams struct {
-	Logger        logger.Logger
-	SignalHandler SignalHandler
+	Logger                 logger.Logger
+	Version                string
+	Protocol               int
+	SignalTransportHandler SignalTransportHandler
+	SignalHandler          SignalHandler
 }
 
 type signalTransportWebSocket struct {
@@ -30,13 +51,11 @@ type signalTransportWebSocket struct {
 
 	params SignalTransportWebSocketParams
 
-	/* RAJA-TODO
-	conn            atomic.Pointer[websocket.Conn]
-	lock            sync.Mutex
-	isStarted       atomic.Bool
-	pendingResponse *livekit.SignalResponse
-	readerClosedCh  chan struct{}
-	*/
+	conn      atomic.Pointer[websocket.Conn]
+	lock      sync.Mutex
+	isStarted atomic.Bool
+	// RAJA-TODO pendingResponse *livekit.SignalResponse
+	readerClosedCh chan struct{}
 }
 
 func NewSignalTransportWebSocket(params SignalTransportWebSocketParams) SignalTransport {
@@ -47,6 +66,235 @@ func NewSignalTransportWebSocket(params SignalTransportWebSocketParams) SignalTr
 
 func (s *signalTransportWebSocket) SetLogger(l logger.Logger) {
 	s.params.Logger = l
+}
+
+func (s *signalTransportWebSocket) Start() {
+	if s.isStarted.Swap(true) {
+		return
+	}
+	s.readerClosedCh = make(chan struct{})
+	go s.readWorker(s.readerClosedCh)
+}
+
+func (s *signalTransportWebSocket) IsStarted() bool {
+	return s.isStarted.Load()
+}
+
+func (s *signalTransportWebSocket) Close() {
+	isStarted := s.IsStarted()
+	readerClosedCh := s.readerClosedCh
+	conn := s.websocketConn()
+	if conn != nil {
+		_ = conn.Close()
+	}
+	if isStarted && readerClosedCh != nil {
+		<-readerClosedCh
+	}
+}
+
+func (s *signalTransportWebSocket) Join(
+	ctx context.Context,
+	urlPrefix string,
+	token string,
+	connectParams ConnectParams,
+) error {
+	return s.connect(ctx, urlPrefix, token, connectParams, "")
+}
+
+func (s *signalTransportWebSocket) SendMessage(msg proto.Message) error {
+	conn := s.websocketConn()
+	if conn == nil {
+		return errors.New("signal transport is not connected")
+	}
+
+	payload, err := proto.Marshal(msg)
+	if err != nil {
+		return err
+	}
+
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	return conn.WriteMessage(websocket.BinaryMessage, payload)
+}
+
+func (s *signalTransportWebSocket) connect(
+	ctx context.Context,
+	urlPrefix string,
+	token string,
+	params ConnectParams,
+	participantSID string,
+) error {
+	if urlPrefix == "" {
+		return ErrURLNotProvided
+	}
+	urlPrefix = ToWebsocketURL(urlPrefix)
+	urlSuffix := fmt.Sprintf("/rtc?protocol=%d&version=%s", s.params.Protocol, s.params.Version)
+
+	if params.AutoSubscribe {
+		urlSuffix += "&auto_subscribe=1"
+	} else {
+		urlSuffix += "&auto_subscribe=0"
+	}
+	if params.Reconnect {
+		urlSuffix += "&reconnect=1"
+		if participantSID != "" {
+			urlSuffix += fmt.Sprintf("&sid=%s", participantSID)
+		}
+	}
+	if len(params.Attributes) != 0 {
+		data, err := json.Marshal(params.Attributes)
+		if err != nil {
+			return ErrInvalidParameter
+		}
+		str := base64.URLEncoding.EncodeToString(data)
+		urlSuffix += "&attributes=" + str
+	}
+	urlSuffix += getStatsParamString()
+
+	u, err := url.Parse(urlPrefix + urlSuffix)
+	if err != nil {
+		return err
+	}
+
+	header := NewHeaderWithToken(token)
+	startedAt := time.Now()
+	conn, hresp, err := websocket.DefaultDialer.DialContext(ctx, u.String(), header)
+	if err != nil {
+		fields := []interface{}{
+			"duration", time.Since(startedAt),
+		}
+		if hresp != nil {
+			body, _ := io.ReadAll(hresp.Body)
+			fields = append(fields, "status", hresp.StatusCode, "response", string(body))
+		}
+		s.params.Logger.Errorw("error establishing signal connection", err, fields...)
+
+		if strings.HasSuffix(err.Error(), ":53: server misbehaving") {
+			// DNS issue, abort
+			return ErrCannotDialSignal
+		}
+		// use validate endpoint to get the actual error
+		validateSuffix := strings.Replace(urlSuffix, "/rtc", "/rtc/validate", 1)
+
+		validateReq, err1 := http.NewRequestWithContext(ctx, http.MethodGet, ToHttpURL(urlPrefix)+validateSuffix, nil)
+		if err1 != nil {
+			s.params.Logger.Errorw("error creating validate request", err1)
+			return ErrCannotDialSignal
+		}
+		validateReq.Header = header
+		hresp, err := http.DefaultClient.Do(validateReq)
+		if err != nil {
+			s.params.Logger.Errorw("error getting validation", err, "httpResponse", hresp)
+			return ErrCannotDialSignal
+		} else if hresp.StatusCode == http.StatusOK {
+			// no specific errors to return if validate succeeds
+			s.params.Logger.Infow("validate succeeded")
+			return ErrCannotConnectSignal
+		} else {
+			var errString string
+			switch hresp.StatusCode {
+			case http.StatusUnauthorized:
+				errString = "unauthorized: "
+			case http.StatusNotFound:
+				errString = "not found: "
+			case http.StatusServiceUnavailable:
+				errString = "unavailable: "
+			}
+			body, err := io.ReadAll(hresp.Body)
+			if err == nil {
+				errString += string(body)
+			}
+			return errors.New(errString)
+		}
+	}
+	s.Close() // close previous conn, if any
+	s.conn.Store(conn)
+
+	// server should send join as soon as connected
+	res, err := s.readResponse()
+	if err != nil {
+		return err
+	}
+
+	s.params.SignalHandler.HandleMessage(res)
+	return nil
+}
+
+func (s *signalTransportWebSocket) websocketConn() *websocket.Conn {
+	return s.conn.Load()
+}
+
+func (s *signalTransportWebSocket) readWorker(readerClosedCh chan struct{}) {
+	defer func() {
+		s.isStarted.Store(false)
+		s.conn.Store(nil)
+		close(readerClosedCh)
+
+		s.params.SignalTransportHandler.OnTransportClose()
+	}()
+	/* RAJA-TODO
+	if pending := c.pendingResponse; pending != nil {
+		c.handleResponse(pending)
+		c.pendingResponse = nil
+	}
+	*/
+	for {
+		res, err := s.readResponse()
+		if err != nil {
+			if !isIgnoredWebsocketError(err) {
+				s.params.Logger.Infow("error while reading from signal client", "error", err)
+			}
+			return
+		}
+		s.params.SignalHandler.HandleMessage(res)
+	}
+}
+
+func (s *signalTransportWebSocket) readResponse() (proto.Message, error) {
+	conn := s.websocketConn()
+	if conn == nil {
+		return nil, errors.New("cannot read response without signal transport")
+	}
+
+	// handle special messages and pass on the rest
+	messageType, payload, err := conn.ReadMessage()
+	if err != nil {
+		return nil, err
+	}
+
+	msg := &livekit.SignalResponse{}
+	switch messageType {
+	case websocket.BinaryMessage:
+		// protobuf encoded
+		err := proto.Unmarshal(payload, msg)
+		return msg, err
+
+	case websocket.TextMessage:
+		// json encoded
+		err := protojson.Unmarshal(payload, msg)
+		return msg, err
+
+	default:
+		return nil, nil
+	}
+}
+
+// ----------------------------------
+
+func getStatsParamString() string {
+	params := "&sdk=go&os=" + runtime.GOOS
+	return params
+}
+
+func isIgnoredWebsocketError(err error) bool {
+	if err == nil ||
+		err == io.EOF ||
+		strings.Contains(err.Error(), "use of closed network connection") ||
+		strings.Contains(err.Error(), "connection reset by peer") {
+		return true
+	}
+
+	return websocket.IsCloseError(err, websocket.CloseAbnormalClosure, websocket.CloseGoingAway, websocket.CloseNormalClosure, websocket.CloseNoStatusReceived)
 }
 
 /* RAJA-REMOVE
@@ -306,143 +554,6 @@ func (c *SignalClient) SendUpdateParticipantMetadata(metadata *livekit.UpdatePar
 			UpdateMetadata: metadata,
 		},
 	})
-}
-
-func (c *SignalClient) readResponse() (*livekit.SignalResponse, error) {
-	conn := c.websocketConn()
-	if conn == nil {
-		return nil, errors.New("cannot read response before join")
-	}
-	// handle special messages and pass on the rest
-	messageType, payload, err := conn.ReadMessage()
-	if err != nil {
-		return nil, err
-	}
-
-	msg := &livekit.SignalResponse{}
-	switch messageType {
-	case websocket.BinaryMessage:
-		// protobuf encoded
-		err := proto.Unmarshal(payload, msg)
-		return msg, err
-	case websocket.TextMessage:
-		// json encoded
-		err := protojson.Unmarshal(payload, msg)
-		return msg, err
-	default:
-		return nil, nil
-	}
-}
-
-func (c *SignalClient) handleResponse(res *livekit.SignalResponse) {
-	switch msg := res.Message.(type) {
-	case *livekit.SignalResponse_Answer:
-		if c.OnAnswer != nil {
-			c.OnAnswer(FromProtoSessionDescription(msg.Answer))
-		}
-	case *livekit.SignalResponse_Offer:
-		if c.OnOffer != nil {
-			c.OnOffer(FromProtoSessionDescription(msg.Offer))
-		}
-	case *livekit.SignalResponse_Trickle:
-		if c.OnTrickle != nil {
-			c.OnTrickle(FromProtoTrickle(msg.Trickle), msg.Trickle.Target)
-		}
-	case *livekit.SignalResponse_Update:
-		if c.OnParticipantUpdate != nil {
-			c.OnParticipantUpdate(msg.Update.Participants)
-		}
-	case *livekit.SignalResponse_SpeakersChanged:
-		if c.OnSpeakersChanged != nil {
-			c.OnSpeakersChanged(msg.SpeakersChanged.Speakers)
-		}
-	case *livekit.SignalResponse_TrackPublished:
-		if c.OnLocalTrackPublished != nil {
-			c.OnLocalTrackPublished(msg.TrackPublished)
-		}
-	case *livekit.SignalResponse_Mute:
-		if c.OnTrackRemoteMuted != nil {
-			c.OnTrackRemoteMuted(msg.Mute)
-		}
-	case *livekit.SignalResponse_ConnectionQuality:
-		if c.OnConnectionQuality != nil {
-			c.OnConnectionQuality(msg.ConnectionQuality.Updates)
-		}
-	case *livekit.SignalResponse_RoomUpdate:
-		if c.OnRoomUpdate != nil {
-			c.OnRoomUpdate(msg.RoomUpdate.Room)
-		}
-	case *livekit.SignalResponse_RoomMoved:
-		if c.OnTokenRefresh != nil {
-			c.OnTokenRefresh(msg.RoomMoved.Token)
-		}
-
-		if c.OnRoomMoved != nil {
-			c.OnRoomMoved(msg.RoomMoved)
-		}
-
-	case *livekit.SignalResponse_Leave:
-		if c.OnLeave != nil {
-			c.OnLeave(msg.Leave)
-		}
-	case *livekit.SignalResponse_RefreshToken:
-		if c.OnTokenRefresh != nil {
-			c.OnTokenRefresh(msg.RefreshToken)
-		}
-	case *livekit.SignalResponse_TrackUnpublished:
-		if c.OnLocalTrackUnpublished != nil {
-			c.OnLocalTrackUnpublished(msg.TrackUnpublished)
-		}
-	case *livekit.SignalResponse_TrackSubscribed:
-		if c.OnLocalTrackSubscribed != nil {
-			c.OnLocalTrackSubscribed(msg.TrackSubscribed)
-		}
-	case *livekit.SignalResponse_SubscribedQualityUpdate:
-		if c.OnSubscribedQualityUpdate != nil {
-			c.OnSubscribedQualityUpdate(msg.SubscribedQualityUpdate)
-		}
-	}
-}
-
-func (c *SignalClient) readWorker(readerClosedCh chan struct{}) {
-	defer func() {
-		c.isStarted.Store(false)
-		c.conn.Store(nil)
-		close(readerClosedCh)
-
-		if c.OnClose != nil {
-			c.OnClose()
-		}
-	}()
-	if pending := c.pendingResponse; pending != nil {
-		c.handleResponse(pending)
-		c.pendingResponse = nil
-	}
-	for {
-		res, err := c.readResponse()
-		if err != nil {
-			if !isIgnoredWebsocketError(err) {
-				c.log.Infow("error while reading from signal client", "err", err)
-			}
-			return
-		}
-		c.handleResponse(res)
-	}
-}
-
-func (c *SignalClient) websocketConn() *websocket.Conn {
-	return c.conn.Load()
-}
-
-func isIgnoredWebsocketError(err error) bool {
-	if err == nil ||
-		err == io.EOF ||
-		strings.Contains(err.Error(), "use of closed network connection") ||
-		strings.Contains(err.Error(), "connection reset by peer") {
-		return true
-	}
-
-	return websocket.IsCloseError(err, websocket.CloseAbnormalClosure, websocket.CloseGoingAway, websocket.CloseNormalClosure, websocket.CloseNoStatusReceived)
 }
 
 func getStatsParamString() string {

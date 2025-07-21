@@ -38,6 +38,10 @@ func NewSignalling(params SignallingParams) Signalling {
 	}
 }
 
+func (s *signalling) SetLogger(l logger.Logger) {
+	s.params.Logger = l
+}
+
 func (s *signalling) SignalLeaveRequest(leave *livekit.LeaveRequest) proto.Message {
 	return &livekit.SignalRequest{
 		Message: &livekit.SignalRequest_Leave{
@@ -66,6 +70,70 @@ func (s *signalling) SignalSdpAnswer(answer *livekit.SessionDescription) proto.M
 	return &livekit.SignalRequest{
 		Message: &livekit.SignalRequest_Answer{
 			Answer: answer,
+		},
+	}
+}
+
+func (s *signalling) SignalSimulateScenario(simulate *livekit.SimulateScenario) proto.Message {
+	return &livekit.SignalRequest{
+		Message: &livekit.SignalRequest_Simulate{
+			Simulate: simulate,
+		},
+	}
+}
+
+func (s *signalling) SignalMuteTrack(mute *livekit.MuteTrackRequest) proto.Message {
+	return &livekit.SignalRequest{
+		Message: &livekit.SignalRequest_Mute{
+			Mute: mute,
+		},
+	}
+}
+
+func (s *signalling) SignalUpdateSubscription(updateSubscription *livekit.UpdateSubscription) proto.Message {
+	return &livekit.SignalRequest{
+		Message: &livekit.SignalRequest_Subscription{
+			Subscription: updateSubscription,
+		},
+	}
+}
+
+func (s *signalling) SignalSyncState(syncState *livekit.SyncState) proto.Message {
+	return &livekit.SignalRequest{
+		Message: &livekit.SignalRequest_SyncState{
+			SyncState: syncState,
+		},
+	}
+}
+
+func (s *signalling) SignalAddTrack(addTrack *livekit.AddTrackRequest) proto.Message {
+	return &livekit.SignalRequest{
+		Message: &livekit.SignalRequest_AddTrack{
+			AddTrack: addTrack,
+		},
+	}
+}
+
+func (s *signalling) SignalSubscriptionPermission(subscriptionPermission *livekit.SubscriptionPermission) proto.Message {
+	return &livekit.SignalRequest{
+		Message: &livekit.SignalRequest_SubscriptionPermission{
+			SubscriptionPermission: subscriptionPermission,
+		},
+	}
+}
+
+func (s *signalling) SignalUpdateTrackSettings(settings *livekit.UpdateTrackSettings) proto.Message {
+	return &livekit.SignalRequest{
+		Message: &livekit.SignalRequest_TrackSetting{
+			TrackSetting: settings,
+		},
+	}
+}
+
+func (s *signalling) SignalUpdateParticipantMetadata(metadata *livekit.UpdateParticipantMetadata) proto.Message {
+	return &livekit.SignalRequest{
+		Message: &livekit.SignalRequest_UpdateMetadata{
+			UpdateMetadata: metadata,
 		},
 	}
 }

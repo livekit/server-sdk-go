@@ -31,10 +31,15 @@ import (
 
 	protoLogger "github.com/livekit/protocol/logger"
 	protosignalling "github.com/livekit/protocol/signalling"
+	"github.com/livekit/server-sdk-go/v2/signalling"
 
 	"github.com/livekit/mediatransportutil/pkg/pacer"
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
+)
+
+var (
+	_ engineHandler = (*Room)(nil)
 )
 
 // -----------------------------------------------
@@ -91,27 +96,10 @@ type ConnectInfo struct {
 	ParticipantAttributes map[string]string
 }
 
-// not exposed to users. clients should use ConnectOption
-type SignalClientConnectParams struct {
-	AutoSubscribe          bool
-	Reconnect              bool
-	DisableRegionDiscovery bool
-
-	RetransmitBufferSize uint16
-
-	Attributes map[string]string // See WithExtraAttributes
-
-	Pacer pacer.Factory
-
-	Interceptors []interceptor.Factory
-
-	ICETransportPolicy webrtc.ICETransportPolicy
-}
-
-type ConnectOption func(*SignalClientConnectParams)
+type ConnectOption func(*signalling.ConnectParams)
 
 func WithAutoSubscribe(val bool) ConnectOption {
-	return func(p *SignalClientConnectParams) {
+	return func(p *signalling.ConnectParams) {
 		p.AutoSubscribe = val
 	}
 }
@@ -119,7 +107,7 @@ func WithAutoSubscribe(val bool) ConnectOption {
 // Retransmit buffer size to reponse to nack request,
 // must be one of: 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768
 func WithRetransmitBufferSize(val uint16) ConnectOption {
-	return func(p *SignalClientConnectParams) {
+	return func(p *signalling.ConnectParams) {
 		p.RetransmitBufferSize = val
 	}
 }
@@ -127,31 +115,31 @@ func WithRetransmitBufferSize(val uint16) ConnectOption {
 // WithPacer enables the use of a pacer on this connection
 // A pacer helps to smooth out video packet rate to avoid overwhelming downstream. Learn more at: https://chromium.googlesource.com/external/webrtc/+/master/modules/pacing/g3doc/index.md
 func WithPacer(pacer pacer.Factory) ConnectOption {
-	return func(p *SignalClientConnectParams) {
+	return func(p *signalling.ConnectParams) {
 		p.Pacer = pacer
 	}
 }
 
 func WithInterceptors(interceptors []interceptor.Factory) ConnectOption {
-	return func(p *SignalClientConnectParams) {
+	return func(p *signalling.ConnectParams) {
 		p.Interceptors = interceptors
 	}
 }
 
 func WithICETransportPolicy(iceTransportPolicy webrtc.ICETransportPolicy) ConnectOption {
-	return func(p *SignalClientConnectParams) {
+	return func(p *signalling.ConnectParams) {
 		p.ICETransportPolicy = iceTransportPolicy
 	}
 }
 
 func WithDisableRegionDiscovery() ConnectOption {
-	return func(p *SignalClientConnectParams) {
+	return func(p *signalling.ConnectParams) {
 		p.DisableRegionDiscovery = true
 	}
 }
 
 func WithExtraAttributes(attrs map[string]string) ConnectOption {
-	return func(p *SignalClientConnectParams) {
+	return func(p *signalling.ConnectParams) {
 		if len(attrs) != 0 && p.Attributes == nil {
 			p.Attributes = make(map[string]string, len(attrs))
 		}
@@ -277,7 +265,7 @@ func (r *Room) PrepareConnection(url, token string) error {
 
 // Join - joins the room as with default permissions
 func (r *Room) Join(url string, info ConnectInfo, opts ...ConnectOption) error {
-	var params SignalClientConnectParams
+	var params signalling.ConnectParams
 	for _, opt := range opts {
 		opt(&params)
 	}
@@ -307,13 +295,14 @@ func (r *Room) Join(url string, info ConnectInfo, opts ...ConnectOption) error {
 func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 	ctx := context.TODO()
 
-	params := &SignalClientConnectParams{
+	params := &signalling.ConnectParams{
 		AutoSubscribe: true,
 	}
 	for _, opt := range opts {
 		opt(params)
 	}
 
+	// RAJA-TODO: have to return something to indicate join success
 	var joinRes proto.Message
 	cloudHostname, _ := parseCloudURL(url)
 	if !params.DisableRegionDiscovery && cloudHostname != "" {
@@ -335,7 +324,7 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 				// - Too short, risk frequently timing out on a request that would have
 				//   succeeded.
 				callCtx, cancelCallCtx := context.WithTimeout(ctx, 4*time.Second)
-				joinRes, err = r.engine.JoinContext(callCtx, bestURL, token, params)
+				err = r.engine.JoinContext(callCtx, bestURL, token, params)
 				cancelCallCtx()
 				if err != nil {
 					// try the next URL with exponential backoff
@@ -353,9 +342,7 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 	}
 
 	if joinRes == nil {
-		var err error
-		_, err = r.engine.JoinContext(ctx, url, token, params)
-		if err != nil {
+		if err := r.engine.JoinContext(ctx, url, token, params); err != nil {
 			return err
 		}
 	}
@@ -368,7 +355,7 @@ func (r *Room) Disconnect() {
 }
 
 func (r *Room) DisconnectWithReason(reason livekit.DisconnectReason) {
-	_ = r.engine.client.SendLeaveWithReason(reason)
+	_ = r.engine.SendLeaveWithReason(reason)
 	r.cleanup()
 }
 
@@ -507,7 +494,7 @@ func (r *Room) addRemoteParticipant(pi *livekit.ParticipantInfo, updateExisting 
 		return rp
 	}
 
-	rp = newRemoteParticipant(pi, r.callback, r.engine.client, func(ssrc webrtc.SSRC) {
+	rp = newRemoteParticipant(pi, r.callback, r.engine, func(ssrc webrtc.SSRC) {
 		pli := []rtcp.Packet{
 			&rtcp.PictureLossIndication{SenderSSRC: uint32(ssrc), MediaSSRC: uint32(ssrc)},
 		}
@@ -564,7 +551,7 @@ func (r *Room) sendSyncState() {
 	getDCinfo(r.engine.GetDataChannelSub(livekit.DataPacket_RELIABLE), livekit.SignalTarget_SUBSCRIBER)
 	getDCinfo(r.engine.GetDataChannelSub(livekit.DataPacket_LOSSY), livekit.SignalTarget_SUBSCRIBER)
 
-	r.engine.client.SendSyncState(&livekit.SyncState{
+	r.engine.SendSyncState(&livekit.SyncState{
 		Answer: protosignalling.ToProtoSessionDescription(*previousSdp, 0),
 		Subscription: &livekit.UpdateSubscription{
 			TrackSids: trackSids,
@@ -603,66 +590,7 @@ func (r *Room) setSid(sid string, allowEmpty bool) {
 }
 
 func (r *Room) Simulate(scenario SimulateScenario) {
-	switch scenario {
-	case SimulateSignalReconnect:
-		r.engine.client.Close()
-
-	case SimulateForceTCP:
-		// pion does not support active tcp candidate, skip
-
-	case SimulateForceTLS:
-		req := &livekit.SignalRequest{
-			Message: &livekit.SignalRequest_Simulate{
-				Simulate: &livekit.SimulateScenario{
-					Scenario: &livekit.SimulateScenario_SwitchCandidateProtocol{
-						SwitchCandidateProtocol: livekit.CandidateProtocol_TLS,
-					},
-				},
-			},
-		}
-		r.engine.client.SendRequest(req)
-		r.engine.client.OnLeave(&livekit.LeaveRequest{CanReconnect: true, Reason: livekit.DisconnectReason_CLIENT_INITIATED})
-	case SimulateSpeakerUpdate:
-		r.engine.client.SendRequest(&livekit.SignalRequest{
-			Message: &livekit.SignalRequest_Simulate{
-				Simulate: &livekit.SimulateScenario{
-					Scenario: &livekit.SimulateScenario_SpeakerUpdate{
-						SpeakerUpdate: SimulateSpeakerUpdateInterval,
-					},
-				},
-			},
-		})
-	case SimulateMigration:
-		r.engine.client.SendRequest(&livekit.SignalRequest{
-			Message: &livekit.SignalRequest_Simulate{
-				Simulate: &livekit.SimulateScenario{
-					Scenario: &livekit.SimulateScenario_Migration{
-						Migration: true,
-					},
-				},
-			},
-		})
-	case SimulateServerLeave:
-		r.engine.client.SendRequest(&livekit.SignalRequest{
-			Message: &livekit.SignalRequest_Simulate{
-				Simulate: &livekit.SimulateScenario{
-					Scenario: &livekit.SimulateScenario_ServerLeave{
-						ServerLeave: true,
-					},
-				},
-			},
-		})
-	case SimulateNodeFailure:
-		r.engine.client.SendRequest(&livekit.SignalRequest{
-			Message: &livekit.SignalRequest_Simulate{
-				Simulate: &livekit.SimulateScenario{
-					Scenario: &livekit.SimulateScenario_NodeFailure{
-						NodeFailure: true,
-					},
-				},
-			},
-		})
-	}
+	r.engine.Simulate(scenario)
 }
 
 func (r *Room) getLocalParticipantSID() string {
@@ -802,13 +730,17 @@ func (r *Room) OnRestarting() {
 	}
 }
 
-func (r *Room) OnRestarted(joinRes *livekit.JoinResponse) {
-	r.OnRoomUpdate(joinRes.Room)
+func (r *Room) OnRestarted(
+	room *livekit.Room,
+	participant *livekit.ParticipantInfo,
+	otherParticipants []*livekit.ParticipantInfo,
+) {
+	r.OnRoomUpdate(room)
 
-	r.LocalParticipant.updateInfo(joinRes.Participant)
+	r.LocalParticipant.updateInfo(participant)
 	r.LocalParticipant.updateSubscriptionPermission()
 
-	r.OnParticipantUpdate(joinRes.OtherParticipants)
+	r.OnParticipantUpdate(otherParticipants)
 
 	r.LocalParticipant.republishTracks()
 

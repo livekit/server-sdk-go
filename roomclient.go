@@ -24,6 +24,7 @@ import (
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/utils/xtwirp"
+	"github.com/livekit/server-sdk-go/v2/signalling"
 )
 
 type RoomServiceClient struct {
@@ -33,7 +34,7 @@ type RoomServiceClient struct {
 
 func NewRoomServiceClient(url string, apiKey string, secretKey string, opts ...twirp.ClientOption) *RoomServiceClient {
 	opts = append(opts, xtwirp.DefaultClientOptions()...)
-	url = ToHttpURL(url)
+	url = signalling.ToHttpURL(url)
 	client := livekit.NewRoomServiceProtobufClient(url, &http.Client{}, opts...)
 	return &RoomServiceClient{
 		roomService: client,

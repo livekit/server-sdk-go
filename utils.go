@@ -19,20 +19,6 @@ import (
 	"strings"
 )
 
-func ToHttpURL(url string) string {
-	if strings.HasPrefix(url, "ws") {
-		return strings.Replace(url, "ws", "http", 1)
-	}
-	return url
-}
-
-func ToWebsocketURL(url string) string {
-	if strings.HasPrefix(url, "http") {
-		return strings.Replace(url, "http", "ws", 1)
-	}
-	return url
-}
-
 func byteLength(str string) int {
 	return len([]byte(str))
 }

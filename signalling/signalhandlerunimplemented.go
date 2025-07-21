@@ -15,6 +15,7 @@
 package signalling
 
 import (
+	"github.com/livekit/protocol/logger"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -22,6 +23,8 @@ var _ SignalHandler = (*signalhandlerUnimplemented)(nil)
 
 type signalhandlerUnimplemented struct {
 }
+
+func (s *signalhandlerUnimplemented) SetLogger(l logger.Logger) {}
 
 func (s *signalhandlerUnimplemented) HandleMessage(msg proto.Message) error {
 	return nil

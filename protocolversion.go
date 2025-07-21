@@ -12,14 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package signalling
+package lksdk
 
-import "errors"
-
-var (
-	ErrURLNotProvided      = errors.New("URL was not provided")
-	ErrInvalidMessageType  = errors.New("invalid message type")
-	ErrInvalidParameter    = errors.New("invalid parameter")
-	ErrCannotDialSignal    = errors.New("could not dial signal connection")
-	ErrCannotConnectSignal = errors.New("could not establish signal connection")
-)
+const PROTOCOL = 16

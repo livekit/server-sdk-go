@@ -15,7 +15,10 @@
 package signalling
 
 import (
+	"context"
+
 	protoLogger "github.com/livekit/protocol/logger"
+	"google.golang.org/protobuf/proto"
 )
 
 var _ SignalTransport = (*signalTransportUnimplemented)(nil)
@@ -23,3 +26,24 @@ var _ SignalTransport = (*signalTransportUnimplemented)(nil)
 type signalTransportUnimplemented struct{}
 
 func (s *signalTransportUnimplemented) SetLogger(l protoLogger.Logger) {}
+
+func (s *signalTransportUnimplemented) Start() {}
+
+func (s *signalTransportUnimplemented) IsStarted() bool {
+	return false
+}
+
+func (s *signalTransportUnimplemented) Close() {}
+
+func (s *signalTransportUnimplemented) Join(
+	ctx context.Context,
+	url string,
+	token string,
+	connectParams ConnectParams,
+) error {
+	return nil
+}
+
+func (s *signalTransportUnimplemented) SendMessage(msg proto.Message) error {
+	return nil
+}

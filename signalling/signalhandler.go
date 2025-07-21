@@ -42,6 +42,10 @@ func NewSignalHandler(params SignalHandlerParams) SignalHandler {
 	}
 }
 
+func (s *signalhandler) SetLogger(l logger.Logger) {
+	s.params.Logger = l
+}
+
 func (s *signalhandler) HandleMessage(msg proto.Message) error {
 	rsp, ok := msg.(*livekit.SignalResponse)
 	if !ok {
@@ -53,11 +57,61 @@ func (s *signalhandler) HandleMessage(msg proto.Message) error {
 	}
 
 	switch payload := rsp.GetMessage().(type) {
-	case *livekit.SignalResponse_Offer:
-		s.params.Processor.OnOffer(protosignalling.FromProtoSessionDescription(payload.Offer))
+	case *livekit.SignalResponse_Join:
+		s.params.Processor.OnJoinResponse(payload.Join)
 
 	case *livekit.SignalResponse_Answer:
 		s.params.Processor.OnAnswer(protosignalling.FromProtoSessionDescription(payload.Answer))
+
+	case *livekit.SignalResponse_Offer:
+		s.params.Processor.OnOffer(protosignalling.FromProtoSessionDescription(payload.Offer))
+
+	case *livekit.SignalResponse_Trickle:
+		ci, err := protosignalling.FromProtoTrickle(payload.Trickle)
+		if err != nil {
+			s.params.Logger.Warnw("could not unmarshal ICE candidate", err)
+			return err
+		}
+
+		s.params.Processor.OnTrickle(ci, payload.Trickle.Target)
+
+	case *livekit.SignalResponse_Update:
+		s.params.Processor.OnParticipantUpdate(payload.Update.Participants)
+
+	case *livekit.SignalResponse_SpeakersChanged:
+		s.params.Processor.OnSpeakersChanged(payload.SpeakersChanged.Speakers)
+
+	case *livekit.SignalResponse_TrackPublished:
+		s.params.Processor.OnLocalTrackPublished(payload.TrackPublished)
+
+	case *livekit.SignalResponse_Mute:
+		s.params.Processor.OnTrackRemoteMuted(payload.Mute)
+
+	case *livekit.SignalResponse_ConnectionQuality:
+		s.params.Processor.OnConnectionQuality(payload.ConnectionQuality.Updates)
+
+	case *livekit.SignalResponse_RoomUpdate:
+		s.params.Processor.OnRoomUpdate(payload.RoomUpdate.Room)
+
+	case *livekit.SignalResponse_RoomMoved:
+		s.params.Processor.OnTokenRefresh(payload.RoomMoved.Token)
+
+		s.params.Processor.OnRoomMoved(payload.RoomMoved)
+
+	case *livekit.SignalResponse_Leave:
+		s.params.Processor.OnLeave(payload.Leave)
+
+	case *livekit.SignalResponse_RefreshToken:
+		s.params.Processor.OnTokenRefresh(payload.RefreshToken)
+
+	case *livekit.SignalResponse_TrackUnpublished:
+		s.params.Processor.OnLocalTrackUnpublished(payload.TrackUnpublished)
+
+	case *livekit.SignalResponse_TrackSubscribed:
+		s.params.Processor.OnLocalTrackSubscribed(payload.TrackSubscribed)
+
+	case *livekit.SignalResponse_SubscribedQualityUpdate:
+		s.params.Processor.OnSubscribedQualityUpdate(payload.SubscribedQualityUpdate)
 	}
 
 	return nil

@@ -14,12 +14,26 @@
 
 package signalling
 
-import "errors"
+import (
+	"testing"
 
-var (
-	ErrURLNotProvided      = errors.New("URL was not provided")
-	ErrInvalidMessageType  = errors.New("invalid message type")
-	ErrInvalidParameter    = errors.New("invalid parameter")
-	ErrCannotDialSignal    = errors.New("could not dial signal connection")
-	ErrCannotConnectSignal = errors.New("could not establish signal connection")
+	"github.com/stretchr/testify/require"
 )
+
+func TestToHttpURL(t *testing.T) {
+	t.Run("websocket input", func(t *testing.T) {
+		require.Equal(t, "http://url.com", ToHttpURL("ws://url.com"))
+	})
+	t.Run("https input", func(t *testing.T) {
+		require.Equal(t, "https://url.com", ToHttpURL("https://url.com"))
+	})
+}
+
+func TestToWebsocketURL(t *testing.T) {
+	t.Run("websocket input", func(t *testing.T) {
+		require.Equal(t, "ws://url.com", ToWebsocketURL("ws://url.com"))
+	})
+	t.Run("https input", func(t *testing.T) {
+		require.Equal(t, "wss://url.com", ToWebsocketURL("https://url.com"))
+	})
+}

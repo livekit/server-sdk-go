@@ -16,6 +16,7 @@ package signalling
 
 import (
 	"github.com/livekit/protocol/livekit"
+	"github.com/livekit/protocol/logger"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -23,6 +24,8 @@ var _ Signalling = (*signallingUnimplemented)(nil)
 
 type signallingUnimplemented struct {
 }
+
+func (s *signallingUnimplemented) SetLogger(l logger.Logger) {}
 
 func (s *signallingUnimplemented) SignalLeaveRequest(leave *livekit.LeaveRequest) proto.Message {
 	return nil
@@ -32,11 +35,43 @@ func (s *signallingUnimplemented) SignalICECandidate(trickle *livekit.TrickleReq
 	return nil
 }
 
+func (s *signallingUnimplemented) SignalSdpOffer(offer *livekit.SessionDescription) proto.Message {
+	return nil
+}
+
 func (s *signallingUnimplemented) SignalSdpAnswer(answer *livekit.SessionDescription) proto.Message {
 	return nil
 }
 
-func (s *signallingUnimplemented) SignalSdpOffer(offer *livekit.SessionDescription) proto.Message {
+func (s *signallingUnimplemented) SignalSimulateScenario(simulate *livekit.SimulateScenario) proto.Message {
+	return nil
+}
+
+func (s *signallingUnimplemented) SignalMuteTrack(mute *livekit.MuteTrackRequest) proto.Message {
+	return nil
+}
+
+func (s *signallingUnimplemented) SignalUpdateSubscription(updateSubscription *livekit.UpdateSubscription) proto.Message {
+	return nil
+}
+
+func (s *signallingUnimplemented) SignalSyncState(syncState *livekit.SyncState) proto.Message {
+	return nil
+}
+
+func (s *signallingUnimplemented) SignalAddTrack(addTrack *livekit.AddTrackRequest) proto.Message {
+	return nil
+}
+
+func (s *signallingUnimplemented) SignalSubscriptionPermission(subscriptionPermission *livekit.SubscriptionPermission) proto.Message {
+	return nil
+}
+
+func (s *signallingUnimplemented) SignalUpdateTrackSettings(settings *livekit.UpdateTrackSettings) proto.Message {
+	return nil
+}
+
+func (s *signallingUnimplemented) SignalUpdateParticipantMetadata(metadata *livekit.UpdateParticipantMetadata) proto.Message {
 	return nil
 }
 

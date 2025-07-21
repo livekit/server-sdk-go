@@ -15,27 +15,74 @@
 package signalling
 
 import (
+	"context"
+
+	"github.com/livekit/mediatransportutil/pkg/pacer"
 	"github.com/livekit/protocol/livekit"
 	protoLogger "github.com/livekit/protocol/logger"
+	"github.com/pion/interceptor"
 	"github.com/pion/webrtc/v4"
 	"google.golang.org/protobuf/proto"
 )
 
 type Signalling interface {
+	SetLogger(l protoLogger.Logger)
+
 	SignalLeaveRequest(leave *livekit.LeaveRequest) proto.Message
 	SignalICECandidate(trickle *livekit.TrickleRequest) proto.Message
-	SignalSdpAnswer(answer *livekit.SessionDescription) proto.Message
 	SignalSdpOffer(offer *livekit.SessionDescription) proto.Message
+	SignalSdpAnswer(answer *livekit.SessionDescription) proto.Message
+	SignalSimulateScenario(simulate *livekit.SimulateScenario) proto.Message
+	SignalMuteTrack(mute *livekit.MuteTrackRequest) proto.Message
+	SignalUpdateSubscription(updateSubscription *livekit.UpdateSubscription) proto.Message
+	SignalSyncState(syncState *livekit.SyncState) proto.Message
+	SignalAddTrack(addTrack *livekit.AddTrackRequest) proto.Message
+	SignalSubscriptionPermission(subscriptionPermission *livekit.SubscriptionPermission) proto.Message
+	SignalUpdateTrackSettings(settings *livekit.UpdateTrackSettings) proto.Message
+	SignalUpdateParticipantMetadata(metadata *livekit.UpdateParticipantMetadata) proto.Message
 
 	AckMessageId(ackMessageId uint32)
 	SetLastProcessedRemoteMessageId(lastProcessedRemoteMessageId uint32)
 }
 
+type ConnectParams struct {
+	AutoSubscribe          bool
+	Reconnect              bool
+	DisableRegionDiscovery bool
+
+	RetransmitBufferSize uint16
+
+	Attributes map[string]string // See WithExtraAttributes
+
+	Pacer pacer.Factory
+
+	Interceptors []interceptor.Factory
+
+	ICETransportPolicy webrtc.ICETransportPolicy
+}
+
 type SignalTransport interface {
 	SetLogger(l protoLogger.Logger)
+
+	Start()
+	IsStarted() bool
+	Close()
+	Join(
+		ctx context.Context,
+		url string,
+		token string,
+		connectParams ConnectParams,
+	) error
+	SendMessage(msg proto.Message) error
+}
+
+type SignalTransportHandler interface {
+	OnTransportClose()
 }
 
 type SignalHandler interface {
+	SetLogger(l protoLogger.Logger)
+
 	HandleMessage(msg proto.Message) error
 }
 

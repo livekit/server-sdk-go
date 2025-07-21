@@ -76,7 +76,7 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 	p.engine.RegisterTrackPublishedListener(track.ID(), pubChan)
 	defer p.engine.UnregisterTrackPublishedListener(track.ID())
 
-	pub := NewLocalTrackPublication(kind, track, *opts, p.engine.client)
+	pub := NewLocalTrackPublication(kind, track, *opts, p.engine)
 	pub.onMuteChanged = p.onTrackMuted
 
 	req := &livekit.AddTrackRequest{
@@ -101,12 +101,7 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 			},
 		}
 	}
-	err := p.engine.client.SendRequest(&livekit.SignalRequest{
-		Message: &livekit.SignalRequest_AddTrack{
-			AddTrack: req,
-		},
-	})
-	if err != nil {
+	if err := p.engine.SendAddTrack(req); err != nil {
 		return nil, err
 	}
 
@@ -181,32 +176,30 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *Tra
 	p.engine.RegisterTrackPublishedListener(mainTrack.ID(), pubChan)
 	defer p.engine.UnregisterTrackPublishedListener(mainTrack.ID())
 
-	pub := NewLocalTrackPublication(KindFromRTPType(mainTrack.Kind()), nil, *opts, p.engine.client)
+	pub := NewLocalTrackPublication(KindFromRTPType(mainTrack.Kind()), nil, *opts, p.engine)
 	pub.onMuteChanged = p.onTrackMuted
 
 	var layers []*livekit.VideoLayer
 	for _, st := range tracksCopy {
 		layers = append(layers, st.videoLayer)
 	}
-	err := p.engine.client.SendRequest(&livekit.SignalRequest{
-		Message: &livekit.SignalRequest_AddTrack{
-			AddTrack: &livekit.AddTrackRequest{
-				Cid:    mainTrack.ID(),
-				Name:   opts.Name,
-				Source: opts.Source,
-				Type:   pub.Kind().ProtoType(),
-				Width:  mainTrack.videoLayer.Width,
-				Height: mainTrack.videoLayer.Height,
-				Layers: layers,
-				SimulcastCodecs: []*livekit.SimulcastCodec{
-					{
-						Codec: mainTrack.Codec().MimeType,
-						Cid:   mainTrack.ID(),
-					},
+	err := p.engine.SendAddTrack(
+		&livekit.AddTrackRequest{
+			Cid:    mainTrack.ID(),
+			Name:   opts.Name,
+			Source: opts.Source,
+			Type:   pub.Kind().ProtoType(),
+			Width:  mainTrack.videoLayer.Width,
+			Height: mainTrack.videoLayer.Height,
+			Layers: layers,
+			SimulcastCodecs: []*livekit.SimulcastCodec{
+				{
+					Codec: mainTrack.Codec().MimeType,
+					Cid:   mainTrack.ID(),
 				},
 			},
 		},
-	})
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -433,7 +426,7 @@ func (p *LocalParticipant) GetPublisherPeerConnection() *webrtc.PeerConnection {
 // SetName sets the name of the current participant.
 // updates will be performed only if the participant has canUpdateOwnMetadata grant
 func (p *LocalParticipant) SetName(name string) {
-	_ = p.engine.client.SendUpdateParticipantMetadata(&livekit.UpdateParticipantMetadata{
+	_ = p.engine.SendUpdateParticipantMetadata(&livekit.UpdateParticipantMetadata{
 		Name: name,
 	})
 }
@@ -441,7 +434,7 @@ func (p *LocalParticipant) SetName(name string) {
 // SetMetadata sets the metadata of the current participant.
 // Updates will be performed only if the participant has canUpdateOwnMetadata grant.
 func (p *LocalParticipant) SetMetadata(metadata string) {
-	_ = p.engine.client.SendUpdateParticipantMetadata(&livekit.UpdateParticipantMetadata{
+	_ = p.engine.SendUpdateParticipantMetadata(&livekit.UpdateParticipantMetadata{
 		Metadata: metadata,
 	})
 }
@@ -450,7 +443,7 @@ func (p *LocalParticipant) SetMetadata(metadata string) {
 // To remove an attribute, set it to empty value.
 // Updates will be performed only if the participant has canUpdateOwnMetadata grant.
 func (p *LocalParticipant) SetAttributes(attrs map[string]string) {
-	_ = p.engine.client.SendUpdateParticipantMetadata(&livekit.UpdateParticipantMetadata{
+	_ = p.engine.SendUpdateParticipantMetadata(&livekit.UpdateParticipantMetadata{
 		Attributes: attrs,
 	})
 }
@@ -465,7 +458,7 @@ func (p *LocalParticipant) updateInfo(info *livekit.ParticipantInfo) {
 			continue
 		}
 		if pub.IsMuted() != ti.Muted {
-			_ = p.engine.client.SendMuteTrack(pub.SID(), pub.IsMuted())
+			_ = p.engine.SendMuteTrack(pub.SID(), pub.IsMuted())
 		}
 	}
 }
@@ -515,12 +508,7 @@ func (p *LocalParticipant) updateSubscriptionPermissionLocked() {
 		return
 	}
 
-	err := p.engine.client.SendRequest(&livekit.SignalRequest{
-		Message: &livekit.SignalRequest_SubscriptionPermission{
-			SubscriptionPermission: p.subscriptionPermission,
-		},
-	})
-	if err != nil {
+	if err := p.engine.SendSubscriptionPermission(p.subscriptionPermission); err != nil {
 		logger.Errorw(
 			"could not send subscription permission", err,
 			"participant", p.identity,

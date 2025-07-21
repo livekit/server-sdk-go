@@ -12,28 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package lksdk
+package signalling
 
 import (
-	"testing"
-
-	"github.com/stretchr/testify/require"
+	"net/http"
+	"strings"
 )
 
-func TestToHttpURL(t *testing.T) {
-	t.Run("websocket input", func(t *testing.T) {
-		require.Equal(t, "http://url.com", ToHttpURL("ws://url.com"))
-	})
-	t.Run("https input", func(t *testing.T) {
-		require.Equal(t, "https://url.com", ToHttpURL("https://url.com"))
-	})
+func ToHttpURL(url string) string {
+	if strings.HasPrefix(url, "ws") {
+		return strings.Replace(url, "ws", "http", 1)
+	}
+	return url
 }
 
-func TestToWebsocketURL(t *testing.T) {
-	t.Run("websocket input", func(t *testing.T) {
-		require.Equal(t, "ws://url.com", ToWebsocketURL("ws://url.com"))
-	})
-	t.Run("https input", func(t *testing.T) {
-		require.Equal(t, "wss://url.com", ToWebsocketURL("https://url.com"))
-	})
+func ToWebsocketURL(url string) string {
+	if strings.HasPrefix(url, "http") {
+		return strings.Replace(url, "http", "ws", 1)
+	}
+	return url
+}
+
+func NewHeaderWithToken(token string) http.Header {
+	header := make(http.Header)
+	header.Set("Authorization", "Bearer "+token)
+	return header
 }
