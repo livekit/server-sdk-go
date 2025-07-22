@@ -28,6 +28,7 @@ var (
 	ErrUnsupportedSimulcastKind = errors.New("simulcast is only supported for video")
 	ErrInvalidSimulcastTrack    = errors.New("simulcast track was not initiated correctly")
 	ErrCannotFindTrack          = errors.New("could not find the track")
+	ErrInvalidMessageType       = signalling.ErrInvalidMessageType
 	ErrInvalidParameter         = signalling.ErrInvalidParameter
 	ErrNoPeerConnection         = errors.New("peer connection not established")
 	ErrAborted                  = errors.New("operation was aborted")

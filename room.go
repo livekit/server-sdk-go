@@ -297,7 +297,6 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 		opt(params)
 	}
 
-	// RAJA-TODO: have to return something to indicate join success
 	var joinRes proto.Message
 	cloudHostname, _ := parseCloudURL(url)
 	if !params.DisableRegionDiscovery && cloudHostname != "" {
@@ -319,7 +318,7 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 				// - Too short, risk frequently timing out on a request that would have
 				//   succeeded.
 				callCtx, cancelCallCtx := context.WithTimeout(ctx, 4*time.Second)
-				err = r.engine.JoinContext(callCtx, bestURL, token, params)
+				joinRes, err = r.engine.JoinContext(callCtx, bestURL, token, params)
 				cancelCallCtx()
 				if err != nil {
 					// try the next URL with exponential backoff
@@ -337,7 +336,7 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 	}
 
 	if joinRes == nil {
-		if err := r.engine.JoinContext(ctx, url, token, params); err != nil {
+		if _, err := r.engine.JoinContext(ctx, url, token, params); err != nil {
 			return err
 		}
 	}

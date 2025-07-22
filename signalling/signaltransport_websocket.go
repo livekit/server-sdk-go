@@ -54,8 +54,10 @@ type signalTransportWebSocket struct {
 	conn      atomic.Pointer[websocket.Conn]
 	lock      sync.Mutex
 	isStarted atomic.Bool
-	// RAJA-TODO pendingResponse *livekit.SignalResponse
-	readerClosedCh chan struct{}
+	// SIGNALLING-V2-TODO: this should be signalling version agnostic,
+	// in v2 messages could be replayed, so this caching may not be necessary
+	pendingResponse *livekit.SignalResponse
+	readerClosedCh  chan struct{}
 }
 
 func NewSignalTransportWebSocket(params SignalTransportWebSocketParams) SignalTransport {
@@ -97,8 +99,73 @@ func (s *signalTransportWebSocket) Join(
 	urlPrefix string,
 	token string,
 	connectParams ConnectParams,
-) error {
-	return s.connect(ctx, urlPrefix, token, connectParams, "")
+) (proto.Message, error) {
+	msg, err := s.connect(ctx, urlPrefix, token, connectParams, "")
+	if err != nil {
+		return nil, err
+	}
+
+	res, ok := msg.(*livekit.SignalResponse)
+	if !ok {
+		s.params.Logger.Warnw(
+			"unknown message type", nil,
+			"messageType", fmt.Sprintf("%T", msg),
+		)
+		return nil, ErrInvalidMessageType
+	}
+
+	join := res.GetJoin()
+	if join == nil {
+		return nil, fmt.Errorf("unexpected response: %v", res.Message)
+	}
+
+	return join, nil
+}
+
+// Reconnect starts a new WebSocket connection to the server, passing in reconnect=1
+// when successful, it'll return a ReconnectResponse;
+// older versions of the server will not send back a ReconnectResponse
+func (s *signalTransportWebSocket) Reconnect(
+	urlPrefix string,
+	token string,
+	connectParams ConnectParams,
+	participantSID string,
+) (proto.Message, error) {
+	connectParams.Reconnect = true
+	msg, err := s.connect(context.TODO(), urlPrefix, token, connectParams, participantSID)
+	if err != nil {
+		return nil, err
+	}
+
+	res, ok := msg.(*livekit.SignalResponse)
+	if !ok {
+		s.params.Logger.Warnw(
+			"unknown message type", nil,
+			"messageType", fmt.Sprintf("%T", msg),
+		)
+		return nil, ErrInvalidMessageType
+	}
+
+	s.lock.Lock()
+	s.pendingResponse = nil
+	s.params.Logger.Debugw("reconnect received response", "response", res.String())
+	if res != nil {
+		switch payload := res.Message.(type) {
+		case *livekit.SignalResponse_Reconnect:
+			s.lock.Unlock()
+			return payload.Reconnect, nil
+
+		case *livekit.SignalResponse_Leave:
+			s.lock.Unlock()
+			s.params.SignalHandler.HandleMessage(msg)
+			return nil, fmt.Errorf("reconnect received left, reason: %s", payload.Leave.GetReason())
+		}
+
+		s.pendingResponse = res
+	}
+	s.lock.Unlock()
+
+	return nil, nil
 }
 
 func (s *signalTransportWebSocket) SendMessage(msg proto.Message) error {
@@ -123,9 +190,9 @@ func (s *signalTransportWebSocket) connect(
 	token string,
 	params ConnectParams,
 	participantSID string,
-) error {
+) (proto.Message, error) {
 	if urlPrefix == "" {
-		return ErrURLNotProvided
+		return nil, ErrURLNotProvided
 	}
 	urlPrefix = ToWebsocketURL(urlPrefix)
 	urlSuffix := fmt.Sprintf("/rtc?protocol=%d&version=%s", s.params.Protocol, s.params.Version)
@@ -144,7 +211,7 @@ func (s *signalTransportWebSocket) connect(
 	if len(params.Attributes) != 0 {
 		data, err := json.Marshal(params.Attributes)
 		if err != nil {
-			return ErrInvalidParameter
+			return nil, ErrInvalidParameter
 		}
 		str := base64.URLEncoding.EncodeToString(data)
 		urlSuffix += "&attributes=" + str
@@ -153,7 +220,7 @@ func (s *signalTransportWebSocket) connect(
 
 	u, err := url.Parse(urlPrefix + urlSuffix)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	header := NewHeaderWithToken(token)
@@ -171,7 +238,7 @@ func (s *signalTransportWebSocket) connect(
 
 		if strings.HasSuffix(err.Error(), ":53: server misbehaving") {
 			// DNS issue, abort
-			return ErrCannotDialSignal
+			return nil, ErrCannotDialSignal
 		}
 		// use validate endpoint to get the actual error
 		validateSuffix := strings.Replace(urlSuffix, "/rtc", "/rtc/validate", 1)
@@ -179,17 +246,17 @@ func (s *signalTransportWebSocket) connect(
 		validateReq, err1 := http.NewRequestWithContext(ctx, http.MethodGet, ToHttpURL(urlPrefix)+validateSuffix, nil)
 		if err1 != nil {
 			s.params.Logger.Errorw("error creating validate request", err1)
-			return ErrCannotDialSignal
+			return nil, ErrCannotDialSignal
 		}
 		validateReq.Header = header
 		hresp, err := http.DefaultClient.Do(validateReq)
 		if err != nil {
 			s.params.Logger.Errorw("error getting validation", err, "httpResponse", hresp)
-			return ErrCannotDialSignal
+			return nil, ErrCannotDialSignal
 		} else if hresp.StatusCode == http.StatusOK {
 			// no specific errors to return if validate succeeds
 			s.params.Logger.Infow("validate succeeded")
-			return ErrCannotConnectSignal
+			return nil, ErrCannotConnectSignal
 		} else {
 			var errString string
 			switch hresp.StatusCode {
@@ -204,7 +271,7 @@ func (s *signalTransportWebSocket) connect(
 			if err == nil {
 				errString += string(body)
 			}
-			return errors.New(errString)
+			return nil, errors.New(errString)
 		}
 	}
 	s.Close() // close previous conn, if any
@@ -213,11 +280,10 @@ func (s *signalTransportWebSocket) connect(
 	// server should send join as soon as connected
 	res, err := s.readResponse()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	s.params.SignalHandler.HandleMessage(res)
-	return nil
+	return res, nil
 }
 
 func (s *signalTransportWebSocket) websocketConn() *websocket.Conn {
@@ -232,12 +298,17 @@ func (s *signalTransportWebSocket) readWorker(readerClosedCh chan struct{}) {
 
 		s.params.SignalTransportHandler.OnTransportClose()
 	}()
-	/* RAJA-TODO
-	if pending := c.pendingResponse; pending != nil {
-		c.handleResponse(pending)
-		c.pendingResponse = nil
+
+	// SIGNALLING-V2-TODO: make this signalling version agnostic
+	var pendingResponse *livekit.SignalResponse
+	s.lock.Lock()
+	pendingResponse = s.pendingResponse
+	s.pendingResponse = nil
+	s.lock.Unlock()
+	if pendingResponse != nil {
+		s.params.SignalHandler.HandleMessage(pendingResponse)
 	}
-	*/
+
 	for {
 		res, err := s.readResponse()
 		if err != nil {
@@ -294,270 +365,11 @@ func isIgnoredWebsocketError(err error) bool {
 		return true
 	}
 
-	return websocket.IsCloseError(err, websocket.CloseAbnormalClosure, websocket.CloseGoingAway, websocket.CloseNormalClosure, websocket.CloseNoStatusReceived)
+	return websocket.IsCloseError(
+		err,
+		websocket.CloseAbnormalClosure,
+		websocket.CloseGoingAway,
+		websocket.CloseNormalClosure,
+		websocket.CloseNoStatusReceived,
+	)
 }
-
-/* RAJA-REMOVE
-func (c *SignalClient) Start() {
-	if c.isStarted.Swap(true) {
-		return
-	}
-	c.readerClosedCh = make(chan struct{})
-	go c.readWorker(c.readerClosedCh)
-}
-
-func (c *SignalClient) IsStarted() bool {
-	return c.isStarted.Load()
-}
-
-// Deprecated, use JoinContext
-func (c *SignalClient) Join(urlPrefix string, token string, params SignalClientConnectParams) (*livekit.JoinResponse, error) {
-	return c.JoinContext(context.TODO(), urlPrefix, token, params)
-}
-
-func (c *SignalClient) JoinContext(ctx context.Context, urlPrefix string, token string, params SignalClientConnectParams) (*livekit.JoinResponse, error) {
-	res, err := c.connectContext(ctx, urlPrefix, token, params, "")
-	if err != nil {
-		return nil, err
-	}
-
-	join := res.GetJoin()
-	if join == nil {
-		return nil, fmt.Errorf("unexpected response: %v", res.Message)
-	}
-
-	return join, nil
-}
-
-// Reconnect starts a new WebSocket connection to the server, passing in reconnect=1
-// when successful, it'll return a ReconnectResponse; older versions of the server will not send back a ReconnectResponse
-func (c *SignalClient) Reconnect(urlPrefix string, token string, params SignalClientConnectParams, participantSID string) (*livekit.ReconnectResponse, error) {
-	params.Reconnect = true
-	res, err := c.connect(urlPrefix, token, params, participantSID)
-	if err != nil {
-		return nil, err
-	}
-
-	c.pendingResponse = nil
-	c.log.Debugw("reconnect received response", "response", res.String())
-	if res != nil {
-		switch msg := res.Message.(type) {
-		case *livekit.SignalResponse_Reconnect:
-			return msg.Reconnect, nil
-		case *livekit.SignalResponse_Leave:
-			if c.OnLeave != nil {
-				c.OnLeave(msg.Leave)
-			}
-			return nil, fmt.Errorf("reconnect received left, reason: %s", msg.Leave.GetReason())
-		}
-		c.pendingResponse = res
-	}
-	return nil, nil
-}
-
-// Deprecated, use connectContext.
-func (c *SignalClient) connect(urlPrefix string, token string, params SignalClientConnectParams, participantSID string) (*livekit.SignalResponse, error) {
-	return c.connectContext(context.TODO(), urlPrefix, token, params, participantSID)
-}
-
-func (c *SignalClient) connectContext(ctx context.Context, urlPrefix string, token string, params SignalClientConnectParams, participantSID string) (*livekit.SignalResponse, error) {
-	if urlPrefix == "" {
-		return nil, ErrURLNotProvided
-	}
-	urlPrefix = ToWebsocketURL(urlPrefix)
-	urlSuffix := fmt.Sprintf("/rtc?protocol=%d&version=%s", PROTOCOL, Version)
-
-	if params.AutoSubscribe {
-		urlSuffix += "&auto_subscribe=1"
-	} else {
-		urlSuffix += "&auto_subscribe=0"
-	}
-	if params.Reconnect {
-		urlSuffix += "&reconnect=1"
-		if participantSID != "" {
-			urlSuffix += fmt.Sprintf("&sid=%s", participantSID)
-		}
-	}
-	if len(params.Attributes) != 0 {
-		data, err := json.Marshal(params.Attributes)
-		if err != nil {
-			return nil, ErrInvalidParameter
-		}
-		str := base64.URLEncoding.EncodeToString(data)
-		urlSuffix += "&attributes=" + str
-	}
-	urlSuffix += getStatsParamString()
-
-	u, err := url.Parse(urlPrefix + urlSuffix)
-	if err != nil {
-		return nil, err
-	}
-
-	header := newHeaderWithToken(token)
-	startedAt := time.Now()
-	conn, hresp, err := websocket.DefaultDialer.DialContext(ctx, u.String(), header)
-	if err != nil {
-		fields := []interface{}{
-			"duration", time.Since(startedAt),
-		}
-		if hresp != nil {
-			body, _ := io.ReadAll(hresp.Body)
-			fields = append(fields, "status", hresp.StatusCode, "response", string(body))
-		}
-		c.log.Errorw("error establishing signal connection", err, fields...)
-
-		if strings.HasSuffix(err.Error(), ":53: server misbehaving") {
-			// DNS issue, abort
-			return nil, ErrCannotDialSignal
-		}
-		// use validate endpoint to get the actual error
-		validateSuffix := strings.Replace(urlSuffix, "/rtc", "/rtc/validate", 1)
-
-		validateReq, err1 := http.NewRequestWithContext(ctx, http.MethodGet, ToHttpURL(urlPrefix)+validateSuffix, nil)
-		if err1 != nil {
-			c.log.Errorw("error creating validate request", err1)
-			return nil, ErrCannotDialSignal
-		}
-		validateReq.Header = header
-		hresp, err := http.DefaultClient.Do(validateReq)
-		if err != nil {
-			c.log.Errorw("error getting validation", err, "httpResponse", hresp)
-			return nil, ErrCannotDialSignal
-		} else if hresp.StatusCode == http.StatusOK {
-			// no specific errors to return if validate succeeds
-			c.log.Infow("validate succeeded")
-			return nil, ErrCannotConnectSignal
-		} else {
-			var errString string
-			switch hresp.StatusCode {
-			case http.StatusUnauthorized:
-				errString = "unauthorized: "
-			case http.StatusNotFound:
-				errString = "not found: "
-			case http.StatusServiceUnavailable:
-				errString = "unavailable: "
-			}
-			body, err := io.ReadAll(hresp.Body)
-			if err == nil {
-				errString += string(body)
-			}
-			return nil, errors.New(errString)
-		}
-	}
-	c.Close() // close previous conn, if any
-	c.conn.Store(conn)
-
-	// server should send join as soon as connected
-	res, err := c.readResponse()
-	if err != nil {
-		return nil, err
-	}
-
-	return res, nil
-}
-
-func (c *SignalClient) Close() {
-	isStarted := c.IsStarted()
-	readerClosedCh := c.readerClosedCh
-	conn := c.websocketConn()
-	if conn != nil {
-		_ = conn.Close()
-	}
-	if isStarted && readerClosedCh != nil {
-		<-readerClosedCh
-	}
-}
-
-func (c *SignalClient) SendICECandidate(candidate webrtc.ICECandidateInit, target livekit.SignalTarget) error {
-	return c.SendRequest(&livekit.SignalRequest{
-		Message: &livekit.SignalRequest_Trickle{
-			Trickle: ToProtoTrickle(candidate, target),
-		},
-	})
-}
-
-func (c *SignalClient) SendOffer(sd webrtc.SessionDescription) error {
-	return c.SendRequest(&livekit.SignalRequest{
-		Message: &livekit.SignalRequest_Offer{
-			Offer: ToProtoSessionDescription(sd),
-		},
-	})
-}
-
-func (c *SignalClient) SendAnswer(sd webrtc.SessionDescription) error {
-	return c.SendRequest(&livekit.SignalRequest{
-		Message: &livekit.SignalRequest_Answer{
-			Answer: ToProtoSessionDescription(sd),
-		},
-	})
-}
-
-func (c *SignalClient) SendMuteTrack(sid string, muted bool) error {
-	return c.SendRequest(&livekit.SignalRequest{
-		Message: &livekit.SignalRequest_Mute{
-			Mute: &livekit.MuteTrackRequest{
-				Sid:   sid,
-				Muted: muted,
-			},
-		},
-	})
-}
-
-func (c *SignalClient) SendSyncState(state *livekit.SyncState) error {
-	return c.SendRequest(&livekit.SignalRequest{
-		Message: &livekit.SignalRequest_SyncState{
-			SyncState: state,
-		},
-	})
-}
-
-func (c *SignalClient) SendLeave() error {
-	return c.SendLeaveWithReason(livekit.DisconnectReason_UNKNOWN_REASON)
-}
-
-func (c *SignalClient) SendLeaveWithReason(reason livekit.DisconnectReason) error {
-	return c.SendRequest(&livekit.SignalRequest{
-		Message: &livekit.SignalRequest_Leave{
-			Leave: &livekit.LeaveRequest{
-				Reason: reason,
-			},
-		},
-	})
-}
-
-func (c *SignalClient) SendRequest(req *livekit.SignalRequest) error {
-	conn := c.websocketConn()
-	if conn == nil {
-		return errors.New("client is not connected")
-	}
-	payload, err := proto.Marshal(req)
-	if err != nil {
-		return err
-	}
-
-	c.lock.Lock()
-	defer c.lock.Unlock()
-	return conn.WriteMessage(websocket.BinaryMessage, payload)
-}
-
-func (c *SignalClient) SendUpdateTrackSettings(settings *livekit.UpdateTrackSettings) error {
-	return c.SendRequest(&livekit.SignalRequest{
-		Message: &livekit.SignalRequest_TrackSetting{
-			TrackSetting: settings,
-		},
-	})
-}
-
-func (c *SignalClient) SendUpdateParticipantMetadata(metadata *livekit.UpdateParticipantMetadata) error {
-	return c.SendRequest(&livekit.SignalRequest{
-		Message: &livekit.SignalRequest_UpdateMetadata{
-			UpdateMetadata: metadata,
-		},
-	})
-}
-
-func getStatsParamString() string {
-	params := "&sdk=go&os=" + runtime.GOOS
-	return params
-}
-*/

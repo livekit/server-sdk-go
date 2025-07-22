@@ -72,7 +72,13 @@ type SignalTransport interface {
 		url string,
 		token string,
 		connectParams ConnectParams,
-	) error
+	) (proto.Message, error)
+	Reconnect(
+		urlPrefix string,
+		token string,
+		connectParams ConnectParams,
+		participantSID string,
+	) (proto.Message, error)
 	SendMessage(msg proto.Message) error
 }
 

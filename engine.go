@@ -17,6 +17,7 @@ package lksdk
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -201,24 +202,49 @@ func (e *RTCEngine) JoinContext(
 	url string,
 	token string,
 	connectParams *signalling.ConnectParams,
-) error {
+) (proto.Message, error) {
+	msg, err := e.signalTransport.Join(ctx, url, token, *connectParams)
+	if err != nil {
+		return nil, err
+	}
+
+	res, ok := msg.(*livekit.JoinResponse)
+	if !ok {
+		e.log.Warnw(
+			"unknown message type", nil,
+			"messageType", fmt.Sprintf("%T", msg),
+		)
+		return nil, ErrInvalidMessageType
+	}
+
 	e.url = url
 	e.token.Store(token)
 	e.connParams = connectParams
 
-	err := e.signalTransport.Join(ctx, url, token, *connectParams)
+	err = e.configure(res.IceServers, res.ClientConfiguration, proto.Bool(res.SubscriberPrimary))
 	if err != nil {
-		e.url = ""
-		e.token.Store("")
-		e.connParams = nil
-		return err
+		e.log.Warnw("could not configure", err)
+		return nil, err
+	}
+
+	e.engineHandler.OnSignalClientConnected(res)
+
+	e.signalTransport.Start()
+
+	// send offer
+	if !res.SubscriberPrimary || res.FastPublish {
+		if publisher, ok := e.Publisher(); ok {
+			publisher.Negotiate()
+		} else {
+			e.log.Warnw("no publisher peer connection", ErrNoPeerConnection)
+		}
 	}
 
 	if err = e.waitUntilConnected(); err != nil {
-		return err
+		return nil, err
 	}
 	e.hasConnected.Store(true)
-	return err
+	return res, err
 }
 
 func (e *RTCEngine) OnClose(onClose func()) {
@@ -665,28 +691,35 @@ func (e *RTCEngine) handleDisconnect(fullReconnect bool) {
 }
 
 func (e *RTCEngine) resumeConnection() error {
-	/* RAJA-TODO
-	reconnect, err := e.client.Reconnect(e.url, e.token.Load(), *e.connParams, e.cbGetLocalParticipantSID())
+	msg, err := e.signalTransport.Reconnect(
+		e.url,
+		e.token.Load(),
+		*e.connParams,
+		e.cbGetLocalParticipantSID(),
+	)
 	if err != nil {
 		return err
 	}
 
-	if reconnect != nil {
-		configuration := e.makeRTCConfiguration(reconnect.IceServers, reconnect.ClientConfiguration)
-		e.pclock.Lock()
-		if err = e.publisher.SetConfiguration(configuration); err != nil {
-			logger.Errorw("could not set rtc configuration for publisher", err)
+	if msg != nil {
+		reconnect, ok := msg.(*livekit.ReconnectResponse)
+		if ok {
+			configuration := e.makeRTCConfiguration(reconnect.IceServers, reconnect.ClientConfiguration)
+			e.pclock.Lock()
+			if err = e.publisher.SetConfiguration(configuration); err != nil {
+				logger.Errorw("could not set rtc configuration for publisher", err)
+				e.pclock.Unlock()
+				return err
+			}
+			if err = e.subscriber.SetConfiguration(configuration); err != nil {
+				logger.Errorw("could not set rtc configuration for subscriber", err)
+				e.pclock.Unlock()
+				return err
+			}
 			e.pclock.Unlock()
-			return err
 		}
-		if err = e.subscriber.SetConfiguration(configuration); err != nil {
-			logger.Errorw("could not set rtc configuration for subscriber", err)
-			e.pclock.Unlock()
-			return err
-		}
-		e.pclock.Unlock()
 	}
-	e.client.Start()
+	e.signalTransport.Start()
 
 	// send offer if publisher enabled
 	e.pclock.Lock()
@@ -706,7 +739,6 @@ func (e *RTCEngine) resumeConnection() error {
 	}
 
 	e.engineHandler.OnResumed()
-	*/
 	return nil
 }
 
@@ -717,16 +749,30 @@ func (e *RTCEngine) restartConnection() error {
 	}
 	e.signalTransport.Close()
 
-	/* RAJA-TODO
-	res, err := e.Join(context.TODO(), e.url, e.token.Load(), e.connParams)
+	msg, err := e.JoinContext(context.TODO(), e.url, e.token.Load(), e.connParams)
 	if err != nil {
 		return err
 	}
 
-	// SIGNALLING-V2-TODO: can this type assertion be removed? can signalling client type abstract it?
-	joinResponse := res.(*livekit.JoinResponse)
+	res, ok := msg.(*livekit.SignalResponse)
+	if !ok {
+		e.log.Warnw(
+			"unknown message type", nil,
+			"messageType", fmt.Sprintf("%T", msg),
+		)
+		return ErrInvalidMessageType
+	}
+
+	joinResponse := res.GetJoin()
+	if joinResponse == nil {
+		e.log.Warnw(
+			"unknown message type", nil,
+			"messageType", fmt.Sprintf("%T", res),
+		)
+		return ErrInvalidMessageType
+	}
+
 	e.engineHandler.OnRestarted(joinResponse.Room, joinResponse.Participant, joinResponse.OtherParticipants)
-	*/
 	return nil
 }
 
@@ -1055,8 +1101,8 @@ func (e *RTCEngine) OnTransportClose() {
 }
 
 // signalling.SignalProcessor implementation
-// RAJA-TODO: this should return error and fail join
 func (e *RTCEngine) OnJoinResponse(res *livekit.JoinResponse) {
+	/* SIGNALLING-V2-TODO: make this async
 	err := e.configure(res.IceServers, res.ClientConfiguration, proto.Bool(res.SubscriberPrimary))
 	if err != nil {
 		e.log.Warnw("could not configure", err)
@@ -1075,6 +1121,7 @@ func (e *RTCEngine) OnJoinResponse(res *livekit.JoinResponse) {
 			e.log.Warnw("no publisher peer connection", ErrNoPeerConnection)
 		}
 	}
+	*/
 }
 
 func (e *RTCEngine) OnAnswer(sd webrtc.SessionDescription, answerId uint32) {

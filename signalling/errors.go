@@ -17,6 +17,7 @@ package signalling
 import "errors"
 
 var (
+	ErrUnimplemented       = errors.New("unimplemented")
 	ErrURLNotProvided      = errors.New("URL was not provided")
 	ErrInvalidMessageType  = errors.New("invalid message type")
 	ErrInvalidParameter    = errors.New("invalid parameter")
