@@ -73,6 +73,14 @@ func (c *AgentClient) UpdateAgent(ctx context.Context, req *livekit.UpdateAgentR
 	return c.agentClient.UpdateAgent(ctx, req)
 }
 
+func (c *AgentClient) RestartAgent(ctx context.Context, req *livekit.RestartAgentRequest) (*livekit.RestartAgentResponse, error) {
+	ctx, err := c.withAuth(ctx, withAgentGrant{Admin: true})
+	if err != nil {
+		return nil, err
+	}
+	return c.agentClient.RestartAgent(ctx, req)
+}
+
 func (c *AgentClient) RollbackAgent(ctx context.Context, req *livekit.RollbackAgentRequest) (*livekit.RollbackAgentResponse, error) {
 	ctx, err := c.withAuth(ctx, withAgentGrant{Admin: true})
 	if err != nil {
