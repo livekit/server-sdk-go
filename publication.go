@@ -50,7 +50,7 @@ type trackPublicationBase struct {
 
 	lock   sync.RWMutex
 	info   atomic.Value
-	client *SignalClient
+	engine *RTCEngine
 }
 
 func (p *trackPublicationBase) Name() string {
@@ -166,19 +166,17 @@ func (p *RemoteTrackPublication) Receiver() *webrtc.RTPReceiver {
 }
 
 func (p *RemoteTrackPublication) SetSubscribed(subscribed bool) error {
-	return p.client.SendRequest(&livekit.SignalRequest{
-		Message: &livekit.SignalRequest_Subscription{
-			Subscription: &livekit.UpdateSubscription{
-				Subscribe: subscribed,
-				ParticipantTracks: []*livekit.ParticipantTracks{
-					{
-						ParticipantSid: p.participantID,
-						TrackSids:      []string{p.sid.Load()},
-					},
+	return p.engine.SendUpdateSubscription(
+		&livekit.UpdateSubscription{
+			Subscribe: subscribed,
+			ParticipantTracks: []*livekit.ParticipantTracks{
+				{
+					ParticipantSid: p.participantID,
+					TrackSids:      []string{p.sid.Load()},
 				},
 			},
 		},
-	})
+	)
 }
 
 func (p *RemoteTrackPublication) IsEnabled() bool {
@@ -239,8 +237,8 @@ func (p *RemoteTrackPublication) updateSettings() {
 	}
 	p.lock.RUnlock()
 
-	if err := p.client.SendUpdateTrackSettings(settings); err != nil {
-		p.client.log.Errorw("could not send track settings", err, "trackID", p.SID())
+	if err := p.engine.SendUpdateTrackSettings(settings); err != nil {
+		p.engine.log.Errorw("could not send track settings", err, "trackID", p.SID())
 	}
 }
 
@@ -288,11 +286,11 @@ type LocalTrackPublication struct {
 	onMuteChanged   func(*LocalTrackPublication, bool)
 }
 
-func NewLocalTrackPublication(kind TrackKind, track Track, opts TrackPublicationOptions, client *SignalClient) *LocalTrackPublication {
+func NewLocalTrackPublication(kind TrackKind, track Track, opts TrackPublicationOptions, engine *RTCEngine) *LocalTrackPublication {
 	pub := &LocalTrackPublication{
 		trackPublicationBase: trackPublicationBase{
 			track:  track,
-			client: client,
+			engine: engine,
 		},
 		opts: opts,
 	}
@@ -347,7 +345,7 @@ func (p *LocalTrackPublication) setMuted(muted bool, byRemote bool) {
 	}
 
 	if !byRemote {
-		_ = p.client.SendMuteTrack(p.sid.Load(), muted)
+		_ = p.engine.SendMuteTrack(p.sid.Load(), muted)
 	}
 	if track := p.track; track != nil {
 		switch t := track.(type) {

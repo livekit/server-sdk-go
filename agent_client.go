@@ -9,6 +9,7 @@ import (
 	"github.com/twitchtv/twirp"
 
 	"github.com/livekit/protocol/livekit"
+	"github.com/livekit/server-sdk-go/v2/signalling"
 )
 
 type AgentClient struct {
@@ -19,7 +20,7 @@ type AgentClient struct {
 func NewAgentClient(url string, apiKey string, apiSecret string, opts ...twirp.ClientOption) (*AgentClient, error) {
 	serverUrl := os.Getenv("LK_AGENTS_URL")
 	if serverUrl == "" {
-		url = ToHttpURL(url)
+		url = signalling.ToHttpURL(url)
 		pattern := `^https?://[^.]+\.`
 		re := regexp.MustCompile(pattern)
 		serverUrl = re.ReplaceAllString(url, "https://agents.")

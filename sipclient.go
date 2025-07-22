@@ -24,6 +24,7 @@ import (
 
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/utils/xtwirp"
+	"github.com/livekit/server-sdk-go/v2/signalling"
 )
 
 //lint:file-ignore SA1019 We still support some deprecated functions for backward compatibility
@@ -37,7 +38,7 @@ type SIPClient struct {
 func NewSIPClient(url string, apiKey string, secretKey string, opts ...twirp.ClientOption) *SIPClient {
 	opts = append(opts, xtwirp.DefaultClientOptions()...)
 	return &SIPClient{
-		sipClient: livekit.NewSIPProtobufClient(ToHttpURL(url), &http.Client{}, opts...),
+		sipClient: livekit.NewSIPProtobufClient(signalling.ToHttpURL(url), &http.Client{}, opts...),
 		authBase: authBase{
 			apiKey:    apiKey,
 			apiSecret: secretKey,

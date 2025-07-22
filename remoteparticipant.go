@@ -25,13 +25,13 @@ import (
 type RemoteParticipant struct {
 	baseParticipant
 	pliWriter PLIWriter
-	client    *SignalClient
+	engine    *RTCEngine
 }
 
-func newRemoteParticipant(pi *livekit.ParticipantInfo, roomCallback *RoomCallback, client *SignalClient, pliWriter PLIWriter) *RemoteParticipant {
+func newRemoteParticipant(pi *livekit.ParticipantInfo, roomCallback *RoomCallback, engine *RTCEngine, pliWriter PLIWriter) *RemoteParticipant {
 	p := &RemoteParticipant{
 		baseParticipant: *newBaseParticipant(roomCallback),
-		client:          client,
+		engine:          engine,
 		pliWriter:       pliWriter,
 	}
 	p.updateInfo(pi)
@@ -53,7 +53,7 @@ func (p *RemoteParticipant) updateInfo(pi *livekit.ParticipantInfo) {
 			// new track
 			remotePub := &RemoteTrackPublication{}
 			remotePub.updateInfo(ti)
-			remotePub.client = p.client
+			remotePub.engine = p.engine
 			remotePub.participantID = p.sid
 			p.addPublication(remotePub)
 			newPubs[ti.Sid] = remotePub
@@ -118,7 +118,7 @@ func (p *RemoteParticipant) addSubscribedMediaTrack(
 	}
 	pub.setReceiverAndTrack(receiver, track)
 
-	p.client.log.Infow(
+	p.engine.log.Infow(
 		"track subscribed",
 		"participant", p.Identity(),
 		"trackID", pub.sid.Load(),
@@ -138,7 +138,7 @@ func (p *RemoteParticipant) getPublication(trackSID string) *RemoteTrackPublicat
 func (p *RemoteParticipant) unpublishTrack(sid string, sendUnpublish bool) {
 	pub := p.getPublication(sid)
 	if pub == nil {
-		p.client.log.Warnw("could not find track to unpublish", nil, "sid", sid)
+		p.engine.log.Warnw("could not find track to unpublish", nil, "sid", sid)
 		return
 	}
 

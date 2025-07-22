@@ -12,25 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package lksdk
+package signalling
 
 import (
-	"testing"
-
-	"github.com/stretchr/testify/require"
+	"github.com/livekit/protocol/logger"
+	"google.golang.org/protobuf/proto"
 )
 
-func TestSignalClient_Join(t *testing.T) {
-	t.Run("rejects empty URLs", func(t *testing.T) {
-		c := NewSignalClient()
-		_, err := c.Join("", "", SignalClientConnectParams{})
-		require.Equal(t, ErrURLNotProvided, err)
-	})
+var _ SignalHandler = (*signalhandlerUnimplemented)(nil)
 
-	t.Run("errors on invalid URLs", func(t *testing.T) {
-		c := NewSignalClient()
-		_, err := c.Join("https://invalid-livekit-url", "", SignalClientConnectParams{})
-		require.Error(t, err)
-		require.NotEqual(t, ErrURLNotProvided, err)
-	})
+type signalhandlerUnimplemented struct {
+}
+
+func (s *signalhandlerUnimplemented) SetLogger(l logger.Logger) {}
+
+func (s *signalhandlerUnimplemented) HandleMessage(msg proto.Message) error {
+	return nil
 }
