@@ -68,28 +68,50 @@ func (s *signalhandlerv2) HandleMessage(msg proto.Message) error {
 	case *livekit.Signalv2WireMessage_Envelope:
 		for _, serverMessage := range msg.Envelope.ServerMessages {
 			// SIGNAL-V2-TODO: cannot do this comparison for very first message
-			if serverMessage.Sequencer.MessageId != s.lastProcessedRemoteMessageId.Load()+1 {
+			/* SIGNALLING-V2-TODO: uncomment once server sends proper id
+			sequencer := serverMessage.GetSequencer()
+			if sequencer == nil || sequencer.MessageId == 0 {
+				s.params.Logger.Warnw(
+					"skipping message without sequencer", nil,
+					"messageType", fmt.Sprintf("%T", serverMessage),
+				)
+				continue
+			}
+
+			if sequencer.MessageId != s.lastProcessedRemoteMessageId.Load()+1 {
 				s.params.Logger.Infow(
 					"gap in message stream",
 					"last", s.lastProcessedRemoteMessageId.Load(),
 					"current", serverMessage.Sequencer.MessageId,
 				)
 			}
+			*/
 
 			// SIGNALLING-V2-TODO: ask for replay if there are gaps
 
 			// SIGNALLING-V2-TODO: process messages
 			switch payload := serverMessage.GetMessage().(type) {
+			case *livekit.Signalv2ServerMessage_ConnectResponse:
+				s.params.Processor.OnConnectResponse(payload.ConnectResponse)
+
 			case *livekit.Signalv2ServerMessage_PublisherSdp:
 				s.params.Processor.OnAnswer(protosignalling.FromProtoSessionDescription(payload.PublisherSdp))
 
 			case *livekit.Signalv2ServerMessage_SubscriberSdp:
 				s.params.Processor.OnOffer(protosignalling.FromProtoSessionDescription(payload.SubscriberSdp))
+
+			default:
+				s.params.Logger.Warnw(
+					"unhandled message", nil,
+					"mesageType", fmt.Sprintf("%T", serverMessage),
+				)
 			}
 
-			s.lastProcessedRemoteMessageId.Store(serverMessage.Sequencer.MessageId)
-			s.params.Signalling.AckMessageId(serverMessage.Sequencer.LastProcessedRemoteMessageId)
-			s.params.Signalling.SetLastProcessedRemoteMessageId(serverMessage.Sequencer.MessageId)
+			/* SIGNALLING-V2-TODO: uncomment once sequencer is implemented on both sides
+			s.lastProcessedRemoteMessageId.Store(sequencer.MessageId)
+			s.params.Signalling.AckMessageId(sequencer.LastProcessedRemoteMessageId)
+			s.params.Signalling.SetLastProcessedRemoteMessageId(sequencer.MessageId)
+			*/
 		}
 
 	case *livekit.Signalv2WireMessage_Fragment:

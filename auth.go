@@ -61,5 +61,5 @@ func (b authBase) withAuth(ctx context.Context, opt authOption, options ...authO
 		return nil, err
 	}
 
-	return twirp.WithHTTPRequestHeaders(ctx, signalling.NewHeaderWithToken(token))
+	return twirp.WithHTTPRequestHeaders(ctx, signalling.NewHTTPHeaderWithToken(token))
 }

@@ -17,10 +17,11 @@ package signalling
 import "errors"
 
 var (
+	ErrUnsupportedProtocol = errors.New("unsupported protocol")
 	ErrUnimplemented       = errors.New("unimplemented")
 	ErrURLNotProvided      = errors.New("URL was not provided")
 	ErrInvalidMessageType  = errors.New("invalid message type")
 	ErrInvalidParameter    = errors.New("invalid parameter")
 	ErrCannotDialSignal    = errors.New("could not dial signal connection")
-	ErrCannotConnectSignal = errors.New("could not establish signal connection")
+	ErrEmptyResponse       = errors.New("empty response")
 )

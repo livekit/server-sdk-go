@@ -33,7 +33,7 @@ func ToWebsocketURL(url string) string {
 	return url
 }
 
-func NewHeaderWithToken(token string) http.Header {
+func NewHTTPHeaderWithToken(token string) http.Header {
 	header := make(http.Header)
 	header.Set("Authorization", "Bearer "+token)
 	return header
