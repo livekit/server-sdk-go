@@ -119,9 +119,10 @@ type RTCEngine struct {
 	engineHandler            engineHandler
 	cbGetLocalParticipantSID func() string
 
-	pclock          sync.Mutex
-	publisher       *PCTransport
-	subscriber      *PCTransport
+	pclock     sync.Mutex
+	publisher  *PCTransport
+	subscriber *PCTransport
+
 	signalling      signalling.Signalling
 	signalHandler   signalling.SignalHandler
 	signalTransport signalling.SignalTransport
