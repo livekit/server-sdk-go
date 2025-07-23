@@ -67,7 +67,6 @@ func (s *signalhandlerv2) HandleMessage(msg proto.Message) error {
 	switch msg := wireMessage.GetMessage().(type) {
 	case *livekit.Signalv2WireMessage_Envelope:
 		for _, serverMessage := range msg.Envelope.ServerMessages {
-			// SIGNAL-V2-TODO: cannot do this comparison for very first message
 			/* SIGNALLING-V2-TODO: uncomment once server sends proper id
 			sequencer := serverMessage.GetSequencer()
 			if sequencer == nil || sequencer.MessageId == 0 {
@@ -78,10 +77,20 @@ func (s *signalhandlerv2) HandleMessage(msg proto.Message) error {
 				continue
 			}
 
-			if sequencer.MessageId != s.lastProcessedRemoteMessageId.Load()+1 {
+			lprmi := s.lastProcessedRemoteMessageId.Load()
+			if sequencer.MessageId <= lprmi {
+				s.params.Logger.Infow(
+					"duplicate in message stream",
+					"last", lprmi,
+					"current", serverMessage.Sequencer.MessageId,
+				)
+				continue
+			}
+
+			if lprmi != 0 && sequencer.MessageId != lprmi+1 {
 				s.params.Logger.Infow(
 					"gap in message stream",
-					"last", s.lastProcessedRemoteMessageId.Load(),
+					"last", lprmi,
 					"current", serverMessage.Sequencer.MessageId,
 				)
 			}

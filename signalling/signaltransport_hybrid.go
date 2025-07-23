@@ -18,6 +18,7 @@ import (
 	"context"
 
 	"github.com/livekit/protocol/logger"
+	"google.golang.org/protobuf/proto"
 )
 
 var _ SignalTransport = (*signalTransportHybrid)(nil)
@@ -72,4 +73,16 @@ func (s *signalTransportHybrid) Reconnect(
 	participantSID string,
 ) error {
 	return s.syncTransport.Reconnect(url, token, connectParams, participantSID)
+}
+
+func (s *signalTransportHybrid) SetParticipantResource(url string, participantSid string, token string) {
+	s.syncTransport.SetParticipantResource(url, participantSid, token)
+}
+
+func (s *signalTransportHybrid) UpdateParticipantToken(token string) {
+	s.syncTransport.UpdateParticipantToken(token)
+}
+
+func (s *signalTransportHybrid) SendMessage(msg proto.Message) error {
+	return s.syncTransport.SendMessage(msg)
 }

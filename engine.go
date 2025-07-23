@@ -1071,6 +1071,7 @@ func (e *RTCEngine) validate(
 		e.log.Errorw("error getting validation", err, "httpResponse", hresp)
 		return signalling.ErrCannotDialSignal
 	}
+	defer hresp.Body.Close()
 
 	if hresp.StatusCode == http.StatusOK {
 		// no specific errors to return if validate succeeds
@@ -1282,7 +1283,6 @@ func (e *RTCEngine) OnConnectResponse(res *livekit.ConnectResponse) error {
 		isRestarting = true
 	}
 
-	e.log.Debugw("RAJA got connect response", "res", protoLogger.Proto(res)) // REMOVE
 	e.signalTransport.SetParticipantResource(e.url, res.GetParticipant().Sid, e.token.Load())
 
 	err := e.configure(res.IceServers, res.ClientConfiguration, proto.Bool(true))

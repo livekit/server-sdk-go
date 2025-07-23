@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -68,11 +69,9 @@ func (s *signalTransportHttp) Join(
 ) error {
 	msg, err := s.connect(ctx, url, token, connectParams, "")
 	if err != nil {
-		s.params.Logger.Warnw("RAJA connect error", err) // REMOVE
 		return err
 	}
 
-	s.params.Logger.Debugw("RAJA connect response", "response", logger.Proto(msg)) // REMOVE
 	return s.params.SignalHandler.HandleMessage(msg)
 }
 
@@ -146,13 +145,12 @@ func (s *signalTransportHttp) connect(
 ) (proto.Message, error) {
 	if joinMethod := s.params.Signalling.JoinMethod(); joinMethod != joinMethodConnectRequest {
 		// SIGNALLING-V2-TODO: add HTTP support for v1 signalling
-		return nil, ErrUnsupportedProtocol
+		return nil, ErrUnsupportedSignalling
 	}
 
 	if urlPrefix == "" {
 		return nil, ErrURLNotProvided
 	}
-	urlPrefix = ToHttpURL(urlPrefix)
 
 	connectRequest, err := s.params.Signalling.ConnectRequest(
 		s.params.Version,
@@ -184,12 +182,12 @@ func (s *signalTransportHttp) sendHttpRequest(
 		return nil, err
 	}
 
-	u, err := url.Parse(location)
+	u, err := url.Parse(ToHttpURL(location))
 	if err != nil {
 		return nil, err
 	}
 
-	req, err := http.NewRequest(method, u.String(), bytes.NewBuffer(protoMsg))
+	req, err := http.NewRequestWithContext(context.TODO(), method, u.String(), bytes.NewBuffer(protoMsg))
 	if err != nil {
 		return nil, err
 	}
@@ -203,25 +201,26 @@ func (s *signalTransportHttp) sendHttpRequest(
 		s.params.Logger.Errorw("http request failed", err, "httpResponse", hresp)
 		return nil, err
 	}
-	defer hresp.Body.Close()
-	s.params.Logger.Infow("http response received", "elapsed", time.Since(startedAt))
-	s.params.Logger.Infow("http response received", "elapsed", time.Since(startedAt), "status", hresp.StatusCode) // REMOVE
 
-	s.params.Logger.Debugw("rAJA resp", "hresp", hresp) // REMOVE
+	defer hresp.Body.Close()
+
+	if hresp.Header.Get("Content-type") != "application/x-protobuf" {
+		return nil, fmt.Errorf("%w: %s", ErrUnsupportedContentType, hresp.Header.Get("Content-type"))
+	}
+
+	s.params.Logger.Infow("http response received", "elapsed", time.Since(startedAt))
+
 	body, err := io.ReadAll(hresp.Body)
 	if err != nil {
-		s.params.Logger.Warnw("could not read body", err) // REMOVE
 		return nil, err
 	}
 
 	if hresp.StatusCode != http.StatusOK {
-		s.params.Logger.Warnw("status bad", errors.New(string(body))) // REMOVE
 		return nil, errors.New(string(body))
 	}
 
 	respWireMessage := &livekit.Signalv2WireMessage{}
 	if err := proto.Unmarshal(body, respWireMessage); err != nil {
-		s.params.Logger.Warnw("could not unmarshal", err) // REMOVE
 		return nil, err
 	}
 

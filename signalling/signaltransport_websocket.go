@@ -174,7 +174,7 @@ func (s *signalTransportWebSocket) connect(
 ) (proto.Message, error) {
 	if joinMethod := s.params.Signalling.JoinMethod(); joinMethod != joinMethodQueryParams {
 		// SIGNALLING-V2-TODO: add WebSocket support for v2 signalling
-		return nil, ErrUnsupportedProtocol
+		return nil, ErrUnsupportedSignalling
 	}
 
 	if urlPrefix == "" {

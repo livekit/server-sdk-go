@@ -53,7 +53,7 @@ func (s *signallingv2) Path() string {
 }
 
 func (s *signallingv2) ParticipantPath(participantSid string) string {
-	return "/rtc/v2" + participantSid
+	return "/rtc/v2/" + participantSid
 }
 
 func (s *signallingv2) ValidatePath() string {
