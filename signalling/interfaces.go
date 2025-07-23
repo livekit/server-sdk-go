@@ -16,6 +16,8 @@ package signalling
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 
 	"github.com/livekit/mediatransportutil/pkg/pacer"
 	"github.com/livekit/protocol/livekit"
@@ -25,8 +27,62 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+type joinMethod int
+
+const (
+	joinMethodUnused         joinMethod = iota
+	joinMethodQueryParams               // v1
+	joinMethodConnectRequest            // v2
+)
+
+func (j joinMethod) String() string {
+	switch j {
+	case joinMethodUnused:
+		return "UNUSED"
+
+	case joinMethodQueryParams:
+		return "QUERY_PARAMS"
+
+	case joinMethodConnectRequest:
+		return "CONNECT_REQUEST"
+
+	default:
+		return fmt.Sprintf("UNKNOWN: %d", j)
+	}
+}
+
+// ---------------------------
+
 type Signalling interface {
 	SetLogger(l protoLogger.Logger)
+
+	Path() string
+	ParticipantPath(participantSid string) string
+	ValidatePath() string
+
+	JoinMethod() joinMethod
+
+	ConnectQueryParams(
+		version string,
+		protocol int,
+		connectParams *ConnectParams,
+		participantSID string,
+	) (string, error)
+	ConnectRequest(
+		version string,
+		protocol int,
+		connectParams *ConnectParams,
+		participantSID string,
+	) (*livekit.ConnectRequest, error)
+	HTTPRequestForValidate(
+		ctx context.Context,
+		version string,
+		protocol int,
+		urlPrefix string,
+		token string,
+		connectParams *ConnectParams,
+		participantSID string,
+	) (*http.Request, error)
 
 	SignalLeaveRequest(leave *livekit.LeaveRequest) proto.Message
 	SignalICECandidate(trickle *livekit.TrickleRequest) proto.Message
@@ -43,6 +99,8 @@ type Signalling interface {
 
 	AckMessageId(ackMessageId uint32)
 	SetLastProcessedRemoteMessageId(lastProcessedRemoteMessageId uint32)
+
+	SignalConnectRequest(connectRequest *livekit.ConnectRequest) proto.Message
 }
 
 type ConnectParams struct {
@@ -72,13 +130,15 @@ type SignalTransport interface {
 		url string,
 		token string,
 		connectParams ConnectParams,
-	) (proto.Message, error)
+	) error
 	Reconnect(
-		urlPrefix string,
+		url string,
 		token string,
 		connectParams ConnectParams,
 		participantSID string,
-	) (proto.Message, error)
+	) error
+	SetParticipantResource(url string, participantSid string, token string)
+	UpdateParticipantToken(token string)
 	SendMessage(msg proto.Message) error
 }
 
@@ -93,7 +153,8 @@ type SignalHandler interface {
 }
 
 type SignalProcessor interface {
-	OnJoinResponse(joinResponse *livekit.JoinResponse)
+	OnJoinResponse(joinResponse *livekit.JoinResponse) error
+	OnReconnectResponse(reconnectResponse *livekit.ReconnectResponse) error
 	OnAnswer(sd webrtc.SessionDescription, answerId uint32)
 	OnOffer(sd webrtc.SessionDescription, offerId uint32)
 	OnTrickle(init webrtc.ICECandidateInit, target livekit.SignalTarget)
@@ -109,4 +170,6 @@ type SignalProcessor interface {
 	OnLeave(*livekit.LeaveRequest)
 	OnLocalTrackSubscribed(trackSubscribed *livekit.TrackSubscribed)
 	OnSubscribedQualityUpdate(subscribedQualityUpdate *livekit.SubscribedQualityUpdate)
+
+	OnConnectResponse(connectRespone *livekit.ConnectResponse) error
 }

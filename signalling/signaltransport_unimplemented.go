@@ -40,18 +40,23 @@ func (s *signalTransportUnimplemented) Join(
 	url string,
 	token string,
 	connectParams ConnectParams,
-) (proto.Message, error) {
-	return nil, ErrUnimplemented
+) error {
+	return ErrUnimplemented
 }
 
 func (s *signalTransportUnimplemented) Reconnect(
-	urlPrefix string,
+	url string,
 	token string,
 	connectParams ConnectParams,
 	participantSID string,
-) (proto.Message, error) {
-	return nil, ErrUnimplemented
+) error {
+	return ErrUnimplemented
 }
+
+func (s *signalTransportUnimplemented) SetParticipantResource(url string, participantSid string, token string) {
+}
+
+func (s *signalTransportUnimplemented) UpdateParticipantToken(token string) {}
 
 func (s *signalTransportUnimplemented) SendMessage(msg proto.Message) error {
 	return nil

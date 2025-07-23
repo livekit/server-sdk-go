@@ -15,6 +15,9 @@
 package signalling
 
 import (
+	"context"
+	"net/http"
+
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
 	"google.golang.org/protobuf/proto"
@@ -26,6 +29,52 @@ type signallingUnimplemented struct {
 }
 
 func (s *signallingUnimplemented) SetLogger(l logger.Logger) {}
+
+func (s *signallingUnimplemented) Path() string {
+	return ""
+}
+
+func (s *signallingUnimplemented) ParticipantPath(participantSid string) string {
+	return ""
+}
+
+func (s *signallingUnimplemented) ValidatePath() string {
+	return ""
+}
+
+func (s *signallingUnimplemented) JoinMethod() joinMethod {
+	return joinMethodUnused
+}
+
+func (s *signallingUnimplemented) ConnectQueryParams(
+	version string,
+	protocol int,
+	connectParams *ConnectParams,
+	participantSID string,
+) (string, error) {
+	return "", ErrUnimplemented
+}
+
+func (s *signallingUnimplemented) ConnectRequest(
+	version string,
+	protocol int,
+	connectParams *ConnectParams,
+	participantSID string,
+) (*livekit.ConnectRequest, error) {
+	return nil, ErrUnimplemented
+}
+
+func (s *signallingUnimplemented) HTTPRequestForValidate(
+	ctx context.Context,
+	version string,
+	protocol int,
+	urlPrefix string,
+	token string,
+	connectParams *ConnectParams,
+	participantSID string,
+) (*http.Request, error) {
+	return nil, ErrUnimplemented
+}
 
 func (s *signallingUnimplemented) SignalLeaveRequest(leave *livekit.LeaveRequest) proto.Message {
 	return nil
@@ -78,4 +127,8 @@ func (s *signallingUnimplemented) SignalUpdateParticipantMetadata(metadata *live
 func (u *signallingUnimplemented) AckMessageId(ackMessageId uint32) {}
 
 func (u *signallingUnimplemented) SetLastProcessedRemoteMessageId(lastProcessedRemoteMessageId uint32) {
+}
+
+func (s *signallingUnimplemented) SignalConnectRequest(connectRequest *livekit.ConnectRequest) proto.Message {
+	return nil
 }

@@ -15,6 +15,14 @@
 package signalling
 
 import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/url"
+	"runtime"
+
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
 	"google.golang.org/protobuf/proto"
@@ -40,6 +48,86 @@ func NewSignalling(params SignallingParams) Signalling {
 
 func (s *signalling) SetLogger(l logger.Logger) {
 	s.params.Logger = l
+}
+
+func (s *signalling) Path() string {
+	return "/rtc"
+}
+
+func (s *signalling) ValidatePath() string {
+	return "/rtc/validate"
+}
+
+func (s *signalling) JoinMethod() joinMethod {
+	return joinMethodQueryParams
+}
+
+func (s *signalling) ConnectQueryParams(
+	version string,
+	protocol int,
+	connectParams *ConnectParams,
+	participantSID string,
+) (string, error) {
+	queryParams := fmt.Sprintf("version=%s&protocol=%d&", version, protocol)
+
+	if connectParams.AutoSubscribe {
+		queryParams += "&auto_subscribe=1"
+	} else {
+		queryParams += "&auto_subscribe=0"
+	}
+	if connectParams.Reconnect {
+		queryParams += "&reconnect=1"
+		if participantSID != "" {
+			queryParams += fmt.Sprintf("&sid=%s", participantSID)
+		}
+	}
+	if len(connectParams.Attributes) != 0 {
+		data, err := json.Marshal(connectParams.Attributes)
+		if err != nil {
+			return "", ErrInvalidParameter
+		}
+		str := base64.URLEncoding.EncodeToString(data)
+		queryParams += "&attributes=" + str
+	}
+	queryParams += "&sdk=go&os=" + runtime.GOOS
+	return queryParams, nil
+}
+
+func (s *signalling) HTTPRequestForValidate(
+	ctx context.Context,
+	version string,
+	protocol int,
+	urlPrefix string,
+	token string,
+	connectParams *ConnectParams,
+	participantSID string,
+) (*http.Request, error) {
+	if urlPrefix == "" {
+		return nil, ErrURLNotProvided
+	}
+
+	queryParams, err := s.ConnectQueryParams(
+		version,
+		protocol,
+		connectParams,
+		participantSID,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	u, err := url.Parse(ToHttpURL(urlPrefix) + s.ValidatePath() + fmt.Sprintf("?%s", queryParams))
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		s.params.Logger.Errorw("error creating validate request", err)
+		return nil, err
+	}
+	req.Header = NewHTTPHeaderWithToken(token)
+	return req, nil
 }
 
 func (s *signalling) SignalLeaveRequest(leave *livekit.LeaveRequest) proto.Message {

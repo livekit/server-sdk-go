@@ -17,7 +17,8 @@ package lksdk
 import (
 	"context"
 	"errors"
-	"fmt"
+	"io"
+	"net/http"
 	"sync"
 	"time"
 
@@ -54,7 +55,13 @@ type engineHandler interface {
 	OnResuming()
 	OnResumed()
 	OnTranscription(*livekit.Transcription)
-	OnSignalClientConnected(*livekit.JoinResponse)
+	OnRoomJoined(
+		room *livekit.Room,
+		participant *livekit.ParticipantInfo,
+		otherParticipants []*livekit.ParticipantInfo,
+		serverInfo *livekit.ServerInfo,
+		sifTrailer []byte,
+	)
 	OnRpcRequest(callerIdentity, requestId, method, payload string, responseTimeout time.Duration, version uint32)
 	OnRpcAck(requestId string)
 	OnRpcResponse(requestId string, payload *string, error *RpcError)
@@ -176,6 +183,7 @@ func NewRTCEngine(engineHandler engineHandler, getLocalParticipantSID func() str
 		Logger:                 e.log,
 		Version:                Version,
 		Protocol:               PROTOCOL,
+		Signalling:             e.signalling,
 		SignalTransportHandler: e,
 		SignalHandler:          e.signalHandler,
 	})
@@ -203,49 +211,24 @@ func (e *RTCEngine) JoinContext(
 	url string,
 	token string,
 	connectParams *signalling.ConnectParams,
-) (proto.Message, error) {
-	msg, err := e.signalTransport.Join(ctx, url, token, *connectParams)
-	if err != nil {
-		return nil, err
-	}
-
-	res, ok := msg.(*livekit.JoinResponse)
-	if !ok {
-		e.log.Warnw(
-			"unknown message type", nil,
-			"messageType", fmt.Sprintf("%T", msg),
-		)
-		return nil, ErrInvalidMessageType
-	}
-
+) (bool, error) {
 	e.url = url
 	e.token.Store(token)
 	e.connParams = connectParams
 
-	err = e.configure(res.IceServers, res.ClientConfiguration, proto.Bool(res.SubscriberPrimary))
+	err := e.signalTransport.Join(ctx, url, token, *connectParams)
 	if err != nil {
-		e.log.Warnw("could not configure", err)
-		return nil, err
-	}
-
-	e.engineHandler.OnSignalClientConnected(res)
-
-	e.signalTransport.Start()
-
-	// send offer
-	if !res.SubscriberPrimary || res.FastPublish {
-		if publisher, ok := e.Publisher(); ok {
-			publisher.Negotiate()
-		} else {
-			e.log.Warnw("no publisher peer connection", ErrNoPeerConnection)
+		if verr := e.validate(ctx, url, token, connectParams, ""); verr != nil {
+			return false, verr
 		}
+		return false, err
 	}
 
 	if err = e.waitUntilConnected(); err != nil {
-		return nil, err
+		return false, err
 	}
 	e.hasConnected.Store(true)
-	return res, err
+	return true, err
 }
 
 func (e *RTCEngine) OnClose(onClose func()) {
@@ -364,7 +347,7 @@ func (e *RTCEngine) configure(
 	if subscriberPrimary != nil {
 		e.subscriberPrimary = *subscriberPrimary
 	}
-	e.subscriber.OnRemoteDescriptionSettled(e.createPublisherAnswerAndSend)
+	e.subscriber.OnRemoteDescriptionSettled(e.createSubscriberPCAnswerAndSend)
 
 	e.publisher.pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
 		if candidate == nil {
@@ -692,34 +675,25 @@ func (e *RTCEngine) handleDisconnect(fullReconnect bool) {
 }
 
 func (e *RTCEngine) resumeConnection() error {
-	msg, err := e.signalTransport.Reconnect(
+	err := e.signalTransport.Reconnect(
 		e.url,
 		e.token.Load(),
 		*e.connParams,
 		e.cbGetLocalParticipantSID(),
 	)
 	if err != nil {
+		if verr := e.validate(
+			context.TODO(),
+			e.url,
+			e.token.Load(),
+			e.connParams,
+			e.cbGetLocalParticipantSID(),
+		); verr != nil {
+			return verr
+		}
 		return err
 	}
 
-	if msg != nil {
-		reconnect, ok := msg.(*livekit.ReconnectResponse)
-		if ok {
-			configuration := e.makeRTCConfiguration(reconnect.IceServers, reconnect.ClientConfiguration)
-			e.pclock.Lock()
-			if err = e.publisher.SetConfiguration(configuration); err != nil {
-				logger.Errorw("could not set rtc configuration for publisher", err)
-				e.pclock.Unlock()
-				return err
-			}
-			if err = e.subscriber.SetConfiguration(configuration); err != nil {
-				logger.Errorw("could not set rtc configuration for subscriber", err)
-				e.pclock.Unlock()
-				return err
-			}
-			e.pclock.Unlock()
-		}
-	}
 	e.signalTransport.Start()
 
 	// send offer if publisher enabled
@@ -750,34 +724,11 @@ func (e *RTCEngine) restartConnection() error {
 	}
 	e.signalTransport.Close()
 
-	msg, err := e.JoinContext(context.TODO(), e.url, e.token.Load(), e.connParams)
-	if err != nil {
-		return err
-	}
-
-	res, ok := msg.(*livekit.SignalResponse)
-	if !ok {
-		e.log.Warnw(
-			"unknown message type", nil,
-			"messageType", fmt.Sprintf("%T", msg),
-		)
-		return ErrInvalidMessageType
-	}
-
-	joinResponse := res.GetJoin()
-	if joinResponse == nil {
-		e.log.Warnw(
-			"unknown message type", nil,
-			"messageType", fmt.Sprintf("%T", res),
-		)
-		return ErrInvalidMessageType
-	}
-
-	e.engineHandler.OnRestarted(joinResponse.Room, joinResponse.Participant, joinResponse.OtherParticipants)
-	return nil
+	_, err := e.JoinContext(context.TODO(), e.url, e.token.Load(), e.connParams)
+	return err
 }
 
-func (e *RTCEngine) createPublisherAnswerAndSend() error {
+func (e *RTCEngine) createSubscriberPCAnswerAndSend() error {
 	answer, err := e.subscriber.pc.CreateAnswer(nil)
 	if err != nil {
 		e.log.Errorw("could not create answer", err)
@@ -1096,21 +1047,83 @@ func (e *RTCEngine) Simulate(scenario SimulateScenario) {
 	}
 }
 
+func (e *RTCEngine) validate(
+	ctx context.Context,
+	urlPrefix string,
+	token string,
+	connectParams *signalling.ConnectParams,
+	participantSID string,
+) error {
+	req, err := e.signalling.HTTPRequestForValidate(
+		ctx,
+		Version,
+		PROTOCOL,
+		urlPrefix,
+		token,
+		connectParams,
+		participantSID,
+	)
+	if err != nil {
+		return err
+	}
+
+	hresp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		e.log.Errorw("error getting validation", err, "httpResponse", hresp)
+		return signalling.ErrCannotDialSignal
+	}
+	defer hresp.Body.Close()
+
+	if hresp.StatusCode == http.StatusOK {
+		// no specific errors to return if validate succeeds
+		e.log.Infow("validate succeeded")
+		return nil
+	}
+
+	var errString string
+	switch hresp.StatusCode {
+	case http.StatusUnauthorized:
+		errString = "unauthorized: "
+	case http.StatusNotFound:
+		errString = "not found: "
+	case http.StatusServiceUnavailable:
+		errString = "unavailable: "
+	}
+	body, err := io.ReadAll(hresp.Body)
+	if err == nil {
+		errString += string(body)
+		e.log.Errorw("validation error", errors.New(errString), "httpResponse", hresp)
+	}
+	return errors.New(errString)
+}
+
 // signalling.SignalTransportHandler implementation
 func (e *RTCEngine) OnTransportClose() {
 	e.handleDisconnect(false)
 }
 
 // signalling.SignalProcessor implementation
-func (e *RTCEngine) OnJoinResponse(res *livekit.JoinResponse) {
-	/* SIGNALLING-V2-TODO: make this async
+func (e *RTCEngine) OnJoinResponse(res *livekit.JoinResponse) error {
+	isRestarting := false
+	if e.reconnecting.Load() && e.requiresFullReconnect.Load() {
+		isRestarting = true
+	}
+
+	e.signalTransport.SetParticipantResource(e.url, res.GetParticipant().Sid, e.token.Load())
+
 	err := e.configure(res.IceServers, res.ClientConfiguration, proto.Bool(res.SubscriberPrimary))
 	if err != nil {
 		e.log.Warnw("could not configure", err)
-		return
+		return err
 	}
 
-	e.engineHandler.OnSignalClientConnected(res)
+	e.engineHandler.OnRoomJoined(
+		res.Room,
+		res.Participant,
+		res.OtherParticipants,
+		res.ServerInfo,
+		res.SifTrailer,
+	)
 
 	e.signalTransport.Start()
 
@@ -1122,7 +1135,30 @@ func (e *RTCEngine) OnJoinResponse(res *livekit.JoinResponse) {
 			e.log.Warnw("no publisher peer connection", ErrNoPeerConnection)
 		}
 	}
-	*/
+
+	if isRestarting {
+		e.engineHandler.OnRestarted(res.Room, res.Participant, res.OtherParticipants)
+	}
+	return nil
+}
+
+func (e *RTCEngine) OnReconnectResponse(res *livekit.ReconnectResponse) error {
+	configuration := e.makeRTCConfiguration(res.IceServers, res.ClientConfiguration)
+
+	e.pclock.Lock()
+	defer e.pclock.Unlock()
+
+	if err := e.publisher.SetConfiguration(configuration); err != nil {
+		e.log.Errorw("could not set rtc configuration for publisher", err)
+		return err
+	}
+
+	if err := e.subscriber.SetConfiguration(configuration); err != nil {
+		e.log.Errorw("could not set rtc configuration for subscriber", err)
+		return err
+	}
+
+	return nil
 }
 
 func (e *RTCEngine) OnAnswer(sd webrtc.SessionDescription, answerId uint32) {
@@ -1212,6 +1248,7 @@ func (e *RTCEngine) OnTrackRemoteMuted(request *livekit.MuteTrackRequest) {
 
 func (e *RTCEngine) OnTokenRefresh(refreshToken string) {
 	e.token.Store(refreshToken)
+	e.signalTransport.UpdateParticipantToken(refreshToken)
 }
 
 func (e *RTCEngine) OnLeave(leave *livekit.LeaveRequest) {
@@ -1239,4 +1276,48 @@ func (e *RTCEngine) OnLocalTrackSubscribed(trackSubscribed *livekit.TrackSubscri
 
 func (e *RTCEngine) OnSubscribedQualityUpdate(subscribedQualityUpdate *livekit.SubscribedQualityUpdate) {
 	e.engineHandler.OnSubscribedQualityUpdate(subscribedQualityUpdate)
+}
+
+func (e *RTCEngine) OnConnectResponse(res *livekit.ConnectResponse) error {
+	isRestarting := false
+	if e.reconnecting.Load() && e.requiresFullReconnect.Load() {
+		isRestarting = true
+	}
+
+	e.signalTransport.SetParticipantResource(e.url, res.GetParticipant().Sid, e.token.Load())
+
+	err := e.configure(res.IceServers, res.ClientConfiguration, proto.Bool(true))
+	if err != nil {
+		e.log.Warnw("could not configure", err)
+		return err
+	}
+
+	e.engineHandler.OnRoomJoined(
+		res.Room,
+		res.Participant,
+		res.OtherParticipants,
+		res.ServerInfo,
+		res.SifTrailer,
+	)
+
+	e.signalTransport.Start()
+
+	// SIGNALLING-V2-TODO: should send publisher offer in connect request itself
+	// send offer
+	if res.FastPublish {
+		if publisher, ok := e.Publisher(); ok {
+			publisher.Negotiate()
+		} else {
+			e.log.Warnw("no publisher peer connection", ErrNoPeerConnection)
+		}
+	}
+
+	if res.SubscriberSdp != nil {
+		e.OnOffer(protosignalling.FromProtoSessionDescription(res.SubscriberSdp))
+	}
+
+	if isRestarting {
+		e.engineHandler.OnRestarted(res.Room, res.Participant, res.OtherParticipants)
+	}
+	return nil
 }

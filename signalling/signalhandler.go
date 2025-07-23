@@ -60,6 +60,9 @@ func (s *signalhandler) HandleMessage(msg proto.Message) error {
 	case *livekit.SignalResponse_Join:
 		s.params.Processor.OnJoinResponse(payload.Join)
 
+	case *livekit.SignalResponse_Reconnect:
+		s.params.Processor.OnReconnectResponse(payload.Reconnect)
+
 	case *livekit.SignalResponse_Answer:
 		s.params.Processor.OnAnswer(protosignalling.FromProtoSessionDescription(payload.Answer))
 

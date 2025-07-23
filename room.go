@@ -297,13 +297,13 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 		opt(params)
 	}
 
-	var joinRes proto.Message
+	isSuccess := false
 	cloudHostname, _ := parseCloudURL(url)
 	if !params.DisableRegionDiscovery && cloudHostname != "" {
 		if err := r.regionURLProvider.RefreshRegionSettings(cloudHostname, token); err != nil {
 			logger.Errorw("failed to get best url", err)
 		} else {
-			for tries := uint(0); joinRes == nil; tries++ {
+			for tries := uint(0); !isSuccess; tries++ {
 				bestURL, err := r.regionURLProvider.PopBestURL(cloudHostname, token)
 				if err != nil {
 					logger.Errorw("failed to get best url", err)
@@ -318,7 +318,7 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 				// - Too short, risk frequently timing out on a request that would have
 				//   succeeded.
 				callCtx, cancelCallCtx := context.WithTimeout(ctx, 4*time.Second)
-				joinRes, err = r.engine.JoinContext(callCtx, bestURL, token, params)
+				isSuccess, err = r.engine.JoinContext(callCtx, bestURL, token, params)
 				cancelCallCtx()
 				if err != nil {
 					// try the next URL with exponential backoff
@@ -335,7 +335,7 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 		}
 	}
 
-	if joinRes == nil {
+	if !isSuccess {
 		if _, err := r.engine.JoinContext(ctx, url, token, params); err != nil {
 			return err
 		}
@@ -690,22 +690,28 @@ func (r *Room) OnMediaTrack(track *webrtc.TrackRemote, receiver *webrtc.RTPRecei
 	r.runParticipantDefers(livekit.ParticipantID(participantID), rp)
 }
 
-func (r *Room) OnSignalClientConnected(joinRes *livekit.JoinResponse) {
+func (r *Room) OnRoomJoined(
+	room *livekit.Room,
+	participant *livekit.ParticipantInfo,
+	otherParticipants []*livekit.ParticipantInfo,
+	serverInfo *livekit.ServerInfo,
+	sifTrailer []byte,
+) {
 	r.lock.Lock()
-	r.name = joinRes.Room.Name
-	r.metadata = joinRes.Room.Metadata
-	r.serverInfo = joinRes.ServerInfo
+	r.name = room.Name
+	r.metadata = room.Metadata
+	r.serverInfo = serverInfo
 	r.connectionState = ConnectionStateConnected
-	r.sifTrailer = make([]byte, len(joinRes.SifTrailer))
-	copy(r.sifTrailer, joinRes.SifTrailer)
+	r.sifTrailer = make([]byte, len(sifTrailer))
+	copy(r.sifTrailer, sifTrailer)
 	r.lock.Unlock()
 
-	r.setSid(joinRes.Room.Sid, false)
+	r.setSid(room.Sid, false)
 
-	r.LocalParticipant.updateInfo(joinRes.Participant)
+	r.LocalParticipant.updateInfo(participant)
 	r.LocalParticipant.updateSubscriptionPermission()
 
-	for _, pi := range joinRes.OtherParticipants {
+	for _, pi := range otherParticipants {
 		r.addRemoteParticipant(pi, true)
 		r.clearParticipantDefers(livekit.ParticipantID(pi.Sid), pi)
 		// no need to run participant defers here, since we are connected for the first time
