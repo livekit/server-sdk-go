@@ -115,6 +115,12 @@ func (s *signalTransportHttp) SendMessage(msg proto.Message) error {
 		return nil
 	}
 
+	// SIGNALLING-V2-TODO: see note above about ordering and returning error,
+	// using a goroutine as message handlers can trigger a message send
+	// (example: SDP offer handler sending an answer). In sync transport,
+	// that could lead to a chain where the function making the original
+	// request has not returned.
+	// Potentially need to create a queue, but that makes it async. Needs more thinking.
 	go func() {
 		s.lock.Lock()
 		url := s.url + s.params.Signalling.ParticipantPath(s.participantSid)

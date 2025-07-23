@@ -1311,7 +1311,6 @@ func (e *RTCEngine) OnConnectResponse(res *livekit.ConnectResponse) error {
 		}
 	}
 
-	// SIGNALLING-V2-TODO: send subscriber answer
 	if res.SubscriberSdp != nil {
 		e.OnOffer(protosignalling.FromProtoSessionDescription(res.SubscriberSdp))
 	}
