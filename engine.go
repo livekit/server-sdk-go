@@ -172,19 +172,20 @@ func NewRTCEngine(engineHandler engineHandler, getLocalParticipantSID func() str
 		reliableMsgSeq:           1,
 	}
 	// SIGNALLING-V2-TODO: have to instantiate objects based on signal version & transport
-	e.signalling = signalling.NewSignallingv2(signalling.Signallingv2Params{
+	e.signalling = signalling.NewSignalling(signalling.SignallingParams{
 		Logger: e.log,
 	})
-	e.signalHandler = signalling.NewSignalHandlerv2(signalling.SignalHandlerv2Params{
+	e.signalHandler = signalling.NewSignalHandler(signalling.SignalHandlerParams{
 		Logger:    e.log,
 		Processor: e,
 	})
-	e.signalTransport = signalling.NewSignalTransportHybrid(signalling.SignalTransportHybridParams{
-		Logger:        e.log,
-		Version:       Version,
-		Protocol:      PROTOCOL,
-		Signalling:    e.signalling,
-		SignalHandler: e.signalHandler,
+	e.signalTransport = signalling.NewSignalTransportWebSocket(signalling.SignalTransportWebSocketParams{
+		Logger:                 e.log,
+		Version:                Version,
+		Protocol:               PROTOCOL,
+		Signalling:             e.signalling,
+		SignalTransportHandler: e,
+		SignalHandler:          e.signalHandler,
 	})
 
 	e.onClose = []func(){}
