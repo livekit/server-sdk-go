@@ -619,7 +619,7 @@ func (r *Room) getLocalParticipantSID() string {
 // and they will be received on the caller's side with the message intact.
 // Other errors thrown in your handler will not be transmitted as-is, and will instead arrive to the caller as `1500` ("Application Error").
 func (r *Room) RegisterRpcMethod(method string, handler RpcHandlerFunc) error {
-	if _, ok := r.rpcHandlers.LoadOrStore(method, handler); !ok {
+	if _, loaded := r.rpcHandlers.LoadOrStore(method, handler); loaded {
 		return fmt.Errorf("rpc handler already registered for method: %s, unregisterRpcMethod before trying to register again", method)
 	}
 	return nil
@@ -635,7 +635,7 @@ func (r *Room) UnregisterRpcMethod(method string) {
 // It will be called when a text stream is received for the given topic.
 // The handler will be called with the stream reader and the participant identity that sent the stream.
 func (r *Room) RegisterTextStreamHandler(topic string, handler TextStreamHandler) error {
-	if _, ok := r.textStreamHandlers.LoadOrStore(topic, handler); !ok {
+	if _, loaded := r.textStreamHandlers.LoadOrStore(topic, handler); loaded {
 		return fmt.Errorf("text stream handler already registered for topic: %s", topic)
 	}
 	return nil
@@ -650,7 +650,7 @@ func (r *Room) UnregisterTextStreamHandler(topic string) {
 // It will be called when a byte stream is received for the given topic.
 // The handler will be called with the stream reader and the participant identity that sent the stream.
 func (r *Room) RegisterByteStreamHandler(topic string, handler ByteStreamHandler) error {
-	if _, ok := r.byteStreamHandlers.LoadOrStore(topic, handler); !ok {
+	if _, loaded := r.byteStreamHandlers.LoadOrStore(topic, handler); loaded {
 		return fmt.Errorf("byte stream handler already registered for topic: %s", topic)
 	}
 	return nil

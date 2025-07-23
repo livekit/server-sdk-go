@@ -198,7 +198,7 @@ func performDivide(room *lksdk.Room) {
 	logger.Infow(fmt.Sprintf("[Caller] The result is %v", result))
 }
 
-func registerReceiverMethods(rooms map[string]*lksdk.Room) {
+func registerReceiverMethods(rooms map[string]*lksdk.Room) error {
 	greeterRoom := rooms[greeter]
 	mathGeniusRoom := rooms[mathGenius]
 
@@ -213,7 +213,11 @@ func registerReceiverMethods(rooms map[string]*lksdk.Room) {
 
 		return <-resultChan, nil
 	}
-	greeterRoom.RegisterRpcMethod("arrival", arrivalHandler)
+	err := greeterRoom.RegisterRpcMethod("arrival", arrivalHandler)
+	if err != nil {
+		logger.Errorw("Failed to register arrival RPC method", err)
+		return err
+	}
 
 	squareRootHandler := func(data lksdk.RpcInvocationData) (string, error) {
 		resultChan := make(chan string)
@@ -242,7 +246,11 @@ func registerReceiverMethods(rooms map[string]*lksdk.Room) {
 
 		return <-resultChan, nil
 	}
-	mathGeniusRoom.RegisterRpcMethod("square-root", squareRootHandler)
+	err = mathGeniusRoom.RegisterRpcMethod("square-root", squareRootHandler)
+	if err != nil {
+		logger.Errorw("Failed to register square root RPC method", err)
+		return err
+	}
 
 	divideHandler := func(data lksdk.RpcInvocationData) (string, error) {
 		resultChan := make(chan string)
@@ -279,7 +287,12 @@ func registerReceiverMethods(rooms map[string]*lksdk.Room) {
 
 		return <-resultChan, nil
 	}
-	mathGeniusRoom.RegisterRpcMethod("divide", divideHandler)
+	err = mathGeniusRoom.RegisterRpcMethod("divide", divideHandler)
+	if err != nil {
+		logger.Errorw("Failed to register divide RPC method", err)
+		return err
+	}
+	return nil
 }
 
 func main() {
@@ -313,7 +326,11 @@ func main() {
 		logger.Infow("Participants disconnected. Example completed.")
 	}()
 
-	registerReceiverMethods(rooms)
+	err := registerReceiverMethods(rooms)
+	if err != nil {
+		logger.Errorw("failed to register RPC methods", err)
+		return
+	}
 
 	logger.Infow("participants connected to room, starting rpc demo", "roomName", roomName)
 
