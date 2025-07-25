@@ -76,6 +76,10 @@ func (s *signallingUnimplemented) HTTPRequestForValidate(
 	return nil, ErrUnimplemented
 }
 
+func (s *signallingUnimplemented) DecodeErrorResponse(errorDetails []byte) string {
+	return ""
+}
+
 func (s *signallingUnimplemented) SignalLeaveRequest(leave *livekit.LeaveRequest) proto.Message {
 	return nil
 }
@@ -127,6 +131,10 @@ func (s *signallingUnimplemented) SignalUpdateParticipantMetadata(metadata *live
 func (u *signallingUnimplemented) AckMessageId(ackMessageId uint32) {}
 
 func (u *signallingUnimplemented) SetLastProcessedRemoteMessageId(lastProcessedRemoteMessageId uint32) {
+}
+
+func (u *signallingUnimplemented) PendingMessages() proto.Message {
+	return nil
 }
 
 func (s *signallingUnimplemented) SignalConnectRequest(connectRequest *livekit.ConnectRequest) proto.Message {

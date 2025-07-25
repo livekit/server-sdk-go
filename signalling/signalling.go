@@ -130,6 +130,10 @@ func (s *signalling) HTTPRequestForValidate(
 	return req, nil
 }
 
+func (s *signalling) DecodeErrorResponse(errorDetails []byte) string {
+	return string(errorDetails)
+}
+
 func (s *signalling) SignalLeaveRequest(leave *livekit.LeaveRequest) proto.Message {
 	return &livekit.SignalRequest{
 		Message: &livekit.SignalRequest_Leave{

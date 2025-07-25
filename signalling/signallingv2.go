@@ -17,12 +17,14 @@ package signalling
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"runtime"
 
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
+	protosignalling "github.com/livekit/protocol/signalling"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -36,11 +38,16 @@ type signallingv2 struct {
 	signallingUnimplemented
 
 	params Signallingv2Params
+
+	signalCache *protosignalling.Signalv2ClientMessageCache
 }
 
 func NewSignallingv2(params Signallingv2Params) Signalling {
 	return &signallingv2{
 		params: params,
+		signalCache: protosignalling.NewSignalv2ClientMessageCache(protosignalling.SignalCacheParams{
+			Logger: params.Logger,
+		}),
 	}
 }
 
@@ -133,12 +140,39 @@ func (s *signallingv2) HTTPRequestForValidate(
 	return req, nil
 }
 
+func (s *signallingv2) DecodeErrorResponse(details []byte) string {
+	var errorDetails struct {
+		Error string `json:"error"`
+	}
+	err := json.Unmarshal(details, &errorDetails)
+	if err != nil {
+		return string(details)
+	}
+
+	return errorDetails.Error
+}
+
 func (s *signallingv2) AckMessageId(ackMessageId uint32) {
-	// SIGNALLING-V2-TODO s.signalCache.Clear(ackMessageId)
+	s.signalCache.Clear(ackMessageId)
 }
 
 func (s *signallingv2) SetLastProcessedRemoteMessageId(lastProcessedRemoteMessageId uint32) {
-	// SIGNALLING-V2-TODO s.signalCache.SetLastProcessedRemoteMessageId(lastProcessedRemoteMessageId)
+	s.signalCache.SetLastProcessedRemoteMessageId(lastProcessedRemoteMessageId)
+}
+
+func (s *signallingv2) PendingMessages() proto.Message {
+	clientMessages := s.signalCache.GetFromFront()
+	if len(clientMessages) == 0 {
+		return nil
+	}
+
+	return &livekit.Signalv2WireMessage{
+		Message: &livekit.Signalv2WireMessage_Envelope{
+			Envelope: &livekit.Envelope{
+				ClientMessages: clientMessages,
+			},
+		},
+	}
 }
 
 func (s *signallingv2) SignalConnectRequest(connectRequest *livekit.ConnectRequest) proto.Message {
@@ -168,13 +202,20 @@ func (s *signallingv2) SignalSdpAnswer(answer *livekit.SessionDescription) proto
 	return s.cacheAndReturnEnvelope(clientMessage)
 }
 
+func (s *signallingv2) SignalICECandidate(trickle *livekit.TrickleRequest) proto.Message {
+	clientMessage := &livekit.Signalv2ClientMessage{
+		Message: &livekit.Signalv2ClientMessage_Trickle{
+			Trickle: trickle,
+		},
+	}
+	return s.cacheAndReturnEnvelope(clientMessage)
+}
+
 func (s *signallingv2) cacheAndReturnEnvelope(cm *livekit.Signalv2ClientMessage) proto.Message {
-	/* SIGNALLING-V2-TODO
-	sm = s.signalCache.Add(sm)
-	if sm == nil {
+	cm = s.signalCache.Add(cm)
+	if cm == nil {
 		return nil
 	}
-	*/
 
 	return &livekit.Signalv2WireMessage{
 		Message: &livekit.Signalv2WireMessage_Envelope{
