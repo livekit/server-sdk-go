@@ -1221,7 +1221,6 @@ func (e *RTCEngine) OnReconnectResponse(res *livekit.ReconnectResponse) error {
 }
 
 func (e *RTCEngine) OnAnswer(sd webrtc.SessionDescription, answerId uint32) {
-	e.log.Debugw("RAJA onAnswer", "sd", sd) // REMOVE
 	if e.closed.Load() {
 		e.log.Debugw("ignoring SDP answer after closed")
 		return

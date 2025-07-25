@@ -106,14 +106,19 @@ func (s *signalhandlerv2) HandleMessage(msg proto.Message) error {
 			case *livekit.Signalv2ServerMessage_SubscriberSdp:
 				s.params.Processor.OnOffer(protosignalling.FromProtoSessionDescription(payload.SubscriberSdp))
 
+			case *livekit.Signalv2ServerMessage_RoomUpdate:
+				s.params.Processor.OnRoomUpdate(payload.RoomUpdate.Room)
+
+			case *livekit.Signalv2ServerMessage_ParticipantUpdate:
+				s.params.Processor.OnParticipantUpdate(payload.ParticipantUpdate.Participants)
+
 			default:
 				s.params.Logger.Warnw(
 					"unhandled message", nil,
-					"mesageType", fmt.Sprintf("%T", serverMessage),
+					"mesageType", fmt.Sprintf("%T", serverMessage.GetMessage()),
 				)
 			}
 
-			s.params.Logger.Infow("RAJA messageId", "messageId", sequencer.MessageId, "lprmi", sequencer.LastProcessedRemoteMessageId) // REMOVE
 			s.lastProcessedRemoteMessageId.Store(sequencer.MessageId)
 			s.params.Signalling.AckMessageId(sequencer.LastProcessedRemoteMessageId)
 			s.params.Signalling.SetLastProcessedRemoteMessageId(sequencer.MessageId)
