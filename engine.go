@@ -488,6 +488,8 @@ func (e *RTCEngine) configure(
 	}
 	e.reliableDC.OnMessage(e.handleDataPacket)
 
+	// RAJA-TODO: should instantiate only for signalling v2
+	// RAJA-TODO: for signalling v2 instantiate publisher PC before connect and then do just SetConfiguration in OnConnectResponse
 	e.signallingDC, err = e.publisher.PeerConnection().CreateDataChannel(signallingDataChannelName, &webrtc.DataChannelInit{
 		Ordered: &trueVal,
 	})
@@ -495,6 +497,17 @@ func (e *RTCEngine) configure(
 		e.dclock.Unlock()
 		return err
 	}
+	e.signallingDC.OnOpen(func() {
+		signallingTransportDataChannel := signalling.NewSignalTransportDataChannel(signalling.SignalTransportDataChannelParams{
+			Logger:        e.log,
+			DataChannel:   e.signallingDC,
+			SignalHandler: e.signalHandler,
+		})
+		e.signalTransport.SetAsyncTransport(signallingTransportDataChannel)
+	})
+	e.signallingDC.OnClose(func() {
+		// SIGNALLING-V2-TODO: should call SignalTransportHandler.OnClose
+	})
 	e.signallingDC.OnMessage(e.handleSignalling)
 	e.dclock.Unlock()
 

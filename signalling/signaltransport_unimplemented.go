@@ -27,6 +27,8 @@ type signalTransportUnimplemented struct{}
 
 func (s *signalTransportUnimplemented) SetLogger(l protoLogger.Logger) {}
 
+func (s *signalTransportUnimplemented) SetAsyncTransport(asyncTransport SignalTransport) {}
+
 func (s *signalTransportUnimplemented) Start() {}
 
 func (s *signalTransportUnimplemented) IsStarted() bool {

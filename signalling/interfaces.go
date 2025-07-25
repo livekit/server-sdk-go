@@ -150,6 +150,7 @@ type ConnectParams struct {
 
 type SignalTransport interface {
 	SetLogger(l protoLogger.Logger)
+	SetAsyncTransport(asyncTransport SignalTransport)
 
 	Start()
 	IsStarted() bool

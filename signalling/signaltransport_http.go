@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"sync"
@@ -56,10 +57,12 @@ type signalTransportHttp struct {
 }
 
 func NewSignalTransportHttp(params SignalTransportHttpParams) SignalTransport {
-	return &signalTransportHttp{
+	s := &signalTransportHttp{
 		params:  params,
 		msgChan: make(chan proto.Message, 100),
 	}
+	s.workerGeneration.Store(uint32(rand.Intn(1<<8) + 1))
+	return s
 }
 
 func (s *signalTransportHttp) SetLogger(l logger.Logger) {
@@ -256,12 +259,6 @@ func (s *signalTransportHttp) sendHttpRequest(
 }
 
 func (s *signalTransportHttp) worker(gen uint32) {
-	// SIGNALLING-V2-TODO: see note above about ordering and returning error,
-	// using a goroutine as message handlers can trigger a message send
-	// (example: SDP offer handler sending an answer). In sync transport,
-	// that could lead to a chain where the function making the original
-	// request has not returned.
-	// Potentially need to create a queue, but that makes it async. Needs more thinking.
 	for gen == s.workerGeneration.Load() {
 		msg := <-s.msgChan
 		if msg != nil {
