@@ -27,6 +27,7 @@ import (
 
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
+	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -45,20 +46,52 @@ type signalTransportHttp struct {
 
 	params SignalTransportHttpParams
 
-	lock           sync.Mutex
-	url            string
-	participantSid string
-	token          string
+	lock             sync.RWMutex
+	isStarted        bool
+	url              string
+	participantSid   string
+	token            string
+	msgChan          chan proto.Message
+	workerGeneration atomic.Uint32
 }
 
 func NewSignalTransportHttp(params SignalTransportHttpParams) SignalTransport {
 	return &signalTransportHttp{
-		params: params,
+		params:  params,
+		msgChan: make(chan proto.Message, 100),
 	}
 }
 
 func (s *signalTransportHttp) SetLogger(l logger.Logger) {
 	s.params.Logger = l
+}
+
+func (s *signalTransportHttp) Start() {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	if s.isStarted {
+		return
+	}
+	s.isStarted = true
+
+	go s.worker(s.workerGeneration.Inc())
+}
+
+func (s *signalTransportHttp) IsStarted() bool {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+
+	return s.isStarted
+}
+
+func (s *signalTransportHttp) Close() {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	s.isStarted = false
+	s.workerGeneration.Inc()
+	close(s.msgChan)
 }
 
 func (s *signalTransportHttp) Join(
@@ -108,38 +141,24 @@ func (s *signalTransportHttp) UpdateParticipantToken(token string) {
 	s.lock.Unlock()
 }
 
-// SIGNALLING-V2-TODO: have to write in messageId order
-// SIGNALLING-V2-TODO: have to return error
 func (s *signalTransportHttp) SendMessage(msg proto.Message) error {
 	if msg == nil {
 		return nil
 	}
 
-	// SIGNALLING-V2-TODO: see note above about ordering and returning error,
-	// using a goroutine as message handlers can trigger a message send
-	// (example: SDP offer handler sending an answer). In sync transport,
-	// that could lead to a chain where the function making the original
-	// request has not returned.
-	// Potentially need to create a queue, but that makes it async. Needs more thinking.
-	go func() {
-		s.lock.Lock()
-		url := s.url + s.params.Signalling.ParticipantPath(s.participantSid)
-		token := s.token
-		s.lock.Unlock()
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	if !s.isStarted {
+		return ErrTransportNotStarted
+	}
 
-		respWireMessage, err := s.sendHttpRequest(
-			url,
-			http.MethodPatch,
-			token,
-			msg,
-		)
-		if err != nil {
-			return
-		}
-
-		s.params.SignalHandler.HandleMessage(respWireMessage)
-	}()
-	return nil
+	select {
+	case s.msgChan <- msg:
+		return nil
+	default:
+		// channel is full
+		return ErrTransportChannelFull
+	}
 }
 
 func (s *signalTransportHttp) connect(
@@ -234,4 +253,38 @@ func (s *signalTransportHttp) sendHttpRequest(
 	s.params.Logger.Debugw("RAJA response", "respWireMessage", respWireMessage) // REMOVE
 
 	return respWireMessage, nil
+}
+
+func (s *signalTransportHttp) worker(gen uint32) {
+	// SIGNALLING-V2-TODO: see note above about ordering and returning error,
+	// using a goroutine as message handlers can trigger a message send
+	// (example: SDP offer handler sending an answer). In sync transport,
+	// that could lead to a chain where the function making the original
+	// request has not returned.
+	// Potentially need to create a queue, but that makes it async. Needs more thinking.
+	for gen == s.workerGeneration.Load() {
+		msg := <-s.msgChan
+		if msg != nil {
+			s.lock.Lock()
+			url := s.url + s.params.Signalling.ParticipantPath(s.participantSid)
+			token := s.token
+			s.lock.Unlock()
+
+			respWireMessage, err := s.sendHttpRequest(
+				url,
+				http.MethodPatch,
+				token,
+				msg,
+			)
+			if err != nil {
+				s.params.Logger.Errorw(
+					"http request failed", nil,
+					"message", logger.Proto(msg),
+				)
+				continue
+			}
+
+			s.params.SignalHandler.HandleMessage(respWireMessage)
+		}
+	}
 }

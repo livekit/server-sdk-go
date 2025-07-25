@@ -57,6 +57,18 @@ func (s *signalTransportHybrid) SetLogger(l logger.Logger) {
 	s.syncTransport.SetLogger(l)
 }
 
+func (s *signalTransportHybrid) Start() {
+	s.syncTransport.Start()
+}
+
+func (s *signalTransportHybrid) IsStarted() bool {
+	return s.syncTransport.IsStarted()
+}
+
+func (s *signalTransportHybrid) Close() {
+	s.syncTransport.Close()
+}
+
 func (s *signalTransportHybrid) Join(
 	ctx context.Context,
 	url string,

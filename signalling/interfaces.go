@@ -146,8 +146,6 @@ type ConnectParams struct {
 	Interceptors []interceptor.Factory
 
 	ICETransportPolicy webrtc.ICETransportPolicy
-
-	IsSignallingV2 bool
 }
 
 type SignalTransport interface {
