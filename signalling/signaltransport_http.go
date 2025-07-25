@@ -208,13 +208,9 @@ func (s *signalTransportHttp) sendHttpRequest(
 		return nil, err
 	}
 
-	defer hresp.Body.Close()
-
-	if hresp.Header.Get("Content-type") != "application/x-protobuf" {
-		return nil, fmt.Errorf("%w: %s", ErrUnsupportedContentType, hresp.Header.Get("Content-type"))
-	}
-
 	s.params.Logger.Infow("http response received", "elapsed", time.Since(startedAt))
+
+	defer hresp.Body.Close()
 
 	body, err := io.ReadAll(hresp.Body)
 	if err != nil {
@@ -222,7 +218,11 @@ func (s *signalTransportHttp) sendHttpRequest(
 	}
 
 	if hresp.StatusCode != http.StatusOK {
-		return nil, errors.New(string(body))
+		return nil, errors.New(s.params.Signalling.DecodeErrorResponse(body))
+	}
+
+	if hresp.Header.Get("Content-type") != "application/x-protobuf" {
+		return nil, fmt.Errorf("%w: %s", ErrUnsupportedContentType, hresp.Header.Get("Content-type"))
 	}
 
 	respWireMessage := &livekit.Signalv2WireMessage{}

@@ -187,6 +187,23 @@ func NewRTCEngine(engineHandler engineHandler, getLocalParticipantSID func() str
 		SignalTransportHandler: e,
 		SignalHandler:          e.signalHandler,
 	})
+	/*
+		e.signalling = signalling.NewSignallingv2(signalling.Signallingv2Params{
+			Logger: e.log,
+		})
+		e.signalHandler = signalling.NewSignalHandlerv2(signalling.SignalHandlerv2Params{
+			Logger:     e.log,
+			Processor:  e,
+			Signalling: e.signalling,
+		})
+		e.signalTransport = signalling.NewSignalTransportHybrid(signalling.SignalTransportHybridParams{
+			Logger:        e.log,
+			Version:       Version,
+			Protocol:      PROTOCOL,
+			Signalling:    e.signalling,
+			SignalHandler: e.signalHandler,
+		})
+	*/
 
 	e.onClose = []func(){}
 	return e
@@ -1085,14 +1102,18 @@ func (e *RTCEngine) validate(
 	case http.StatusUnauthorized:
 		errString = "unauthorized: "
 	case http.StatusNotFound:
-		errString = "not found: "
+		errString = "not found"
 	case http.StatusServiceUnavailable:
 		errString = "unavailable: "
 	}
-	body, err := io.ReadAll(hresp.Body)
-	if err == nil {
-		errString += string(body)
+	if hresp.StatusCode != http.StatusNotFound {
+		body, err := io.ReadAll(hresp.Body)
+		if err == nil {
+			errString += e.signalling.DecodeErrorResponse(body)
+		}
 		e.log.Errorw("validation error", errors.New(errString), "httpResponse", hresp)
+	} else {
+		e.log.Errorw("validation error", errors.New(errString))
 	}
 	return errors.New(errString)
 }

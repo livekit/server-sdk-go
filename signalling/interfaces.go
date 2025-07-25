@@ -83,6 +83,7 @@ type Signalling interface {
 		connectParams *ConnectParams,
 		participantSID string,
 	) (*http.Request, error)
+	DecodeErrorResponse(errorDetails []byte) string
 
 	SignalLeaveRequest(leave *livekit.LeaveRequest) proto.Message
 	SignalICECandidate(trickle *livekit.TrickleRequest) proto.Message
@@ -99,6 +100,8 @@ type Signalling interface {
 
 	AckMessageId(ackMessageId uint32)
 	SetLastProcessedRemoteMessageId(lastProcessedRemoteMessageId uint32)
+
+	PendingMessages() proto.Message
 
 	SignalConnectRequest(connectRequest *livekit.ConnectRequest) proto.Message
 }
