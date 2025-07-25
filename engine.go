@@ -112,8 +112,9 @@ var (
 // -------------------------------------------
 
 const (
-	reliableDataChannelName = "_reliable"
-	lossyDataChannelName    = "_lossy"
+	signallingDataChannelName = "_signalling"
+	reliableDataChannelName   = "_reliable"
+	lossyDataChannelName      = "_lossy"
 
 	maxReconnectCount        = 10
 	initialReconnectInterval = 300 * time.Millisecond
@@ -135,6 +136,7 @@ type RTCEngine struct {
 	signalTransport signalling.SignalTransport
 
 	dclock          sync.RWMutex
+	signallingDC    *webrtc.DataChannel
 	reliableDC      *webrtc.DataChannel
 	lossyDC         *webrtc.DataChannel
 	reliableDCSub   *webrtc.DataChannel
@@ -162,7 +164,11 @@ type RTCEngine struct {
 	onCloseLock sync.Mutex
 }
 
-func NewRTCEngine(engineHandler engineHandler, getLocalParticipantSID func() string) *RTCEngine {
+func NewRTCEngine(
+	signallingVersion signalling.SignallingVersion,
+	engineHandler engineHandler,
+	getLocalParticipantSID func() string,
+) *RTCEngine {
 	e := &RTCEngine{
 		log:                      logger,
 		engineHandler:            engineHandler,
@@ -171,23 +177,25 @@ func NewRTCEngine(engineHandler engineHandler, getLocalParticipantSID func() str
 		joinTimeout:              15 * time.Second,
 		reliableMsgSeq:           1,
 	}
-	// SIGNALLING-V2-TODO: have to instantiate objects based on signal version & transport
-	e.signalling = signalling.NewSignalling(signalling.SignallingParams{
-		Logger: e.log,
-	})
-	e.signalHandler = signalling.NewSignalHandler(signalling.SignalHandlerParams{
-		Logger:    e.log,
-		Processor: e,
-	})
-	e.signalTransport = signalling.NewSignalTransportWebSocket(signalling.SignalTransportWebSocketParams{
-		Logger:                 e.log,
-		Version:                Version,
-		Protocol:               PROTOCOL,
-		Signalling:             e.signalling,
-		SignalTransportHandler: e,
-		SignalHandler:          e.signalHandler,
-	})
-	/*
+	switch signallingVersion {
+	case signalling.SignallingVersionV1:
+		e.signalling = signalling.NewSignalling(signalling.SignallingParams{
+			Logger: e.log,
+		})
+		e.signalHandler = signalling.NewSignalHandler(signalling.SignalHandlerParams{
+			Logger:    e.log,
+			Processor: e,
+		})
+		e.signalTransport = signalling.NewSignalTransportWebSocket(signalling.SignalTransportWebSocketParams{
+			Logger:                 e.log,
+			Version:                Version,
+			Protocol:               PROTOCOL,
+			Signalling:             e.signalling,
+			SignalTransportHandler: e,
+			SignalHandler:          e.signalHandler,
+		})
+
+	case signalling.SignallingVersionV2:
 		e.signalling = signalling.NewSignallingv2(signalling.Signallingv2Params{
 			Logger: e.log,
 		})
@@ -203,7 +211,10 @@ func NewRTCEngine(engineHandler engineHandler, getLocalParticipantSID func() str
 			Signalling:    e.signalling,
 			SignalHandler: e.signalHandler,
 		})
-	*/
+
+	default:
+		return nil
+	}
 
 	e.onClose = []func(){}
 	return e
@@ -318,8 +329,8 @@ func (e *RTCEngine) setRTT(rtt uint32) {
 func (e *RTCEngine) configure(
 	iceServers []*livekit.ICEServer,
 	clientConfig *livekit.ClientConfiguration,
-	subscriberPrimary *bool) error {
-
+	subscriberPrimary *bool,
+) error {
 	configuration := e.makeRTCConfiguration(iceServers, clientConfig)
 
 	// reset reliable message sequence
@@ -467,6 +478,7 @@ func (e *RTCEngine) configure(
 		return err
 	}
 	e.lossyDC.OnMessage(e.handleDataPacket)
+
 	e.reliableDC, err = e.publisher.PeerConnection().CreateDataChannel(reliableDataChannelName, &webrtc.DataChannelInit{
 		Ordered: &trueVal,
 	})
@@ -475,6 +487,15 @@ func (e *RTCEngine) configure(
 		return err
 	}
 	e.reliableDC.OnMessage(e.handleDataPacket)
+
+	e.signallingDC, err = e.publisher.PeerConnection().CreateDataChannel(signallingDataChannelName, &webrtc.DataChannelInit{
+		Ordered: &trueVal,
+	})
+	if err != nil {
+		e.dclock.Unlock()
+		return err
+	}
+	e.signallingDC.OnMessage(e.handleSignalling)
 	e.dclock.Unlock()
 
 	return nil
@@ -635,6 +656,10 @@ func (e *RTCEngine) readDataPacket(msg webrtc.DataChannelMessage) (*livekit.Data
 	}
 	err := proto.Unmarshal(msg.Data, dataPacket)
 	return dataPacket, err
+}
+
+func (e *RTCEngine) handleSignalling(msg webrtc.DataChannelMessage) {
+	e.signalHandler.HandleEncodedMessage(msg.Data)
 }
 
 func (e *RTCEngine) handleDisconnect(fullReconnect bool) {
@@ -1183,6 +1208,7 @@ func (e *RTCEngine) OnReconnectResponse(res *livekit.ReconnectResponse) error {
 }
 
 func (e *RTCEngine) OnAnswer(sd webrtc.SessionDescription, answerId uint32) {
+	e.log.Debugw("RAJA onAnswer", "sd", sd) // REMOVE
 	if e.closed.Load() {
 		e.log.Debugw("ignoring SDP answer after closed")
 		return

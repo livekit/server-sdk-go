@@ -201,6 +201,8 @@ func (s *signalTransportHttp) sendHttpRequest(
 	req.Header = NewHTTPHeaderWithToken(token)
 	req.Header.Set("Content-Type", "application/x-protobuf")
 
+	s.params.Logger.Debugw("RAJA request", "wireMessage", wireMessage) // REMOVE
+
 	startedAt := time.Now()
 	hresp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -229,6 +231,7 @@ func (s *signalTransportHttp) sendHttpRequest(
 	if err := proto.Unmarshal(body, respWireMessage); err != nil {
 		return nil, err
 	}
+	s.params.Logger.Debugw("RAJA response", "respWireMessage", respWireMessage) // REMOVE
 
 	return respWireMessage, nil
 }

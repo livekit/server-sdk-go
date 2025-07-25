@@ -134,3 +134,16 @@ func (s *signalhandlerv2) HandleMessage(msg proto.Message) error {
 
 	return nil
 }
+
+func (s *signalhandlerv2) HandleEncodedMessage(data []byte) error {
+	wireMessage := &livekit.Signalv2WireMessage{}
+	if err := proto.Unmarshal(data, wireMessage); err != nil {
+		return err
+	}
+
+	return s.HandleMessage(wireMessage)
+}
+
+func (s *signalhandlerv2) PruneStaleReassemblies() {
+	s.signalReassembler.Prune()
+}
