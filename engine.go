@@ -124,6 +124,8 @@ const (
 type RTCEngine struct {
 	log protoLogger.Logger
 
+	signallingVersion signalling.SignallingVersion
+
 	engineHandler            engineHandler
 	cbGetLocalParticipantSID func() string
 
@@ -488,27 +490,29 @@ func (e *RTCEngine) configure(
 	}
 	e.reliableDC.OnMessage(e.handleDataPacket)
 
-	// RAJA-TODO: should instantiate only for signalling v2
-	// RAJA-TODO: for signalling v2 instantiate publisher PC before connect and then do just SetConfiguration in OnConnectResponse
-	e.signallingDC, err = e.publisher.PeerConnection().CreateDataChannel(signallingDataChannelName, &webrtc.DataChannelInit{
-		Ordered: &trueVal,
-	})
-	if err != nil {
-		e.dclock.Unlock()
-		return err
-	}
-	e.signallingDC.OnOpen(func() {
-		signallingTransportDataChannel := signalling.NewSignalTransportDataChannel(signalling.SignalTransportDataChannelParams{
-			Logger:        e.log,
-			DataChannel:   e.signallingDC,
-			SignalHandler: e.signalHandler,
+	// SIGNALLING-V2-TODO: instantiating this rely on signal transport strategy rather than signalling version
+	// SIGNALLING-V2-TODO: for signalling v2 instantiate publisher PC before connect and then do just SetConfiguration in OnConnectResponse
+	if e.signallingVersion == signalling.SignallingVersionV2 {
+		e.signallingDC, err = e.publisher.PeerConnection().CreateDataChannel(signallingDataChannelName, &webrtc.DataChannelInit{
+			Ordered: &trueVal,
 		})
-		e.signalTransport.SetAsyncTransport(signallingTransportDataChannel)
-	})
-	e.signallingDC.OnClose(func() {
-		// SIGNALLING-V2-TODO: should call SignalTransportHandler.OnClose
-	})
-	e.signallingDC.OnMessage(e.handleSignalling)
+		if err != nil {
+			e.dclock.Unlock()
+			return err
+		}
+		e.signallingDC.OnOpen(func() {
+			signallingTransportDataChannel := signalling.NewSignalTransportDataChannel(signalling.SignalTransportDataChannelParams{
+				Logger:        e.log,
+				DataChannel:   e.signallingDC,
+				SignalHandler: e.signalHandler,
+			})
+			e.signalTransport.SetAsyncTransport(signallingTransportDataChannel)
+		})
+		e.signallingDC.OnClose(func() {
+			// SIGNALLING-V2-TODO: should call SignalTransportHandler.OnClose
+		})
+		e.signallingDC.OnMessage(e.handleSignalling)
+	}
 	e.dclock.Unlock()
 
 	return nil
