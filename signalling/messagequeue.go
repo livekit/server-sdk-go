@@ -15,11 +15,9 @@
 package signalling
 
 import (
-	"math/rand"
 	"sync"
 
 	"github.com/livekit/protocol/logger"
-	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -31,18 +29,15 @@ type messageQueueParams struct {
 type messageQueue struct {
 	params messageQueueParams
 
-	lock             sync.RWMutex
-	isStarted        bool
-	msgChan          chan proto.Message
-	workerGeneration atomic.Uint32
+	lock      sync.RWMutex
+	isStarted bool
+	msgChan   chan proto.Message
 }
 
 func newMessageQueue(params messageQueueParams) *messageQueue {
-	m := &messageQueue{
+	return &messageQueue{
 		params: params,
 	}
-	m.workerGeneration.Store(uint32(rand.Intn(1<<8) + 1))
-	return m
 }
 
 func (m *messageQueue) SetLogger(l logger.Logger) {
@@ -59,7 +54,7 @@ func (m *messageQueue) Start() {
 	m.isStarted = true
 
 	m.msgChan = make(chan proto.Message, 100)
-	go m.worker(m.workerGeneration.Inc())
+	go m.worker(m.msgChan)
 }
 
 func (m *messageQueue) IsStarted() bool {
@@ -73,8 +68,11 @@ func (m *messageQueue) Close() {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
+	if !m.isStarted {
+		return
+	}
 	m.isStarted = false
-	m.workerGeneration.Inc()
+
 	close(m.msgChan)
 }
 
@@ -97,11 +95,13 @@ func (m *messageQueue) Enqueue(msg proto.Message) error {
 	}
 }
 
-func (m *messageQueue) worker(gen uint32) {
-	for gen == m.workerGeneration.Load() {
-		msg := <-m.msgChan
-		if msg != nil {
-			m.params.HandleMessage(msg)
+func (m *messageQueue) worker(msgChan chan proto.Message) {
+	for {
+		msg, more := <-msgChan
+		if !more {
+			return
 		}
+
+		m.params.HandleMessage(msg)
 	}
 }
