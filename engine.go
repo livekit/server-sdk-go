@@ -173,6 +173,7 @@ func NewRTCEngine(
 ) *RTCEngine {
 	e := &RTCEngine{
 		log:                      logger,
+		signallingVersion:        signallingVersion,
 		engineHandler:            engineHandler,
 		cbGetLocalParticipantSID: getLocalParticipantSID,
 		trackPublishedListeners:  make(map[string]chan *livekit.TrackPublishedResponse),
