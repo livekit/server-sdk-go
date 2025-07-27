@@ -15,12 +15,8 @@
 package signalling
 
 import (
-	"math/rand"
-	"sync"
-
 	"github.com/livekit/protocol/logger"
 	"github.com/pion/webrtc/v4"
-	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -37,90 +33,53 @@ type signalTransportDataChannel struct {
 
 	params SignalTransportDataChannelParams
 
-	lock             sync.RWMutex
-	isStarted        bool
-	msgChan          chan proto.Message
-	workerGeneration atomic.Uint32
+	mq *messageQueue
 }
 
 func NewSignalTransportDataChannel(params SignalTransportDataChannelParams) SignalTransport {
 	s := &signalTransportDataChannel{
-		params:  params,
-		msgChan: make(chan proto.Message, 100),
+		params: params,
 	}
-	s.workerGeneration.Store(uint32(rand.Intn(1<<8) + 1))
 	s.params.DataChannel.OnMessage(func(dataMsg webrtc.DataChannelMessage) {
 		s.params.SignalHandler.HandleEncodedMessage(dataMsg.Data)
+	})
+	s.mq = newMessageQueue(messageQueueParams{
+		Logger:        params.Logger,
+		HandleMessage: s.handleMessage,
 	})
 	return s
 }
 
 func (s *signalTransportDataChannel) SetLogger(l logger.Logger) {
 	s.params.Logger = l
+	s.mq.SetLogger(l)
 }
 
 func (s *signalTransportDataChannel) Start() {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-
-	if s.isStarted {
-		return
-	}
-	s.isStarted = true
-
-	go s.worker(s.workerGeneration.Inc())
+	s.mq.Start()
 }
 
 func (s *signalTransportDataChannel) IsStarted() bool {
-	s.lock.RLock()
-	defer s.lock.RUnlock()
-
-	return s.isStarted
+	return s.mq.IsStarted()
 }
 
 func (s *signalTransportDataChannel) Close() {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-
-	s.isStarted = false
-	s.workerGeneration.Inc()
-	close(s.msgChan)
+	s.mq.Close()
 }
 
 func (s *signalTransportDataChannel) SendMessage(msg proto.Message) error {
-	if msg == nil {
-		return nil
-	}
-
-	s.lock.RLock()
-	defer s.lock.RUnlock()
-	if !s.isStarted {
-		return ErrTransportNotStarted
-	}
-
-	select {
-	case s.msgChan <- msg:
-		return nil
-	default:
-		// channel is full
-		return ErrTransportChannelFull
-	}
+	return s.mq.Enqueue(msg)
 }
 
-func (s *signalTransportDataChannel) worker(gen uint32) {
-	for gen == s.workerGeneration.Load() {
-		msg := <-s.msgChan
-		if msg != nil {
-			protoMsg, err := proto.Marshal(msg)
-			if err != nil {
-				s.params.Logger.Errorw("could not marshal proto message", err)
-				continue
-			}
+func (s *signalTransportDataChannel) handleMessage(msg proto.Message) {
+	protoMsg, err := proto.Marshal(msg)
+	if err != nil {
+		s.params.Logger.Errorw("could not marshal proto message", err)
+		return
+	}
 
-			if err := s.params.DataChannel.Send(protoMsg); err != nil {
-				s.params.Logger.Errorw("could not send proto message", err)
-				continue
-			}
-		}
+	if err := s.params.DataChannel.Send(protoMsg); err != nil {
+		s.params.Logger.Errorw("could not send proto message", err)
+		return
 	}
 }

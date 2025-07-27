@@ -20,7 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/rand"
 	"net/http"
 	"net/url"
 	"sync"
@@ -28,7 +27,6 @@ import (
 
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
-	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -47,54 +45,40 @@ type signalTransportHttp struct {
 
 	params SignalTransportHttpParams
 
-	lock             sync.RWMutex
-	isStarted        bool
-	url              string
-	participantSid   string
-	token            string
-	msgChan          chan proto.Message
-	workerGeneration atomic.Uint32
+	lock           sync.RWMutex
+	url            string
+	participantSid string
+	token          string
+
+	mq *messageQueue
 }
 
 func NewSignalTransportHttp(params SignalTransportHttpParams) SignalTransport {
 	s := &signalTransportHttp{
-		params:  params,
-		msgChan: make(chan proto.Message, 100),
+		params: params,
 	}
-	s.workerGeneration.Store(uint32(rand.Intn(1<<8) + 1))
+	s.mq = newMessageQueue(messageQueueParams{
+		Logger:        params.Logger,
+		HandleMessage: s.handleMessage,
+	})
 	return s
 }
 
 func (s *signalTransportHttp) SetLogger(l logger.Logger) {
 	s.params.Logger = l
+	s.mq.SetLogger(l)
 }
 
 func (s *signalTransportHttp) Start() {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-
-	if s.isStarted {
-		return
-	}
-	s.isStarted = true
-
-	go s.worker(s.workerGeneration.Inc())
+	s.mq.Start()
 }
 
 func (s *signalTransportHttp) IsStarted() bool {
-	s.lock.RLock()
-	defer s.lock.RUnlock()
-
-	return s.isStarted
+	return s.mq.IsStarted()
 }
 
 func (s *signalTransportHttp) Close() {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-
-	s.isStarted = false
-	s.workerGeneration.Inc()
-	close(s.msgChan)
+	s.mq.Close()
 }
 
 func (s *signalTransportHttp) Join(
@@ -145,23 +129,7 @@ func (s *signalTransportHttp) UpdateParticipantToken(token string) {
 }
 
 func (s *signalTransportHttp) SendMessage(msg proto.Message) error {
-	if msg == nil {
-		return nil
-	}
-
-	s.lock.RLock()
-	defer s.lock.RUnlock()
-	if !s.isStarted {
-		return ErrTransportNotStarted
-	}
-
-	select {
-	case s.msgChan <- msg:
-		return nil
-	default:
-		// channel is full
-		return ErrTransportChannelFull
-	}
+	return s.mq.Enqueue(msg)
 }
 
 func (s *signalTransportHttp) connect(
@@ -255,30 +223,25 @@ func (s *signalTransportHttp) sendHttpRequest(
 	return respWireMessage, nil
 }
 
-func (s *signalTransportHttp) worker(gen uint32) {
-	for gen == s.workerGeneration.Load() {
-		msg := <-s.msgChan
-		if msg != nil {
-			s.lock.Lock()
-			url := s.url + s.params.Signalling.ParticipantPath(s.participantSid)
-			token := s.token
-			s.lock.Unlock()
+func (s *signalTransportHttp) handleMessage(msg proto.Message) {
+	s.lock.RLock()
+	url := s.url + s.params.Signalling.ParticipantPath(s.participantSid)
+	token := s.token
+	s.lock.RUnlock()
 
-			respWireMessage, err := s.sendHttpRequest(
-				url,
-				http.MethodPatch,
-				token,
-				msg,
-			)
-			if err != nil {
-				s.params.Logger.Errorw(
-					"http request failed", nil,
-					"message", logger.Proto(msg),
-				)
-				continue
-			}
-
-			s.params.SignalHandler.HandleMessage(respWireMessage)
-		}
+	respWireMessage, err := s.sendHttpRequest(
+		url,
+		http.MethodPatch,
+		token,
+		msg,
+	)
+	if err != nil {
+		s.params.Logger.Errorw(
+			"http request failed", nil,
+			"message", logger.Proto(msg),
+		)
+		return
 	}
+
+	s.params.SignalHandler.HandleMessage(respWireMessage)
 }
