@@ -334,6 +334,7 @@ func (e *RTCEngine) configure(
 	clientConfig *livekit.ClientConfiguration,
 	subscriberPrimary *bool,
 ) error {
+	e.log.Debugw("Using ICE servers", "servers", iceServers)
 	configuration := e.makeRTCConfiguration(iceServers, clientConfig)
 
 	// reset reliable message sequence
@@ -344,16 +345,30 @@ func (e *RTCEngine) configure(
 	e.pclock.Lock()
 	defer e.pclock.Unlock()
 
-	// remove previous transport
-	if e.publisher != nil {
-		e.publisher.Close()
-		e.publisher = nil
-	}
-	if e.subscriber != nil {
-		e.subscriber.Close()
-		e.subscriber = nil
+	if subscriberPrimary != nil {
+		e.subscriberPrimary = *subscriberPrimary
 	}
 
+	if e.publisher != nil {
+		setConfiguration(e.publisher, configuration)
+	} else {
+		if err := e.createPublisherPCLocked(configuration, !e.subscriberPrimary); err != nil {
+			return err
+		}
+	}
+
+	if e.subscriber != nil {
+		setConfiguration(e.subscriber, configuration)
+	} else {
+		if err := e.createSubscriberPCLocked(configuration, e.subscriberPrimary); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (e *RTCEngine) createPublisherPCLocked(configuration webrtc.Configuration, isPrimary bool) error {
 	var err error
 	if e.publisher, err = NewPCTransport(PCTransportParams{
 		Configuration:        configuration,
@@ -365,20 +380,7 @@ func (e *RTCEngine) configure(
 	}); err != nil {
 		return err
 	}
-	if e.subscriber, err = NewPCTransport(PCTransportParams{
-		Configuration:        configuration,
-		RetransmitBufferSize: e.connParams.RetransmitBufferSize,
-	}); err != nil {
-		return err
-	}
 	e.publisher.SetLogger(e.log)
-	e.subscriber.SetLogger(e.log)
-	e.log.Debugw("Using ICE servers", "servers", iceServers)
-
-	if subscriberPrimary != nil {
-		e.subscriberPrimary = *subscriberPrimary
-	}
-	e.subscriber.OnRemoteDescriptionSettled(e.createSubscriberPCAnswerAndSend)
 
 	e.publisher.pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
 		if candidate == nil {
@@ -400,61 +402,8 @@ func (e *RTCEngine) configure(
 		}
 	})
 
-	e.subscriber.pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
-		if candidate == nil {
-			// done
-			return
-		}
-		init := candidate.ToJSON()
-		e.log.Debugw(
-			"local ICE candidate",
-			"target", livekit.SignalTarget_SUBSCRIBER,
-			"candidate", init.Candidate,
-		)
-		if err := e.signalTransport.SendMessage(
-			e.signalling.SignalICECandidate(
-				protosignalling.ToProtoTrickle(init, livekit.SignalTarget_SUBSCRIBER, false),
-			),
-		); err != nil {
-			e.log.Errorw("could not send ICE candidates for subscriber", err)
-		}
-	})
-
-	primaryTransport := e.publisher
-	if e.subscriberPrimary {
-		primaryTransport = e.subscriber
-	}
-	primaryTransport.pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
-		switch state {
-		case webrtc.ICEConnectionStateConnected:
-			var fields []interface{}
-			if pair, err := primaryTransport.GetSelectedCandidatePair(); err == nil {
-				fields = append(fields, "iceCandidatePair", pair)
-			}
-			e.log.Debugw("ICE connected", fields...)
-		case webrtc.ICEConnectionStateDisconnected:
-			e.log.Debugw("ICE disconnected")
-		case webrtc.ICEConnectionStateFailed:
-			e.log.Debugw("ICE failed")
-			e.handleDisconnect(false)
-		}
-	})
-
-	e.subscriber.pc.OnTrack(func(remote *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
-		e.engineHandler.OnMediaTrack(remote, receiver)
-	})
-
-	e.subscriber.pc.OnDataChannel(func(c *webrtc.DataChannel) {
-		e.dclock.Lock()
-		defer e.dclock.Unlock()
-		if c.Label() == reliableDataChannelName {
-			e.reliableDCSub = c
-		} else if c.Label() == lossyDataChannelName {
-			e.lossyDCSub = c
-		} else {
-			return
-		}
-		c.OnMessage(e.handleDataPacket)
+	e.publisher.pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
+		e.handleICEConnectionStateChange(e.publisher, livekit.SignalTarget_PUBLISHER, isPrimary, state)
 	})
 
 	e.publisher.OnOffer = func(offer webrtc.SessionDescription) {
@@ -472,7 +421,7 @@ func (e *RTCEngine) configure(
 	falseVal := false
 	maxRetries := uint16(1)
 	e.dclock.Lock()
-	e.lossyDC, err = e.publisher.PeerConnection().CreateDataChannel(lossyDataChannelName, &webrtc.DataChannelInit{
+	e.lossyDC, err = e.publisher.pc.CreateDataChannel(lossyDataChannelName, &webrtc.DataChannelInit{
 		Ordered:        &falseVal,
 		MaxRetransmits: &maxRetries,
 	})
@@ -482,7 +431,7 @@ func (e *RTCEngine) configure(
 	}
 	e.lossyDC.OnMessage(e.handleDataPacket)
 
-	e.reliableDC, err = e.publisher.PeerConnection().CreateDataChannel(reliableDataChannelName, &webrtc.DataChannelInit{
+	e.reliableDC, err = e.publisher.pc.CreateDataChannel(reliableDataChannelName, &webrtc.DataChannelInit{
 		Ordered: &trueVal,
 	})
 	if err != nil {
@@ -491,10 +440,11 @@ func (e *RTCEngine) configure(
 	}
 	e.reliableDC.OnMessage(e.handleDataPacket)
 
-	// SIGNALLING-V2-TODO: instantiating this rely on signal transport strategy rather than signalling version
+	// SIGNALLING-V2-TODO: may need a separate peer connection
+	// SIGNALLING-V2-TODO: instantiating this should rely on signal transport strategy rather than signalling version
 	// SIGNALLING-V2-TODO: for signalling v2 instantiate publisher PC before connect and then do just SetConfiguration in OnConnectResponse
 	if e.signallingVersion == signalling.SignallingVersionV2 {
-		e.signallingDC, err = e.publisher.PeerConnection().CreateDataChannel(signallingDataChannelName, &webrtc.DataChannelInit{
+		e.signallingDC, err = e.publisher.pc.CreateDataChannel(signallingDataChannelName, &webrtc.DataChannelInit{
 			Ordered: &trueVal,
 		})
 		if err != nil {
@@ -517,6 +467,100 @@ func (e *RTCEngine) configure(
 	e.dclock.Unlock()
 
 	return nil
+}
+
+func (e *RTCEngine) createSubscriberPCLocked(configuration webrtc.Configuration, isPrimary bool) error {
+	var err error
+	if e.subscriber, err = NewPCTransport(PCTransportParams{
+		Configuration:        configuration,
+		RetransmitBufferSize: e.connParams.RetransmitBufferSize,
+	}); err != nil {
+		return err
+	}
+	e.subscriber.SetLogger(e.log)
+
+	e.subscriber.OnRemoteDescriptionSettled(e.createSubscriberPCAnswerAndSend)
+
+	e.subscriber.pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
+		if candidate == nil {
+			// done
+			return
+		}
+		init := candidate.ToJSON()
+		e.log.Debugw(
+			"local ICE candidate",
+			"target", livekit.SignalTarget_SUBSCRIBER,
+			"candidate", init.Candidate,
+		)
+		if err := e.signalTransport.SendMessage(
+			e.signalling.SignalICECandidate(
+				protosignalling.ToProtoTrickle(init, livekit.SignalTarget_SUBSCRIBER, false),
+			),
+		); err != nil {
+			e.log.Errorw("could not send ICE candidates for subscriber", err)
+		}
+	})
+
+	e.subscriber.pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
+		e.handleICEConnectionStateChange(e.subscriber, livekit.SignalTarget_SUBSCRIBER, isPrimary, state)
+	})
+
+	e.subscriber.pc.OnTrack(func(remote *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
+		e.engineHandler.OnMediaTrack(remote, receiver)
+	})
+
+	e.subscriber.pc.OnDataChannel(func(c *webrtc.DataChannel) {
+		e.dclock.Lock()
+		defer e.dclock.Unlock()
+		if c.Label() == reliableDataChannelName {
+			e.reliableDCSub = c
+		} else if c.Label() == lossyDataChannelName {
+			e.lossyDCSub = c
+		} else {
+			return
+		}
+		c.OnMessage(e.handleDataPacket)
+	})
+
+	return nil
+}
+
+func (e *RTCEngine) handleICEConnectionStateChange(
+	transport *PCTransport,
+	signalTarget livekit.SignalTarget,
+	isPrimary bool,
+	state webrtc.ICEConnectionState,
+) {
+	switch state {
+	case webrtc.ICEConnectionStateConnected:
+		var fields []interface{}
+		if pair, err := transport.GetSelectedCandidatePair(); err == nil {
+			fields = append(fields, "transport", signalTarget, "iceCandidatePair", pair)
+		}
+		e.log.Debugw("ICE connected", fields...)
+	case webrtc.ICEConnectionStateDisconnected:
+		e.log.Debugw("ICE disconnected", "transport", signalTarget)
+	case webrtc.ICEConnectionStateFailed:
+		e.log.Debugw("ICE failed", "transport", signalTarget)
+		if isPrimary {
+			e.handleDisconnect(false)
+		}
+	}
+}
+
+func (e *RTCEngine) closePeerConnections() {
+	e.pclock.Lock()
+	defer e.pclock.Unlock()
+
+	if e.publisher != nil {
+		e.publisher.Close()
+		e.publisher = nil
+	}
+
+	if e.subscriber != nil {
+		e.subscriber.Close()
+		e.subscriber = nil
+	}
 }
 
 func (e *RTCEngine) GetDataChannel(kind livekit.DataPacket_Kind) *webrtc.DataChannel {
@@ -783,6 +827,8 @@ func (e *RTCEngine) restartConnection() error {
 		e.SendLeaveWithReason(livekit.DisconnectReason_UNKNOWN_REASON)
 	}
 	e.signalTransport.Close()
+
+	e.closePeerConnections()
 
 	_, err := e.JoinContext(context.TODO(), e.url, e.token.Load(), e.connParams)
 	return err
@@ -1384,4 +1430,12 @@ func (e *RTCEngine) OnConnectResponse(res *livekit.ConnectResponse) error {
 		e.engineHandler.OnRestarted(res.Room, res.Participant, res.OtherParticipants)
 	}
 	return nil
+}
+
+// ------------------------------------
+
+func setConfiguration(pcTransport *PCTransport, configuration webrtc.Configuration) {
+	if pcTransport != nil {
+		pcTransport.SetConfiguration(configuration)
+	}
 }
