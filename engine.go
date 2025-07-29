@@ -30,6 +30,7 @@ import (
 	"github.com/livekit/protocol/livekit"
 	protoLogger "github.com/livekit/protocol/logger"
 	protosignalling "github.com/livekit/protocol/signalling"
+
 	"github.com/livekit/server-sdk-go/v2/signalling"
 )
 
@@ -598,6 +599,8 @@ func (e *RTCEngine) handleDataPacket(msg webrtc.DataChannelMessage) {
 		})
 	case *livekit.DataPacket_SipDtmf:
 		e.engineHandler.OnDataPacket(identity, msg.SipDtmf)
+	case *livekit.DataPacket_ChatMessage:
+		e.engineHandler.OnDataPacket(identity, msg.ChatMessage)
 	case *livekit.DataPacket_Transcription:
 		e.engineHandler.OnTranscription(msg.Transcription)
 	case *livekit.DataPacket_RpcRequest:
