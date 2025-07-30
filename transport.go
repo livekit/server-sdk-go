@@ -379,6 +379,21 @@ func (t *PCTransport) Negotiate() {
 	})
 }
 
+func (t *PCTransport) GetOffer() (webrtc.SessionDescription, error) {
+	offer, err := t.pc.CreateOffer(nil)
+	t.log.Debugw("get offer", "offer", offer.SDP)
+	if err != nil {
+		t.log.Errorw("could not negotiate", err)
+		return webrtc.SessionDescription{}, err
+	}
+	if err := t.pc.SetLocalDescription(offer); err != nil {
+		t.log.Errorw("could not set local description", err)
+		return webrtc.SessionDescription{}, err
+	}
+
+	return offer, nil
+}
+
 func (t *PCTransport) createAndSendOffer(options *webrtc.OfferOptions) error {
 	if t.OnOffer == nil {
 		return nil

@@ -160,6 +160,7 @@ type SignalTransport interface {
 		url string,
 		token string,
 		connectParams ConnectParams,
+		publisherOffer webrtc.SessionDescription,
 	) error
 	Reconnect(
 		url string,

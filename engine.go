@@ -247,7 +247,23 @@ func (e *RTCEngine) JoinContext(
 	e.token.Store(token)
 	e.connParams = connectParams
 
-	err := e.signalTransport.Join(ctx, url, token, *connectParams)
+	var (
+		publisherOffer webrtc.SessionDescription
+		err            error
+	)
+	if e.signallingVersion == signalling.SignallingVersionV2 {
+		e.pclock.Lock()
+		e.createPublisherPCLocked(webrtc.Configuration{}, false)
+
+		publisherOffer, err = e.publisher.GetOffer()
+		if err != nil {
+			e.pclock.Unlock()
+			return false, err
+		}
+		e.pclock.Unlock()
+	}
+
+	err = e.signalTransport.Join(ctx, url, token, *connectParams, publisherOffer)
 	if err != nil {
 		if verr := e.validate(ctx, url, token, connectParams, ""); verr != nil {
 			return false, verr

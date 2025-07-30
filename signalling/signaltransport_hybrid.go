@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	"github.com/livekit/protocol/logger"
+	"github.com/pion/webrtc/v4"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -104,8 +105,9 @@ func (s *signalTransportHybrid) Join(
 	url string,
 	token string,
 	connectParams ConnectParams,
+	publisherOffer webrtc.SessionDescription,
 ) error {
-	return s.syncTransport.Join(ctx, url, token, connectParams)
+	return s.syncTransport.Join(ctx, url, token, connectParams, publisherOffer)
 }
 
 func (s *signalTransportHybrid) Reconnect(
