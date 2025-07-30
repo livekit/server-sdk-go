@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -782,6 +783,7 @@ func (e *RTCEngine) makeRTCConfiguration(iceServers []*livekit.ICEServer, client
 }
 
 func (e *RTCEngine) publishDataPacket(pck *livekit.DataPacket, kind livekit.DataPacket_Kind) error {
+	log.Println("engine.PublishDataPacket: publishing")
 	err := e.ensurePublisherConnected(true)
 	if err != nil {
 		e.log.Errorw("could not ensure publisher connected", err)
@@ -805,10 +807,12 @@ func (e *RTCEngine) publishDataPacket(pck *livekit.DataPacket, kind livekit.Data
 	data, err := proto.Marshal(pck)
 	if err != nil {
 		e.log.Errorw("could not marshal data packet", err)
+		log.Println("engine.PublishDataPacket: could not marshal data packet")
 		return err
 	}
 
 	dc.Send(data)
+	log.Println("engine.PublishDataPacket: published")
 	return nil
 }
 

@@ -15,6 +15,7 @@
 package lksdk
 
 import (
+	"log"
 	"mime"
 	"os"
 	"path/filepath"
@@ -364,6 +365,7 @@ func (p *LocalParticipant) PublishDataPacket(pck DataPacket, opts ...DataPublish
 		u.User.DestinationIdentities = options.DestinationIdentities
 	}
 
+	log.Printf("PublishDataPacket: publishing")
 	return p.engine.publishDataPacket(dataPacket, kind)
 }
 
