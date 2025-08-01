@@ -1,6 +1,9 @@
 package lksdk
 
 import (
+	"time"
+
+	"github.com/livekit/protocol/utils/guid"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/livekit/protocol/livekit"
@@ -15,7 +18,8 @@ type DataPacket interface {
 // Compile-time assertion for all supported data packet types.
 var (
 	_ DataPacket = (*UserDataPacket)(nil)
-	_ DataPacket = (*livekit.SipDTMF)(nil) // implemented in the protocol package
+	_ DataPacket = (*livekit.SipDTMF)(nil)     // implemented in the protocol package
+	_ DataPacket = (*livekit.ChatMessage)(nil) // implemented in the protocol package
 )
 
 // UserData is a custom user data that can be sent via WebRTC.
@@ -41,6 +45,18 @@ func (p *UserDataPacket) ToProto() *livekit.DataPacket {
 			Topic:   topic,
 		},
 	}}
+}
+
+// ChatMessage creates a chat message that can be sent via WebRTC.
+func ChatMessage(ts time.Time, text string) *livekit.ChatMessage {
+	if ts.IsZero() {
+		ts = time.Now()
+	}
+	return &livekit.ChatMessage{
+		Id:        guid.New("MSG_"),
+		Timestamp: ts.UnixMilli(),
+		Message:   text,
+	}
 }
 
 // receiving
