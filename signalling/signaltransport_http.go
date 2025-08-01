@@ -27,6 +27,8 @@ import (
 
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
+	protosignalling "github.com/livekit/protocol/signalling"
+	"github.com/pion/webrtc/v4"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -86,8 +88,9 @@ func (s *signalTransportHttp) Join(
 	url string,
 	token string,
 	connectParams ConnectParams,
+	publisherOffer webrtc.SessionDescription,
 ) error {
-	msg, err := s.connect(ctx, url, token, connectParams, "")
+	msg, err := s.connect(ctx, url, token, connectParams, publisherOffer, "")
 	if err != nil {
 		return err
 	}
@@ -106,7 +109,14 @@ func (s *signalTransportHttp) Reconnect(
 	participantSID string,
 ) error {
 	connectParams.Reconnect = true
-	msg, err := s.connect(context.TODO(), url, token, connectParams, participantSID)
+	msg, err := s.connect(
+		context.TODO(),
+		url,
+		token,
+		connectParams,
+		webrtc.SessionDescription{},
+		participantSID,
+	)
 	if err != nil {
 		return err
 	}
@@ -137,6 +147,7 @@ func (s *signalTransportHttp) connect(
 	urlPrefix string,
 	token string,
 	connectParams ConnectParams,
+	publisherOffer webrtc.SessionDescription,
 	participantSID string,
 ) (proto.Message, error) {
 	if joinMethod := s.params.Signalling.JoinMethod(); joinMethod != joinMethodConnectRequest {
@@ -157,13 +168,17 @@ func (s *signalTransportHttp) connect(
 	if err != nil {
 		return nil, err
 	}
+	s.params.Signalling.SignalConnectRequest(connectRequest)
 
-	wireMessage := s.params.Signalling.SignalConnectRequest(connectRequest)
+	if publisherOffer.SDP != "" {
+		s.params.Signalling.SignalSdpOffer(protosignalling.ToProtoSessionDescription(publisherOffer, 0))
+	}
+
 	return s.sendHttpRequest(
 		urlPrefix+s.params.Signalling.Path(),
 		http.MethodPost,
 		token,
-		wireMessage,
+		s.params.Signalling.PendingMessages(),
 	)
 }
 
