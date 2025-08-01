@@ -24,5 +24,6 @@ var (
 	ErrInvalidMessageType     = errors.New("invalid message type")
 	ErrInvalidParameter       = errors.New("invalid parameter")
 	ErrCannotDialSignal       = errors.New("could not dial signal connection")
-	ErrEmptyResponse          = errors.New("empty response")
+	ErrMessageQueueNotStarted = errors.New("message queue not started")
+	ErrMessageQueueFull       = errors.New("message queue is full")
 )

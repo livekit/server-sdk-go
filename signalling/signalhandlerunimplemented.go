@@ -29,3 +29,9 @@ func (s *signalhandlerUnimplemented) SetLogger(l logger.Logger) {}
 func (s *signalhandlerUnimplemented) HandleMessage(msg proto.Message) error {
 	return nil
 }
+
+func (s *signalhandlerUnimplemented) HandleEncodedMessage(data []byte) error {
+	return nil
+}
+
+func (s *signalhandlerUnimplemented) PruneStaleReassemblies() {}

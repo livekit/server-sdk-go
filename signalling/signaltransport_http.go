@@ -45,20 +45,40 @@ type signalTransportHttp struct {
 
 	params SignalTransportHttpParams
 
-	lock           sync.Mutex
+	lock           sync.RWMutex
 	url            string
 	participantSid string
 	token          string
+
+	mq *messageQueue
 }
 
 func NewSignalTransportHttp(params SignalTransportHttpParams) SignalTransport {
-	return &signalTransportHttp{
+	s := &signalTransportHttp{
 		params: params,
 	}
+	s.mq = newMessageQueue(messageQueueParams{
+		Logger:        params.Logger,
+		HandleMessage: s.handleMessage,
+	})
+	return s
 }
 
 func (s *signalTransportHttp) SetLogger(l logger.Logger) {
 	s.params.Logger = l
+	s.mq.SetLogger(l)
+}
+
+func (s *signalTransportHttp) Start() {
+	s.mq.Start()
+}
+
+func (s *signalTransportHttp) IsStarted() bool {
+	return s.mq.IsStarted()
+}
+
+func (s *signalTransportHttp) Close() {
+	s.mq.Close()
 }
 
 func (s *signalTransportHttp) Join(
@@ -108,38 +128,8 @@ func (s *signalTransportHttp) UpdateParticipantToken(token string) {
 	s.lock.Unlock()
 }
 
-// SIGNALLING-V2-TODO: have to write in messageId order
-// SIGNALLING-V2-TODO: have to return error
 func (s *signalTransportHttp) SendMessage(msg proto.Message) error {
-	if msg == nil {
-		return nil
-	}
-
-	// SIGNALLING-V2-TODO: see note above about ordering and returning error,
-	// using a goroutine as message handlers can trigger a message send
-	// (example: SDP offer handler sending an answer). In sync transport,
-	// that could lead to a chain where the function making the original
-	// request has not returned.
-	// Potentially need to create a queue, but that makes it async. Needs more thinking.
-	go func() {
-		s.lock.Lock()
-		url := s.url + s.params.Signalling.ParticipantPath(s.participantSid)
-		token := s.token
-		s.lock.Unlock()
-
-		respWireMessage, err := s.sendHttpRequest(
-			url,
-			http.MethodPatch,
-			token,
-			msg,
-		)
-		if err != nil {
-			return
-		}
-
-		s.params.SignalHandler.HandleMessage(respWireMessage)
-	}()
-	return nil
+	return s.mq.Enqueue(msg)
 }
 
 func (s *signalTransportHttp) connect(
@@ -231,4 +221,27 @@ func (s *signalTransportHttp) sendHttpRequest(
 	}
 
 	return respWireMessage, nil
+}
+
+func (s *signalTransportHttp) handleMessage(msg proto.Message) {
+	s.lock.RLock()
+	url := s.url + s.params.Signalling.ParticipantPath(s.participantSid)
+	token := s.token
+	s.lock.RUnlock()
+
+	respWireMessage, err := s.sendHttpRequest(
+		url,
+		http.MethodPatch,
+		token,
+		msg,
+	)
+	if err != nil {
+		s.params.Logger.Errorw(
+			"http request failed", nil,
+			"message", logger.Proto(msg),
+		)
+		return
+	}
+
+	s.params.SignalHandler.HandleMessage(respWireMessage)
 }

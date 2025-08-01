@@ -39,6 +39,14 @@ import (
 )
 
 var (
+	signallingVersion signalling.SignallingVersion = signalling.SignallingVersionV1
+)
+
+func WithSignallingVersion(v signalling.SignallingVersion) {
+	signallingVersion = v
+}
+
+var (
 	_ engineHandler = (*Room)(nil)
 )
 
@@ -204,7 +212,7 @@ func NewRoom(callback *RoomCallback) *Room {
 	}
 	r.callback.Merge(callback)
 
-	r.engine = NewRTCEngine(r, r.getLocalParticipantSID)
+	r.engine = NewRTCEngine(signallingVersion, r, r.getLocalParticipantSID)
 	r.LocalParticipant = newLocalParticipant(r.engine, r.callback, r.serverInfo)
 	return r
 }

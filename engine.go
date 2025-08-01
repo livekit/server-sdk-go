@@ -113,8 +113,9 @@ var (
 // -------------------------------------------
 
 const (
-	reliableDataChannelName = "_reliable"
-	lossyDataChannelName    = "_lossy"
+	signallingDataChannelName = "_signalling"
+	reliableDataChannelName   = "_reliable"
+	lossyDataChannelName      = "_lossy"
 
 	maxReconnectCount        = 10
 	initialReconnectInterval = 300 * time.Millisecond
@@ -123,6 +124,8 @@ const (
 
 type RTCEngine struct {
 	log protoLogger.Logger
+
+	signallingVersion signalling.SignallingVersion
 
 	engineHandler            engineHandler
 	cbGetLocalParticipantSID func() string
@@ -136,6 +139,7 @@ type RTCEngine struct {
 	signalTransport signalling.SignalTransport
 
 	dclock          sync.RWMutex
+	signallingDC    *webrtc.DataChannel
 	reliableDC      *webrtc.DataChannel
 	lossyDC         *webrtc.DataChannel
 	reliableDCSub   *webrtc.DataChannel
@@ -163,32 +167,39 @@ type RTCEngine struct {
 	onCloseLock sync.Mutex
 }
 
-func NewRTCEngine(engineHandler engineHandler, getLocalParticipantSID func() string) *RTCEngine {
+func NewRTCEngine(
+	signallingVersion signalling.SignallingVersion,
+	engineHandler engineHandler,
+	getLocalParticipantSID func() string,
+) *RTCEngine {
 	e := &RTCEngine{
 		log:                      logger,
+		signallingVersion:        signallingVersion,
 		engineHandler:            engineHandler,
 		cbGetLocalParticipantSID: getLocalParticipantSID,
 		trackPublishedListeners:  make(map[string]chan *livekit.TrackPublishedResponse),
 		joinTimeout:              15 * time.Second,
 		reliableMsgSeq:           1,
 	}
-	// SIGNALLING-V2-TODO: have to instantiate objects based on signal version & transport
-	e.signalling = signalling.NewSignalling(signalling.SignallingParams{
-		Logger: e.log,
-	})
-	e.signalHandler = signalling.NewSignalHandler(signalling.SignalHandlerParams{
-		Logger:    e.log,
-		Processor: e,
-	})
-	e.signalTransport = signalling.NewSignalTransportWebSocket(signalling.SignalTransportWebSocketParams{
-		Logger:                 e.log,
-		Version:                Version,
-		Protocol:               PROTOCOL,
-		Signalling:             e.signalling,
-		SignalTransportHandler: e,
-		SignalHandler:          e.signalHandler,
-	})
-	/*
+	switch signallingVersion {
+	case signalling.SignallingVersionV1:
+		e.signalling = signalling.NewSignalling(signalling.SignallingParams{
+			Logger: e.log,
+		})
+		e.signalHandler = signalling.NewSignalHandler(signalling.SignalHandlerParams{
+			Logger:    e.log,
+			Processor: e,
+		})
+		e.signalTransport = signalling.NewSignalTransportWebSocket(signalling.SignalTransportWebSocketParams{
+			Logger:                 e.log,
+			Version:                Version,
+			Protocol:               PROTOCOL,
+			Signalling:             e.signalling,
+			SignalTransportHandler: e,
+			SignalHandler:          e.signalHandler,
+		})
+
+	case signalling.SignallingVersionV2:
 		e.signalling = signalling.NewSignallingv2(signalling.Signallingv2Params{
 			Logger: e.log,
 		})
@@ -204,7 +215,10 @@ func NewRTCEngine(engineHandler engineHandler, getLocalParticipantSID func() str
 			Signalling:    e.signalling,
 			SignalHandler: e.signalHandler,
 		})
-	*/
+
+	default:
+		return nil
+	}
 
 	e.onClose = []func(){}
 	return e
@@ -319,8 +333,8 @@ func (e *RTCEngine) setRTT(rtt uint32) {
 func (e *RTCEngine) configure(
 	iceServers []*livekit.ICEServer,
 	clientConfig *livekit.ClientConfiguration,
-	subscriberPrimary *bool) error {
-
+	subscriberPrimary *bool,
+) error {
 	configuration := e.makeRTCConfiguration(iceServers, clientConfig)
 
 	// reset reliable message sequence
@@ -468,6 +482,7 @@ func (e *RTCEngine) configure(
 		return err
 	}
 	e.lossyDC.OnMessage(e.handleDataPacket)
+
 	e.reliableDC, err = e.publisher.PeerConnection().CreateDataChannel(reliableDataChannelName, &webrtc.DataChannelInit{
 		Ordered: &trueVal,
 	})
@@ -476,6 +491,30 @@ func (e *RTCEngine) configure(
 		return err
 	}
 	e.reliableDC.OnMessage(e.handleDataPacket)
+
+	// SIGNALLING-V2-TODO: instantiating this rely on signal transport strategy rather than signalling version
+	// SIGNALLING-V2-TODO: for signalling v2 instantiate publisher PC before connect and then do just SetConfiguration in OnConnectResponse
+	if e.signallingVersion == signalling.SignallingVersionV2 {
+		e.signallingDC, err = e.publisher.PeerConnection().CreateDataChannel(signallingDataChannelName, &webrtc.DataChannelInit{
+			Ordered: &trueVal,
+		})
+		if err != nil {
+			e.dclock.Unlock()
+			return err
+		}
+		e.signallingDC.OnOpen(func() {
+			signallingTransportDataChannel := signalling.NewSignalTransportDataChannel(signalling.SignalTransportDataChannelParams{
+				Logger:        e.log,
+				DataChannel:   e.signallingDC,
+				SignalHandler: e.signalHandler,
+			})
+			e.signalTransport.SetAsyncTransport(signallingTransportDataChannel)
+		})
+		e.signallingDC.OnClose(func() {
+			// SIGNALLING-V2-TODO: should call SignalTransportHandler.OnClose
+		})
+		e.signallingDC.OnMessage(e.handleSignalling)
+	}
 	e.dclock.Unlock()
 
 	return nil
@@ -638,6 +677,10 @@ func (e *RTCEngine) readDataPacket(msg webrtc.DataChannelMessage) (*livekit.Data
 	}
 	err := proto.Unmarshal(msg.Data, dataPacket)
 	return dataPacket, err
+}
+
+func (e *RTCEngine) handleSignalling(msg webrtc.DataChannelMessage) {
+	e.signalHandler.HandleEncodedMessage(msg.Data)
 }
 
 func (e *RTCEngine) handleDisconnect(fullReconnect bool) {

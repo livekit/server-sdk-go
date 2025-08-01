@@ -106,10 +106,16 @@ func (s *signalhandlerv2) HandleMessage(msg proto.Message) error {
 			case *livekit.Signalv2ServerMessage_SubscriberSdp:
 				s.params.Processor.OnOffer(protosignalling.FromProtoSessionDescription(payload.SubscriberSdp))
 
+			case *livekit.Signalv2ServerMessage_RoomUpdate:
+				s.params.Processor.OnRoomUpdate(payload.RoomUpdate.Room)
+
+			case *livekit.Signalv2ServerMessage_ParticipantUpdate:
+				s.params.Processor.OnParticipantUpdate(payload.ParticipantUpdate.Participants)
+
 			default:
 				s.params.Logger.Warnw(
 					"unhandled message", nil,
-					"mesageType", fmt.Sprintf("%T", serverMessage),
+					"mesageType", fmt.Sprintf("%T", serverMessage.GetMessage()),
 				)
 			}
 
@@ -133,4 +139,17 @@ func (s *signalhandlerv2) HandleMessage(msg proto.Message) error {
 	}
 
 	return nil
+}
+
+func (s *signalhandlerv2) HandleEncodedMessage(data []byte) error {
+	wireMessage := &livekit.Signalv2WireMessage{}
+	if err := proto.Unmarshal(data, wireMessage); err != nil {
+		return err
+	}
+
+	return s.HandleMessage(wireMessage)
+}
+
+func (s *signalhandlerv2) PruneStaleReassemblies() {
+	s.signalReassembler.Prune()
 }

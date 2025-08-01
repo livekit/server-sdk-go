@@ -27,6 +27,32 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+type SignallingVersion int
+
+const (
+	SignallingVersionUnused SignallingVersion = iota
+	SignallingVersionV1                       // v1
+	SignallingVersionV2                       // v2
+)
+
+func (s SignallingVersion) String() string {
+	switch s {
+	case SignallingVersionUnused:
+		return "UNUSED"
+
+	case SignallingVersionV1:
+		return "V1"
+
+	case SignallingVersionV2:
+		return "V2"
+
+	default:
+		return fmt.Sprintf("UNKNOWN: %d", s)
+	}
+}
+
+// ---------------------------
+
 type joinMethod int
 
 const (
@@ -124,6 +150,7 @@ type ConnectParams struct {
 
 type SignalTransport interface {
 	SetLogger(l protoLogger.Logger)
+	SetAsyncTransport(asyncTransport SignalTransport)
 
 	Start()
 	IsStarted() bool
@@ -153,6 +180,9 @@ type SignalHandler interface {
 	SetLogger(l protoLogger.Logger)
 
 	HandleMessage(msg proto.Message) error
+	HandleEncodedMessage(data []byte) error
+
+	PruneStaleReassemblies()
 }
 
 type SignalProcessor interface {
