@@ -174,12 +174,19 @@ func (s *signalTransportHttp) connect(
 		s.params.Signalling.SignalSdpOffer(protosignalling.ToProtoSessionDescription(publisherOffer, 0))
 	}
 
-	return s.sendHttpRequest(
-		urlPrefix+s.params.Signalling.Path(),
+	path := urlPrefix + s.params.Signalling.Path()
+	wireMessage := s.params.Signalling.PendingMessages()
+
+	startedAt := time.Now()
+	msg, err := s.sendHttpRequest(
+		path,
 		http.MethodPost,
 		token,
-		s.params.Signalling.PendingMessages(),
+		wireMessage,
 	)
+	s.params.Logger.Debugw("connect response received", "alapsed", time.Since(startedAt))
+
+	return msg, err
 }
 
 func (s *signalTransportHttp) sendHttpRequest(
