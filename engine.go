@@ -231,10 +231,10 @@ func (e *RTCEngine) SetLogger(l protoLogger.Logger) {
 	e.signalHandler.SetLogger(l)
 	e.signalTransport.SetLogger(l)
 	if e.publisher != nil {
-		e.publisher.SetLogger(l)
+		e.publisher.SetLogger(l.WithValues("transport", livekit.SignalTarget_PUBLISHER))
 	}
 	if e.subscriber != nil {
-		e.subscriber.SetLogger(l)
+		e.subscriber.SetLogger(l.WithValues("transport", livekit.SignalTarget_SUBSCRIBER))
 	}
 }
 
@@ -254,7 +254,7 @@ func (e *RTCEngine) JoinContext(
 	)
 	if e.signallingVersion == signalling.SignallingVersionV2 {
 		e.pclock.Lock()
-		e.createPublisherPCLocked(webrtc.Configuration{}, false)
+		e.createPublisherPCLocked(webrtc.Configuration{})
 
 		publisherOffer, err = e.publisher.GetOffer()
 		if err != nil {
@@ -369,7 +369,7 @@ func (e *RTCEngine) configure(
 	if e.publisher != nil {
 		setConfiguration(e.publisher, configuration)
 	} else {
-		if err := e.createPublisherPCLocked(configuration, !e.subscriberPrimary); err != nil {
+		if err := e.createPublisherPCLocked(configuration); err != nil {
 			return err
 		}
 	}
@@ -377,7 +377,7 @@ func (e *RTCEngine) configure(
 	if e.subscriber != nil {
 		setConfiguration(e.subscriber, configuration)
 	} else {
-		if err := e.createSubscriberPCLocked(configuration, e.subscriberPrimary); err != nil {
+		if err := e.createSubscriberPCLocked(configuration); err != nil {
 			return err
 		}
 	}
@@ -385,7 +385,7 @@ func (e *RTCEngine) configure(
 	return nil
 }
 
-func (e *RTCEngine) createPublisherPCLocked(configuration webrtc.Configuration, isPrimary bool) error {
+func (e *RTCEngine) createPublisherPCLocked(configuration webrtc.Configuration) error {
 	var err error
 	if e.publisher, err = NewPCTransport(PCTransportParams{
 		Configuration:        configuration,
@@ -397,7 +397,7 @@ func (e *RTCEngine) createPublisherPCLocked(configuration webrtc.Configuration, 
 	}); err != nil {
 		return err
 	}
-	e.publisher.SetLogger(e.log)
+	e.publisher.SetLogger(e.log.WithValues("transport", livekit.SignalTarget_PUBLISHER))
 
 	e.publisher.pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
 		if candidate == nil {
@@ -407,7 +407,7 @@ func (e *RTCEngine) createPublisherPCLocked(configuration webrtc.Configuration, 
 		init := candidate.ToJSON()
 		e.log.Debugw(
 			"local ICE candidate",
-			"target", livekit.SignalTarget_PUBLISHER,
+			"transport", livekit.SignalTarget_PUBLISHER,
 			"candidate", init.Candidate,
 		)
 		if err := e.signalTransport.SendMessage(
@@ -415,12 +415,15 @@ func (e *RTCEngine) createPublisherPCLocked(configuration webrtc.Configuration, 
 				protosignalling.ToProtoTrickle(init, livekit.SignalTarget_PUBLISHER, false),
 			),
 		); err != nil {
-			e.log.Errorw("could not send ICE candidates for publisher", err)
+			e.log.Errorw(
+				"could not send ICE candidate", err,
+				"transport", livekit.SignalTarget_PUBLISHER,
+			)
 		}
 	})
 
 	e.publisher.pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
-		e.handleICEConnectionStateChange(e.publisher, livekit.SignalTarget_PUBLISHER, isPrimary, state)
+		e.handleICEConnectionStateChange(e.publisher, livekit.SignalTarget_PUBLISHER, state)
 	})
 
 	e.publisher.OnOffer = func(offer webrtc.SessionDescription) {
@@ -459,7 +462,6 @@ func (e *RTCEngine) createPublisherPCLocked(configuration webrtc.Configuration, 
 
 	// SIGNALLING-V2-TODO: may need a separate peer connection
 	// SIGNALLING-V2-TODO: instantiating this should rely on signal transport strategy rather than signalling version
-	// SIGNALLING-V2-TODO: for signalling v2 instantiate publisher PC before connect and then do just SetConfiguration in OnConnectResponse
 	if e.signallingVersion == signalling.SignallingVersionV2 {
 		e.signallingDC, err = e.publisher.pc.CreateDataChannel(signallingDataChannelName, &webrtc.DataChannelInit{
 			Ordered: &trueVal,
@@ -475,6 +477,7 @@ func (e *RTCEngine) createPublisherPCLocked(configuration webrtc.Configuration, 
 				SignalHandler: e.signalHandler,
 			})
 			e.signalTransport.SetAsyncTransport(signallingTransportDataChannel)
+			e.signalTransport.Start()
 		})
 		e.signallingDC.OnClose(func() {
 			// SIGNALLING-V2-TODO: should call SignalTransportHandler.OnClose
@@ -486,7 +489,7 @@ func (e *RTCEngine) createPublisherPCLocked(configuration webrtc.Configuration, 
 	return nil
 }
 
-func (e *RTCEngine) createSubscriberPCLocked(configuration webrtc.Configuration, isPrimary bool) error {
+func (e *RTCEngine) createSubscriberPCLocked(configuration webrtc.Configuration) error {
 	var err error
 	if e.subscriber, err = NewPCTransport(PCTransportParams{
 		Configuration:        configuration,
@@ -494,7 +497,7 @@ func (e *RTCEngine) createSubscriberPCLocked(configuration webrtc.Configuration,
 	}); err != nil {
 		return err
 	}
-	e.subscriber.SetLogger(e.log)
+	e.subscriber.SetLogger(e.log.WithValues("transport", livekit.SignalTarget_SUBSCRIBER))
 
 	e.subscriber.OnRemoteDescriptionSettled(e.createSubscriberPCAnswerAndSend)
 
@@ -506,7 +509,7 @@ func (e *RTCEngine) createSubscriberPCLocked(configuration webrtc.Configuration,
 		init := candidate.ToJSON()
 		e.log.Debugw(
 			"local ICE candidate",
-			"target", livekit.SignalTarget_SUBSCRIBER,
+			"transport", livekit.SignalTarget_SUBSCRIBER,
 			"candidate", init.Candidate,
 		)
 		if err := e.signalTransport.SendMessage(
@@ -514,12 +517,15 @@ func (e *RTCEngine) createSubscriberPCLocked(configuration webrtc.Configuration,
 				protosignalling.ToProtoTrickle(init, livekit.SignalTarget_SUBSCRIBER, false),
 			),
 		); err != nil {
-			e.log.Errorw("could not send ICE candidates for subscriber", err)
+			e.log.Errorw(
+				"could not send ICE candidate", err,
+				"transport", livekit.SignalTarget_SUBSCRIBER,
+			)
 		}
 	})
 
 	e.subscriber.pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
-		e.handleICEConnectionStateChange(e.subscriber, livekit.SignalTarget_SUBSCRIBER, isPrimary, state)
+		e.handleICEConnectionStateChange(e.subscriber, livekit.SignalTarget_SUBSCRIBER, state)
 	})
 
 	e.subscriber.pc.OnTrack(func(remote *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
@@ -545,7 +551,6 @@ func (e *RTCEngine) createSubscriberPCLocked(configuration webrtc.Configuration,
 func (e *RTCEngine) handleICEConnectionStateChange(
 	transport *PCTransport,
 	signalTarget livekit.SignalTarget,
-	isPrimary bool,
 	state webrtc.ICEConnectionState,
 ) {
 	switch state {
@@ -559,9 +564,7 @@ func (e *RTCEngine) handleICEConnectionStateChange(
 		e.log.Debugw("ICE disconnected", "transport", signalTarget)
 	case webrtc.ICEConnectionStateFailed:
 		e.log.Debugw("ICE failed", "transport", signalTarget)
-		if isPrimary {
-			e.handleDisconnect(false)
-		}
+		e.handleDisconnect(false)
 	}
 }
 

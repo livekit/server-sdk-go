@@ -208,8 +208,10 @@ func (s *signalTransportWebSocket) connect(
 	}
 
 	header := NewHTTPHeaderWithToken(token)
+	path := u.String()
+
 	startedAt := time.Now()
-	conn, hresp, err := websocket.DefaultDialer.DialContext(ctx, u.String(), header)
+	conn, hresp, err := websocket.DefaultDialer.DialContext(ctx, path, header)
 	if err != nil {
 		fields := []interface{}{
 			"duration", time.Since(startedAt),
@@ -236,6 +238,7 @@ func (s *signalTransportWebSocket) connect(
 	if err != nil {
 		return nil, err
 	}
+	s.params.Logger.Debugw("first message received", "elapsed", time.Since(startedAt))
 
 	return res, nil
 }
