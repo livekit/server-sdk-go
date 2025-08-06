@@ -17,13 +17,9 @@ package signalling
 import "errors"
 
 var (
-	ErrUnsupportedSignalling  = errors.New("unsupported signalling protocol")
-	ErrUnsupportedContentType = errors.New("unsupported content type")
-	ErrUnimplemented          = errors.New("unimplemented")
-	ErrURLNotProvided         = errors.New("URL was not provided")
-	ErrInvalidMessageType     = errors.New("invalid message type")
-	ErrInvalidParameter       = errors.New("invalid parameter")
-	ErrCannotDialSignal       = errors.New("could not dial signal connection")
-	ErrMessageQueueNotStarted = errors.New("message queue not started")
-	ErrMessageQueueFull       = errors.New("message queue is full")
+	ErrUnimplemented      = errors.New("unimplemented")
+	ErrURLNotProvided     = errors.New("URL was not provided")
+	ErrInvalidMessageType = errors.New("invalid message type")
+	ErrInvalidParameter   = errors.New("invalid parameter")
+	ErrCannotDialSignal   = errors.New("could not dial signal connection")
 )

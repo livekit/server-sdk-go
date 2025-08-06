@@ -16,7 +16,6 @@ package signalling
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 
 	"github.com/livekit/mediatransportutil/pkg/pacer"
@@ -27,66 +26,11 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-type SignallingVersion int
-
-const (
-	SignallingVersionUnused SignallingVersion = iota
-	SignallingVersionV1                       // v1
-	SignallingVersionV2                       // v2
-)
-
-func (s SignallingVersion) String() string {
-	switch s {
-	case SignallingVersionUnused:
-		return "UNUSED"
-
-	case SignallingVersionV1:
-		return "V1"
-
-	case SignallingVersionV2:
-		return "V2"
-
-	default:
-		return fmt.Sprintf("UNKNOWN: %d", s)
-	}
-}
-
-// ---------------------------
-
-type joinMethod int
-
-const (
-	joinMethodUnused         joinMethod = iota
-	joinMethodQueryParams               // v1
-	joinMethodConnectRequest            // v2
-)
-
-func (j joinMethod) String() string {
-	switch j {
-	case joinMethodUnused:
-		return "UNUSED"
-
-	case joinMethodQueryParams:
-		return "QUERY_PARAMS"
-
-	case joinMethodConnectRequest:
-		return "CONNECT_REQUEST"
-
-	default:
-		return fmt.Sprintf("UNKNOWN: %d", j)
-	}
-}
-
-// ---------------------------
-
 type Signalling interface {
 	SetLogger(l protoLogger.Logger)
 
 	Path() string
-	ParticipantPath(participantSid string) string
 	ValidatePath() string
-
-	JoinMethod() joinMethod
 
 	ConnectQueryParams(
 		version string,
@@ -94,12 +38,6 @@ type Signalling interface {
 		connectParams *ConnectParams,
 		participantSID string,
 	) (string, error)
-	ConnectRequest(
-		version string,
-		protocol int,
-		connectParams *ConnectParams,
-		participantSID string,
-	) (*livekit.ConnectRequest, error)
 	HTTPRequestForValidate(
 		ctx context.Context,
 		version string,
@@ -123,13 +61,6 @@ type Signalling interface {
 	SignalSubscriptionPermission(subscriptionPermission *livekit.SubscriptionPermission) proto.Message
 	SignalUpdateTrackSettings(settings *livekit.UpdateTrackSettings) proto.Message
 	SignalUpdateParticipantMetadata(metadata *livekit.UpdateParticipantMetadata) proto.Message
-
-	AckMessageId(ackMessageId uint32)
-	SetLastProcessedRemoteMessageId(lastProcessedRemoteMessageId uint32)
-
-	PendingMessages() proto.Message
-
-	SignalConnectRequest(connectRequest *livekit.ConnectRequest) proto.Message
 }
 
 type ConnectParams struct {
@@ -150,7 +81,6 @@ type ConnectParams struct {
 
 type SignalTransport interface {
 	SetLogger(l protoLogger.Logger)
-	SetAsyncTransport(asyncTransport SignalTransport)
 
 	Start()
 	IsStarted() bool
@@ -160,7 +90,6 @@ type SignalTransport interface {
 		url string,
 		token string,
 		connectParams ConnectParams,
-		publisherOffer webrtc.SessionDescription,
 	) error
 	Reconnect(
 		url string,
@@ -168,8 +97,6 @@ type SignalTransport interface {
 		connectParams ConnectParams,
 		participantSID string,
 	) error
-	SetParticipantResource(url string, participantSid string, token string)
-	UpdateParticipantToken(token string)
 	SendMessage(msg proto.Message) error
 }
 
@@ -181,9 +108,6 @@ type SignalHandler interface {
 	SetLogger(l protoLogger.Logger)
 
 	HandleMessage(msg proto.Message) error
-	HandleEncodedMessage(data []byte) error
-
-	PruneStaleReassemblies()
 }
 
 type SignalProcessor interface {
@@ -204,6 +128,4 @@ type SignalProcessor interface {
 	OnLeave(*livekit.LeaveRequest)
 	OnLocalTrackSubscribed(trackSubscribed *livekit.TrackSubscribed)
 	OnSubscribedQualityUpdate(subscribedQualityUpdate *livekit.SubscribedQualityUpdate)
-
-	OnConnectResponse(connectRespone *livekit.ConnectResponse) error
 }

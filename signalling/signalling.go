@@ -58,10 +58,6 @@ func (s *signalling) ValidatePath() string {
 	return "/rtc/validate"
 }
 
-func (s *signalling) JoinMethod() joinMethod {
-	return joinMethodQueryParams
-}
-
 func (s *signalling) ConnectQueryParams(
 	version string,
 	protocol int,
