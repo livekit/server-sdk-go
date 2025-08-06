@@ -119,12 +119,3 @@ func (s *signalhandler) HandleMessage(msg proto.Message) error {
 
 	return nil
 }
-
-func (s *signalhandler) HandleEncodedMessage(data []byte) error {
-	signalResponse := &livekit.SignalResponse{}
-	if err := proto.Unmarshal(data, signalResponse); err != nil {
-		return err
-	}
-
-	return s.HandleMessage(signalResponse)
-}

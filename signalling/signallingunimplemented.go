@@ -34,16 +34,8 @@ func (s *signallingUnimplemented) Path() string {
 	return ""
 }
 
-func (s *signallingUnimplemented) ParticipantPath(participantSid string) string {
-	return ""
-}
-
 func (s *signallingUnimplemented) ValidatePath() string {
 	return ""
-}
-
-func (s *signallingUnimplemented) JoinMethod() joinMethod {
-	return joinMethodUnused
 }
 
 func (s *signallingUnimplemented) ConnectQueryParams(
@@ -53,15 +45,6 @@ func (s *signallingUnimplemented) ConnectQueryParams(
 	participantSID string,
 ) (string, error) {
 	return "", ErrUnimplemented
-}
-
-func (s *signallingUnimplemented) ConnectRequest(
-	version string,
-	protocol int,
-	connectParams *ConnectParams,
-	participantSID string,
-) (*livekit.ConnectRequest, error) {
-	return nil, ErrUnimplemented
 }
 
 func (s *signallingUnimplemented) HTTPRequestForValidate(
@@ -125,18 +108,5 @@ func (s *signallingUnimplemented) SignalUpdateTrackSettings(settings *livekit.Up
 }
 
 func (s *signallingUnimplemented) SignalUpdateParticipantMetadata(metadata *livekit.UpdateParticipantMetadata) proto.Message {
-	return nil
-}
-
-func (u *signallingUnimplemented) AckMessageId(ackMessageId uint32) {}
-
-func (u *signallingUnimplemented) SetLastProcessedRemoteMessageId(lastProcessedRemoteMessageId uint32) {
-}
-
-func (u *signallingUnimplemented) PendingMessages() proto.Message {
-	return nil
-}
-
-func (s *signallingUnimplemented) SignalConnectRequest(connectRequest *livekit.ConnectRequest) proto.Message {
 	return nil
 }
