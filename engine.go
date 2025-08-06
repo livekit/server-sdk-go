@@ -127,9 +127,10 @@ type RTCEngine struct {
 	engineHandler            engineHandler
 	cbGetLocalParticipantSID func() string
 
-	pclock     sync.Mutex
-	publisher  *PCTransport
-	subscriber *PCTransport
+	pclock                sync.Mutex
+	publisher             *PCTransport
+	pendingPublisherOffer webrtc.SessionDescription
+	subscriber            *PCTransport
 
 	signalling      signalling.Signalling
 	signalHandler   signalling.SignalHandler
@@ -219,14 +220,25 @@ func (e *RTCEngine) JoinContext(
 	e.token.Store(token)
 	e.connParams = connectParams
 
-	if err := e.signalTransport.Join(ctx, url, token, *connectParams); err != nil {
+	e.pclock.Lock()
+	e.createPublisherPCLocked(webrtc.Configuration{})
+
+	publisherOffer, err := e.publisher.GetLocalOffer()
+	if err != nil {
+		e.pclock.Unlock()
+		return false, err
+	}
+	e.pendingPublisherOffer = publisherOffer
+	e.pclock.Unlock()
+
+	if err = e.signalTransport.Join(ctx, url, token, *connectParams, nil, publisherOffer); err != nil {
 		if verr := e.validate(ctx, url, token, connectParams, ""); verr != nil {
 			return false, verr
 		}
 		return false, err
 	}
 
-	if err := e.waitUntilConnected(); err != nil {
+	if err = e.waitUntilConnected(); err != nil {
 		return false, err
 	}
 
@@ -1183,12 +1195,25 @@ func (e *RTCEngine) OnJoinResponse(res *livekit.JoinResponse) error {
 
 	e.signalTransport.Start()
 
-	// send offer
-	if !res.SubscriberPrimary || res.FastPublish {
+	if res.JoinPublish {
 		if publisher, ok := e.Publisher(); ok {
-			publisher.Negotiate()
-		} else {
-			e.log.Warnw("no publisher peer connection", ErrNoPeerConnection)
+			e.pclock.Lock()
+			pendingPublisherOffer := e.pendingPublisherOffer
+			e.pendingPublisherOffer = webrtc.SessionDescription{}
+			e.pclock.Unlock()
+
+			if pendingPublisherOffer.SDP != "" {
+				publisher.SetLocalOffer(pendingPublisherOffer)
+			}
+		}
+	} else {
+		// send offer
+		if !res.SubscriberPrimary || res.FastPublish {
+			if publisher, ok := e.Publisher(); ok {
+				publisher.Negotiate()
+			} else {
+				e.log.Warnw("no publisher peer connection", ErrNoPeerConnection)
+			}
 		}
 	}
 

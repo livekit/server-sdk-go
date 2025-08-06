@@ -25,6 +25,8 @@ import (
 
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
+	protosignalling "github.com/livekit/protocol/signalling"
+	"github.com/pion/webrtc/v4"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -62,6 +64,8 @@ func (s *signalling) ConnectQueryParams(
 	version string,
 	protocol int,
 	connectParams *ConnectParams,
+	addTrackRequests []*livekit.AddTrackRequest,
+	publisherOffer webrtc.SessionDescription,
 	participantSID string,
 ) (string, error) {
 	queryParams := fmt.Sprintf("version=%s&protocol=%d&", version, protocol)
@@ -86,6 +90,40 @@ func (s *signalling) ConnectQueryParams(
 		queryParams += "&attributes=" + str
 	}
 	queryParams += "&sdk=go&os=" + runtime.GOOS
+
+	// add JoinRequest as base64 encoded protobuf bytes
+	clientInfo := &livekit.ClientInfo{
+		Version:  version,
+		Protocol: int32(protocol),
+		Os:       runtime.GOOS,
+		Sdk:      livekit.ClientInfo_GO,
+	}
+
+	connectionSettings := &livekit.ConnectionSettings{
+		AutoSubscribe: connectParams.AutoSubscribe,
+	}
+
+	joinRequest := &livekit.JoinRequest{
+		ClientInfo:            clientInfo,
+		ConnectionSettings:    connectionSettings,
+		Metadata:              connectParams.Metadata,
+		ParticipantAttributes: connectParams.Attributes,
+		AddTrackRequests:      addTrackRequests,
+		PublisherOffer:        protosignalling.ToProtoSessionDescription(publisherOffer, 0),
+	}
+	if connectParams.Reconnect {
+		joinRequest.Reconnect = true
+		if participantSID != "" {
+			joinRequest.ParticipantSid = participantSID
+		}
+	}
+
+	marshalled, err := proto.Marshal(joinRequest)
+	if err != nil {
+		return "", err
+	}
+
+	queryParams += fmt.Sprintf("&join_request=%s", base64.URLEncoding.EncodeToString(marshalled))
 	return queryParams, nil
 }
 
@@ -106,6 +144,8 @@ func (s *signalling) HTTPRequestForValidate(
 		version,
 		protocol,
 		connectParams,
+		nil,
+		webrtc.SessionDescription{},
 		participantSID,
 	)
 	if err != nil {

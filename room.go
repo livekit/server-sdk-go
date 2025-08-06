@@ -138,6 +138,12 @@ func WithDisableRegionDiscovery() ConnectOption {
 	}
 }
 
+func WithMetadata(metadata string) ConnectOption {
+	return func(p *signalling.ConnectParams) {
+		p.Metadata = metadata
+	}
+}
+
 func WithExtraAttributes(attrs map[string]string) ConnectOption {
 	return func(p *signalling.ConnectParams) {
 		if len(attrs) != 0 && p.Attributes == nil {
