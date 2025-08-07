@@ -15,8 +15,6 @@
 package signalling
 
 import (
-	"bytes"
-	"compress/gzip"
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -89,12 +87,7 @@ func (s *signallingJoinRequest) ConnectQueryParams(
 		return "", err
 	}
 
-	var buf bytes.Buffer
-	writer := gzip.NewWriter(&buf)
-	writer.Write(marshalled)
-	writer.Close()
-
-	return fmt.Sprintf("&join_request=%s", base64.URLEncoding.EncodeToString(buf.Bytes())), nil
+	return fmt.Sprintf("&join_request=%s", base64.URLEncoding.EncodeToString(marshalled)), nil
 }
 
 func (s *signallingJoinRequest) HTTPRequestForValidate(
