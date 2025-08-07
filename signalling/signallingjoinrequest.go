@@ -15,6 +15,8 @@
 package signalling
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -87,7 +89,25 @@ func (s *signallingJoinRequest) ConnectQueryParams(
 		return "", err
 	}
 
-	return fmt.Sprintf("&join_request=%s", base64.URLEncoding.EncodeToString(marshalled)), nil
+	var buf bytes.Buffer
+	writer := gzip.NewWriter(&buf)
+	writer.Write(marshalled)
+	writer.Close()
+
+	wrapped := &livekit.WrappedJoinRequest{
+		Compression: livekit.WrappedJoinRequest_GZIP,
+		JoinRequest: buf.Bytes(),
+	}
+
+	wrappedMarshalled, err := proto.Marshal(wrapped)
+	if err != nil {
+		return "", err
+	}
+
+	base64Bytes := base64.URLEncoding.EncodeToString(wrappedMarshalled)
+	s.params.Logger.Infow("JoinRequest sizes", "marshalled", len(marshalled), "gzipped", len(buf.Bytes()), "wrappedMarshalled", len(wrappedMarshalled), "base64Bytes", len(base64Bytes))
+
+	return fmt.Sprintf("&join_request=%s", base64Bytes), nil
 }
 
 func (s *signallingJoinRequest) HTTPRequestForValidate(
