@@ -32,6 +32,8 @@ type Signalling interface {
 	Path() string
 	ValidatePath() string
 
+	PublishInJoin() bool
+
 	ConnectQueryParams(
 		version string,
 		protocol int,

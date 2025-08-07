@@ -15,39 +15,42 @@
 package signalling
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"runtime"
 
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
+	protosignalling "github.com/livekit/protocol/signalling"
 	"github.com/pion/webrtc/v4"
+	"google.golang.org/protobuf/proto"
 )
 
-var _ Signalling = (*signalling)(nil)
+var _ Signalling = (*signallingJoinRequest)(nil)
 
-type SignallingParams struct {
+type SignallingJoinRequestParams struct {
 	Logger logger.Logger
 }
 
-type signalling struct {
+type signallingJoinRequest struct {
 	*signallingBase
 }
 
-func NewSignalling(params SignallingParams) Signalling {
-	return &signalling{
+func NewSignallingJoinRequest(params SignallingJoinRequestParams) Signalling {
+	return &signallingJoinRequest{
 		signallingBase: newSignallingBase(signallingBaseParams{Logger: params.Logger}),
 	}
 }
 
-func (s *signalling) PublishInJoin() bool {
-	return false
+func (s *signallingJoinRequest) PublishInJoin() bool {
+	return true
 }
 
-func (s *signalling) ConnectQueryParams(
+func (s *signallingJoinRequest) ConnectQueryParams(
 	version string,
 	protocol int,
 	connectParams *ConnectParams,
@@ -55,33 +58,46 @@ func (s *signalling) ConnectQueryParams(
 	publisherOffer webrtc.SessionDescription,
 	participantSID string,
 ) (string, error) {
-	queryParams := fmt.Sprintf("version=%s&protocol=%d&", version, protocol)
+	clientInfo := &livekit.ClientInfo{
+		Version:  version,
+		Protocol: int32(protocol),
+		Os:       runtime.GOOS,
+		Sdk:      livekit.ClientInfo_GO,
+	}
 
-	if connectParams.AutoSubscribe {
-		queryParams += "&auto_subscribe=1"
-	} else {
-		queryParams += "&auto_subscribe=0"
+	connectionSettings := &livekit.ConnectionSettings{
+		AutoSubscribe: connectParams.AutoSubscribe,
+	}
+
+	joinRequest := &livekit.JoinRequest{
+		ClientInfo:            clientInfo,
+		ConnectionSettings:    connectionSettings,
+		Metadata:              connectParams.Metadata,
+		ParticipantAttributes: connectParams.Attributes,
+		AddTrackRequests:      addTrackRequests,
+		PublisherOffer:        protosignalling.ToProtoSessionDescription(publisherOffer, 0),
 	}
 	if connectParams.Reconnect {
-		queryParams += "&reconnect=1"
+		joinRequest.Reconnect = true
 		if participantSID != "" {
-			queryParams += fmt.Sprintf("&sid=%s", participantSID)
+			joinRequest.ParticipantSid = participantSID
 		}
 	}
-	if len(connectParams.Attributes) != 0 {
-		data, err := json.Marshal(connectParams.Attributes)
-		if err != nil {
-			return "", ErrInvalidParameter
-		}
-		str := base64.URLEncoding.EncodeToString(data)
-		queryParams += "&attributes=" + str
-	}
-	queryParams += "&sdk=go&os=" + runtime.GOOS
 
-	return queryParams, nil
+	marshalled, err := proto.Marshal(joinRequest)
+	if err != nil {
+		return "", err
+	}
+
+	var buf bytes.Buffer
+	writer := gzip.NewWriter(&buf)
+	writer.Write(marshalled)
+	writer.Close()
+
+	return fmt.Sprintf("&join_request=%s", base64.URLEncoding.EncodeToString(buf.Bytes())), nil
 }
 
-func (s *signalling) HTTPRequestForValidate(
+func (s *signallingJoinRequest) HTTPRequestForValidate(
 	ctx context.Context,
 	version string,
 	protocol int,

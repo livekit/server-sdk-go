@@ -10,7 +10,7 @@ require (
 	github.com/livekit/mageutil v0.0.0-20250511045019-0f1ff63f7731
 	github.com/livekit/media-sdk v0.0.0-20250518151703-b07af88637c5
 	github.com/livekit/mediatransportutil v0.0.0-20250519131108-fb90f5acfded
-	github.com/livekit/protocol v1.39.4-0.20250806173605-58935ae641ef
+	github.com/livekit/protocol v1.39.4-0.20250807053007-7f6468a6a059
 	github.com/magefile/mage v1.15.0
 	github.com/pion/dtls/v3 v3.0.6
 	github.com/pion/interceptor v0.1.40
@@ -25,6 +25,8 @@ require (
 	golang.org/x/exp v0.0.0-20250718183923-645b1fa84792
 	google.golang.org/protobuf v1.36.6
 )
+
+require golang.org/x/mod v0.26.0
 
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.6-20250717185734-6c6e0d3c608e.1 // indirect

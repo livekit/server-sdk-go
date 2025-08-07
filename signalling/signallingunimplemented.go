@@ -39,6 +39,10 @@ func (s *signallingUnimplemented) ValidatePath() string {
 	return ""
 }
 
+func (s *signallingUnimplemented) PublishInJoin() bool {
+	return false
+}
+
 func (s *signallingUnimplemented) ConnectQueryParams(
 	version string,
 	protocol int,
