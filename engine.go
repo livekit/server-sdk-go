@@ -177,7 +177,7 @@ func NewRTCEngine(
 		joinTimeout:              15 * time.Second,
 		reliableMsgSeq:           1,
 	}
-	if semver.Compare(Version, "3.0.0") < 0 {
+	if semver.Compare("v"+Version, "v3.0.0") < 0 {
 		e.signalling = signalling.NewSignalling(signalling.SignallingParams{
 			Logger: e.log,
 		})
