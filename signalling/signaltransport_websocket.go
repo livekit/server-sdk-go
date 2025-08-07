@@ -28,6 +28,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
+	"github.com/pion/webrtc/v4"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
@@ -94,8 +95,10 @@ func (s *signalTransportWebSocket) Join(
 	url string,
 	token string,
 	connectParams ConnectParams,
+	addTrackRequests []*livekit.AddTrackRequest,
+	publisherOffer webrtc.SessionDescription,
 ) error {
-	msg, err := s.connect(ctx, url, token, connectParams, "")
+	msg, err := s.connect(ctx, url, token, connectParams, addTrackRequests, publisherOffer, "")
 	if err != nil {
 		return err
 	}
@@ -118,6 +121,8 @@ func (s *signalTransportWebSocket) Reconnect(
 		url,
 		token,
 		connectParams,
+		nil,
+		webrtc.SessionDescription{},
 		participantSID,
 	)
 	if err != nil {
@@ -176,6 +181,8 @@ func (s *signalTransportWebSocket) connect(
 	urlPrefix string,
 	token string,
 	connectParams ConnectParams,
+	addTrackRequests []*livekit.AddTrackRequest,
+	publisherOffer webrtc.SessionDescription,
 	participantSID string,
 ) (proto.Message, error) {
 	if urlPrefix == "" {
@@ -187,6 +194,8 @@ func (s *signalTransportWebSocket) connect(
 		s.params.Version,
 		s.params.Protocol,
 		&connectParams,
+		addTrackRequests,
+		publisherOffer,
 		participantSID,
 	)
 	if err != nil {

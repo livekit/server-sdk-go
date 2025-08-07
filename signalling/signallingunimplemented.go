@@ -20,6 +20,7 @@ import (
 
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
+	"github.com/pion/webrtc/v4"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -38,10 +39,16 @@ func (s *signallingUnimplemented) ValidatePath() string {
 	return ""
 }
 
+func (s *signallingUnimplemented) PublishInJoin() bool {
+	return false
+}
+
 func (s *signallingUnimplemented) ConnectQueryParams(
 	version string,
 	protocol int,
 	connectParams *ConnectParams,
+	addTrackRequests []*livekit.AddTrackRequest,
+	publisherOffer webrtc.SessionDescription,
 	participantSID string,
 ) (string, error) {
 	return "", ErrUnimplemented

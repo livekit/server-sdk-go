@@ -24,6 +24,7 @@ import (
 
 	"github.com/pion/webrtc/v4"
 	"go.uber.org/atomic"
+	"golang.org/x/mod/semver"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
@@ -127,9 +128,10 @@ type RTCEngine struct {
 	engineHandler            engineHandler
 	cbGetLocalParticipantSID func() string
 
-	pclock     sync.Mutex
-	publisher  *PCTransport
-	subscriber *PCTransport
+	pclock                sync.Mutex
+	publisher             *PCTransport
+	pendingPublisherOffer webrtc.SessionDescription
+	subscriber            *PCTransport
 
 	signalling      signalling.Signalling
 	signalHandler   signalling.SignalHandler
@@ -175,9 +177,15 @@ func NewRTCEngine(
 		joinTimeout:              15 * time.Second,
 		reliableMsgSeq:           1,
 	}
-	e.signalling = signalling.NewSignalling(signalling.SignallingParams{
-		Logger: e.log,
-	})
+	if semver.Compare("v"+Version, "v3.0.0") < 0 {
+		e.signalling = signalling.NewSignalling(signalling.SignallingParams{
+			Logger: e.log,
+		})
+	} else {
+		e.signalling = signalling.NewSignallingJoinRequest(signalling.SignallingJoinRequestParams{
+			Logger: e.log,
+		})
+	}
 	e.signalHandler = signalling.NewSignalHandler(signalling.SignalHandlerParams{
 		Logger:    e.log,
 		Processor: e,
@@ -219,14 +227,31 @@ func (e *RTCEngine) JoinContext(
 	e.token.Store(token)
 	e.connParams = connectParams
 
-	if err := e.signalTransport.Join(ctx, url, token, *connectParams); err != nil {
+	var (
+		publisherOffer webrtc.SessionDescription
+		err            error
+	)
+	if e.signalling.PublishInJoin() {
+		e.pclock.Lock()
+		e.createPublisherPCLocked(webrtc.Configuration{})
+
+		publisherOffer, err = e.publisher.GetLocalOffer()
+		if err != nil {
+			e.pclock.Unlock()
+			return false, err
+		}
+		e.pendingPublisherOffer = publisherOffer
+		e.pclock.Unlock()
+	}
+
+	if err = e.signalTransport.Join(ctx, url, token, *connectParams, nil, publisherOffer); err != nil {
 		if verr := e.validate(ctx, url, token, connectParams, ""); verr != nil {
 			return false, verr
 		}
 		return false, err
 	}
 
-	if err := e.waitUntilConnected(); err != nil {
+	if err = e.waitUntilConnected(); err != nil {
 		return false, err
 	}
 
@@ -1183,12 +1208,25 @@ func (e *RTCEngine) OnJoinResponse(res *livekit.JoinResponse) error {
 
 	e.signalTransport.Start()
 
-	// send offer
-	if !res.SubscriberPrimary || res.FastPublish {
+	if e.signalling.PublishInJoin() {
 		if publisher, ok := e.Publisher(); ok {
-			publisher.Negotiate()
-		} else {
-			e.log.Warnw("no publisher peer connection", ErrNoPeerConnection)
+			e.pclock.Lock()
+			pendingPublisherOffer := e.pendingPublisherOffer
+			e.pendingPublisherOffer = webrtc.SessionDescription{}
+			e.pclock.Unlock()
+
+			if pendingPublisherOffer.SDP != "" {
+				publisher.SetLocalOffer(pendingPublisherOffer)
+			}
+		}
+	} else {
+		// send offer
+		if !res.SubscriberPrimary || res.FastPublish {
+			if publisher, ok := e.Publisher(); ok {
+				publisher.Negotiate()
+			} else {
+				e.log.Warnw("no publisher peer connection", ErrNoPeerConnection)
+			}
 		}
 	}
 

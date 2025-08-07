@@ -20,12 +20,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
 	"runtime"
 
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
-	"google.golang.org/protobuf/proto"
+	"github.com/pion/webrtc/v4"
 )
 
 var _ Signalling = (*signalling)(nil)
@@ -35,33 +34,25 @@ type SignallingParams struct {
 }
 
 type signalling struct {
-	signallingUnimplemented
-
-	params SignallingParams
+	*signallingBase
 }
 
 func NewSignalling(params SignallingParams) Signalling {
 	return &signalling{
-		params: params,
+		signallingBase: newSignallingBase(signallingBaseParams{Logger: params.Logger}),
 	}
 }
 
-func (s *signalling) SetLogger(l logger.Logger) {
-	s.params.Logger = l
-}
-
-func (s *signalling) Path() string {
-	return "/rtc"
-}
-
-func (s *signalling) ValidatePath() string {
-	return "/rtc/validate"
+func (s *signalling) PublishInJoin() bool {
+	return false
 }
 
 func (s *signalling) ConnectQueryParams(
 	version string,
 	protocol int,
 	connectParams *ConnectParams,
+	addTrackRequests []*livekit.AddTrackRequest,
+	publisherOffer webrtc.SessionDescription,
 	participantSID string,
 ) (string, error) {
 	queryParams := fmt.Sprintf("version=%s&protocol=%d&", version, protocol)
@@ -86,6 +77,7 @@ func (s *signalling) ConnectQueryParams(
 		queryParams += "&attributes=" + str
 	}
 	queryParams += "&sdk=go&os=" + runtime.GOOS
+
 	return queryParams, nil
 }
 
@@ -98,130 +90,17 @@ func (s *signalling) HTTPRequestForValidate(
 	connectParams *ConnectParams,
 	participantSID string,
 ) (*http.Request, error) {
-	if urlPrefix == "" {
-		return nil, ErrURLNotProvided
-	}
-
 	queryParams, err := s.ConnectQueryParams(
 		version,
 		protocol,
 		connectParams,
+		nil,
+		webrtc.SessionDescription{},
 		participantSID,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	u, err := url.Parse(ToHttpURL(urlPrefix) + s.ValidatePath() + fmt.Sprintf("?%s", queryParams))
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	if err != nil {
-		s.params.Logger.Errorw("error creating validate request", err)
-		return nil, err
-	}
-	req.Header = NewHTTPHeaderWithToken(token)
-	return req, nil
-}
-
-func (s *signalling) DecodeErrorResponse(errorDetails []byte) string {
-	return string(errorDetails)
-}
-
-func (s *signalling) SignalLeaveRequest(leave *livekit.LeaveRequest) proto.Message {
-	return &livekit.SignalRequest{
-		Message: &livekit.SignalRequest_Leave{
-			Leave: leave,
-		},
-	}
-}
-
-func (s *signalling) SignalICECandidate(trickle *livekit.TrickleRequest) proto.Message {
-	return &livekit.SignalRequest{
-		Message: &livekit.SignalRequest_Trickle{
-			Trickle: trickle,
-		},
-	}
-}
-
-func (s *signalling) SignalSdpOffer(offer *livekit.SessionDescription) proto.Message {
-	return &livekit.SignalRequest{
-		Message: &livekit.SignalRequest_Offer{
-			Offer: offer,
-		},
-	}
-}
-
-func (s *signalling) SignalSdpAnswer(answer *livekit.SessionDescription) proto.Message {
-	return &livekit.SignalRequest{
-		Message: &livekit.SignalRequest_Answer{
-			Answer: answer,
-		},
-	}
-}
-
-func (s *signalling) SignalSimulateScenario(simulate *livekit.SimulateScenario) proto.Message {
-	return &livekit.SignalRequest{
-		Message: &livekit.SignalRequest_Simulate{
-			Simulate: simulate,
-		},
-	}
-}
-
-func (s *signalling) SignalMuteTrack(mute *livekit.MuteTrackRequest) proto.Message {
-	return &livekit.SignalRequest{
-		Message: &livekit.SignalRequest_Mute{
-			Mute: mute,
-		},
-	}
-}
-
-func (s *signalling) SignalUpdateSubscription(updateSubscription *livekit.UpdateSubscription) proto.Message {
-	return &livekit.SignalRequest{
-		Message: &livekit.SignalRequest_Subscription{
-			Subscription: updateSubscription,
-		},
-	}
-}
-
-func (s *signalling) SignalSyncState(syncState *livekit.SyncState) proto.Message {
-	return &livekit.SignalRequest{
-		Message: &livekit.SignalRequest_SyncState{
-			SyncState: syncState,
-		},
-	}
-}
-
-func (s *signalling) SignalAddTrack(addTrack *livekit.AddTrackRequest) proto.Message {
-	return &livekit.SignalRequest{
-		Message: &livekit.SignalRequest_AddTrack{
-			AddTrack: addTrack,
-		},
-	}
-}
-
-func (s *signalling) SignalSubscriptionPermission(subscriptionPermission *livekit.SubscriptionPermission) proto.Message {
-	return &livekit.SignalRequest{
-		Message: &livekit.SignalRequest_SubscriptionPermission{
-			SubscriptionPermission: subscriptionPermission,
-		},
-	}
-}
-
-func (s *signalling) SignalUpdateTrackSettings(settings *livekit.UpdateTrackSettings) proto.Message {
-	return &livekit.SignalRequest{
-		Message: &livekit.SignalRequest_TrackSetting{
-			TrackSetting: settings,
-		},
-	}
-}
-
-func (s *signalling) SignalUpdateParticipantMetadata(metadata *livekit.UpdateParticipantMetadata) proto.Message {
-	return &livekit.SignalRequest{
-		Message: &livekit.SignalRequest_UpdateMetadata{
-			UpdateMetadata: metadata,
-		},
-	}
+	return s.signallingBase.HTTPRequestForValidate(ctx, urlPrefix, token, queryParams)
 }

@@ -32,10 +32,14 @@ type Signalling interface {
 	Path() string
 	ValidatePath() string
 
+	PublishInJoin() bool
+
 	ConnectQueryParams(
 		version string,
 		protocol int,
 		connectParams *ConnectParams,
+		addTrackRequests []*livekit.AddTrackRequest,
+		publisherOffer webrtc.SessionDescription,
 		participantSID string,
 	) (string, error)
 	HTTPRequestForValidate(
@@ -70,6 +74,8 @@ type ConnectParams struct {
 
 	RetransmitBufferSize uint16
 
+	Metadata string // See WithMetadata
+
 	Attributes map[string]string // See WithExtraAttributes
 
 	Pacer pacer.Factory
@@ -90,6 +96,8 @@ type SignalTransport interface {
 		url string,
 		token string,
 		connectParams ConnectParams,
+		addTrackRequests []*livekit.AddTrackRequest,
+		publisherOffer webrtc.SessionDescription,
 	) error
 	Reconnect(
 		url string,

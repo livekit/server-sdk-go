@@ -17,7 +17,9 @@ package signalling
 import (
 	"context"
 
+	"github.com/livekit/protocol/livekit"
 	protoLogger "github.com/livekit/protocol/logger"
+	"github.com/pion/webrtc/v4"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -40,6 +42,8 @@ func (s *signalTransportUnimplemented) Join(
 	url string,
 	token string,
 	connectParams ConnectParams,
+	addTrackRequests []*livekit.AddTrackRequest,
+	publisherOffer webrtc.SessionDescription,
 ) error {
 	return ErrUnimplemented
 }
