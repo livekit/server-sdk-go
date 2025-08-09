@@ -768,7 +768,7 @@ func (e *RTCEngine) resumeConnection() error {
 		); verr != nil {
 			return verr
 		}
-		return err
+		return ErrCannotConnectSignal
 	}
 
 	e.signalTransport.Start()
