@@ -248,7 +248,7 @@ func (e *RTCEngine) JoinContext(
 		if verr := e.validate(ctx, url, token, connectParams, ""); verr != nil {
 			return false, verr
 		}
-		return false, err
+		return false, ErrCannotConnectSignal
 	}
 
 	if err = e.waitUntilConnected(); err != nil {

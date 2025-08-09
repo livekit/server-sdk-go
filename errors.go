@@ -30,6 +30,7 @@ var (
 	ErrCannotFindTrack          = errors.New("could not find the track")
 	ErrInvalidMessageType       = signalling.ErrInvalidMessageType
 	ErrInvalidParameter         = signalling.ErrInvalidParameter
+	ErrCannotConnectSignal      = errors.New("could not establish signal connection")
 	ErrNoPeerConnection         = errors.New("peer connection not established")
 	ErrAborted                  = errors.New("operation was aborted")
 )
