@@ -96,6 +96,14 @@ func (t *TrackSynchronizer) Initialize(pkt *rtp.Packet) {
 	t.lastTS = pkt.Timestamp
 	t.lastPTS = 0
 	t.lastPTSAdjusted = t.currentPTSOffset
+
+	logger.Debugw("track synchronizer initialized",
+		"startRTP", t.startRTP,
+		"startTime", t.startTime,
+		"currentPTSOffset", t.currentPTSOffset,
+		"desiredPTSOffset", t.desiredPTSOffset,
+		"startedAt", startedAt,
+	)
 }
 
 // GetPTS will reset sequence numbers and/or offsets if necessary
@@ -116,14 +124,31 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 	pts := t.lastPTS + t.toDuration(ts-t.lastTS)
 	estimatedPTS := time.Since(t.startTime)
 	if pts < t.lastPTS || !acceptable(pts-estimatedPTS) {
+		logger.Debugw(
+			"resetting track PTS due to unexpected timestamp",
+			"pts", pts,
+			"estimatedPTS", estimatedPTS,
+			"lastPTS", t.lastPTS,
+			"lastTS", t.lastTS,
+			"ts", ts,
+		)
 		pts = estimatedPTS
 		t.startRTP = ts - t.toRTP(pts)
 	}
 
-	if t.currentPTSOffset > t.desiredPTSOffset {
-		t.currentPTSOffset = max(t.currentPTSOffset-maxAdjustment, t.desiredPTSOffset)
-	} else if t.currentPTSOffset < t.desiredPTSOffset {
-		t.currentPTSOffset = min(t.currentPTSOffset+maxAdjustment, t.desiredPTSOffset)
+	if t.currentPTSOffset != t.desiredPTSOffset {
+		logger.Debugw(
+			"adjusting track PTS offset",
+			"currentPTSOffset", t.currentPTSOffset,
+			"desiredPTSOffset", t.desiredPTSOffset,
+			"pts", pts,
+		)
+
+		if t.currentPTSOffset > t.desiredPTSOffset {
+			t.currentPTSOffset = max(t.currentPTSOffset-maxAdjustment, t.desiredPTSOffset)
+		} else if t.currentPTSOffset < t.desiredPTSOffset {
+			t.currentPTSOffset = min(t.currentPTSOffset+maxAdjustment, t.desiredPTSOffset)
+		}
 	}
 	adjusted := pts + t.currentPTSOffset
 
@@ -136,6 +161,10 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 	t.lastTS = ts
 	t.lastPTS = pts
 	t.lastPTSAdjusted = adjusted
+
+	logger.Debugw("returning track PTS",
+		"pts", adjusted,
+	)
 
 	return adjusted, nil
 }
@@ -156,6 +185,10 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 		pts = t.lastPTS - t.toDuration(t.lastTS-pkt.RTPTime)
 	}
 	if !acceptable(pts - time.Since(t.startTime)) {
+		logger.Debugw("ignoring sender report with unacceptable PTS",
+			"pts", pts,
+			"startTime", t.startTime,
+		)
 		return
 	}
 
@@ -165,8 +198,16 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 	}
 
 	if !acceptable(offset) {
+		logger.Debugw("ignoring sender report with unacceptable offset",
+			"offset", offset,
+		)
 		return
 	}
+
+	logger.Debugw("adjusting desired PTS offset",
+		"current desiredPTSOffset", t.desiredPTSOffset,
+		"new offset", offset,
+	)
 
 	t.desiredPTSOffset = offset
 	t.lastSR = pkt.RTPTime
