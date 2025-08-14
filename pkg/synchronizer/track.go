@@ -164,6 +164,7 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 
 	logger.Debugw("returning track PTS",
 		"pts", adjusted,
+		"packet no, ", pkt.SequenceNumber,
 	)
 
 	return adjusted, nil
