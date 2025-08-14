@@ -29,7 +29,7 @@ import (
 
 const (
 	maxAdjustment = time.Millisecond * 5
-	maxTSDiff     = time.Minute
+	maxTSDiff     = time.Second
 )
 
 type TrackRemote interface {
@@ -144,11 +144,11 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 			"pts", pts,
 		)
 
-		if t.currentPTSOffset > t.desiredPTSOffset {
-			t.currentPTSOffset = max(t.currentPTSOffset-maxAdjustment, t.desiredPTSOffset)
-		} else if t.currentPTSOffset < t.desiredPTSOffset {
-			t.currentPTSOffset = min(t.currentPTSOffset+maxAdjustment, t.desiredPTSOffset)
-		}
+		// if t.currentPTSOffset > t.desiredPTSOffset {
+		// 	t.currentPTSOffset = max(t.currentPTSOffset-maxAdjustment, t.desiredPTSOffset)
+		// } else if t.currentPTSOffset < t.desiredPTSOffset {
+		// 	t.currentPTSOffset = min(t.currentPTSOffset+maxAdjustment, t.desiredPTSOffset)
+		// }
 	}
 	adjusted := pts + t.currentPTSOffset
 
