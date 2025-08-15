@@ -29,7 +29,7 @@ import (
 
 const (
 	maxAdjustment = time.Millisecond * 5
-	maxTSDiff     = time.Minute
+	maxTSDiff     = time.Second
 )
 
 type TrackRemote interface {
