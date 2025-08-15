@@ -29,7 +29,6 @@ import (
 
 const (
 	maxAdjustment = time.Millisecond * 5
-	maxTSDiff     = time.Second
 )
 
 type TrackRemote interface {
@@ -45,6 +44,9 @@ type TrackSynchronizer struct {
 	track  TrackRemote
 	logger logger.Logger
 	*rtpConverter
+
+	// config
+	maxTsDiff time.Duration // maximum acceptable difference between RTP packets
 
 	// timing info
 	startTime       time.Time     // time first packet was pushed
@@ -69,6 +71,7 @@ func newTrackSynchronizer(s *Synchronizer, track TrackRemote) *TrackSynchronizer
 		track:        track,
 		logger:       logger.GetLogger().WithValues("trackID", track.ID(), "codec", track.Codec().MimeType),
 		rtpConverter: newRTPConverter(int64(track.Codec().ClockRate)),
+		maxTsDiff:    s.config.MaxTsDiff,
 	}
 
 	return t
@@ -115,7 +118,7 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 
 	pts := t.lastPTS + t.toDuration(ts-t.lastTS)
 	estimatedPTS := time.Since(t.startTime)
-	if pts < t.lastPTS || !acceptable(pts-estimatedPTS) {
+	if pts < t.lastPTS || !t.acceptable(pts-estimatedPTS) {
 		pts = estimatedPTS
 		t.startRTP = ts - t.toRTP(pts)
 	}
@@ -155,7 +158,7 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 	} else {
 		pts = t.lastPTS - t.toDuration(t.lastTS-pkt.RTPTime)
 	}
-	if !acceptable(pts - time.Since(t.startTime)) {
+	if !t.acceptable(pts - time.Since(t.startTime)) {
 		return
 	}
 
@@ -164,7 +167,7 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 		t.onSR(offset - t.desiredPTSOffset)
 	}
 
-	if !acceptable(offset) {
+	if !t.acceptable(offset) {
 		return
 	}
 
@@ -172,8 +175,8 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 	t.lastSR = pkt.RTPTime
 }
 
-func acceptable(d time.Duration) bool {
-	return d > -maxTSDiff && d < maxTSDiff
+func (t *TrackSynchronizer) acceptable(d time.Duration) bool {
+	return d > -t.maxTsDiff && d < t.maxTsDiff
 }
 
 type rtpConverter struct {
