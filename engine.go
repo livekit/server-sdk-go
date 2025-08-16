@@ -299,7 +299,7 @@ func (e *RTCEngine) IsConnected() bool {
 	e.pclock.Lock()
 	defer e.pclock.Unlock()
 
-	if e.publisher == nil || e.subscriber == nil {
+	if (e.publisher == nil && PROTOCOL <= MAX_PROTOCOL_DUAL_PEER_CONNECTION) || e.subscriber == nil {
 		return false
 	}
 	if e.subscriberPrimary {
@@ -366,6 +366,10 @@ func (e *RTCEngine) configure(
 }
 
 func (e *RTCEngine) createPublisherPCLocked(configuration webrtc.Configuration) error {
+	if PROTOCOL > MAX_PROTOCOL_DUAL_PEER_CONNECTION {
+		return nil
+	}
+
 	var err error
 	if e.publisher, err = NewPCTransport(PCTransportParams{
 		Configuration:        configuration,
@@ -817,6 +821,7 @@ func (e *RTCEngine) createSubscriberPCAnswerAndSend() error {
 		e.log.Errorw("could not set subscriber local description", err)
 		return err
 	}
+	e.log.Debugw("sending answer for subscriber", "answer", answer)
 	if err := e.signalTransport.SendMessage(
 		e.signalling.SignalSdpAnswer(
 			protosignalling.ToProtoSessionDescription(answer, 0),
@@ -1274,7 +1279,7 @@ func (e *RTCEngine) OnOffer(sd webrtc.SessionDescription, offerId uint32) {
 		return
 	}
 
-	e.log.Debugw("received offer for subscriber")
+	e.log.Debugw("received offer for subscriber", "offer", sd, "offerId", offerId)
 	if err := e.subscriber.SetRemoteDescription(sd); err != nil {
 		e.log.Errorw("could not set remote description", err)
 		return

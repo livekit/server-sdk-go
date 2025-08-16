@@ -15,3 +15,4 @@
 package lksdk
 
 const PROTOCOL = 16
+const MAX_PROTOCOL_DUAL_PEER_CONNECTION = 16
