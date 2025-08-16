@@ -21,6 +21,33 @@ import (
 	"github.com/pion/rtcp"
 )
 
+const (
+	DefaultMaxTsDiff = time.Minute
+)
+
+type SynchronizerOption func(*SynchronizerConfig)
+
+// SynchronizerConfig holds configuration for the Synchronizer
+type SynchronizerConfig struct {
+	MaxTsDiff time.Duration
+	OnStarted func()
+}
+
+// WithMaxTsDiff sets the maximum acceptable difference between RTP packets
+// In case exceeded the synchronizer will adjust the PTS offset to keep the audio and video in sync
+func WithMaxTsDiff(maxTsDiff time.Duration) SynchronizerOption {
+	return func(config *SynchronizerConfig) {
+		config.MaxTsDiff = maxTsDiff
+	}
+}
+
+// WithOnStarted sets the callback to be called when the synchronizer starts
+func WithOnStarted(onStarted func()) SynchronizerOption {
+	return func(config *SynchronizerConfig) {
+		config.OnStarted = onStarted
+	}
+}
+
 // a single Synchronizer is shared between all audio and video writers
 type Synchronizer struct {
 	sync.RWMutex
@@ -28,6 +55,7 @@ type Synchronizer struct {
 	startedAt int64
 	onStarted func()
 	endedAt   int64
+	config    SynchronizerConfig
 
 	psByIdentity map[string]*participantSynchronizer
 	psBySSRC     map[uint32]*participantSynchronizer
@@ -35,11 +63,36 @@ type Synchronizer struct {
 }
 
 func NewSynchronizer(onStarted func()) *Synchronizer {
+	config := SynchronizerConfig{
+		MaxTsDiff: DefaultMaxTsDiff,
+		OnStarted: onStarted,
+	}
+
 	return &Synchronizer{
-		onStarted:    onStarted,
+		onStarted:    config.OnStarted,
 		psByIdentity: make(map[string]*participantSynchronizer),
 		psBySSRC:     make(map[uint32]*participantSynchronizer),
 		ssrcByID:     make(map[string]uint32),
+		config:       config,
+	}
+}
+
+func NewSynchronizerWithOptions(opts ...SynchronizerOption) *Synchronizer {
+	config := SynchronizerConfig{
+		MaxTsDiff: DefaultMaxTsDiff,
+		OnStarted: nil,
+	}
+
+	for _, opt := range opts {
+		opt(&config)
+	}
+
+	return &Synchronizer{
+		onStarted:    config.OnStarted,
+		psByIdentity: make(map[string]*participantSynchronizer),
+		psBySSRC:     make(map[uint32]*participantSynchronizer),
+		ssrcByID:     make(map[string]uint32),
+		config:       config,
 	}
 }
 
