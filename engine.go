@@ -72,6 +72,7 @@ type engineHandler interface {
 	OnStreamTrailer(*livekit.DataStream_Trailer)
 	OnLocalTrackSubscribed(trackSubscribed *livekit.TrackSubscribed)
 	OnSubscribedQualityUpdate(subscribedQualityUpdate *livekit.SubscribedQualityUpdate)
+	OnMediaSectionsRequirement(mediaSectionsRequirement *livekit.MediaSectionsRequirement)
 }
 
 type nullEngineHandler struct{}
@@ -102,6 +103,8 @@ func (n *nullEngineHandler) OnStreamChunk(*livekit.DataStream_Chunk)            
 func (n *nullEngineHandler) OnStreamTrailer(*livekit.DataStream_Trailer)                      {}
 func (n *nullEngineHandler) OnLocalTrackSubscribed(trackSubscribed *livekit.TrackSubscribed)  {}
 func (n *nullEngineHandler) OnSubscribedQualityUpdate(subscribedQualityUpdate *livekit.SubscribedQualityUpdate) {
+}
+func (n *nullEngineHandler) OnMediaSectionsRequirement(mediaSectionsRequirement *livekit.MediaSectionsRequirement) {
 }
 
 // -------------------------------------------
@@ -299,7 +302,7 @@ func (e *RTCEngine) IsConnected() bool {
 	e.pclock.Lock()
 	defer e.pclock.Unlock()
 
-	if (e.publisher == nil && PROTOCOL <= MAX_PROTOCOL_DUAL_PEER_CONNECTION) || e.subscriber == nil {
+	if e.publisher == nil || (PROTOCOL <= MAX_PROTOCOL_DUAL_PEER_CONNECTION && e.subscriber == nil) {
 		return false
 	}
 	if e.subscriberPrimary {
@@ -366,10 +369,6 @@ func (e *RTCEngine) configure(
 }
 
 func (e *RTCEngine) createPublisherPCLocked(configuration webrtc.Configuration) error {
-	if PROTOCOL > MAX_PROTOCOL_DUAL_PEER_CONNECTION {
-		return nil
-	}
-
 	var err error
 	if e.publisher, err = NewPCTransport(PCTransportParams{
 		Configuration:        configuration,
@@ -449,6 +448,10 @@ func (e *RTCEngine) createPublisherPCLocked(configuration webrtc.Configuration) 
 }
 
 func (e *RTCEngine) createSubscriberPCLocked(configuration webrtc.Configuration) error {
+	if PROTOCOL > MAX_PROTOCOL_DUAL_PEER_CONNECTION {
+		return nil
+	}
+
 	var err error
 	if e.subscriber, err = NewPCTransport(PCTransportParams{
 		Configuration:        configuration,
@@ -1247,14 +1250,18 @@ func (e *RTCEngine) OnReconnectResponse(res *livekit.ReconnectResponse) error {
 	e.pclock.Lock()
 	defer e.pclock.Unlock()
 
-	if err := e.publisher.SetConfiguration(configuration); err != nil {
-		e.log.Errorw("could not set rtc configuration for publisher", err)
-		return err
+	if e.publisher != nil {
+		if err := e.publisher.SetConfiguration(configuration); err != nil {
+			e.log.Errorw("could not set rtc configuration for publisher", err)
+			return err
+		}
 	}
 
-	if err := e.subscriber.SetConfiguration(configuration); err != nil {
-		e.log.Errorw("could not set rtc configuration for subscriber", err)
-		return err
+	if e.subscriber != nil {
+		if err := e.subscriber.SetConfiguration(configuration); err != nil {
+			e.log.Errorw("could not set rtc configuration for subscriber", err)
+			return err
+		}
 	}
 
 	return nil
@@ -1374,6 +1381,10 @@ func (e *RTCEngine) OnLocalTrackSubscribed(trackSubscribed *livekit.TrackSubscri
 
 func (e *RTCEngine) OnSubscribedQualityUpdate(subscribedQualityUpdate *livekit.SubscribedQualityUpdate) {
 	e.engineHandler.OnSubscribedQualityUpdate(subscribedQualityUpdate)
+}
+
+func (e *RTCEngine) OnMediaSectionsRequirement(mediaSectionsRequirement *livekit.MediaSectionsRequirement) {
+	e.engineHandler.OnMediaSectionsRequirement(mediaSectionsRequirement)
 }
 
 // ------------------------------------

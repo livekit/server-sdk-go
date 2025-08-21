@@ -119,9 +119,7 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 		return nil, err
 	}
 
-	if PROTOCOL <= MAX_PROTOCOL_DUAL_PEER_CONNECTION {
-		transport.Negotiate()
-	}
+	transport.Negotiate()
 
 	var pubRes *livekit.TrackPublishedResponse
 	select {
@@ -259,9 +257,7 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *Tra
 	pub.updateInfo(pubRes.Track)
 	p.addPublication(pub)
 
-	if PROTOCOL <= MAX_PROTOCOL_DUAL_PEER_CONNECTION {
-		transport.Negotiate()
-	}
+	transport.Negotiate()
 
 	p.Callback.OnLocalTrackPublished(pub, p)
 	p.roomCallback.OnLocalTrackPublished(pub, p)
@@ -387,7 +383,6 @@ func (p *LocalParticipant) UnpublishTrack(sid string) error {
 		return nil
 	}
 
-	// SINGLE-PEER-CONNECTION-TODO: need a signal message to trigger an offer from server for unpublish
 	var err error
 	if localTrack, ok := pub.track.(webrtc.TrackLocal); ok {
 		transport := p.getPublishTransport()
@@ -400,9 +395,7 @@ func (p *LocalParticipant) UnpublishTrack(sid string) error {
 				break
 			}
 		}
-		if PROTOCOL <= MAX_PROTOCOL_DUAL_PEER_CONNECTION {
-			transport.Negotiate()
-		}
+		transport.Negotiate()
 	}
 
 	pub.CloseTrack()
@@ -871,18 +864,10 @@ func (p *LocalParticipant) SendFile(filePath string, options StreamBytesOptions)
 }
 
 func (p *LocalParticipant) getPublishTransport() *PCTransport {
-	var transport *PCTransport
-	if PROTOCOL > MAX_PROTOCOL_DUAL_PEER_CONNECTION {
-		subscriber, ok := p.engine.Subscriber()
-		if ok {
-			transport = subscriber
-		}
-	} else {
-		publisher, ok := p.engine.Publisher()
-		if ok {
-			transport = publisher
-		}
+	publisher, ok := p.engine.Publisher()
+	if ok {
+		return publisher
 	}
 
-	return transport
+	return nil
 }

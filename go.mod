@@ -87,3 +87,5 @@ require (
 	gopkg.in/hraban/opus.v2 v2.0.0-20230925203106-0188a62cb302 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/livekit/protocol => ../protocol

@@ -1014,6 +1014,47 @@ func (r *Room) OnSubscribedQualityUpdate(subscribedQualityUpdate *livekit.Subscr
 	}
 }
 
+func (r *Room) OnMediaSectionsRequirement(mediaSectionsRequirement *livekit.MediaSectionsRequirement) {
+	addTransceivers := func(transport *PCTransport, kind webrtc.RTPCodecType, count uint32) {
+		for i := uint32(0); i < count; i++ {
+			if _, err := transport.PeerConnection().AddTransceiverFromKind(
+				kind,
+				webrtc.RTPTransceiverInit{
+					Direction: webrtc.RTPTransceiverDirectionRecvonly,
+				},
+			); err != nil {
+				r.log.Warnw(
+					"could not add transceiver", err,
+					"room", r.name,
+					"roomID", r.sid,
+					"participant", r.LocalParticipant.Identity(),
+					"pID", r.LocalParticipant.SID(),
+					"kind", kind,
+				)
+			} else {
+				r.log.Debugw(
+					"added transceiver of kind",
+					"room", r.name,
+					"roomID", r.sid,
+					"participant", r.LocalParticipant.Identity(),
+					"pID", r.LocalParticipant.SID(),
+					"kind", kind,
+				)
+			}
+		}
+	}
+
+	publisher, ok := r.engine.Publisher()
+	if !ok {
+		r.log.Warnw("no publisher peer connection", ErrNoPeerConnection)
+		return
+	}
+
+	addTransceivers(publisher, webrtc.RTPCodecTypeAudio, mediaSectionsRequirement.NumAudios)
+	addTransceivers(publisher, webrtc.RTPCodecTypeVideo, mediaSectionsRequirement.NumVideos)
+	publisher.Negotiate()
+}
+
 func (r *Room) OnStreamHeader(streamHeader *livekit.DataStream_Header, participantIdentity string) {
 	switch header := streamHeader.ContentHeader.(type) {
 	case *livekit.DataStream_Header_TextHeader:
