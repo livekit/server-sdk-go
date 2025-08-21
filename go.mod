@@ -64,10 +64,10 @@ require (
 	github.com/pion/mdns/v2 v2.0.7 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
 	github.com/pion/sctp v1.8.39 // indirect
-	github.com/pion/srtp/v3 v3.0.6 // indirect
+	github.com/pion/srtp/v3 v3.0.7 // indirect
 	github.com/pion/stun/v3 v3.0.0 // indirect
 	github.com/pion/transport/v3 v3.0.7 // indirect
-	github.com/pion/turn/v4 v4.0.2 // indirect
+	github.com/pion/turn/v4 v4.1.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect
 	github.com/redis/go-redis/v9 v9.12.0 // indirect
@@ -89,3 +89,5 @@ require (
 )
 
 replace github.com/livekit/protocol => ../protocol
+
+replace github.com/pion/webrtc/v4 v4.1.3 => ../webrtc
