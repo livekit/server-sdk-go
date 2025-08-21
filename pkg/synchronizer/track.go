@@ -29,7 +29,6 @@ import (
 
 const (
 	maxAdjustment = time.Millisecond * 5
-	maxTSDiff     = time.Second
 )
 
 type TrackRemote interface {
@@ -45,6 +44,10 @@ type TrackSynchronizer struct {
 	track  TrackRemote
 	logger logger.Logger
 	*rtpConverter
+
+	// config
+	maxTsDiff                   time.Duration // maximum acceptable difference between RTP packets
+	audioPTSAdjustmentsDisabled bool
 
 	// timing info
 	startTime       time.Time     // time first packet was pushed
@@ -65,10 +68,12 @@ type TrackSynchronizer struct {
 
 func newTrackSynchronizer(s *Synchronizer, track TrackRemote) *TrackSynchronizer {
 	t := &TrackSynchronizer{
-		sync:         s,
-		track:        track,
-		logger:       logger.GetLogger().WithValues("trackID", track.ID(), "codec", track.Codec().MimeType),
-		rtpConverter: newRTPConverter(int64(track.Codec().ClockRate)),
+		sync:                        s,
+		track:                       track,
+		logger:                      logger.GetLogger().WithValues("trackID", track.ID(), "codec", track.Codec().MimeType),
+		rtpConverter:                newRTPConverter(int64(track.Codec().ClockRate)),
+		maxTsDiff:                   s.config.MaxTsDiff,
+		audioPTSAdjustmentsDisabled: s.config.AudioPTSAdjustmentDisabled,
 	}
 
 	return t
@@ -123,7 +128,7 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 
 	pts := t.lastPTS + t.toDuration(ts-t.lastTS)
 	estimatedPTS := time.Since(t.startTime)
-	if pts < t.lastPTS || !acceptable(pts-estimatedPTS) {
+	if pts < t.lastPTS || !t.acceptable(pts-estimatedPTS) {
 		logger.Debugw(
 			"resetting track PTS due to unexpected timestamp",
 			"pts", pts,
@@ -136,19 +141,19 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 		t.startRTP = ts - t.toRTP(pts)
 	}
 
-	if t.currentPTSOffset != t.desiredPTSOffset {
-		logger.Debugw(
+	if t.shouldAdjustPTS() {
+		t.logger.Debugw(
 			"adjusting track PTS offset",
 			"currentPTSOffset", t.currentPTSOffset,
 			"desiredPTSOffset", t.desiredPTSOffset,
 			"pts", pts,
 		)
 
-		// if t.currentPTSOffset > t.desiredPTSOffset {
-		// 	t.currentPTSOffset = max(t.currentPTSOffset-maxAdjustment, t.desiredPTSOffset)
-		// } else if t.currentPTSOffset < t.desiredPTSOffset {
-		// 	t.currentPTSOffset = min(t.currentPTSOffset+maxAdjustment, t.desiredPTSOffset)
-		// }
+		if t.currentPTSOffset > t.desiredPTSOffset {
+			t.currentPTSOffset = max(t.currentPTSOffset-maxAdjustment, t.desiredPTSOffset)
+		} else if t.currentPTSOffset < t.desiredPTSOffset {
+			t.currentPTSOffset = min(t.currentPTSOffset+maxAdjustment, t.desiredPTSOffset)
+		}
 	}
 	adjusted := pts + t.currentPTSOffset
 
@@ -185,8 +190,8 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 	} else {
 		pts = t.lastPTS - t.toDuration(t.lastTS-pkt.RTPTime)
 	}
-	if !acceptable(pts - time.Since(t.startTime)) {
-		logger.Debugw("ignoring sender report with unacceptable PTS",
+	if !t.acceptable(pts - time.Since(t.startTime)) {
+		t.logger.Debugw("ignoring sender report with unacceptable PTS",
 			"pts", pts,
 			"startTime", t.startTime,
 		)
@@ -198,7 +203,7 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 		t.onSR(offset - t.desiredPTSOffset)
 	}
 
-	if !acceptable(offset) {
+	if !t.acceptable(offset) {
 		logger.Debugw("ignoring sender report with unacceptable offset",
 			"offset", offset,
 		)
@@ -214,8 +219,16 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 	t.lastSR = pkt.RTPTime
 }
 
-func acceptable(d time.Duration) bool {
-	return d > -maxTSDiff && d < maxTSDiff
+func (t *TrackSynchronizer) acceptable(d time.Duration) bool {
+	return d > -t.maxTsDiff && d < t.maxTsDiff
+}
+
+func (t *TrackSynchronizer) shouldAdjustPTS() bool {
+	adjustmentEnabled := true
+	if t.track.Kind() == webrtc.RTPCodecTypeAudio {
+		adjustmentEnabled = !t.audioPTSAdjustmentsDisabled
+	}
+	return adjustmentEnabled && (t.currentPTSOffset != t.desiredPTSOffset)
 }
 
 type rtpConverter struct {
