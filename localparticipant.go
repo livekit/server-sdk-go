@@ -88,6 +88,7 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 		Height:     uint32(opts.VideoHeight),
 		DisableDtx: opts.DisableDTX,
 		Stereo:     opts.Stereo,
+		DisableRed: opts.DisableRed,
 		Stream:     opts.Stream,
 		Encryption: opts.Encryption,
 	}
