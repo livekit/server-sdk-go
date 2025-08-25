@@ -199,6 +199,13 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 	} else {
 		pts = t.lastPTS - t.toDuration(t.lastTS-pkt.RTPTime)
 	}
+	logger.Debugw("processing sender report",
+		"t.startTime", t.startTime,
+		"t.lastTS", t.lastTS,
+		"pkt.RTPTime", pkt.RTPTime,
+		"pts", pts,
+	)
+
 	if !t.acceptable(pts - time.Since(t.startTime)) {
 		t.logger.Debugw("ignoring sender report with unacceptable PTS",
 			"pts", pts,
