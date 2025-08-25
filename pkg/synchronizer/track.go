@@ -216,7 +216,7 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 
 	offset := mediatransportutil.NtpTime(pkt.NTPTime).Time().Sub(t.startTime.Add(pts))
 	if t.onSR != nil {
-		t.onSR(offset - t.desiredPTSOffset)
+		t.onSR(offset)
 	}
 
 	if !t.acceptable(offset) {
@@ -231,7 +231,7 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 		"new offset", offset,
 	)
 
-	t.desiredPTSOffset = offset
+	t.desiredPTSOffset += offset
 	t.lastSR = pkt.RTPTime
 }
 
