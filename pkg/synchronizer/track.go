@@ -142,6 +142,7 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 			"lastPTS", t.lastPTS,
 			"lastTS", t.lastTS,
 			"ts", ts,
+			"track", t.track.Kind(),
 		)
 		pts = estimatedPTS
 		t.startRTP = ts - t.toRTP(pts)
@@ -153,6 +154,7 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 			"currentPTSOffset", t.currentPTSOffset,
 			"desiredPTSOffset", t.desiredPTSOffset,
 			"pts", pts,
+			"track", t.track.Kind(),
 		)
 
 		if t.currentPTSOffset > t.desiredPTSOffset {
@@ -176,6 +178,7 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 	logger.Debugw("returning track PTS",
 		"pts", adjusted,
 		"packet no, ", pkt.SequenceNumber,
+		"track", t.track.Kind(),
 	)
 
 	return adjusted, nil
