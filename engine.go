@@ -302,7 +302,7 @@ func (e *RTCEngine) IsConnected() bool {
 	e.pclock.Lock()
 	defer e.pclock.Unlock()
 
-	if e.publisher == nil || (PROTOCOL <= MAX_PROTOCOL_DUAL_PEER_CONNECTION && e.subscriber == nil) {
+	if e.publisher == nil || (semver.Compare("v"+Version, "v3.0.0") >= 0 && e.subscriber == nil) {
 		return false
 	}
 	if e.subscriberPrimary {
@@ -448,7 +448,7 @@ func (e *RTCEngine) createPublisherPCLocked(configuration webrtc.Configuration) 
 }
 
 func (e *RTCEngine) createSubscriberPCLocked(configuration webrtc.Configuration) error {
-	if PROTOCOL > MAX_PROTOCOL_DUAL_PEER_CONNECTION {
+	if semver.Compare("v"+Version, "v3.0.0") >= 0 {
 		return nil
 	}
 

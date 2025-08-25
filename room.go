@@ -508,12 +508,23 @@ func (r *Room) addRemoteParticipant(pi *livekit.ParticipantInfo, updateExisting 
 }
 
 func (r *Room) sendSyncState() {
-	subscriber, ok := r.engine.Subscriber()
-	if !ok || subscriber.pc.RemoteDescription() == nil {
-		return
+	/* RAJA-TODO
+	var previousPublisherOffer *webrtc.SessionDescription
+	var previousPublisherAnswer *webrtc.SessionDescription
+	publisher, ok := r.engine.Publisher()
+	if ok {
+		previousPublisherOffer = publisher.pc.RemoteDescription()
+		previousPublisherAnswer = publisher.pc.LocalDescription()
 	}
+	*/
 
-	previousSdp := subscriber.pc.LocalDescription()
+	var previousSubscriberOffer *webrtc.SessionDescription
+	var previousSubscriberAnswer *webrtc.SessionDescription
+	subscriber, ok := r.engine.Subscriber()
+	if ok {
+		previousSubscriberOffer = subscriber.pc.RemoteDescription()
+		previousSubscriberAnswer = subscriber.pc.LocalDescription()
+	}
 
 	var trackSids []string
 	sendUnsub := r.engine.connParams.AutoSubscribe
@@ -552,7 +563,10 @@ func (r *Room) sendSyncState() {
 	getDCinfo(r.engine.GetDataChannelSub(livekit.DataPacket_LOSSY), livekit.SignalTarget_SUBSCRIBER)
 
 	r.engine.SendSyncState(&livekit.SyncState{
-		Answer: protosignalling.ToProtoSessionDescription(*previousSdp, 0),
+		// RAJA-TODO PublisherOffer:   protosignalling.ToProtoSessionDescription(*previousPublisherOffer, 0),
+		// RAJA-TODO PublisherAnswer:  protosignalling.ToProtoSessionDescription(*previousPublisherAnswer, 0),
+		SubscriberOffer:  protosignalling.ToProtoSessionDescription(*previousSubscriberOffer, 0),
+		SubscriberAnswer: protosignalling.ToProtoSessionDescription(*previousSubscriberAnswer, 0),
 		Subscription: &livekit.UpdateSubscription{
 			TrackSids: trackSids,
 			Subscribe: !sendUnsub,

@@ -17,11 +17,11 @@ require (
 	github.com/pion/rtcp v1.2.15
 	github.com/pion/rtp v1.8.21
 	github.com/pion/sdp/v3 v3.0.15
-	github.com/pion/webrtc/v4 v4.1.3
+	github.com/pion/webrtc/v4 v4.1.5-0.20250825162555-4b37165dcc27
 	github.com/stretchr/testify v1.10.0
 	github.com/twitchtv/twirp v8.1.3+incompatible
 	go.uber.org/atomic v1.11.0
-	golang.org/x/crypto v0.40.0
+	golang.org/x/crypto v0.41.0
 	golang.org/x/exp v0.0.0-20250718183923-645b1fa84792
 	google.golang.org/protobuf v1.36.7
 )
@@ -77,10 +77,10 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
 	go.uber.org/zap/exp v0.3.0 // indirect
-	golang.org/x/net v0.42.0 // indirect
+	golang.org/x/net v0.43.0 // indirect
 	golang.org/x/sync v0.16.0 // indirect
-	golang.org/x/sys v0.34.0 // indirect
-	golang.org/x/text v0.27.0 // indirect
+	golang.org/x/sys v0.35.0 // indirect
+	golang.org/x/text v0.28.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250804133106-a7a43d27e69b // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250804133106-a7a43d27e69b // indirect
 	google.golang.org/grpc v1.74.2 // indirect
@@ -89,5 +89,3 @@ require (
 )
 
 replace github.com/livekit/protocol => ../protocol
-
-replace github.com/pion/webrtc/v4 v4.1.3 => ../webrtc
