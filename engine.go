@@ -302,7 +302,7 @@ func (e *RTCEngine) IsConnected() bool {
 	e.pclock.Lock()
 	defer e.pclock.Unlock()
 
-	if e.publisher == nil || (semver.Compare("v"+Version, "v3.0.0") >= 0 && e.subscriber == nil) {
+	if e.publisher == nil || (semver.Compare("v"+Version, "v3.0.0") < 0 && e.subscriber == nil) {
 		return false
 	}
 	if e.subscriberPrimary {
