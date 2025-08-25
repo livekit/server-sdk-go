@@ -126,6 +126,12 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 		return t.lastPTSAdjusted, nil
 	}
 
+	logger.Debugw("getting PTS",
+		"track", t.track.Kind(),
+		"ts", ts,
+		"last_ts", t.lastTS,
+	)
+
 	pts := t.lastPTS + t.toDuration(ts-t.lastTS)
 	estimatedPTS := time.Since(t.startTime)
 	if pts < t.lastPTS || !t.acceptable(pts-estimatedPTS) {
