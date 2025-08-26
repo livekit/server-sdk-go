@@ -27,6 +27,7 @@ import (
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v4"
 	"golang.org/x/exp/maps"
+	"golang.org/x/mod/semver"
 	"google.golang.org/protobuf/proto"
 
 	protoLogger "github.com/livekit/protocol/logger"
@@ -508,30 +509,38 @@ func (r *Room) addRemoteParticipant(pi *livekit.ParticipantInfo, updateExisting 
 }
 
 func (r *Room) sendSyncState() {
-	/* RAJA-TODO
-	var previousPublisherOffer *webrtc.SessionDescription
-	var previousPublisherAnswer *webrtc.SessionDescription
-	publisher, ok := r.engine.Publisher()
-	if ok {
-		previousPublisherOffer = publisher.pc.RemoteDescription()
-		previousPublisherAnswer = publisher.pc.LocalDescription()
+	var previousOffer *webrtc.SessionDescription
+	var previousAnswer *webrtc.SessionDescription
+	if semver.Compare("v"+Version, "v3.0.0") >= 0 {
+		publisher, ok := r.engine.Publisher()
+		if ok {
+			previousOffer = publisher.pc.RemoteDescription()
+			previousAnswer = publisher.pc.LocalDescription()
+		}
+	} else {
+		subscriber, ok := r.engine.Subscriber()
+		if ok {
+			previousOffer = subscriber.pc.RemoteDescription()
+			previousAnswer = subscriber.pc.LocalDescription()
+		}
 	}
-	*/
-
-	var previousSubscriberOffer *webrtc.SessionDescription
-	var previousSubscriberAnswer *webrtc.SessionDescription
-	subscriber, ok := r.engine.Subscriber()
-	if ok {
-		previousSubscriberOffer = subscriber.pc.RemoteDescription()
-		previousSubscriberAnswer = subscriber.pc.LocalDescription()
+	if previousOffer == nil || previousAnswer == nil {
+		return
 	}
 
 	var trackSids []string
+	var trackSidsDisabled []string
 	sendUnsub := r.engine.connParams.AutoSubscribe
 	for _, rp := range r.GetRemoteParticipants() {
 		for _, t := range rp.TrackPublications() {
 			if t.IsSubscribed() != sendUnsub {
 				trackSids = append(trackSids, t.SID())
+			}
+
+			if rpub, ok := t.(*RemoteTrackPublication); ok {
+				if !rpub.IsEnabled() {
+					trackSidsDisabled = append(trackSidsDisabled, t.SID())
+				}
 			}
 		}
 	}
@@ -563,16 +572,16 @@ func (r *Room) sendSyncState() {
 	getDCinfo(r.engine.GetDataChannelSub(livekit.DataPacket_LOSSY), livekit.SignalTarget_SUBSCRIBER)
 
 	r.engine.SendSyncState(&livekit.SyncState{
-		// RAJA-TODO PublisherOffer:   protosignalling.ToProtoSessionDescription(*previousPublisherOffer, 0),
-		// RAJA-TODO PublisherAnswer:  protosignalling.ToProtoSessionDescription(*previousPublisherAnswer, 0),
-		SubscriberOffer:  protosignalling.ToProtoSessionDescription(*previousSubscriberOffer, 0),
-		SubscriberAnswer: protosignalling.ToProtoSessionDescription(*previousSubscriberAnswer, 0),
+		Offer:  protosignalling.ToProtoSessionDescription(*previousOffer, 0),
+		Answer: protosignalling.ToProtoSessionDescription(*previousAnswer, 0),
 		Subscription: &livekit.UpdateSubscription{
 			TrackSids: trackSids,
 			Subscribe: !sendUnsub,
 		},
-		PublishTracks: publishedTracks,
-		DataChannels:  dataChannels,
+		PublishTracks:     publishedTracks,
+		DataChannels:      dataChannels,
+		TrackSidsDisabled: trackSidsDisabled,
+		// MIGRATION-TODO DatachannelReceiveStates
 	})
 }
 
