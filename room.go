@@ -749,7 +749,7 @@ func (r *Room) OnRoomJoined(
 	}
 }
 
-func (r *Room) OnDisconnect(reason DisconnectionReason) {
+func (r *Room) OnDisconnected(reason DisconnectionReason) {
 	r.callback.OnDisconnected()
 	r.callback.OnDisconnectedWithReason(reason)
 
