@@ -162,14 +162,15 @@ func WithExtraAttributes(attrs map[string]string) ConnectOption {
 type PLIWriter func(webrtc.SSRC)
 
 type Room struct {
-	log              protoLogger.Logger
-	engine           *RTCEngine
-	sid              string
-	name             string
-	LocalParticipant *LocalParticipant
-	callback         *RoomCallback
-	connectionState  ConnectionState
-	sidReady         chan struct{}
+	log                     protoLogger.Logger
+	useSinglePeerConnection bool
+	engine                  *RTCEngine
+	sid                     string
+	name                    string
+	LocalParticipant        *LocalParticipant
+	callback                *RoomCallback
+	connectionState         ConnectionState
+	sidReady                chan struct{}
 
 	remoteParticipants map[livekit.ParticipantIdentity]*RemoteParticipant
 	sidToIdentity      map[livekit.ParticipantID]livekit.ParticipantIdentity
@@ -195,23 +196,24 @@ type Room struct {
 // NewRoom can be used to update callbacks before calling Join
 func NewRoom(callback *RoomCallback) *Room {
 	r := &Room{
-		log:                logger,
-		remoteParticipants: make(map[livekit.ParticipantIdentity]*RemoteParticipant),
-		sidToIdentity:      make(map[livekit.ParticipantID]livekit.ParticipantIdentity),
-		sidDefers:          make(map[livekit.ParticipantID]map[livekit.TrackID]func(*RemoteParticipant)),
-		callback:           NewRoomCallback(),
-		sidReady:           make(chan struct{}),
-		connectionState:    ConnectionStateDisconnected,
-		regionURLProvider:  newRegionURLProvider(),
-		byteStreamHandlers: &sync.Map{},
-		byteStreamReaders:  &sync.Map{},
-		textStreamHandlers: &sync.Map{},
-		textStreamReaders:  &sync.Map{},
-		rpcHandlers:        &sync.Map{},
+		log:                     logger,
+		useSinglePeerConnection: semver.Compare("v"+Version, "v3.0.0") >= 0,
+		remoteParticipants:      make(map[livekit.ParticipantIdentity]*RemoteParticipant),
+		sidToIdentity:           make(map[livekit.ParticipantID]livekit.ParticipantIdentity),
+		sidDefers:               make(map[livekit.ParticipantID]map[livekit.TrackID]func(*RemoteParticipant)),
+		callback:                NewRoomCallback(),
+		sidReady:                make(chan struct{}),
+		connectionState:         ConnectionStateDisconnected,
+		regionURLProvider:       newRegionURLProvider(),
+		byteStreamHandlers:      &sync.Map{},
+		byteStreamReaders:       &sync.Map{},
+		textStreamHandlers:      &sync.Map{},
+		textStreamReaders:       &sync.Map{},
+		rpcHandlers:             &sync.Map{},
 	}
 	r.callback.Merge(callback)
 
-	r.engine = NewRTCEngine(r, r.getLocalParticipantSID)
+	r.engine = NewRTCEngine(r.useSinglePeerConnection, r, r.getLocalParticipantSID)
 	r.LocalParticipant = newLocalParticipant(r.engine, r.callback, r.serverInfo)
 	return r
 }
@@ -511,7 +513,7 @@ func (r *Room) addRemoteParticipant(pi *livekit.ParticipantInfo, updateExisting 
 func (r *Room) sendSyncState() {
 	var previousOffer *webrtc.SessionDescription
 	var previousAnswer *webrtc.SessionDescription
-	if semver.Compare("v"+Version, "v3.0.0") >= 0 {
+	if r.useSinglePeerConnection {
 		publisher, ok := r.engine.Publisher()
 		if ok {
 			previousOffer = publisher.pc.RemoteDescription()

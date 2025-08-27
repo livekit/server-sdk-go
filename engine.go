@@ -24,7 +24,6 @@ import (
 
 	"github.com/pion/webrtc/v4"
 	"go.uber.org/atomic"
-	"golang.org/x/mod/semver"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
@@ -128,6 +127,7 @@ const (
 type RTCEngine struct {
 	log protoLogger.Logger
 
+	useSinglePeerConnection  bool
 	engineHandler            engineHandler
 	cbGetLocalParticipantSID func() string
 
@@ -169,18 +169,20 @@ type RTCEngine struct {
 }
 
 func NewRTCEngine(
+	useSinglePeerConnection bool,
 	engineHandler engineHandler,
 	getLocalParticipantSID func() string,
 ) *RTCEngine {
 	e := &RTCEngine{
 		log:                      logger,
+		useSinglePeerConnection:  useSinglePeerConnection,
 		engineHandler:            engineHandler,
 		cbGetLocalParticipantSID: getLocalParticipantSID,
 		trackPublishedListeners:  make(map[string]chan *livekit.TrackPublishedResponse),
 		joinTimeout:              15 * time.Second,
 		reliableMsgSeq:           1,
 	}
-	if semver.Compare("v"+Version, "v3.0.0") < 0 {
+	if !useSinglePeerConnection {
 		e.signalling = signalling.NewSignalling(signalling.SignallingParams{
 			Logger: e.log,
 		})
@@ -302,7 +304,7 @@ func (e *RTCEngine) IsConnected() bool {
 	e.pclock.Lock()
 	defer e.pclock.Unlock()
 
-	if e.publisher == nil || (semver.Compare("v"+Version, "v3.0.0") < 0 && e.subscriber == nil) {
+	if e.publisher == nil || (!e.useSinglePeerConnection && e.subscriber == nil) {
 		return false
 	}
 	if e.subscriberPrimary {
@@ -448,7 +450,7 @@ func (e *RTCEngine) createPublisherPCLocked(configuration webrtc.Configuration) 
 }
 
 func (e *RTCEngine) createSubscriberPCLocked(configuration webrtc.Configuration) error {
-	if semver.Compare("v"+Version, "v3.0.0") >= 0 {
+	if e.useSinglePeerConnection {
 		return nil
 	}
 
