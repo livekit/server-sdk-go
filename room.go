@@ -187,8 +187,6 @@ type Room struct {
 	rpcHandlers        *sync.Map
 
 	lock sync.RWMutex
-
-	nullEngineHandler
 }
 
 // NewRoom can be used to update callbacks before calling Join
@@ -850,7 +848,7 @@ func (r *Room) OnParticipantDisconnect(rp *RemoteParticipant) {
 	go r.callback.OnParticipantDisconnected(rp)
 }
 
-func (r *Room) OnSpeakersChange(speakerUpdates []*livekit.SpeakerInfo) {
+func (r *Room) OnSpeakersChanged(speakerUpdates []*livekit.SpeakerInfo) {
 	speakerMap := make(map[string]Participant)
 	for _, p := range r.ActiveSpeakers() {
 		speakerMap[p.SID()] = p
@@ -886,7 +884,7 @@ func (r *Room) OnSpeakersChange(speakerUpdates []*livekit.SpeakerInfo) {
 	go r.callback.OnActiveSpeakersChanged(activeSpeakers)
 }
 
-func (r *Room) OnConnectionQualityUpdate(updates []*livekit.ConnectionQualityInfo) {
+func (r *Room) OnConnectionQuality(updates []*livekit.ConnectionQualityInfo) {
 	for _, update := range updates {
 		if update.ParticipantSid == r.LocalParticipant.SID() {
 			r.LocalParticipant.setConnectionQualityInfo(update)
@@ -949,7 +947,7 @@ func (r *Room) OnLocalTrackUnpublished(msg *livekit.TrackUnpublishedResponse) {
 	}
 }
 
-func (r *Room) OnTranscriptionReceived(transcription *livekit.Transcription) {
+func (r *Room) OnTranscription(transcription *livekit.Transcription) {
 	var (
 		p           Participant
 		publication TrackPublication
