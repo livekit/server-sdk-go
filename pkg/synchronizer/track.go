@@ -60,6 +60,7 @@ type TrackSynchronizer struct {
 	// offsets
 	currentPTSOffset time.Duration // presentation timestamp offset (used for a/v sync)
 	desiredPTSOffset time.Duration // desired presentation timestamp offset (used for a/v sync)
+	basePTSOffset    time.Duration
 
 	// sender reports
 	lastSR uint32
@@ -96,6 +97,7 @@ func (t *TrackSynchronizer) Initialize(pkt *rtp.Packet) {
 
 	t.currentPTSOffset = time.Duration(now.UnixNano() - startedAt)
 	t.desiredPTSOffset = t.currentPTSOffset
+	t.basePTSOffset = t.currentPTSOffset
 
 	t.startRTP = pkt.Timestamp
 	t.lastTS = pkt.Timestamp
@@ -233,7 +235,7 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 		"new offset", offset,
 	)
 
-	t.desiredPTSOffset += offset
+	t.desiredPTSOffset = t.basePTSOffset + offset
 	t.lastSR = pkt.RTPTime
 }
 
