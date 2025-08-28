@@ -199,6 +199,8 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 	} else {
 		pts = t.lastPTS - t.toDuration(t.lastTS-pkt.RTPTime)
 	}
+
+	pts += (t.desiredPTSOffset - t.currentPTSOffset)
 	logger.Debugw("processing sender report",
 		"t.startTime", t.startTime,
 		"t.lastTS", t.lastTS,
