@@ -27,6 +27,7 @@ import (
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v4"
 	"golang.org/x/exp/maps"
+	"golang.org/x/mod/semver"
 	"google.golang.org/protobuf/proto"
 
 	protoLogger "github.com/livekit/protocol/logger"
@@ -161,14 +162,15 @@ func WithExtraAttributes(attrs map[string]string) ConnectOption {
 type PLIWriter func(webrtc.SSRC)
 
 type Room struct {
-	log              protoLogger.Logger
-	engine           *RTCEngine
-	sid              string
-	name             string
-	LocalParticipant *LocalParticipant
-	callback         *RoomCallback
-	connectionState  ConnectionState
-	sidReady         chan struct{}
+	log                     protoLogger.Logger
+	useSinglePeerConnection bool
+	engine                  *RTCEngine
+	sid                     string
+	name                    string
+	LocalParticipant        *LocalParticipant
+	callback                *RoomCallback
+	connectionState         ConnectionState
+	sidReady                chan struct{}
 
 	remoteParticipants map[livekit.ParticipantIdentity]*RemoteParticipant
 	sidToIdentity      map[livekit.ParticipantID]livekit.ParticipantIdentity
@@ -192,23 +194,24 @@ type Room struct {
 // NewRoom can be used to update callbacks before calling Join
 func NewRoom(callback *RoomCallback) *Room {
 	r := &Room{
-		log:                logger,
-		remoteParticipants: make(map[livekit.ParticipantIdentity]*RemoteParticipant),
-		sidToIdentity:      make(map[livekit.ParticipantID]livekit.ParticipantIdentity),
-		sidDefers:          make(map[livekit.ParticipantID]map[livekit.TrackID]func(*RemoteParticipant)),
-		callback:           NewRoomCallback(),
-		sidReady:           make(chan struct{}),
-		connectionState:    ConnectionStateDisconnected,
-		regionURLProvider:  newRegionURLProvider(),
-		byteStreamHandlers: &sync.Map{},
-		byteStreamReaders:  &sync.Map{},
-		textStreamHandlers: &sync.Map{},
-		textStreamReaders:  &sync.Map{},
-		rpcHandlers:        &sync.Map{},
+		log:                     logger,
+		useSinglePeerConnection: semver.Compare("v"+Version, "v3.0.0") >= 0,
+		remoteParticipants:      make(map[livekit.ParticipantIdentity]*RemoteParticipant),
+		sidToIdentity:           make(map[livekit.ParticipantID]livekit.ParticipantIdentity),
+		sidDefers:               make(map[livekit.ParticipantID]map[livekit.TrackID]func(*RemoteParticipant)),
+		callback:                NewRoomCallback(),
+		sidReady:                make(chan struct{}),
+		connectionState:         ConnectionStateDisconnected,
+		regionURLProvider:       newRegionURLProvider(),
+		byteStreamHandlers:      &sync.Map{},
+		byteStreamReaders:       &sync.Map{},
+		textStreamHandlers:      &sync.Map{},
+		textStreamReaders:       &sync.Map{},
+		rpcHandlers:             &sync.Map{},
 	}
 	r.callback.Merge(callback)
 
-	r.engine = NewRTCEngine(r, r.getLocalParticipantSID)
+	r.engine = NewRTCEngine(r.useSinglePeerConnection, r, r.getLocalParticipantSID)
 	r.LocalParticipant = newLocalParticipant(r.engine, r.callback, r.serverInfo)
 	return r
 }
@@ -506,19 +509,38 @@ func (r *Room) addRemoteParticipant(pi *livekit.ParticipantInfo, updateExisting 
 }
 
 func (r *Room) sendSyncState() {
-	subscriber, ok := r.engine.Subscriber()
-	if !ok || subscriber.pc.RemoteDescription() == nil {
+	var previousOffer *webrtc.SessionDescription
+	var previousAnswer *webrtc.SessionDescription
+	if r.useSinglePeerConnection {
+		publisher, ok := r.engine.Publisher()
+		if ok {
+			previousOffer = publisher.pc.RemoteDescription()
+			previousAnswer = publisher.pc.LocalDescription()
+		}
+	} else {
+		subscriber, ok := r.engine.Subscriber()
+		if ok {
+			previousOffer = subscriber.pc.RemoteDescription()
+			previousAnswer = subscriber.pc.LocalDescription()
+		}
+	}
+	if previousOffer == nil || previousAnswer == nil {
 		return
 	}
 
-	previousSdp := subscriber.pc.LocalDescription()
-
 	var trackSids []string
+	var trackSidsDisabled []string
 	sendUnsub := r.engine.connParams.AutoSubscribe
 	for _, rp := range r.GetRemoteParticipants() {
 		for _, t := range rp.TrackPublications() {
 			if t.IsSubscribed() != sendUnsub {
 				trackSids = append(trackSids, t.SID())
+			}
+
+			if rpub, ok := t.(*RemoteTrackPublication); ok {
+				if !rpub.IsEnabled() {
+					trackSidsDisabled = append(trackSidsDisabled, t.SID())
+				}
 			}
 		}
 	}
@@ -550,13 +572,16 @@ func (r *Room) sendSyncState() {
 	getDCinfo(r.engine.GetDataChannelSub(livekit.DataPacket_LOSSY), livekit.SignalTarget_SUBSCRIBER)
 
 	r.engine.SendSyncState(&livekit.SyncState{
-		Answer: protosignalling.ToProtoSessionDescription(*previousSdp, 0),
+		Offer:  protosignalling.ToProtoSessionDescription(*previousOffer, 0),
+		Answer: protosignalling.ToProtoSessionDescription(*previousAnswer, 0),
 		Subscription: &livekit.UpdateSubscription{
 			TrackSids: trackSids,
 			Subscribe: !sendUnsub,
 		},
-		PublishTracks: publishedTracks,
-		DataChannels:  dataChannels,
+		PublishTracks:     publishedTracks,
+		DataChannels:      dataChannels,
+		TrackSidsDisabled: trackSidsDisabled,
+		// MIGRATION-TODO DatachannelReceiveStates
 	})
 }
 
@@ -1010,6 +1035,47 @@ func (r *Room) OnSubscribedQualityUpdate(subscribedQualityUpdate *livekit.Subscr
 			}
 		}
 	}
+}
+
+func (r *Room) OnMediaSectionsRequirement(mediaSectionsRequirement *livekit.MediaSectionsRequirement) {
+	addTransceivers := func(transport *PCTransport, kind webrtc.RTPCodecType, count uint32) {
+		for i := uint32(0); i < count; i++ {
+			if _, err := transport.PeerConnection().AddTransceiverFromKind(
+				kind,
+				webrtc.RTPTransceiverInit{
+					Direction: webrtc.RTPTransceiverDirectionRecvonly,
+				},
+			); err != nil {
+				r.log.Warnw(
+					"could not add transceiver", err,
+					"room", r.name,
+					"roomID", r.sid,
+					"participant", r.LocalParticipant.Identity(),
+					"pID", r.LocalParticipant.SID(),
+					"kind", kind,
+				)
+			} else {
+				r.log.Debugw(
+					"added transceiver of kind",
+					"room", r.name,
+					"roomID", r.sid,
+					"participant", r.LocalParticipant.Identity(),
+					"pID", r.LocalParticipant.SID(),
+					"kind", kind,
+				)
+			}
+		}
+	}
+
+	publisher, ok := r.engine.Publisher()
+	if !ok {
+		r.log.Warnw("no publisher peer connection", ErrNoPeerConnection)
+		return
+	}
+
+	addTransceivers(publisher, webrtc.RTPCodecTypeAudio, mediaSectionsRequirement.NumAudios)
+	addTransceivers(publisher, webrtc.RTPCodecTypeVideo, mediaSectionsRequirement.NumVideos)
+	publisher.Negotiate()
 }
 
 func (r *Room) OnStreamHeader(streamHeader *livekit.DataStream_Header, participantIdentity string) {
