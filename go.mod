@@ -29,6 +29,11 @@ require (
 require golang.org/x/mod v0.27.0
 
 require (
+	github.com/maxbrunsfeld/counterfeiter/v6 v6.11.3 // indirect
+	golang.org/x/tools v0.36.0 // indirect
+)
+
+require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.8-20250717185734-6c6e0d3c608e.1 // indirect
 	buf.build/go/protovalidate v0.14.0 // indirect
 	buf.build/go/protoyaml v0.6.0 // indirect
@@ -87,3 +92,5 @@ require (
 	gopkg.in/hraban/opus.v2 v2.0.0-20230925203106-0188a62cb302 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+tool github.com/maxbrunsfeld/counterfeiter/v6

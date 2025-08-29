@@ -31,6 +31,9 @@ const (
 	maxAdjustment = time.Millisecond * 5
 )
 
+//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
+
+//counterfeiter:generate . TrackRemote
 type TrackRemote interface {
 	ID() string
 	Codec() webrtc.RTPCodecParameters
