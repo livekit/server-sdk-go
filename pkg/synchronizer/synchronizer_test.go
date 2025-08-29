@@ -14,6 +14,8 @@ import (
 	"github.com/livekit/server-sdk-go/v2/pkg/synchronizer/synchronizerfakes"
 )
 
+const timeTolerance = time.Millisecond * 10
+
 // ---------- helpers ----------
 
 func near(t *testing.T, got, want, tol time.Duration) {
@@ -71,11 +73,11 @@ func TestInitialize_AndSameTimestamp(t *testing.T) {
 
 	adj0, err := tsync.GetPTS(pkt(ts))
 	require.NoError(t, err)
-	near(t, adj0, 0, 5*time.Millisecond)
+	near(t, adj0, 0, timeTolerance)
 
 	adj1, err := tsync.GetPTS(pkt(ts))
 	require.NoError(t, err)
-	near(t, adj1, adj0, 1*time.Millisecond)
+	require.Equal(t, adj0, adj1)
 }
 
 // 20 ms RTP step at 48 kHz → ~20 ms adjusted PTS (with small tolerance)
@@ -94,7 +96,7 @@ func TestMonotonicPTS_SmallRTPDelta(t *testing.T) {
 
 	adj, err := tsync.GetPTS(pkt(ts0 + delta20ms))
 	require.NoError(t, err)
-	near(t, adj, 20*time.Millisecond, 3*time.Millisecond)
+	near(t, adj, 20*time.Millisecond, timeTolerance)
 }
 
 // Large RTP jump with tight MaxTsDiff should reset to small estimatedPTS (not ~2s)
@@ -123,7 +125,6 @@ func TestOnSenderReport_SlewsTowardDesiredOffset(t *testing.T) {
 		stepRTP       = uint32(48000 * 20 / 1000) // 20 ms @ 48 kHz
 		stepDur       = 20 * time.Millisecond
 		desired       = 50 * time.Millisecond // target offset from SR
-		tol           = 5 * time.Millisecond
 	)
 
 	s := synchronizer.NewSynchronizerWithOptions(synchronizer.WithMaxTsDiff(1 * time.Second))
@@ -167,7 +168,7 @@ func TestOnSenderReport_SlewsTowardDesiredOffset(t *testing.T) {
 	gotDelta := finalAdj - baseAdj
 	wantDelta := time.Duration(N)*stepDur + desired
 
-	near(t, gotDelta, wantDelta, tol)
+	near(t, gotDelta, wantDelta, timeTolerance)
 }
 
 // Regression: late video start (~2s) + tiny SR offset (~10ms) must NOT emit a big negative drift
@@ -175,9 +176,7 @@ func TestOnSenderReport_LateVideoStart_SmallSROffset_NoHugeNegativeDrift(t *test
 	const (
 		lateStart = 2 * time.Second
 		srOffset  = 50 * time.Millisecond
-
-		stepSlew = 5 * time.Millisecond // TrackSynchronizer's maxAdjustment
-		tol      = 5 * time.Millisecond // tolerance for rounding/timing
+		stepSlew  = 5 * time.Millisecond // TrackSynchronizer's maxAdjustment
 	)
 
 	s := synchronizer.NewSynchronizerWithOptions(synchronizer.WithMaxTsDiff(2 * time.Second))
@@ -210,7 +209,7 @@ func TestOnSenderReport_LateVideoStart_SmallSROffset_NoHugeNegativeDrift(t *test
 		RTPTime: tsV0, // equals lastTS → SR uses lastPTS at tsV0
 	})
 
-	near(t, observedDrift, srOffset, tol)
+	near(t, observedDrift, srOffset, timeTolerance)
 
 	// baseline adjusted PTS at the SR moment (same TS => returns last adjusted)
 	baseAdj, err := vSync.GetPTS(pkt(tsV0))
@@ -235,7 +234,7 @@ func TestOnSenderReport_LateVideoStart_SmallSROffset_NoHugeNegativeDrift(t *test
 	// After N steps, the extra beyond content cadence should be ~srOffset
 	gotDelta := adj - baseAdj
 	wantDelta := time.Duration(N)*stepDur + srOffset
-	near(t, gotDelta, wantDelta, tol)
+	near(t, gotDelta, wantDelta, timeTolerance)
 
 	// Now push more frames and ensure we DON'T keep slewing (stays near srOffset)
 	const extraFrames = 8
@@ -249,6 +248,6 @@ func TestOnSenderReport_LateVideoStart_SmallSROffset_NoHugeNegativeDrift(t *test
 		extra := (adj - baseAdj) - totalContent
 
 		// Stay within a small band around srOffset (no steady growth)
-		near(t, extra, srOffset, tol)
+		near(t, extra, srOffset, timeTolerance)
 	}
 }

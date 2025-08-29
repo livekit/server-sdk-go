@@ -62,7 +62,7 @@ type TrackSynchronizer struct {
 	// offsets
 	currentPTSOffset time.Duration // presentation timestamp offset (used for a/v sync)
 	desiredPTSOffset time.Duration // desired presentation timestamp offset (used for a/v sync)
-	basePTSOffset    time.Duration // component of the desired PTS offset (set initially to preseve initial offset)
+	basePTSOffset    time.Duration // component of the desired PTS offset (set initially to preserve initial offset)
 
 	// sender reports
 	lastSR uint32
