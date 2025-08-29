@@ -31,6 +31,9 @@ const (
 	maxAdjustment = time.Millisecond * 5
 )
 
+//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
+
+//counterfeiter:generate . TrackRemote
 type TrackRemote interface {
 	ID() string
 	Codec() webrtc.RTPCodecParameters
@@ -59,6 +62,7 @@ type TrackSynchronizer struct {
 	// offsets
 	currentPTSOffset time.Duration // presentation timestamp offset (used for a/v sync)
 	desiredPTSOffset time.Duration // desired presentation timestamp offset (used for a/v sync)
+	basePTSOffset    time.Duration // component of the desired PTS offset (set initially to preserve initial offset)
 
 	// sender reports
 	lastSR uint32
@@ -94,6 +98,7 @@ func (t *TrackSynchronizer) Initialize(pkt *rtp.Packet) {
 
 	t.currentPTSOffset = time.Duration(now.UnixNano() - startedAt)
 	t.desiredPTSOffset = t.currentPTSOffset
+	t.basePTSOffset = t.desiredPTSOffset
 
 	t.startRTP = pkt.Timestamp
 	t.lastTS = pkt.Timestamp
@@ -171,7 +176,7 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 		return
 	}
 
-	t.desiredPTSOffset += offset
+	t.desiredPTSOffset = t.basePTSOffset + offset
 	t.lastSR = pkt.RTPTime
 }
 
