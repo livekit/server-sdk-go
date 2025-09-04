@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	maxAdjustment = time.Millisecond * 5
+	maxAdjustment = time.Millisecond * 30
 )
 
 type TrackRemote interface {
