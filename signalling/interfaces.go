@@ -136,4 +136,5 @@ type SignalProcessor interface {
 	OnLeave(*livekit.LeaveRequest)
 	OnLocalTrackSubscribed(trackSubscribed *livekit.TrackSubscribed)
 	OnSubscribedQualityUpdate(subscribedQualityUpdate *livekit.SubscribedQualityUpdate)
+	OnMediaSectionsRequirement(mediaSectionsRequirement *livekit.MediaSectionsRequirement)
 }

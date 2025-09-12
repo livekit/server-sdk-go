@@ -24,7 +24,6 @@ import (
 
 	"github.com/pion/webrtc/v4"
 	"go.uber.org/atomic"
-	"golang.org/x/mod/semver"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
@@ -72,6 +71,7 @@ type engineHandler interface {
 	OnStreamTrailer(*livekit.DataStream_Trailer)
 	OnLocalTrackSubscribed(trackSubscribed *livekit.TrackSubscribed)
 	OnSubscribedQualityUpdate(subscribedQualityUpdate *livekit.SubscribedQualityUpdate)
+	OnMediaSectionsRequirement(mediaSectionsRequirement *livekit.MediaSectionsRequirement)
 }
 
 type nullEngineHandler struct{}
@@ -103,6 +103,8 @@ func (n *nullEngineHandler) OnStreamTrailer(*livekit.DataStream_Trailer)        
 func (n *nullEngineHandler) OnLocalTrackSubscribed(trackSubscribed *livekit.TrackSubscribed)  {}
 func (n *nullEngineHandler) OnSubscribedQualityUpdate(subscribedQualityUpdate *livekit.SubscribedQualityUpdate) {
 }
+func (n *nullEngineHandler) OnMediaSectionsRequirement(mediaSectionsRequirement *livekit.MediaSectionsRequirement) {
+}
 
 // -------------------------------------------
 
@@ -125,6 +127,7 @@ const (
 type RTCEngine struct {
 	log protoLogger.Logger
 
+	useSinglePeerConnection  bool
 	engineHandler            engineHandler
 	cbGetLocalParticipantSID func() string
 
@@ -166,18 +169,20 @@ type RTCEngine struct {
 }
 
 func NewRTCEngine(
+	useSinglePeerConnection bool,
 	engineHandler engineHandler,
 	getLocalParticipantSID func() string,
 ) *RTCEngine {
 	e := &RTCEngine{
 		log:                      logger,
+		useSinglePeerConnection:  useSinglePeerConnection,
 		engineHandler:            engineHandler,
 		cbGetLocalParticipantSID: getLocalParticipantSID,
 		trackPublishedListeners:  make(map[string]chan *livekit.TrackPublishedResponse),
 		joinTimeout:              15 * time.Second,
 		reliableMsgSeq:           1,
 	}
-	if semver.Compare("v"+Version, "v3.0.0") < 0 {
+	if !useSinglePeerConnection {
 		e.signalling = signalling.NewSignalling(signalling.SignallingParams{
 			Logger: e.log,
 		})
@@ -299,7 +304,7 @@ func (e *RTCEngine) IsConnected() bool {
 	e.pclock.Lock()
 	defer e.pclock.Unlock()
 
-	if e.publisher == nil || e.subscriber == nil {
+	if e.publisher == nil || (!e.useSinglePeerConnection && e.subscriber == nil) {
 		return false
 	}
 	if e.subscriberPrimary {
@@ -445,6 +450,10 @@ func (e *RTCEngine) createPublisherPCLocked(configuration webrtc.Configuration) 
 }
 
 func (e *RTCEngine) createSubscriberPCLocked(configuration webrtc.Configuration) error {
+	if e.useSinglePeerConnection {
+		return nil
+	}
+
 	var err error
 	if e.subscriber, err = NewPCTransport(PCTransportParams{
 		Configuration:        configuration,
@@ -817,6 +826,7 @@ func (e *RTCEngine) createSubscriberPCAnswerAndSend() error {
 		e.log.Errorw("could not set subscriber local description", err)
 		return err
 	}
+	e.log.Debugw("sending answer for subscriber", "answer", answer)
 	if err := e.signalTransport.SendMessage(
 		e.signalling.SignalSdpAnswer(
 			protosignalling.ToProtoSessionDescription(answer, 0),
@@ -1242,14 +1252,18 @@ func (e *RTCEngine) OnReconnectResponse(res *livekit.ReconnectResponse) error {
 	e.pclock.Lock()
 	defer e.pclock.Unlock()
 
-	if err := e.publisher.SetConfiguration(configuration); err != nil {
-		e.log.Errorw("could not set rtc configuration for publisher", err)
-		return err
+	if e.publisher != nil {
+		if err := e.publisher.SetConfiguration(configuration); err != nil {
+			e.log.Errorw("could not set rtc configuration for publisher", err)
+			return err
+		}
 	}
 
-	if err := e.subscriber.SetConfiguration(configuration); err != nil {
-		e.log.Errorw("could not set rtc configuration for subscriber", err)
-		return err
+	if e.subscriber != nil {
+		if err := e.subscriber.SetConfiguration(configuration); err != nil {
+			e.log.Errorw("could not set rtc configuration for subscriber", err)
+			return err
+		}
 	}
 
 	return nil
@@ -1274,7 +1288,7 @@ func (e *RTCEngine) OnOffer(sd webrtc.SessionDescription, offerId uint32) {
 		return
 	}
 
-	e.log.Debugw("received offer for subscriber")
+	e.log.Debugw("received offer for subscriber", "offer", sd, "offerId", offerId)
 	if err := e.subscriber.SetRemoteDescription(sd); err != nil {
 		e.log.Errorw("could not set remote description", err)
 		return
@@ -1369,6 +1383,10 @@ func (e *RTCEngine) OnLocalTrackSubscribed(trackSubscribed *livekit.TrackSubscri
 
 func (e *RTCEngine) OnSubscribedQualityUpdate(subscribedQualityUpdate *livekit.SubscribedQualityUpdate) {
 	e.engineHandler.OnSubscribedQualityUpdate(subscribedQualityUpdate)
+}
+
+func (e *RTCEngine) OnMediaSectionsRequirement(mediaSectionsRequirement *livekit.MediaSectionsRequirement) {
+	e.engineHandler.OnMediaSectionsRequirement(mediaSectionsRequirement)
 }
 
 // ------------------------------------

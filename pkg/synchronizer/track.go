@@ -31,6 +31,9 @@ const (
 	maxAdjustment = time.Millisecond * 33
 )
 
+//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
+
+//counterfeiter:generate . TrackRemote
 type TrackRemote interface {
 	ID() string
 	Codec() webrtc.RTPCodecParameters
@@ -47,7 +50,7 @@ type TrackSynchronizer struct {
 
 	// config
 	maxTsDiff                   time.Duration // maximum acceptable difference between RTP packets
-	audioPTSAdjustmentsDisabled bool
+	audioPTSAdjustmentsDisabled bool          // disable audio packets PTS adjustments on SRs
 
 	// timing info
 	startTime       time.Time     // time first packet was pushed
@@ -60,7 +63,7 @@ type TrackSynchronizer struct {
 	// offsets
 	currentPTSOffset time.Duration // presentation timestamp offset (used for a/v sync)
 	desiredPTSOffset time.Duration // desired presentation timestamp offset (used for a/v sync)
-	basePTSOffset    time.Duration
+	basePTSOffset    time.Duration // component of the desired PTS offset (set initially to preserve initial offset)
 
 	// sender reports
 	lastSR uint32
@@ -97,7 +100,7 @@ func (t *TrackSynchronizer) Initialize(pkt *rtp.Packet) {
 
 	t.currentPTSOffset = time.Duration(now.UnixNano() - startedAt)
 	t.desiredPTSOffset = t.currentPTSOffset
-	t.basePTSOffset = t.currentPTSOffset
+	t.basePTSOffset = t.desiredPTSOffset
 
 	t.startRTP = pkt.Timestamp
 	t.lastTS = pkt.Timestamp
@@ -158,13 +161,13 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 			"pts", pts,
 			"track", t.track.Kind(),
 		)
-
 		if t.currentPTSOffset > t.desiredPTSOffset {
 			t.currentPTSOffset = max(t.currentPTSOffset-maxAdjustment, t.desiredPTSOffset)
 		} else if t.currentPTSOffset < t.desiredPTSOffset {
 			t.currentPTSOffset = min(t.currentPTSOffset+maxAdjustment, t.desiredPTSOffset)
 		}
 	}
+
 	adjusted := pts + t.currentPTSOffset
 
 	// if past end time, return EOF

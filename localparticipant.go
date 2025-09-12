@@ -67,8 +67,8 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 		}
 	}
 
-	publisher, ok := p.engine.Publisher()
-	if !ok {
+	transport := p.getPublishTransport()
+	if transport == nil {
 		return nil, ErrNoPeerConnection
 	}
 
@@ -78,6 +78,20 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 
 	pub := NewLocalTrackPublication(kind, track, *opts, p.engine)
 	pub.onMuteChanged = p.onTrackMuted
+
+	// add transceivers - re-use if possible, AddTrack will try to re-use.
+	// NOTE: `AddTrack` technically cannot re-use transceiver if it was ever
+	// used to send media, i. e. if it was ever in a `sendrecv` or `sendonly`
+	// direction. But, pion does not enforce that based on browser behaviour
+	// observed in practice.
+	sender, err := transport.PeerConnection().AddTrack(track)
+	if err != nil {
+		return nil, err
+	}
+
+	// LocalTrack will consume rtcp packets so we don't need to consume again
+	_, isSampleTrack := track.(*LocalTrack)
+	pub.setSender(sender, !isSampleTrack)
 
 	req := &livekit.AddTrackRequest{
 		Cid:        track.ID(),
@@ -105,21 +119,7 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 		return nil, err
 	}
 
-	// add transceivers - re-use if possible, AddTrack will try to re-use.
-	// NOTE: `AddTrack` technically cannot re-use transceiver if it was ever
-	// used to send media, i. e. if it was ever in a `sendrecv` or `sendonly`
-	// direction. But, pion does not enforce that based on browser behaviour
-	// observed in practice.
-	sender, err := publisher.PeerConnection().AddTrack(track)
-	if err != nil {
-		return nil, err
-	}
-
-	// LocalTrack will consume rtcp packets so we don't need to consume again
-	_, isSampleTrack := track.(*LocalTrack)
-	pub.setSender(sender, !isSampleTrack)
-
-	publisher.Negotiate()
+	transport.Negotiate()
 
 	var pubRes *livekit.TrackPublishedResponse
 	select {
@@ -179,11 +179,53 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *Tra
 	pub := NewLocalTrackPublication(KindFromRTPType(mainTrack.Kind()), nil, *opts, p.engine)
 	pub.onMuteChanged = p.onTrackMuted
 
+	transport := p.getPublishTransport()
+	if transport == nil {
+		return nil, ErrNoPeerConnection
+	}
+
+	// add transceivers
+	var (
+		transceiver *webrtc.RTPTransceiver
+		sender      *webrtc.RTPSender
+		err         error
+	)
+	pc := transport.PeerConnection()
+	for idx, st := range tracksCopy {
+		if idx == 0 {
+			// add transceivers - re-use if possible, AddTrack will try to re-use.
+			// NOTE: `AddTrack` technically cannot re-use transceiver if it was ever
+			// used to send media, i. e. if it was ever in a `sendrecv` or `sendonly`
+			// direction. But, pion does not enforce that based on browser behaviour
+			// observed in practice.
+			sender, err = pc.AddTrack(st)
+			if err != nil {
+				return nil, err
+			}
+
+			// as there is no way to get transceiver from sender, search
+			for _, tr := range pc.GetTransceivers() {
+				if tr.Sender() == sender {
+					transceiver = tr
+					break
+				}
+			}
+
+			pub.setSender(sender, false)
+		} else {
+			if err = sender.AddEncoding(st); err != nil {
+				return nil, err
+			}
+		}
+		pub.addSimulcastTrack(st)
+		st.SetTransceiver(transceiver)
+	}
+
 	var layers []*livekit.VideoLayer
 	for _, st := range tracksCopy {
 		layers = append(layers, st.videoLayer)
 	}
-	err := p.engine.SendAddTrack(
+	err = p.engine.SendAddTrack(
 		&livekit.AddTrackRequest{
 			Cid:    mainTrack.ID(),
 			Name:   opts.Name,
@@ -212,49 +254,10 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *Tra
 		return nil, ErrTrackPublishTimeout
 	}
 
-	publisher, ok := p.engine.Publisher()
-	if !ok {
-		return nil, ErrNoPeerConnection
-	}
-
-	// add transceivers
-	publishPC := publisher.PeerConnection()
-	var transceiver *webrtc.RTPTransceiver
-	var sender *webrtc.RTPSender
-	for idx, st := range tracksCopy {
-		if idx == 0 {
-			// add transceivers - re-use if possible, AddTrack will try to re-use.
-			// NOTE: `AddTrack` technically cannot re-use transceiver if it was ever
-			// used to send media, i. e. if it was ever in a `sendrecv` or `sendonly`
-			// direction. But, pion does not enforce that based on browser behaviour
-			// observed in practice.
-			sender, err = publishPC.AddTrack(st)
-			if err != nil {
-				return nil, err
-			}
-
-			// as there is no way to get transceiver from sender, search
-			for _, tr := range publishPC.GetTransceivers() {
-				if tr.Sender() == sender {
-					transceiver = tr
-					break
-				}
-			}
-
-			pub.setSender(sender, false)
-		} else {
-			if err = sender.AddEncoding(st); err != nil {
-				return nil, err
-			}
-		}
-		pub.addSimulcastTrack(st)
-		st.SetTransceiver(transceiver)
-	}
-
 	pub.updateInfo(pubRes.Track)
 	p.addPublication(pub)
 
-	publisher.Negotiate()
+	transport.Negotiate()
 
 	p.Callback.OnLocalTrackPublished(pub, p)
 	p.roomCallback.OnLocalTrackPublished(pub, p)
@@ -382,17 +385,17 @@ func (p *LocalParticipant) UnpublishTrack(sid string) error {
 
 	var err error
 	if localTrack, ok := pub.track.(webrtc.TrackLocal); ok {
-		publisher, ok := p.engine.Publisher()
-		if !ok {
+		transport := p.getPublishTransport()
+		if transport == nil {
 			return ErrNoPeerConnection
 		}
-		for _, sender := range publisher.pc.GetSenders() {
+		for _, sender := range transport.pc.GetSenders() {
 			if sender.Track() == localTrack {
-				err = publisher.pc.RemoveTrack(sender)
+				err = transport.pc.RemoveTrack(sender)
 				break
 			}
 		}
-		publisher.Negotiate()
+		transport.Negotiate()
 	}
 
 	pub.CloseTrack()
@@ -858,4 +861,13 @@ func (p *LocalParticipant) SendFile(filePath string, options StreamBytesOptions)
 	writer.Write(fileBytes, &onDone)
 
 	return &writer.Info, nil
+}
+
+func (p *LocalParticipant) getPublishTransport() *PCTransport {
+	publisher, ok := p.engine.Publisher()
+	if ok {
+		return publisher
+	}
+
+	return nil
 }
