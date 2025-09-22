@@ -30,11 +30,13 @@ func performGreeting(room *lksdk.Room) {
 	roomClient := lksdk.NewRoomServiceClient(host, apiKey, apiSecret)
 
 	logger.Infow("[Server API] Triggering greeter's arrival RPC")
+	// timeout := 10 * time.Millisecond
 	res, err := roomClient.PerformRpc(context.Background(), &livekit.PerformRpcRequest{
 		Room:                room.Name(),
 		DestinationIdentity: greeter,
 		Method:              "arrival",
 		Payload:             "Hello",
+		ResponseTimeoutMs:   5000,
 	})
 
 	if err != nil {
@@ -51,7 +53,7 @@ func registerReceiverMethods(greeterRoom *lksdk.Room) error {
 
 		logger.Infow(fmt.Sprintf("[Greeter] Oh %s arrived and said %s", data.CallerIdentity, data.Payload))
 
-		time.AfterFunc(2000*time.Millisecond, func() {
+		time.AfterFunc(8000*time.Millisecond, func() {
 			resultChan <- "Welcome and have a wonderful day!"
 		})
 

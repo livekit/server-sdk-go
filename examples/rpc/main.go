@@ -63,7 +63,6 @@ func performGreetingWithTimeout(room *lksdk.Room) {
 	}
 
 	logger.Infow(fmt.Sprintf("[Caller] That's nice, the greeter said: %s", *res))
-
 }
 
 func performDisconnection(room *lksdk.Room) {
