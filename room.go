@@ -1169,6 +1169,7 @@ func (r *Room) OnStreamTrailer(streamTrailer *livekit.DataStream_Trailer) {
 }
 
 func (r *Room) OnRpcRequest(callerIdentity, requestId, method, payload string, responseTimeout time.Duration, version uint32) {
+	r.log.Infow("received RPC request", "callerIdentity", callerIdentity, "requestId", requestId, "method", method, "payload", payload, "responseTimeout", responseTimeout, "version", version)
 	r.engine.publishRpcAck(callerIdentity, requestId)
 
 	if version != 1 {

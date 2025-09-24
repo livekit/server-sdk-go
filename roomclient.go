@@ -170,3 +170,11 @@ func (c *RoomServiceClient) SendData(ctx context.Context, req *livekit.SendDataR
 func (c *RoomServiceClient) CreateToken() *auth.AccessToken {
 	return auth.NewAccessToken(c.apiKey, c.apiSecret)
 }
+
+func (c *RoomServiceClient) PerformRpc(ctx context.Context, req *livekit.PerformRpcRequest) (*livekit.PerformRpcResponse, error) {
+	ctx, err := c.withAuth(ctx, withVideoGrant{RoomAdmin: true, Room: req.Room})
+	if err != nil {
+		return nil, err
+	}
+	return c.roomService.PerformRpc(ctx, req)
+}
