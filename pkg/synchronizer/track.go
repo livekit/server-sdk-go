@@ -106,13 +106,14 @@ func (t *TrackSynchronizer) Initialize(pkt *rtp.Packet) {
 	t.lastTS = pkt.Timestamp
 	t.lastPTS = 0
 	t.lastPTSAdjusted = t.currentPTSOffset
-	t.logger.Infow("initialized track synchronizer",
+	t.logger.Infow(
+		"initialized track synchronizer",
 		"startRTP", t.startRTP,
 		"currentPTSOffset", t.currentPTSOffset,
 	)
 }
 
-// GetPTS will reset sequence numbers and/or offsets if necessary
+// GetPTS will adjust PTS offsets if necessary
 // Packets are expected to be in order
 func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 	t.Lock()
@@ -120,6 +121,11 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 
 	if t.startTime.IsZero() {
 		t.startTime = time.Now()
+		t.logger.Infow(
+			"starting track synchronizer",
+			"startRTP", t.startRTP,
+			"currentPTSOffset", t.currentPTSOffset,
+		)
 	}
 
 	ts := pkt.Timestamp
@@ -131,8 +137,9 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 	estimatedPTS := time.Since(t.startTime)
 	if pts < t.lastPTS || !t.acceptable(pts-estimatedPTS) {
 		newStartRTP := ts - t.toRTP(estimatedPTS)
-		t.logger.Infow("correcting PTS",
-			"TS", ts,
+		t.logger.Infow(
+			"correcting PTS",
+			"currentTS", ts,
 			"lastTS", t.lastTS,
 			"PTS", pts,
 			"lastPTS", t.lastPTS,
