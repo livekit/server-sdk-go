@@ -148,6 +148,9 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 				"estimatedPTS", estimatedPTS,
 				"startRTP", t.startRTP,
 				"newStartRTP", newStartRTP,
+				"basePTSOffset", t.basePTSOffset,
+				"currentPTSOffset", t.currentPTSOffset,
+				"desiredPTSOffet", t.desiredPTSOffset,
 			)
 			pts = estimatedPTS
 			t.startRTP = newStartRTP
