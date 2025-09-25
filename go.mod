@@ -8,14 +8,14 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/livekit/mageutil v0.0.0-20250511045019-0f1ff63f7731
-	github.com/livekit/media-sdk v0.0.0-20250518151703-b07af88637c5
+	github.com/livekit/media-sdk v0.0.0-20250925153715-3c04713ae840
 	github.com/livekit/mediatransportutil v0.0.0-20250519131108-fb90f5acfded
 	github.com/livekit/protocol v1.40.1-0.20250826073447-c714707269e5
 	github.com/magefile/mage v1.15.0
 	github.com/pion/dtls/v3 v3.0.7
 	github.com/pion/interceptor v0.1.40
 	github.com/pion/rtcp v1.2.15
-	github.com/pion/rtp v1.8.21
+	github.com/pion/rtp v1.8.22
 	github.com/pion/sdp/v3 v3.0.15
 	github.com/pion/webrtc/v4 v4.1.5-0.20250828044558-c376d0edf977
 	github.com/stretchr/testify v1.11.1
@@ -94,5 +94,3 @@ require (
 )
 
 tool github.com/maxbrunsfeld/counterfeiter/v6
-
-replace github.com/livekit/media-sdk => ../media-sdk
