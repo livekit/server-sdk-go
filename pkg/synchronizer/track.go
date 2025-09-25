@@ -23,12 +23,17 @@ import (
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 
+	"github.com/livekit/media-sdk/jitter"
 	"github.com/livekit/mediatransportutil"
 	"github.com/livekit/protocol/logger"
+	"github.com/livekit/protocol/utils/mono"
 )
 
 const (
 	maxAdjustment = time.Millisecond * 5
+
+	cStartTimeAdjustWindow    = 2 * time.Minute
+	cStartTimeAdjustThreshold = 15 * 1e9
 )
 
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
@@ -68,6 +73,9 @@ type TrackSynchronizer struct {
 	// sender reports
 	lastSR uint32
 	onSR   func(duration time.Duration)
+
+	propagationDelayEstimator *OWDEstimator
+	totalStartTimeAdjustment  time.Duration
 }
 
 func newTrackSynchronizer(s *Synchronizer, track TrackRemote) *TrackSynchronizer {
@@ -78,6 +86,7 @@ func newTrackSynchronizer(s *Synchronizer, track TrackRemote) *TrackSynchronizer
 		rtpConverter:                newRTPConverter(int64(track.Codec().ClockRate)),
 		maxTsDiff:                   s.config.MaxTsDiff,
 		audioPTSAdjustmentsDisabled: s.config.AudioPTSAdjustmentDisabled,
+		propagationDelayEstimator:   NewOWDEstimator(OWDEstimatorParamsDefault),
 	}
 
 	return t
@@ -115,12 +124,12 @@ func (t *TrackSynchronizer) Initialize(pkt *rtp.Packet) {
 
 // GetPTS will adjust PTS offsets if necessary
 // Packets are expected to be in order
-func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
+func (t *TrackSynchronizer) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 	t.Lock()
 	defer t.Unlock()
 
 	if t.startTime.IsZero() {
-		t.startTime = time.Now()
+		t.startTime = pkt.ReceivedAt
 		t.logger.Infow(
 			"starting track synchronizer",
 			"startRTP", t.startRTP,
@@ -136,7 +145,6 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 	pts := t.lastPTS + t.toDuration(ts-t.lastTS)
 	estimatedPTS := time.Since(t.startTime)
 	if pts < t.lastPTS || !t.acceptable(pts-estimatedPTS) {
-		newStartRTP := ts - t.toRTP(estimatedPTS)
 		t.logger.Infow(
 			"correcting PTS",
 			"currentTS", ts,
@@ -144,11 +152,12 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 			"PTS", pts,
 			"lastPTS", t.lastPTS,
 			"estimatedPTS", estimatedPTS,
+			"offset", pts-estimatedPTS,
 			"startRTP", t.startRTP,
-			"newStartRTP", newStartRTP,
+			"propagationDelay", t.propagationDelayEstimator,
+			"totalStartTimeAdjustment", t.totalStartTimeAdjustment,
 		)
 		pts = estimatedPTS
-		t.startRTP = newStartRTP
 	}
 
 	if t.shouldAdjustPTS() {
@@ -160,6 +169,24 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 	}
 
 	adjusted := pts + t.currentPTSOffset
+	if adjusted < t.lastPTSAdjusted {
+		// always move it forward
+		t.logger.Infow(
+			"propelling PTS forward",
+			"currentTS", ts,
+			"lastTS", t.lastTS,
+			"PTS", pts,
+			"lastPTS", t.lastPTS,
+			"estimatedPTS", estimatedPTS,
+			"offset", pts-estimatedPTS,
+			"startRTP", t.startRTP,
+			"propagationDelay", t.propagationDelayEstimator,
+			"totalStartTimeAdjustment", t.totalStartTimeAdjustment,
+			"adjustedPTS", adjusted,
+			"lastPTSAdjusted", t.lastPTSAdjusted,
+		)
+		adjusted = t.lastPTSAdjusted + time.Millisecond
+	}
 
 	// if past end time, return EOF
 	if t.maxPTS > 0 && (adjusted > t.maxPTS) {
@@ -179,6 +206,10 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 	t.Lock()
 	defer t.Unlock()
 
+	// estimate propagation, i. e. one way delay based on NTP time in the report and when it is received
+	receivedAt := mono.UnixNano()
+	estimatedPropagationDelay := t.updatePropagationDelay(pkt, receivedAt)
+
 	if pkt.RTPTime == t.lastSR || t.startTime.IsZero() {
 		return
 	}
@@ -193,7 +224,15 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 		return
 	}
 
-	offset := mediatransportutil.NtpTime(pkt.NTPTime).Time().Sub(t.startTime.Add(pts))
+	// rebase the sender report NTP time to local clock
+	rebasedSenderTime := mediatransportutil.NtpTime(pkt.NTPTime).Time().Add(estimatedPropagationDelay)
+
+	// adjust the start time based on estimated propagation delay
+	// to make subsequent PTS calculations more accurate
+	t.maybeAdjustStartTime(pkt, rebasedSenderTime.UnixNano())
+
+	// offset is based on local clock
+	offset := rebasedSenderTime.Sub(t.startTime.Add(pts))
 	if t.onSR != nil {
 		t.onSR(offset)
 	}
@@ -204,6 +243,80 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 
 	t.desiredPTSOffset = t.basePTSOffset + offset
 	t.lastSR = pkt.RTPTime
+}
+
+func (t *TrackSynchronizer) updatePropagationDelay(sr *rtcp.SenderReport, receivedAt int64) time.Duration {
+	senderClockTime := mediatransportutil.NtpTime(sr.NTPTime).Time().UnixNano()
+	estimatedPropagationDelay, stepChange := t.propagationDelayEstimator.Update(
+		senderClockTime,
+		receivedAt,
+	)
+	if stepChange {
+		t.logger.Debugw(
+			"propagation delay step change",
+			"propagationDelayEstimator", t.propagationDelayEstimator,
+		)
+	}
+
+	return time.Duration(estimatedPropagationDelay)
+}
+
+func (t *TrackSynchronizer) maybeAdjustStartTime(sr *rtcp.SenderReport, rebasedReceivedAt int64) {
+	nowNano := mono.UnixNano()
+	startTimeNano := t.startTime.UnixNano()
+	if time.Duration(nowNano-startTimeNano) > cStartTimeAdjustWindow {
+		return
+	}
+
+	// for some time after the start, adjust time of first packet.
+	// Helps improve accuracy of expected timestamp calculation.
+	// Adjusting only one way, i. e. if the first sample experienced
+	// abnormal delay (maybe due to pacing or maybe due to queuing
+	// in some network element along the way), push back first time
+	// to an earlier instance.
+	timeSinceReceive := time.Duration(nowNano - rebasedReceivedAt)
+	nowTS := sr.RTPTime + t.toRTP(timeSinceReceive)
+	samplesDiff := nowTS - t.startRTP
+	if int32(samplesDiff) < 0 {
+		// out-of-order, skip
+		return
+	}
+
+	samplesDuration := t.toDuration(samplesDiff)
+	timeSinceStart := time.Duration(nowNano - startTimeNano)
+	now := startTimeNano + timeSinceStart.Nanoseconds()
+	adjustedStartTimeNano := now - samplesDuration.Nanoseconds()
+
+	getLoggingFields := func() []interface{} {
+		return []interface{}{
+			"startTime", t.startTime,
+			"nowTime", time.Unix(0, now),
+			"before", t.startTime,
+			"after", time.Unix(0, adjustedStartTimeNano),
+			"adjustment", time.Duration(startTimeNano - adjustedStartTimeNano),
+			"nowTS", nowTS,
+			"startTS", t.startRTP,
+			"sr", sr,
+			"timeSinceReceive", timeSinceReceive,
+			"timeSinceStart", timeSinceStart,
+			"samplesDiff", samplesDiff,
+			"samplesDuration", samplesDuration,
+		}
+	}
+
+	if adjustedStartTimeNano < startTimeNano {
+		if startTimeNano-adjustedStartTimeNano > cStartTimeAdjustThreshold {
+			t.logger.Warnw(
+				"adjusting start time, too big, ignoring", nil,
+				getLoggingFields()...,
+			)
+		} else {
+			t.logger.Debugw("adjusting first packet time", getLoggingFields()...)
+			t.totalStartTimeAdjustment += time.Duration(startTimeNano - adjustedStartTimeNano)
+			t.startTime = time.Unix(0, adjustedStartTimeNano)
+		}
+	}
+	return
 }
 
 func (t *TrackSynchronizer) acceptable(d time.Duration) bool {
