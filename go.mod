@@ -10,7 +10,7 @@ require (
 	github.com/livekit/mageutil v0.0.0-20250511045019-0f1ff63f7731
 	github.com/livekit/media-sdk v0.0.0-20250518151703-b07af88637c5
 	github.com/livekit/mediatransportutil v0.0.0-20250519131108-fb90f5acfded
-	github.com/livekit/protocol v1.40.1-0.20250826073447-c714707269e5
+	github.com/livekit/protocol v1.42.0
 	github.com/magefile/mage v1.15.0
 	github.com/pion/dtls/v3 v3.0.7
 	github.com/pion/interceptor v0.1.40
@@ -58,7 +58,7 @@ require (
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/lithammer/shortuuid/v4 v4.2.0 // indirect
-	github.com/livekit/psrpc v0.6.1-0.20250726180611-3915e005e741 // indirect
+	github.com/livekit/psrpc v0.7.0 // indirect
 	github.com/nats-io/nats.go v1.45.0 // indirect
 	github.com/nats-io/nkeys v0.4.11 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
