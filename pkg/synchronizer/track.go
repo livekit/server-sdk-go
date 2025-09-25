@@ -133,25 +133,28 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 		return t.lastPTSAdjusted, nil
 	}
 
+	isPTSAdjustmentsDisabled := t.isPTSAdjustmentsDisabled()
 	pts := t.lastPTS + t.toDuration(ts-t.lastTS)
-	estimatedPTS := time.Since(t.startTime)
-	if pts < t.lastPTS || !t.acceptable(pts-estimatedPTS) {
-		newStartRTP := ts - t.toRTP(estimatedPTS)
-		t.logger.Infow(
-			"correcting PTS",
-			"currentTS", ts,
-			"lastTS", t.lastTS,
-			"PTS", pts,
-			"lastPTS", t.lastPTS,
-			"estimatedPTS", estimatedPTS,
-			"startRTP", t.startRTP,
-			"newStartRTP", newStartRTP,
-		)
-		pts = estimatedPTS
-		t.startRTP = newStartRTP
+	if !isPTSAdjustmentsDisabled {
+		estimatedPTS := time.Since(t.startTime)
+		if pts < t.lastPTS || !t.acceptable(pts-estimatedPTS) {
+			newStartRTP := ts - t.toRTP(estimatedPTS)
+			t.logger.Infow(
+				"correcting PTS",
+				"currentTS", ts,
+				"lastTS", t.lastTS,
+				"PTS", pts,
+				"lastPTS", t.lastPTS,
+				"estimatedPTS", estimatedPTS,
+				"startRTP", t.startRTP,
+				"newStartRTP", newStartRTP,
+			)
+			pts = estimatedPTS
+			t.startRTP = newStartRTP
+		}
 	}
 
-	if t.shouldAdjustPTS() {
+	if !isPTSAdjustmentsDisabled && t.shouldAdjustPTS() {
 		if t.currentPTSOffset > t.desiredPTSOffset {
 			t.currentPTSOffset = max(t.currentPTSOffset-maxAdjustment, t.desiredPTSOffset)
 		} else if t.currentPTSOffset < t.desiredPTSOffset {
@@ -210,12 +213,16 @@ func (t *TrackSynchronizer) acceptable(d time.Duration) bool {
 	return d > -t.maxTsDiff && d < t.maxTsDiff
 }
 
-func (t *TrackSynchronizer) shouldAdjustPTS() bool {
-	adjustmentEnabled := true
+func (t *TrackSynchronizer) isPTSAdjustmentsDisabled() bool {
 	if t.track.Kind() == webrtc.RTPCodecTypeAudio {
-		adjustmentEnabled = !t.audioPTSAdjustmentsDisabled
+		return t.audioPTSAdjustmentsDisabled
 	}
-	return adjustmentEnabled && (t.currentPTSOffset != t.desiredPTSOffset)
+
+	return false
+}
+
+func (t *TrackSynchronizer) shouldAdjustPTS() bool {
+	return t.currentPTSOffset != t.desiredPTSOffset
 }
 
 type rtpConverter struct {
