@@ -132,6 +132,7 @@ func (t *TrackSynchronizer) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) 
 		t.startTime = pkt.ReceivedAt
 		t.logger.Infow(
 			"starting track synchronizer",
+			"startTime", t.startTime,
 			"startRTP", t.startRTP,
 			"currentPTSOffset", t.currentPTSOffset,
 		)
@@ -178,12 +179,13 @@ func (t *TrackSynchronizer) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) 
 			"PTS", pts,
 			"lastPTS", t.lastPTS,
 			"estimatedPTS", estimatedPTS,
-			"offset", pts-estimatedPTS,
+			"ptsOffset", pts-estimatedPTS,
 			"startRTP", t.startRTP,
 			"propagationDelay", t.propagationDelayEstimator,
 			"totalStartTimeAdjustment", t.totalStartTimeAdjustment,
 			"adjustedPTS", adjusted,
 			"lastPTSAdjusted", t.lastPTSAdjusted,
+			"adjustedPTSOffset", adjusted-t.lastPTSAdjusted,
 		)
 		adjusted = t.lastPTSAdjusted + time.Millisecond
 	}
@@ -210,12 +212,12 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 	receivedAt := mono.UnixNano()
 	estimatedPropagationDelay := t.updatePropagationDelay(pkt, receivedAt)
 
-	if pkt.RTPTime == t.lastSR || t.startTime.IsZero() {
+	if (t.lastSR != 0 && (pkt.RTPTime-t.lastSR) > (1<<31)) || t.startTime.IsZero() {
 		return
 	}
 
 	var pts time.Duration
-	if pkt.RTPTime > t.lastTS {
+	if (pkt.RTPTime - t.lastTS) < (1 << 31) {
 		pts = t.lastPTS + t.toDuration(pkt.RTPTime-t.lastTS)
 	} else {
 		pts = t.lastPTS - t.toDuration(t.lastTS-pkt.RTPTime)
@@ -235,6 +237,21 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 	offset := rebasedSenderTime.Sub(t.startTime.Add(pts))
 	if t.onSR != nil {
 		t.onSR(offset)
+	}
+	if offset > 500*time.Millisecond {
+		t.logger.Infow(
+			"high offset",
+			"lastTS", t.lastTS,
+			"PTS", pts,
+			"lastPTS", t.lastPTS,
+			"startRTP", t.startRTP,
+			"propagationDelay", t.propagationDelayEstimator,
+			"totalStartTimeAdjustment", t.totalStartTimeAdjustment,
+			"offset", offset,
+			"rebasedSenderTime", rebasedSenderTime,
+			"startTime", t.startTime,
+			"ptsTime", t.startTime.Add(pts),
+		)
 	}
 
 	if !t.acceptable(offset) {
@@ -278,7 +295,7 @@ func (t *TrackSynchronizer) maybeAdjustStartTime(sr *rtcp.SenderReport, rebasedR
 	nowTS := sr.RTPTime + t.toRTP(timeSinceReceive)
 	samplesDiff := nowTS - t.startRTP
 	if int32(samplesDiff) < 0 {
-		// out-of-order, skip
+		// out-of-order, pre-start, skip
 		return
 	}
 
@@ -337,7 +354,7 @@ type rtpConverter struct {
 }
 
 func newRTPConverter(clockRate int64) *rtpConverter {
-	ts := int64(time.Second)
+	ts := time.Second.Nanoseconds()
 	for _, i := range []int64{10, 3, 2} {
 		for ts%i == 0 && clockRate%i == 0 {
 			ts /= i
@@ -353,5 +370,5 @@ func (c *rtpConverter) toDuration(rtpDuration uint32) time.Duration {
 }
 
 func (c *rtpConverter) toRTP(duration time.Duration) uint32 {
-	return uint32(uint64(duration.Nanoseconds()) * c.rtp / c.ts)
+	return uint32(duration.Nanoseconds() * int64(c.rtp) / int64(c.ts))
 }
