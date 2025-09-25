@@ -29,9 +29,9 @@ type SynchronizerOption func(*SynchronizerConfig)
 
 // SynchronizerConfig holds configuration for the Synchronizer
 type SynchronizerConfig struct {
-	MaxTsDiff                  time.Duration
-	OnStarted                  func()
-	AudioPTSAdjustmentDisabled bool
+	MaxTsDiff             time.Duration
+	OnStarted             func()
+	PTSAdjustmentDisabled bool
 }
 
 // WithMaxTsDiff sets the maximum acceptable difference between RTP packets
@@ -49,14 +49,14 @@ func WithOnStarted(onStarted func()) SynchronizerOption {
 	}
 }
 
-// WithAudioPTSAdjustmentDisabled - disables auto PTS adjustments after sender reports
+// WithPTSAdjustmentDisabled - disables auto PTS adjustments after sender reports
 // Use case: when media processing pipeline needs stable - monotonically increasing
 // PTS sequence - small adjustments coming from RTCP sender reports could cause gaps in the audio
 // Media processing pipeline could opt out of auto PTS adjustments and handle the gap
 // by e.g modifying tempo to compensate instead
-func WithAudioPTSAdjustmentDisabled() SynchronizerOption {
+func WithPTSAdjustmentDisabled() SynchronizerOption {
 	return func(config *SynchronizerConfig) {
-		config.AudioPTSAdjustmentDisabled = true
+		config.PTSAdjustmentDisabled = true
 	}
 }
 

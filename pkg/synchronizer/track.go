@@ -49,8 +49,8 @@ type TrackSynchronizer struct {
 	*rtpConverter
 
 	// config
-	maxTsDiff                   time.Duration // maximum acceptable difference between RTP packets
-	audioPTSAdjustmentsDisabled bool          // disable audio packets PTS adjustments on SRs
+	maxTsDiff              time.Duration // maximum acceptable difference between RTP packets
+	ptsAdjustmentsDisabled bool          // disable packets PTS adjustments on SRs
 
 	// timing info
 	startTime       time.Time     // time first packet was pushed
@@ -72,12 +72,12 @@ type TrackSynchronizer struct {
 
 func newTrackSynchronizer(s *Synchronizer, track TrackRemote) *TrackSynchronizer {
 	t := &TrackSynchronizer{
-		sync:                        s,
-		track:                       track,
-		logger:                      logger.GetLogger().WithValues("trackID", track.ID(), "codec", track.Codec().MimeType),
-		rtpConverter:                newRTPConverter(int64(track.Codec().ClockRate)),
-		maxTsDiff:                   s.config.MaxTsDiff,
-		audioPTSAdjustmentsDisabled: s.config.AudioPTSAdjustmentDisabled,
+		sync:                   s,
+		track:                  track,
+		logger:                 logger.GetLogger().WithValues("trackID", track.ID(), "codec", track.Codec().MimeType),
+		rtpConverter:           newRTPConverter(int64(track.Codec().ClockRate)),
+		maxTsDiff:              s.config.MaxTsDiff,
+		ptsAdjustmentsDisabled: s.config.PTSAdjustmentDisabled,
 	}
 
 	return t
@@ -106,13 +106,14 @@ func (t *TrackSynchronizer) Initialize(pkt *rtp.Packet) {
 	t.lastTS = pkt.Timestamp
 	t.lastPTS = 0
 	t.lastPTSAdjusted = t.currentPTSOffset
-	t.logger.Infow("initialized track synchronizer",
+	t.logger.Infow(
+		"initialized track synchronizer",
 		"startRTP", t.startRTP,
 		"currentPTSOffset", t.currentPTSOffset,
 	)
 }
 
-// GetPTS will reset sequence numbers and/or offsets if necessary
+// GetPTS will adjust PTS offsets if necessary
 // Packets are expected to be in order
 func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 	t.Lock()
@@ -120,6 +121,11 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 
 	if t.startTime.IsZero() {
 		t.startTime = time.Now()
+		t.logger.Infow(
+			"starting track synchronizer",
+			"startRTP", t.startRTP,
+			"currentPTSOffset", t.currentPTSOffset,
+		)
 	}
 
 	ts := pkt.Timestamp
@@ -131,8 +137,9 @@ func (t *TrackSynchronizer) GetPTS(pkt *rtp.Packet) (time.Duration, error) {
 	estimatedPTS := time.Since(t.startTime)
 	if pts < t.lastPTS || !t.acceptable(pts-estimatedPTS) {
 		newStartRTP := ts - t.toRTP(estimatedPTS)
-		t.logger.Infow("correcting PTS",
-			"TS", ts,
+		t.logger.Infow(
+			"correcting PTS",
+			"currentTS", ts,
 			"lastTS", t.lastTS,
 			"PTS", pts,
 			"lastPTS", t.lastPTS,
@@ -206,7 +213,7 @@ func (t *TrackSynchronizer) acceptable(d time.Duration) bool {
 func (t *TrackSynchronizer) shouldAdjustPTS() bool {
 	adjustmentEnabled := true
 	if t.track.Kind() == webrtc.RTPCodecTypeAudio {
-		adjustmentEnabled = !t.audioPTSAdjustmentsDisabled
+		adjustmentEnabled = !t.ptsAdjustmentsDisabled
 	}
 	return adjustmentEnabled && (t.currentPTSOffset != t.desiredPTSOffset)
 }
