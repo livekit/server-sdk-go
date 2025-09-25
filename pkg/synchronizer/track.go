@@ -49,8 +49,8 @@ type TrackSynchronizer struct {
 	*rtpConverter
 
 	// config
-	maxTsDiff              time.Duration // maximum acceptable difference between RTP packets
-	ptsAdjustmentsDisabled bool          // disable packets PTS adjustments on SRs
+	maxTsDiff                   time.Duration // maximum acceptable difference between RTP packets
+	audioPTSAdjustmentsDisabled bool          // disable audio packets PTS adjustments on SRs
 
 	// timing info
 	startTime       time.Time     // time first packet was pushed
@@ -72,12 +72,12 @@ type TrackSynchronizer struct {
 
 func newTrackSynchronizer(s *Synchronizer, track TrackRemote) *TrackSynchronizer {
 	t := &TrackSynchronizer{
-		sync:                   s,
-		track:                  track,
-		logger:                 logger.GetLogger().WithValues("trackID", track.ID(), "codec", track.Codec().MimeType),
-		rtpConverter:           newRTPConverter(int64(track.Codec().ClockRate)),
-		maxTsDiff:              s.config.MaxTsDiff,
-		ptsAdjustmentsDisabled: s.config.PTSAdjustmentDisabled,
+		sync:                        s,
+		track:                       track,
+		logger:                      logger.GetLogger().WithValues("trackID", track.ID(), "codec", track.Codec().MimeType),
+		rtpConverter:                newRTPConverter(int64(track.Codec().ClockRate)),
+		maxTsDiff:                   s.config.MaxTsDiff,
+		audioPTSAdjustmentsDisabled: s.config.AudioPTSAdjustmentDisabled,
 	}
 
 	return t
@@ -213,7 +213,7 @@ func (t *TrackSynchronizer) acceptable(d time.Duration) bool {
 func (t *TrackSynchronizer) shouldAdjustPTS() bool {
 	adjustmentEnabled := true
 	if t.track.Kind() == webrtc.RTPCodecTypeAudio {
-		adjustmentEnabled = !t.ptsAdjustmentsDisabled
+		adjustmentEnabled = !t.audioPTSAdjustmentsDisabled
 	}
 	return adjustmentEnabled && (t.currentPTSOffset != t.desiredPTSOffset)
 }
