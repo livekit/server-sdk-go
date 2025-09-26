@@ -180,11 +180,30 @@ func (t *TrackSynchronizer) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) 
 	}
 
 	if t.shouldAdjustPTS() {
+		prevCurrentPTSOffset := t.currentPTSOffset
 		if t.currentPTSOffset > t.desiredPTSOffset {
 			t.currentPTSOffset = max(t.currentPTSOffset-maxAdjustment, t.desiredPTSOffset)
 		} else if t.currentPTSOffset < t.desiredPTSOffset {
 			t.currentPTSOffset = min(t.currentPTSOffset+maxAdjustment, t.desiredPTSOffset)
 		}
+		t.logger.Infow(
+			"adjusting PTS offset",
+			"currentTS", ts,
+			"lastTS", t.lastTS,
+			"lastTime", t.lastTime,
+			"PTS", pts,
+			"lastPTS", t.lastPTS,
+			"estimatedPTS", estimatedPTS,
+			"ptsOffset", pts-estimatedPTS,
+			"startRTP", t.startRTP,
+			"propagationDelay", t.propagationDelayEstimator,
+			"totalStartTimeAdjustment", t.totalStartTimeAdjustment,
+			"lastPTSAdjusted", t.lastPTSAdjusted,
+			"basePTSOffset", t.basePTSOffset,
+			"desiredPTSOffset", t.desiredPTSOffset,
+			"currentPTSOffset", t.currentPTSOffset,
+			"prevCurrentPTSOffset", prevCurrentPTSOffset,
+		)
 	}
 
 	adjusted := pts + t.currentPTSOffset
