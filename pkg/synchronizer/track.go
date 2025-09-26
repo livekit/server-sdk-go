@@ -228,13 +228,14 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 
 	// rebase the sender report NTP time to local clock
 	rebasedSenderTime := mediatransportutil.NtpTime(pkt.NTPTime).Time().Add(estimatedPropagationDelay)
+	rebasedPTS := pts + estimatedPropagationDelay
 
 	// adjust the start time based on estimated propagation delay
 	// to make subsequent PTS calculations more accurate
 	t.maybeAdjustStartTime(pkt, rebasedSenderTime.UnixNano())
 
 	// offset is based on local clock
-	offset := rebasedSenderTime.Sub(t.startTime.Add(pts))
+	offset := rebasedSenderTime.Sub(t.startTime.Add(rebasedPTS))
 	if t.onSR != nil {
 		t.onSR(offset)
 	}
@@ -273,6 +274,9 @@ func (t *TrackSynchronizer) updatePropagationDelay(sr *rtcp.SenderReport, receiv
 		t.logger.Debugw(
 			"propagation delay step change",
 			"propagationDelayEstimator", t.propagationDelayEstimator,
+			"senderClockTime", senderClockTime,
+			"receivedAt", receivedAt,
+			"sr", sr,
 		)
 	}
 
