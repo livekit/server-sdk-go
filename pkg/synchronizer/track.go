@@ -243,15 +243,16 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 		t.logger.Infow(
 			"high offset",
 			"lastTS", t.lastTS,
-			"PTS", pts,
 			"lastPTS", t.lastPTS,
+			"rebasedSenderTime", rebasedSenderTime,
+			"PTS", pts,
+			"rebasedPTS", rebasedPTS,
 			"startRTP", t.startRTP,
 			"propagationDelay", t.propagationDelayEstimator,
 			"totalStartTimeAdjustment", t.totalStartTimeAdjustment,
 			"offset", offset,
-			"rebasedSenderTime", rebasedSenderTime,
 			"startTime", t.startTime,
-			"ptsTime", t.startTime.Add(pts),
+			"ptsTime", t.startTime.Add(rebasedPTS),
 			"sr", pkt,
 		)
 	}
