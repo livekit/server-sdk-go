@@ -251,6 +251,7 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 			"rebasedSenderTime", rebasedSenderTime,
 			"startTime", t.startTime,
 			"ptsTime", t.startTime.Add(pts),
+			"sr", pkt,
 		)
 	}
 
