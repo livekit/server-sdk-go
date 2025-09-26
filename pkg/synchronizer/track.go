@@ -203,6 +203,7 @@ func (t *TrackSynchronizer) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) 
 			"desiredPTSOffset", t.desiredPTSOffset,
 			"currentPTSOffset", t.currentPTSOffset,
 			"prevCurrentPTSOffset", prevCurrentPTSOffset,
+			"changeCurrentPTSOffset", t.currentPTSOffset-prevCurrentPTSOffset,
 		)
 	}
 
