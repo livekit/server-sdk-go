@@ -425,7 +425,7 @@ func (t *TrackSynchronizer) maybeAdjustStartTime(sr *rtcp.SenderReport, rebasedR
 		t.logger.Debugw("not adjusting start time", getLoggingFields()...)
 	}
 
-	return adjustedStartTimeNano - startTimeNano
+	return startTimeNano - adjustedStartTimeNano
 }
 
 func (t *TrackSynchronizer) acceptable(d time.Duration) bool {
