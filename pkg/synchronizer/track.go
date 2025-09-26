@@ -253,7 +253,7 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 
 	// estimate propagation, i. e. one way delay based on NTP time in the report and when it is received
 	receivedAt := mono.UnixNano()
-	estimatedPropagationDelay := t.updatePropagationDelay(pkt, receivedAt)
+	estimatedPropagationDelay := time.Duration(t.updatePropagationDelay(pkt, receivedAt))
 
 	if (t.lastSR != 0 && (pkt.RTPTime-t.lastSR) > (1<<31)) || t.startTime.IsZero() {
 		return
@@ -271,11 +271,16 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 
 	// rebase the sender report NTP time to local clock
 	rebasedSenderTime := mediatransportutil.NtpTime(pkt.NTPTime).Time().Add(estimatedPropagationDelay)
-	rebasedPTSSR := ptsSR + estimatedPropagationDelay
 
 	// adjust the start time based on estimated propagation delay
 	// to make subsequent PTS calculations more accurate
-	t.maybeAdjustStartTime(pkt, rebasedSenderTime.UnixNano())
+	adjustmentStartTimeNano := t.maybeAdjustStartTime(pkt, rebasedSenderTime.UnixNano())
+	// it is possible that first sender report is late, adjust down propagation delay if that is the case
+	estimatedPropagationDelay = time.Duration(t.propagationDelayEstimator.InitialAdjustment(adjustmentStartTimeNano))
+	// rebase the sender report NTP time to local clock once again after initial adjustment if any
+	rebasedSenderTime = mediatransportutil.NtpTime(pkt.NTPTime).Time().Add(estimatedPropagationDelay)
+
+	rebasedPTSSR := ptsSR + estimatedPropagationDelay
 
 	// offset is based on local clock
 	offset := rebasedSenderTime.Sub(t.startTime.Add(rebasedPTSSR))
@@ -312,7 +317,7 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 	t.lastSR = pkt.RTPTime
 }
 
-func (t *TrackSynchronizer) updatePropagationDelay(sr *rtcp.SenderReport, receivedAt int64) time.Duration {
+func (t *TrackSynchronizer) updatePropagationDelay(sr *rtcp.SenderReport, receivedAt int64) int64 {
 	senderClockTime := mediatransportutil.NtpTime(sr.NTPTime).Time().UnixNano()
 	estimatedPropagationDelay, stepChange := t.propagationDelayEstimator.Update(
 		senderClockTime,
@@ -328,14 +333,14 @@ func (t *TrackSynchronizer) updatePropagationDelay(sr *rtcp.SenderReport, receiv
 		)
 	}
 
-	return time.Duration(estimatedPropagationDelay)
+	return estimatedPropagationDelay
 }
 
-func (t *TrackSynchronizer) maybeAdjustStartTime(sr *rtcp.SenderReport, rebasedReceivedAt int64) {
+func (t *TrackSynchronizer) maybeAdjustStartTime(sr *rtcp.SenderReport, rebasedReceivedAt int64) int64 {
 	nowNano := mono.UnixNano()
 	startTimeNano := t.startTime.UnixNano()
 	if time.Duration(nowNano-startTimeNano) > cStartTimeAdjustWindow {
-		return
+		return 0
 	}
 
 	// for some time after the start, adjust time of first packet.
@@ -358,7 +363,7 @@ func (t *TrackSynchronizer) maybeAdjustStartTime(sr *rtcp.SenderReport, rebasedR
 			"timeSinceReceive", timeSinceReceive,
 			"samplesDiff", int32(samplesDiff),
 		)
-		return
+		return 0
 	}
 
 	samplesDuration := t.toDuration(samplesDiff)
@@ -397,7 +402,8 @@ func (t *TrackSynchronizer) maybeAdjustStartTime(sr *rtcp.SenderReport, rebasedR
 	} else {
 		t.logger.Debugw("not adjusting start time", getLoggingFields()...)
 	}
-	return
+
+	return adjustedStartTimeNano - startTimeNano
 }
 
 func (t *TrackSynchronizer) acceptable(d time.Duration) bool {

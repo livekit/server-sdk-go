@@ -72,6 +72,7 @@ type OWDEstimator struct {
 	params OWDEstimatorParams
 
 	initialized                        bool
+	initialAdjustmentDone              bool
 	lastSenderClockTimeNs              int64
 	lastPropagationDelayNs             int64
 	lastDeltaPropagationDelayNs        int64
@@ -172,6 +173,18 @@ func (o *OWDEstimator) Update(senderClockTimeNs int64, receiverClockTimeNs int64
 	}
 	o.lastSenderClockTimeNs = senderClockTimeNs
 	return o.estimatedPropagationDelayNs, stepChange
+}
+
+func (o *OWDEstimator) InitialAdjustment(owd int64) int64 {
+	if o.initialAdjustmentDone {
+		return o.estimatedPropagationDelayNs
+	}
+
+	o.initialAdjustmentDone = true
+	if owd < 0 && -owd < o.estimatedPropagationDelayNs {
+		o.estimatedPropagationDelayNs = -owd
+	}
+	return o.estimatedPropagationDelayNs
 }
 
 func (o *OWDEstimator) EstimatedPropagationDelay() int64 {
