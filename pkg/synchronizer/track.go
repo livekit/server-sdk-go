@@ -58,9 +58,11 @@ type TrackSynchronizer struct {
 	audioPTSAdjustmentsDisabled bool          // disable audio packets PTS adjustments on SRs
 
 	// timing info
-	startTime       time.Time     // time first packet was pushed
-	startRTP        uint32        // RTP timestamp of PTS 0
-	lastTS          uint32        // previous RTP timestamp
+	initTime        time.Time
+	startTime       time.Time // time first packet was pushed
+	startRTP        uint32    // RTP timestamp of PTS 0
+	lastTS          uint32    // previous RTP timestamp
+	lastTime        time.Time
 	lastPTS         time.Duration // previous presentation timestamp
 	lastPTSAdjusted time.Duration // previous adjusted presentation timestamp
 	maxPTS          time.Duration // maximum valid PTS (set after EOS)
@@ -101,7 +103,7 @@ func (t *TrackSynchronizer) OnSenderReport(f func(drift time.Duration)) {
 
 // Initialize should be called as soon as the first packet is received
 func (t *TrackSynchronizer) Initialize(pkt *rtp.Packet) {
-	now := time.Now()
+	now := mono.Now()
 	startedAt := t.sync.getOrSetStartedAt(now.UnixNano())
 
 	t.Lock()
@@ -111,6 +113,7 @@ func (t *TrackSynchronizer) Initialize(pkt *rtp.Packet) {
 	t.desiredPTSOffset = t.currentPTSOffset
 	t.basePTSOffset = t.desiredPTSOffset
 
+	t.initTime = now
 	t.startRTP = pkt.Timestamp
 	t.lastTS = pkt.Timestamp
 	t.lastPTS = 0
@@ -144,12 +147,14 @@ func (t *TrackSynchronizer) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) 
 	}
 
 	pts := t.lastPTS + t.toDuration(ts-t.lastTS)
-	estimatedPTS := time.Since(t.startTime)
+	now := mono.Now()
+	estimatedPTS := now.Sub(t.startTime)
 	if pts < t.lastPTS || !t.acceptable(pts-estimatedPTS) {
 		t.logger.Infow(
 			"correcting PTS",
 			"currentTS", ts,
 			"lastTS", t.lastTS,
+			"lastTime", t.lastTime,
 			"PTS", pts,
 			"lastPTS", t.lastPTS,
 			"estimatedPTS", estimatedPTS,
@@ -176,6 +181,7 @@ func (t *TrackSynchronizer) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) 
 			"propelling PTS forward",
 			"currentTS", ts,
 			"lastTS", t.lastTS,
+			"lastTime", t.lastTime,
 			"PTS", pts,
 			"lastPTS", t.lastPTS,
 			"estimatedPTS", estimatedPTS,
@@ -197,6 +203,7 @@ func (t *TrackSynchronizer) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) 
 
 	// update previous values
 	t.lastTS = ts
+	t.lastTime = now
 	t.lastPTS = pts
 	t.lastPTSAdjusted = adjusted
 
@@ -243,6 +250,7 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 		t.logger.Infow(
 			"high offset",
 			"lastTS", t.lastTS,
+			"lastTime", t.lastTime,
 			"lastPTS", t.lastPTS,
 			"rebasedSenderTime", rebasedSenderTime,
 			"PTS_SR", ptsSR,
@@ -343,10 +351,12 @@ func (t *TrackSynchronizer) maybeAdjustStartTime(sr *rtcp.SenderReport, rebasedR
 				getLoggingFields()...,
 			)
 		} else {
-			t.logger.Debugw("adjusting first packet time", getLoggingFields()...)
+			t.logger.Debugw("adjusting start time", getLoggingFields()...)
 			t.totalStartTimeAdjustment += time.Duration(startTimeNano - adjustedStartTimeNano)
 			t.startTime = time.Unix(0, adjustedStartTimeNano)
 		}
+	} else {
+		t.logger.Debugw("not adjusting start time", getLoggingFields()...)
 	}
 	return
 }
