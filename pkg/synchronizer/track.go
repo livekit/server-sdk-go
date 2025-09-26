@@ -15,6 +15,7 @@
 package synchronizer
 
 import (
+	"errors"
 	"io"
 	"sync"
 	"time"
@@ -146,6 +147,15 @@ func (t *TrackSynchronizer) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) 
 		return t.lastPTSAdjusted, nil
 	}
 
+	if (ts - t.lastTS) > (1 << 31) {
+		t.logger.Infow(
+			"dropping out-of-order packet",
+			"currentTS", ts,
+			"lastTS", t.lastTS,
+		)
+		return 0, errors.New("out-of-order")
+	}
+
 	pts := t.lastPTS + t.toDuration(ts-t.lastTS)
 	now := mono.Now()
 	estimatedPTS := now.Sub(t.startTime)
@@ -162,6 +172,9 @@ func (t *TrackSynchronizer) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) 
 			"startRTP", t.startRTP,
 			"propagationDelay", t.propagationDelayEstimator,
 			"totalStartTimeAdjustment", t.totalStartTimeAdjustment,
+			"basePTSOffset", t.basePTSOffset,
+			"desiredPTSOffset", t.desiredPTSOffset,
+			"currentPTSOffset", t.currentPTSOffset,
 		)
 		pts = estimatedPTS
 	}
@@ -192,6 +205,9 @@ func (t *TrackSynchronizer) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) 
 			"adjustedPTS", adjusted,
 			"lastPTSAdjusted", t.lastPTSAdjusted,
 			"adjustedPTSOffset", adjusted-t.lastPTSAdjusted,
+			"basePTSOffset", t.basePTSOffset,
+			"desiredPTSOffset", t.desiredPTSOffset,
+			"currentPTSOffset", t.currentPTSOffset,
 		)
 		adjusted = t.lastPTSAdjusted + time.Millisecond
 	}
@@ -262,6 +278,9 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 			"startTime", t.startTime,
 			"ptsSRTime", t.startTime.Add(rebasedPTSSR),
 			"sr", pkt,
+			"basePTSOffset", t.basePTSOffset,
+			"desiredPTSOffset", t.desiredPTSOffset,
+			"currentPTSOffset", t.currentPTSOffset,
 		)
 	}
 
