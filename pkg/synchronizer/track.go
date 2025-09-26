@@ -280,10 +280,11 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 	// rebase the sender report NTP time to local clock once again after initial adjustment if any
 	rebasedSenderTime = mediatransportutil.NtpTime(pkt.NTPTime).Time().Add(estimatedPropagationDelay)
 
-	rebasedPTSSR := ptsSR + estimatedPropagationDelay
+	// RAJA-REMOVE rebasedPTSSR := ptsSR + estimatedPropagationDelay
 
 	// offset is based on local clock
-	offset := rebasedSenderTime.Sub(t.startTime.Add(rebasedPTSSR))
+	// RAJA-REMOVE offset := rebasedSenderTime.Sub(t.startTime.Add(rebasedPTSSR))
+	offset := rebasedSenderTime.Sub(t.startTime.Add(ptsSR))
 	if t.onSR != nil {
 		t.onSR(offset)
 	}
@@ -295,13 +296,14 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 			"lastPTS", t.lastPTS,
 			"rebasedSenderTime", rebasedSenderTime,
 			"PTS_SR", ptsSR,
-			"rebasedPTS_SR", rebasedPTSSR,
+			// RAJA_REMOVE "rebasedPTS_SR", rebasedPTSSR,
 			"startRTP", t.startRTP,
 			"propagationDelay", t.propagationDelayEstimator,
 			"totalStartTimeAdjustment", t.totalStartTimeAdjustment,
 			"offset", offset,
 			"startTime", t.startTime,
-			"ptsSRTime", t.startTime.Add(rebasedPTSSR),
+			"ptsSRTime", t.startTime.Add(ptsSR),
+			// RAJA-REMOVE "ptsSRTime", t.startTime.Add(rebasedPTSSR),
 			"sr", pkt,
 			"estimatedPropagationDelay", estimatedPropagationDelay,
 			"basePTSOffset", t.basePTSOffset,
@@ -316,13 +318,14 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 			"lastPTS", t.lastPTS,
 			"rebasedSenderTime", rebasedSenderTime,
 			"PTS_SR", ptsSR,
-			"rebasedPTS_SR", rebasedPTSSR,
+			// RAJA-REMOVE "rebasedPTS_SR", rebasedPTSSR,
 			"startRTP", t.startRTP,
 			"propagationDelay", t.propagationDelayEstimator,
 			"totalStartTimeAdjustment", t.totalStartTimeAdjustment,
 			"offset", offset,
 			"startTime", t.startTime,
-			"ptsSRTime", t.startTime.Add(rebasedPTSSR),
+			"ptsSRTime", t.startTime.Add(ptsSR),
+			// RAJA-REMOVE "ptsSRTime", t.startTime.Add(rebasedPTSSR),
 			"sr", pkt,
 			"estimatedPropagationDelay", estimatedPropagationDelay,
 			"basePTSOffset", t.basePTSOffset,

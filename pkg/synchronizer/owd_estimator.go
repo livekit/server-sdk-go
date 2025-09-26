@@ -175,14 +175,18 @@ func (o *OWDEstimator) Update(senderClockTimeNs int64, receiverClockTimeNs int64
 	return o.estimatedPropagationDelayNs, stepChange
 }
 
-func (o *OWDEstimator) InitialAdjustment(owd int64) int64 {
+func (o *OWDEstimator) InitialAdjustment(adjustmentNs int64) int64 {
 	if o.initialAdjustmentDone {
 		return o.estimatedPropagationDelayNs
 	}
 
 	o.initialAdjustmentDone = true
-	if owd < 0 && -owd < o.estimatedPropagationDelayNs {
-		o.estimatedPropagationDelayNs = -owd
+	// one time adjustment at init
+	// example: when this is used to measure one-way-delay of RTCP sender reports,
+	// it is possible that the first sender report is delayed and experiences more
+	// than existing propagation delay. This allows adjustment of initial estimate.
+	if adjustmentNs < 0 && -adjustmentNs < o.estimatedPropagationDelayNs {
+		o.estimatedPropagationDelayNs += adjustmentNs
 	}
 	return o.estimatedPropagationDelayNs
 }
