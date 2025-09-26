@@ -216,26 +216,26 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 		return
 	}
 
-	var pts time.Duration
+	var ptsSR time.Duration
 	if (pkt.RTPTime - t.lastTS) < (1 << 31) {
-		pts = t.lastPTS + t.toDuration(pkt.RTPTime-t.lastTS)
+		ptsSR = t.lastPTS + t.toDuration(pkt.RTPTime-t.lastTS)
 	} else {
-		pts = t.lastPTS - t.toDuration(t.lastTS-pkt.RTPTime)
+		ptsSR = t.lastPTS - t.toDuration(t.lastTS-pkt.RTPTime)
 	}
-	if !t.acceptable(pts - time.Since(t.startTime)) {
+	if !t.acceptable(ptsSR - time.Since(t.startTime)) {
 		return
 	}
 
 	// rebase the sender report NTP time to local clock
 	rebasedSenderTime := mediatransportutil.NtpTime(pkt.NTPTime).Time().Add(estimatedPropagationDelay)
-	rebasedPTS := pts + estimatedPropagationDelay
+	rebasedPTSSR := ptsSR + estimatedPropagationDelay
 
 	// adjust the start time based on estimated propagation delay
 	// to make subsequent PTS calculations more accurate
 	t.maybeAdjustStartTime(pkt, rebasedSenderTime.UnixNano())
 
 	// offset is based on local clock
-	offset := rebasedSenderTime.Sub(t.startTime.Add(rebasedPTS))
+	offset := rebasedSenderTime.Sub(t.startTime.Add(rebasedPTSSR))
 	if t.onSR != nil {
 		t.onSR(offset)
 	}
@@ -245,14 +245,14 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 			"lastTS", t.lastTS,
 			"lastPTS", t.lastPTS,
 			"rebasedSenderTime", rebasedSenderTime,
-			"PTS", pts,
-			"rebasedPTS", rebasedPTS,
+			"PTS_SR", ptsSR,
+			"rebasedPTS_SR", rebasedPTSSR,
 			"startRTP", t.startRTP,
 			"propagationDelay", t.propagationDelayEstimator,
 			"totalStartTimeAdjustment", t.totalStartTimeAdjustment,
 			"offset", offset,
 			"startTime", t.startTime,
-			"ptsTime", t.startTime.Add(rebasedPTS),
+			"ptsSRTime", t.startTime.Add(rebasedPTSSR),
 			"sr", pkt,
 		)
 	}
@@ -302,6 +302,15 @@ func (t *TrackSynchronizer) maybeAdjustStartTime(sr *rtcp.SenderReport, rebasedR
 	samplesDiff := nowTS - t.startRTP
 	if int32(samplesDiff) < 0 {
 		// out-of-order, pre-start, skip
+		t.logger.Debugw(
+			"no adjustment due to pre-staart report",
+			"startTime", t.startTime,
+			"nowTS", nowTS,
+			"startTS", t.startRTP,
+			"sr", sr,
+			"timeSinceReceive", timeSinceReceive,
+			"samplesDiff", int32(samplesDiff),
+		)
 		return
 	}
 
