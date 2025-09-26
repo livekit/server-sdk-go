@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	cMaxAdjustment = 500 * time.Microsecond
+	cMaxAdjustment = 2 * time.Microsecond
 	// Throttle PTS adjustment to a limited amount ina time window.
 	// This setting determines how long a certain amount of adjustment
 	// throttles the next adjustment.
@@ -39,7 +39,10 @@ const (
 	// For sample, if a 1ms adjustment is appied at 1%, it means that
 	// 1ms is 1% of ajustment window, so the adjustement window is 100ms
 	// and next adjustment will not applied for till tha time elapses
-	cAdjustmentWindowPercent = 1.0
+	//
+	// With the settings of 2ms adjustment at 2%, a mamximum adjustment
+	// of 2ms per 100ms
+	cAdjustmentWindowPercent = 2.0
 
 	cStartTimeAdjustWindow    = 2 * time.Minute
 	cStartTimeAdjustThreshold = 5 * time.Second
@@ -205,7 +208,7 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 		t.startRTP = newStartRTP
 	}
 
-	if t.shouldAdjustPTS() && mono.Now().After(t.nextPTSAdjustmentAt) {
+	if t.shouldAdjustPTS() {
 		prevCurrentPTSOffset := t.currentPTSOffset
 		if t.currentPTSOffset > t.desiredPTSOffset {
 			t.currentPTSOffset = max(t.currentPTSOffset-cMaxAdjustment, t.desiredPTSOffset)
@@ -309,7 +312,7 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 		pts = estimatedPTS
 	}
 
-	if t.shouldAdjustPTS() && mono.Now().After(t.nextPTSAdjustmentAt) {
+	if t.shouldAdjustPTS() {
 		prevCurrentPTSOffset := t.currentPTSOffset
 		if t.currentPTSOffset > t.desiredPTSOffset {
 			t.currentPTSOffset = max(t.currentPTSOffset-cMaxAdjustment, t.desiredPTSOffset)
