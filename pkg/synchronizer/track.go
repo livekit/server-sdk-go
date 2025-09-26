@@ -239,7 +239,7 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 	if t.onSR != nil {
 		t.onSR(offset)
 	}
-	if offset > 500*time.Millisecond {
+	if offset > 20*time.Millisecond || offset < -20*time.Microsecond {
 		t.logger.Infow(
 			"high offset",
 			"lastTS", t.lastTS,
