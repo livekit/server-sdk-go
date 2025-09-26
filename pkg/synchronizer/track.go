@@ -15,8 +15,8 @@
 package synchronizer
 
 import (
-	"errors"
 	"io"
+	"math"
 	"sync"
 	"time"
 
@@ -31,10 +31,18 @@ import (
 )
 
 const (
-	maxAdjustment = time.Millisecond * 5
+	cMaxAdjustment = 500 * time.Microsecond
+	// Throttle PTS adjustment to a limited amount ina time window.
+	// This setting determines how long a certain amount of adjustment
+	// throttles the next adjustment.
+	//
+	// For sample, if a 1ms adjustment is appied at 1%, it means that
+	// 1ms is 1% of ajustment window, so the adjustement window is 100ms
+	// and next adjustment will not applied for till tha time elapses
+	cAdjustmentWindowPercent = 1.0
 
 	cStartTimeAdjustWindow    = 2 * time.Minute
-	cStartTimeAdjustThreshold = 15 * 1e9
+	cStartTimeAdjustThreshold = 5 * time.Second
 )
 
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
@@ -55,8 +63,11 @@ type TrackSynchronizer struct {
 	*rtpConverter
 
 	// config
-	maxTsDiff                   time.Duration // maximum acceptable difference between RTP packets
-	audioPTSAdjustmentsDisabled bool          // disable audio packets PTS adjustments on SRs
+	maxTsDiff                         time.Duration // maximum acceptable difference between RTP packets
+	audioPTSAdjustmentsDisabled       bool          // disable audio packets PTS adjustments on SRs
+	preJitterBufferReceiveTimeEnabled bool
+	rtcpSenderReportRebaseEnabled     bool
+	oldPacketThreshold                time.Duration
 
 	// timing info
 	initTime        time.Time
@@ -77,19 +88,25 @@ type TrackSynchronizer struct {
 	lastSR uint32
 	onSR   func(duration time.Duration)
 
+	nextPTSAdjustmentAt time.Time
+
 	propagationDelayEstimator *OWDEstimator
 	totalStartTimeAdjustment  time.Duration
 }
 
 func newTrackSynchronizer(s *Synchronizer, track TrackRemote) *TrackSynchronizer {
 	t := &TrackSynchronizer{
-		sync:                        s,
-		track:                       track,
-		logger:                      logger.GetLogger().WithValues("trackID", track.ID(), "codec", track.Codec().MimeType),
-		rtpConverter:                newRTPConverter(int64(track.Codec().ClockRate)),
-		maxTsDiff:                   s.config.MaxTsDiff,
-		audioPTSAdjustmentsDisabled: s.config.AudioPTSAdjustmentDisabled,
-		propagationDelayEstimator:   NewOWDEstimator(OWDEstimatorParamsDefault),
+		sync:                              s,
+		track:                             track,
+		logger:                            logger.GetLogger().WithValues("trackID", track.ID(), "codec", track.Codec().MimeType),
+		rtpConverter:                      newRTPConverter(int64(track.Codec().ClockRate)),
+		maxTsDiff:                         s.config.MaxTsDiff,
+		audioPTSAdjustmentsDisabled:       s.config.AudioPTSAdjustmentDisabled,
+		preJitterBufferReceiveTimeEnabled: s.config.PreJitterBufferReceiveTimeEnabled,
+		rtcpSenderReportRebaseEnabled:     s.config.RTCPSenderReportRebaseEnabled,
+		oldPacketThreshold:                s.config.OldPacketThreshold,
+		nextPTSAdjustmentAt:               mono.Now(),
+		propagationDelayEstimator:         NewOWDEstimator(OWDEstimatorParamsDefault),
 	}
 
 	return t
@@ -129,6 +146,114 @@ func (t *TrackSynchronizer) Initialize(pkt *rtp.Packet) {
 // GetPTS will adjust PTS offsets if necessary
 // Packets are expected to be in order
 func (t *TrackSynchronizer) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
+	if t.rtcpSenderReportRebaseEnabled {
+		return t.getPTSWithRebase(pkt)
+	} else {
+		return t.getPTSWithoutRebase(pkt)
+	}
+}
+
+func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Duration, error) {
+	t.Lock()
+	defer t.Unlock()
+
+	if t.startTime.IsZero() {
+		if t.preJitterBufferReceiveTimeEnabled {
+			t.startTime = pkt.ReceivedAt
+		} else {
+			t.startTime = mono.Now()
+		}
+		t.logger.Infow(
+			"starting track synchronizer",
+			"startTime", t.startTime,
+			"startRTP", t.startRTP,
+			"currentPTSOffset", t.currentPTSOffset,
+		)
+	}
+
+	ts := pkt.Timestamp
+	if ts == t.lastTS {
+		return t.lastPTSAdjusted, nil
+	}
+
+	if t.preJitterBufferReceiveTimeEnabled {
+		if t.isPacketTooOld(pkt.ReceivedAt) {
+			return 0, ErrPacketTooOld
+		}
+	}
+
+	pts := t.lastPTS + t.toDuration(ts-t.lastTS)
+	estimatedPTS := time.Since(t.startTime)
+	if pts < t.lastPTS || !t.acceptable(pts-estimatedPTS) {
+		newStartRTP := ts - t.toRTP(estimatedPTS)
+		t.logger.Infow(
+			"correcting PTS",
+			"currentTS", ts,
+			"lastTS", t.lastTS,
+			"lastTime", t.lastTime,
+			"PTS", pts,
+			"lastPTS", t.lastPTS,
+			"estimatedPTS", estimatedPTS,
+			"offset", pts-estimatedPTS,
+			"startRTP", t.startRTP,
+			"newStartRTP", newStartRTP,
+			"basePTSOffset", t.basePTSOffset,
+			"desiredPTSOffset", t.desiredPTSOffset,
+			"currentPTSOffset", t.currentPTSOffset,
+		)
+		pts = estimatedPTS
+		t.startRTP = newStartRTP
+	}
+
+	if t.shouldAdjustPTS() && mono.Now().After(t.nextPTSAdjustmentAt) {
+		prevCurrentPTSOffset := t.currentPTSOffset
+		if t.currentPTSOffset > t.desiredPTSOffset {
+			t.currentPTSOffset = max(t.currentPTSOffset-cMaxAdjustment, t.desiredPTSOffset)
+		} else if t.currentPTSOffset < t.desiredPTSOffset {
+			t.currentPTSOffset = min(t.currentPTSOffset+cMaxAdjustment, t.desiredPTSOffset)
+		}
+
+		// throttle further adjustment till a window proportional to this adjustment elapses
+		throttle := time.Duration(math.Abs(float64(t.currentPTSOffset-prevCurrentPTSOffset)) * 100.0 / float64(cAdjustmentWindowPercent))
+		t.nextPTSAdjustmentAt = mono.Now().Add(throttle)
+
+		t.logger.Infow(
+			"adjusting PTS offset",
+			"currentTS", ts,
+			"lastTS", t.lastTS,
+			"lastTime", t.lastTime,
+			"PTS", pts,
+			"lastPTS", t.lastPTS,
+			"estimatedPTS", estimatedPTS,
+			"ptsOffset", pts-estimatedPTS,
+			"startRTP", t.startRTP,
+			"lastPTSAdjusted", t.lastPTSAdjusted,
+			"basePTSOffset", t.basePTSOffset,
+			"desiredPTSOffset", t.desiredPTSOffset,
+			"currentPTSOffset", t.currentPTSOffset,
+			"prevCurrentPTSOffset", prevCurrentPTSOffset,
+			"changeCurrentPTSOffset", t.currentPTSOffset-prevCurrentPTSOffset,
+			"throttle", throttle,
+		)
+	}
+
+	adjusted := pts + t.currentPTSOffset
+
+	// if past end time, return EOF
+	if t.maxPTS > 0 && (adjusted > t.maxPTS) {
+		return 0, io.EOF
+	}
+
+	// update previous values
+	t.lastTS = ts
+	t.lastTime = mono.Now()
+	t.lastPTS = pts
+	t.lastPTSAdjusted = adjusted
+
+	return adjusted, nil
+}
+
+func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duration, error) {
 	t.Lock()
 	defer t.Unlock()
 
@@ -147,13 +272,18 @@ func (t *TrackSynchronizer) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) 
 		return t.lastPTSAdjusted, nil
 	}
 
+	// packets are expected in order, just a safety net
 	if (ts - t.lastTS) > (1 << 31) {
 		t.logger.Infow(
 			"dropping out-of-order packet",
 			"currentTS", ts,
 			"lastTS", t.lastTS,
 		)
-		return 0, errors.New("out-of-order")
+		return 0, ErrPacketOutOfOrder
+	}
+
+	if t.isPacketTooOld(pkt.ReceivedAt) {
+		return 0, ErrPacketTooOld
 	}
 
 	pts := t.lastPTS + t.toDuration(ts-t.lastTS)
@@ -179,13 +309,18 @@ func (t *TrackSynchronizer) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) 
 		pts = estimatedPTS
 	}
 
-	if t.shouldAdjustPTS() {
+	if t.shouldAdjustPTS() && mono.Now().After(t.nextPTSAdjustmentAt) {
 		prevCurrentPTSOffset := t.currentPTSOffset
 		if t.currentPTSOffset > t.desiredPTSOffset {
-			t.currentPTSOffset = max(t.currentPTSOffset-maxAdjustment, t.desiredPTSOffset)
+			t.currentPTSOffset = max(t.currentPTSOffset-cMaxAdjustment, t.desiredPTSOffset)
 		} else if t.currentPTSOffset < t.desiredPTSOffset {
-			t.currentPTSOffset = min(t.currentPTSOffset+maxAdjustment, t.desiredPTSOffset)
+			t.currentPTSOffset = min(t.currentPTSOffset+cMaxAdjustment, t.desiredPTSOffset)
 		}
+
+		// throttle further adjustment till a window proportional to this adjustment elapses
+		throttle := time.Duration(math.Abs(float64(t.currentPTSOffset-prevCurrentPTSOffset)) * 100.0 / float64(cAdjustmentWindowPercent))
+		t.nextPTSAdjustmentAt = mono.Now().Add(throttle)
+
 		t.logger.Infow(
 			"adjusting PTS offset",
 			"currentTS", ts,
@@ -204,6 +339,7 @@ func (t *TrackSynchronizer) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) 
 			"currentPTSOffset", t.currentPTSOffset,
 			"prevCurrentPTSOffset", prevCurrentPTSOffset,
 			"changeCurrentPTSOffset", t.currentPTSOffset-prevCurrentPTSOffset,
+			"throttle", throttle,
 		)
 	}
 
@@ -248,6 +384,45 @@ func (t *TrackSynchronizer) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) 
 
 // onSenderReport handles pts adjustments for a track
 func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
+	if t.rtcpSenderReportRebaseEnabled {
+		t.onSenderReportWithRebase(pkt)
+	} else {
+		t.onSenderReportWithoutRebase(pkt)
+	}
+}
+
+func (t *TrackSynchronizer) onSenderReportWithoutRebase(pkt *rtcp.SenderReport) {
+	t.Lock()
+	defer t.Unlock()
+
+	if (t.lastSR != 0 && (pkt.RTPTime-t.lastSR) > (1<<31)) || pkt.RTPTime == t.lastSR || t.startTime.IsZero() {
+		return
+	}
+
+	var pts time.Duration
+	if pkt.RTPTime > t.lastTS {
+		pts = t.lastPTS + t.toDuration(pkt.RTPTime-t.lastTS)
+	} else {
+		pts = t.lastPTS - t.toDuration(t.lastTS-pkt.RTPTime)
+	}
+	if !t.acceptable(pts - time.Since(t.startTime)) {
+		return
+	}
+
+	offset := mediatransportutil.NtpTime(pkt.NTPTime).Time().Sub(t.startTime.Add(pts))
+	if t.onSR != nil {
+		t.onSR(offset)
+	}
+
+	if !t.acceptable(offset) {
+		return
+	}
+
+	t.desiredPTSOffset = t.basePTSOffset + offset
+	t.lastSR = pkt.RTPTime
+}
+
+func (t *TrackSynchronizer) onSenderReportWithRebase(pkt *rtcp.SenderReport) {
 	t.Lock()
 	defer t.Unlock()
 
@@ -255,7 +430,7 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 	receivedAt := mono.UnixNano()
 	estimatedPropagationDelay := time.Duration(t.updatePropagationDelay(pkt, receivedAt))
 
-	if (t.lastSR != 0 && (pkt.RTPTime-t.lastSR) > (1<<31)) || t.startTime.IsZero() {
+	if (t.lastSR != 0 && (pkt.RTPTime-t.lastSR) > (1<<31)) || pkt.RTPTime == t.lastSR || t.startTime.IsZero() {
 		return
 	}
 
@@ -275,15 +450,13 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 	// adjust the start time based on estimated propagation delay
 	// to make subsequent PTS calculations more accurate
 	adjustmentStartTimeNano := t.maybeAdjustStartTime(pkt, rebasedSenderTime.UnixNano())
+
 	// it is possible that first sender report is late, adjust down propagation delay if that is the case
 	estimatedPropagationDelay = time.Duration(t.propagationDelayEstimator.InitialAdjustment(adjustmentStartTimeNano))
 	// rebase the sender report NTP time to local clock once again after initial adjustment if any
 	rebasedSenderTime = mediatransportutil.NtpTime(pkt.NTPTime).Time().Add(estimatedPropagationDelay)
 
-	// RAJA-REMOVE rebasedPTSSR := ptsSR + estimatedPropagationDelay
-
 	// offset is based on local clock
-	// RAJA-REMOVE offset := rebasedSenderTime.Sub(t.startTime.Add(rebasedPTSSR))
 	offset := rebasedSenderTime.Sub(t.startTime.Add(ptsSR))
 	if t.onSR != nil {
 		t.onSR(offset)
@@ -296,14 +469,12 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 			"lastPTS", t.lastPTS,
 			"rebasedSenderTime", rebasedSenderTime,
 			"PTS_SR", ptsSR,
-			// RAJA_REMOVE "rebasedPTS_SR", rebasedPTSSR,
 			"startRTP", t.startRTP,
 			"propagationDelay", t.propagationDelayEstimator,
 			"totalStartTimeAdjustment", t.totalStartTimeAdjustment,
 			"offset", offset,
 			"startTime", t.startTime,
 			"ptsSRTime", t.startTime.Add(ptsSR),
-			// RAJA-REMOVE "ptsSRTime", t.startTime.Add(rebasedPTSSR),
 			"sr", pkt,
 			"estimatedPropagationDelay", estimatedPropagationDelay,
 			"basePTSOffset", t.basePTSOffset,
@@ -318,14 +489,12 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 			"lastPTS", t.lastPTS,
 			"rebasedSenderTime", rebasedSenderTime,
 			"PTS_SR", ptsSR,
-			// RAJA-REMOVE "rebasedPTS_SR", rebasedPTSSR,
 			"startRTP", t.startRTP,
 			"propagationDelay", t.propagationDelayEstimator,
 			"totalStartTimeAdjustment", t.totalStartTimeAdjustment,
 			"offset", offset,
 			"startTime", t.startTime,
 			"ptsSRTime", t.startTime.Add(ptsSR),
-			// RAJA-REMOVE "ptsSRTime", t.startTime.Add(rebasedPTSSR),
 			"sr", pkt,
 			"estimatedPropagationDelay", estimatedPropagationDelay,
 			"basePTSOffset", t.basePTSOffset,
@@ -414,7 +583,7 @@ func (t *TrackSynchronizer) maybeAdjustStartTime(sr *rtcp.SenderReport, rebasedR
 	}
 
 	if adjustedStartTimeNano < startTimeNano {
-		if startTimeNano-adjustedStartTimeNano > cStartTimeAdjustThreshold {
+		if startTimeNano-adjustedStartTimeNano > cStartTimeAdjustThreshold.Nanoseconds() {
 			t.logger.Warnw(
 				"adjusting start time, too big, ignoring", nil,
 				getLoggingFields()...,
@@ -436,12 +605,22 @@ func (t *TrackSynchronizer) acceptable(d time.Duration) bool {
 }
 
 func (t *TrackSynchronizer) shouldAdjustPTS() bool {
+	if mono.Now().Before(t.nextPTSAdjustmentAt) {
+		return false
+	}
+
 	adjustmentEnabled := true
-	if t.track.Kind() == webrtc.RTPCodecTypeAudio {
+	if t.track.Kind() == webrtc.RTPCodecTypeAudio && !t.rtcpSenderReportRebaseEnabled {
 		adjustmentEnabled = !t.audioPTSAdjustmentsDisabled
 	}
 	return adjustmentEnabled && (t.currentPTSOffset != t.desiredPTSOffset)
 }
+
+func (t *TrackSynchronizer) isPacketTooOld(packetTime time.Time) bool {
+	return t.oldPacketThreshold != 0 && mono.Now().Sub(packetTime) > t.oldPacketThreshold
+}
+
+// ---------------------------
 
 type rtpConverter struct {
 	ts  uint64

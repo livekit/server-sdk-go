@@ -22,16 +22,20 @@ import (
 )
 
 const (
-	DefaultMaxTsDiff = time.Minute
+	DefaultMaxTsDiff          = time.Minute
+	DefaultOldPacketThreshold = 500 * time.Millisecond
 )
 
 type SynchronizerOption func(*SynchronizerConfig)
 
 // SynchronizerConfig holds configuration for the Synchronizer
 type SynchronizerConfig struct {
-	MaxTsDiff                  time.Duration
-	OnStarted                  func()
-	AudioPTSAdjustmentDisabled bool
+	MaxTsDiff                         time.Duration
+	OnStarted                         func()
+	AudioPTSAdjustmentDisabled        bool
+	PreJitterBufferReceiveTimeEnabled bool
+	RTCPSenderReportRebaseEnabled     bool
+	OldPacketThreshold                time.Duration
 }
 
 // WithMaxTsDiff sets the maximum acceptable difference between RTP packets
@@ -60,6 +64,28 @@ func WithAudioPTSAdjustmentDisabled() SynchronizerOption {
 	}
 }
 
+// WithPreJitterBufferReceiveTimeEnabled - enables use of packet arrival time before it is
+// added to the jitter buffer
+func WithPreJitterBufferReceiveTimeEnabled() SynchronizerOption {
+	return func(config *SynchronizerConfig) {
+		config.PreJitterBufferReceiveTimeEnabled = true
+	}
+}
+
+// WithRTCPSenderReportRebaseEnabled - enables rebasing RTCP Sender Report to local clock
+func WithRTCPSenderReportRebaseEnabled() SynchronizerOption {
+	return func(config *SynchronizerConfig) {
+		config.RTCPSenderReportRebaseEnabled = true
+	}
+}
+
+// WithOldPacketThreshold sets the threshold at which a packet is considered old
+func WithOldPacketThreshold(oldPacketThreshold time.Duration) SynchronizerOption {
+	return func(config *SynchronizerConfig) {
+		config.OldPacketThreshold = oldPacketThreshold
+	}
+}
+
 // a single Synchronizer is shared between all audio and video writers
 type Synchronizer struct {
 	sync.RWMutex
@@ -76,8 +102,9 @@ type Synchronizer struct {
 
 func NewSynchronizer(onStarted func()) *Synchronizer {
 	config := SynchronizerConfig{
-		MaxTsDiff: DefaultMaxTsDiff,
-		OnStarted: onStarted,
+		MaxTsDiff:          DefaultMaxTsDiff,
+		OnStarted:          onStarted,
+		OldPacketThreshold: DefaultOldPacketThreshold,
 	}
 
 	return &Synchronizer{
@@ -91,8 +118,9 @@ func NewSynchronizer(onStarted func()) *Synchronizer {
 
 func NewSynchronizerWithOptions(opts ...SynchronizerOption) *Synchronizer {
 	config := SynchronizerConfig{
-		MaxTsDiff: DefaultMaxTsDiff,
-		OnStarted: nil,
+		MaxTsDiff:          DefaultMaxTsDiff,
+		OnStarted:          nil,
+		OldPacketThreshold: DefaultOldPacketThreshold,
 	}
 
 	for _, opt := range opts {
