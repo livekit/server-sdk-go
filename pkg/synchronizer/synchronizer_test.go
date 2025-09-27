@@ -124,14 +124,14 @@ func TestUnacceptableDrift_ResetsToEstimatedPTS(t *testing.T) {
 
 func TestOnSenderReport_SlewsTowardDesiredOffset(t *testing.T) {
 	const (
-		maxAdjustment = 5 * time.Millisecond
+		maxAdjustment = 2 * time.Millisecond // TrackSynchronizer's cMaxAdjustment
 		ts0           = uint32(900_000)
 		stepRTP       = uint32(48000 * 20 / 1000) // 20 ms @ 48 kHz
 		stepDur       = 20 * time.Millisecond
 		desired       = 50 * time.Millisecond // target offset from SR
 	)
 
-	s := synchronizer.NewSynchronizerWithOptions(synchronizer.WithMaxTsDiff(1 * time.Second))
+	s := synchronizer.NewSynchronizerWithOptions(synchronizer.WithMaxTsDiff(5 * time.Second))
 	tr := fakeAudio48k(0xA0010004)
 
 	tsync := s.AddTrack(tr, "p1")
@@ -155,13 +155,15 @@ func TestOnSenderReport_SlewsTowardDesiredOffset(t *testing.T) {
 		RTPTime: cur,
 	})
 
-	// Converge in N = ceil(desired / 5ms) steps (5ms maxAdjustment)
-	N := int((desired + 5*time.Millisecond - 1) / (5 * time.Millisecond))
+	// Converge in N = ceil(desired / 2ms) steps (2ms cMaxAdjustment) adjusted for throttling
+	N := int((desired + maxAdjustment - 1) / (maxAdjustment))
+	throttle := time.Duration(float64(maxAdjustment.Nanoseconds()) * 100.0 / 2.0)
 
 	for i := 0; i < N; i++ {
 		cur += stepRTP
 		_, err := tsync.GetPTS(pkt(cur))
 		require.NoError(t, err)
+		time.Sleep(throttle)
 	}
 
 	// After N steps, total adjusted delta over base should be:
@@ -178,12 +180,13 @@ func TestOnSenderReport_SlewsTowardDesiredOffset(t *testing.T) {
 // Regression: late video start (~2s) + tiny SR offset (~10ms) must NOT emit a big negative drift
 func TestOnSenderReport_LateVideoStart_SmallSROffset_NoHugeNegativeDrift(t *testing.T) {
 	const (
-		lateStart = 2 * time.Second
-		srOffset  = 50 * time.Millisecond
-		stepSlew  = 5 * time.Millisecond // TrackSynchronizer's maxAdjustment
+		lateStart         = 2 * time.Second
+		srOffset          = 50 * time.Millisecond
+		stepSlew          = 2 * time.Millisecond // TrackSynchronizer's cMaxAdjustment
+		adjustmentPercent = 2.0                  // TrackSynchronizer's cAdjustmentWindowPercent
 	)
 
-	s := synchronizer.NewSynchronizerWithOptions(synchronizer.WithMaxTsDiff(2 * time.Second))
+	s := synchronizer.NewSynchronizerWithOptions(synchronizer.WithMaxTsDiff(5 * time.Second))
 
 	// 1) Audio publishes immediately → establishes startedAt
 	audio := fakeAudio48k(0xA0010005)
@@ -222,8 +225,9 @@ func TestOnSenderReport_LateVideoStart_SmallSROffset_NoHugeNegativeDrift(t *test
 	step33ms := uint32(90000 * 33 / 1000) // ~33 ms per 30fps frame at 90 kHz
 	stepDur := 33 * time.Millisecond
 
-	// Converge in N = ceil(srOffset / stepSlew) steps (50ms / 5ms = 10)
+	// Converge in N = ceil(srOffset / stepSlew) steps (50ms / 5ms = 10) adjusted for throttling
 	N := int((srOffset + stepSlew - 1) / stepSlew)
+	throttle := time.Duration(float64(stepSlew.Nanoseconds()) * 100.0 / adjustmentPercent)
 
 	cur := tsV0
 	var adj time.Duration
@@ -233,6 +237,7 @@ func TestOnSenderReport_LateVideoStart_SmallSROffset_NoHugeNegativeDrift(t *test
 		cur += step33ms
 		adj, err = vSync.GetPTS(pkt(cur))
 		require.NoError(t, err)
+		time.Sleep(throttle)
 	}
 
 	// After N steps, the extra beyond content cadence should be ~srOffset

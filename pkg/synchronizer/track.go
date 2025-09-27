@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	cMaxAdjustment = 2 * time.Microsecond
+	cMaxAdjustment = 2 * time.Millisecond
 	// Throttle PTS adjustment to a limited amount ina time window.
 	// This setting determines how long a certain amount of adjustment
 	// throttles the next adjustment.
