@@ -73,14 +73,15 @@ type TrackSynchronizer struct {
 	oldPacketThreshold                time.Duration
 
 	// timing info
-	initTime        time.Time
-	startTime       time.Time // time first packet was pushed
-	startRTP        uint32    // RTP timestamp of PTS 0
-	lastTS          uint32    // previous RTP timestamp
-	lastTime        time.Time
-	lastPTS         time.Duration // previous presentation timestamp
-	lastPTSAdjusted time.Duration // previous adjusted presentation timestamp
-	maxPTS          time.Duration // maximum valid PTS (set after EOS)
+	initTime         time.Time
+	startTime        time.Time // time first packet was pushed
+	startRTP         uint32    // RTP timestamp of PTS 0
+	lastTS           uint32    // previous RTP timestamp
+	lastTime         time.Time
+	lastPTS          time.Duration // previous presentation timestamp
+	lastPTSAdjusted  time.Duration // previous adjusted presentation timestamp
+	lastTSOldDropped uint32        // previous dropped RTP timestamp due to old packet
+	maxPTS           time.Duration // maximum valid PTS (set after EOS)
 
 	// offsets
 	currentPTSOffset time.Duration // presentation timestamp offset (used for a/v sync)
@@ -136,7 +137,6 @@ func (t *TrackSynchronizer) Initialize(pkt *rtp.Packet) {
 
 	t.initTime = now
 	t.startRTP = pkt.Timestamp
-	t.lastTS = pkt.Timestamp
 	t.lastPTS = 0
 	t.lastPTSAdjusted = t.currentPTSOffset
 	t.logger.Infow(
@@ -175,14 +175,33 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 	}
 
 	ts := pkt.Timestamp
+
+	// if first packet of a frame was accepted,
+	// accept all packets of the frame even if they are old
 	if ts == t.lastTS {
 		return t.lastPTSAdjusted, nil
 	}
 
 	if t.preJitterBufferReceiveTimeEnabled {
-		if t.isPacketTooOld(pkt.ReceivedAt) {
+		// if first packet a frame was too old and dropped,
+		// drop all packets of the frame irrespective of whether they are old or not
+		if ts == t.lastTSOldDropped || t.isPacketTooOld(pkt.ReceivedAt) {
+			t.lastTSOldDropped = ts
+			t.logger.Infow(
+				"dropping old packet",
+				"currentTS", ts,
+				"lastTS", t.lastTS,
+				"receivedAt", pkt.ReceivedAt,
+				"now", mono.Now(),
+				"age", mono.Now().Sub(pkt.ReceivedAt),
+			)
 			return 0, ErrPacketTooOld
 		}
+	}
+
+	lastTS := t.lastTS
+	if lastTS == 0 {
+		lastTS = ts
 	}
 
 	pts := t.lastPTS + t.toDuration(ts-t.lastTS)
@@ -271,6 +290,9 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 	}
 
 	ts := pkt.Timestamp
+
+	// if first packet of a frame was accepted,
+	// accept all packets of the frame even if they are old
 	if ts == t.lastTS {
 		return t.lastPTSAdjusted, nil
 	}
@@ -285,8 +307,24 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 		return 0, ErrPacketOutOfOrder
 	}
 
-	if t.isPacketTooOld(pkt.ReceivedAt) {
+	// if first packet a frame was too old and dropped,
+	// drop all packets of the frame irrespective of whether they are old or not
+	if ts == t.lastTSOldDropped || t.isPacketTooOld(pkt.ReceivedAt) {
+		t.lastTSOldDropped = ts
+		t.logger.Infow(
+			"dropping old packet",
+			"currentTS", ts,
+			"lastTS", t.lastTS,
+			"receivedAt", pkt.ReceivedAt,
+			"now", mono.Now(),
+			"age", mono.Now().Sub(pkt.ReceivedAt),
+		)
 		return 0, ErrPacketTooOld
+	}
+
+	lastTS := t.lastTS
+	if lastTS == 0 {
+		lastTS = ts
 	}
 
 	pts := t.lastPTS + t.toDuration(ts-t.lastTS)
