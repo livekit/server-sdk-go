@@ -522,26 +522,6 @@ func (t *TrackSynchronizer) onSenderReportWithRebase(pkt *rtcp.SenderReport) {
 			"desiredPTSOffset", t.desiredPTSOffset,
 			"currentPTSOffset", t.currentPTSOffset,
 		)
-	} else {
-		t.logger.Infow(
-			"acceptable offset",
-			"lastTS", t.lastTS,
-			"lastTime", t.lastTime,
-			"lastPTS", t.lastPTS,
-			"rebasedSenderTime", rebasedSenderTime,
-			"PTS_SR", ptsSR,
-			"startRTP", t.startRTP,
-			"propagationDelay", t.propagationDelayEstimator,
-			"totalStartTimeAdjustment", t.totalStartTimeAdjustment,
-			"offset", offset,
-			"startTime", t.startTime,
-			"ptsSRTime", t.startTime.Add(ptsSR),
-			"sr", pkt,
-			"estimatedPropagationDelay", estimatedPropagationDelay,
-			"basePTSOffset", t.basePTSOffset,
-			"desiredPTSOffset", t.desiredPTSOffset,
-			"currentPTSOffset", t.currentPTSOffset,
-		)
 	}
 
 	if !t.acceptable(offset) {
