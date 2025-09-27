@@ -158,13 +158,14 @@ func (t *PCMRemoteTrack) processSamples(handleJitter bool) {
 		h = newDecryptionHandler(h, t.decryptor)
 	}
 
+	hc := newHandlerCloser(h)
 	if handleJitter {
-		h = rtp.HandleJitter(h)
+		hc = rtp.HandleJitter(hc)
 	}
 
 	// HandleLoop takes RTP packets from the track and writes them to the handler
 	// TODO(anunaym14): handle concealment
-	err := rtp.HandleLoop(t.trackRemote, h)
+	err := rtp.HandleLoop(t.trackRemote, hc)
 	if err != nil && !errors.Is(err, io.EOF) {
 		t.logger.Errorw("error handling rtp from track", err)
 	}
@@ -177,3 +178,23 @@ func (t *PCMRemoteTrack) Close() {
 	// opus writer closes resampledPCMWriter internally
 	t.opusWriter.Close()
 }
+
+// -----------
+
+type handlerCloser struct {
+	h rtp.Handler
+}
+
+func newHandlerCloser(h rtp.Handler) rtp.HandlerCloser {
+	return handlerCloser{h}
+}
+
+func (hc handlerCloser) String() string {
+	return hc.h.String()
+}
+
+func (hc handlerCloser) HandleRTP(hdr *rtp.Header, payload []byte) error {
+	return hc.h.HandleRTP(hdr, payload)
+}
+
+func (handlerCloser) Close() {}
