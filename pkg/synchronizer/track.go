@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	cMaxAdjustment = 2 * time.Millisecond
+	cMaxAdjustment = 5 * time.Millisecond
 	// Throttle PTS adjustment to a limited amount ina time window.
 	// This setting determines how long a certain amount of adjustment
 	// throttles the next adjustment.
@@ -40,9 +40,9 @@ const (
 	// 1ms is 1% of ajustment window, so the adjustement window is 100ms
 	// and next adjustment will not applied for till tha time elapses
 	//
-	// With the settings of 2ms adjustment at 2%, a mamximum adjustment
-	// of 2ms per 100ms
-	cAdjustmentWindowPercent = 2.0
+	// With the settings of 5ms adjustment at 5%, a mamximum adjustment
+	// of 5ms per 100ms
+	cAdjustmentWindowPercent = 5.0
 
 	cStartTimeAdjustWindow    = 2 * time.Minute
 	cStartTimeAdjustThreshold = 5 * time.Second
