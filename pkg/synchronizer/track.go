@@ -143,6 +143,11 @@ func (t *TrackSynchronizer) Initialize(pkt *rtp.Packet) {
 		"initialized track synchronizer",
 		"startRTP", t.startRTP,
 		"currentPTSOffset", t.currentPTSOffset,
+		"maxTsDiff", t.maxTsDiff,
+		"audioPTSAdjustmentDisabled", t.audioPTSAdjustmentsDisabled,
+		"preJitterBufferReceiveTimeEnabled", t.preJitterBufferReceiveTimeEnabled,
+		"rtcpSenderReportRebaseEnabled", t.rtcpSenderReportRebaseEnabled,
+		"oldPacketThreshold", t.oldPacketThreshold,
 	)
 }
 
