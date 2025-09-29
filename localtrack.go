@@ -613,7 +613,7 @@ func (s *LocalTrack) writeWorker(provider SampleProvider, onComplete func()) {
 		nextSampleTime = nextSampleTime.Add(sample.Duration)
 		sleepDuration := time.Until(nextSampleTime)
 		if sleepDuration <= 0 {
-			s.log.Warnw("sample provider too slow, cannot keep up with real time", nil, "delta", sleepDuration)
+			s.log.Warnw("sample provider too slow, can't keep up with real time", nil, "delta", sleepDuration)
 			continue
 		}
 		ticker.Reset(sleepDuration)
