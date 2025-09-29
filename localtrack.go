@@ -435,13 +435,18 @@ func (s *LocalTrack) WriteSample(sample media.Sample, opts *SampleWriteOptions) 
 	samples := currentRTPTimestamp - s.lastRTPTimestamp
 	skippedSamples := uint32(0)
 	if samples < elapsedDurationSamples {
-		// possible that wall clock time based samplse are sent too close,
+		// possible that wall clock time based samples are sent too close,
 		// lower bound Duration if necessary
 		samples = elapsedDurationSamples
 		currentRTPTimestamp = s.lastRTPTimestamp + elapsedDurationSamples
 	} else if samples > elapsedDurationSamples {
-		// writing a sample after a gap
-		skippedSamples = samples - elapsedDurationSamples
+		if elapsedDurationSamples == 0 {
+			// could have 0 duration samples, for example SPS/PPS NALUs in H.264
+			currentRTPTimestamp = s.lastRTPTimestamp
+		} else {
+			// writing a sample after a gap
+			skippedSamples = samples - elapsedDurationSamples
+		}
 		samples = elapsedDurationSamples
 	}
 
@@ -579,7 +584,8 @@ func (s *LocalTrack) writeWorker(provider SampleProvider, onComplete func()) {
 	audioProvider, isAudioProvider := provider.(AudioSampleProvider)
 
 	nextSampleTime := time.Now()
-	ticker := time.NewTicker(10 * time.Millisecond)
+
+	ticker := time.NewTicker(time.Hour)
 	defer ticker.Stop()
 
 	for {
