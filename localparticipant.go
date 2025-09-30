@@ -53,6 +53,8 @@ func newLocalParticipant(engine *RTCEngine, roomcallback *RoomCallback, serverIn
 	}
 }
 
+// PublishTrack publishes a local track to the room.
+// The track will be available to other participants in the room.
 func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPublicationOptions) (*LocalTrackPublication, error) {
 	if opts == nil {
 		opts = &TrackPublicationOptions{}
@@ -139,7 +141,8 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 	return pub, nil
 }
 
-// PublishSimulcastTrack publishes up to three layers to the server
+// PublishSimulcastTrack publishes a simulcast track with up to three quality layers to the server.
+// This allows the server to dynamically switch between different quality levels based on network conditions.
 func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *TrackPublicationOptions) (*LocalTrackPublication, error) {
 	if len(tracks) == 0 {
 		return nil, nil
@@ -370,6 +373,7 @@ func (p *LocalParticipant) PublishDataPacket(pck DataPacket, opts ...DataPublish
 	return p.engine.publishDataPacket(dataPacket, kind)
 }
 
+// UnpublishTrack stops publishing a track and removes it from the room.
 func (p *LocalParticipant) UnpublishTrack(sid string) error {
 	obj, loaded := p.tracks.LoadAndDelete(sid)
 	if !loaded {
@@ -408,8 +412,8 @@ func (p *LocalParticipant) UnpublishTrack(sid string) error {
 	return err
 }
 
-// GetSubscriberPeerConnection is a power-user API that gives access to the underlying subscriber peer connection
-// subscribed tracks are received using this PeerConnection
+// GetSubscriberPeerConnection is a power-user API that gives access to the underlying subscriber peer connection.
+// Subscribed tracks are received using this PeerConnection.
 func (p *LocalParticipant) GetSubscriberPeerConnection() *webrtc.PeerConnection {
 	if subscriber, ok := p.engine.Subscriber(); ok {
 		return subscriber.PeerConnection()
@@ -417,8 +421,8 @@ func (p *LocalParticipant) GetSubscriberPeerConnection() *webrtc.PeerConnection 
 	return nil
 }
 
-// GetPublisherPeerConnection is a power-user API that gives access to the underlying publisher peer connection
-// local tracks are published to server via this PeerConnection
+// GetPublisherPeerConnection is a power-user API that gives access to the underlying publisher peer connection.
+// Local tracks are published to server via this PeerConnection.
 func (p *LocalParticipant) GetPublisherPeerConnection() *webrtc.PeerConnection {
 	if publisher, ok := p.engine.Publisher(); ok {
 		return publisher.PeerConnection()
@@ -427,7 +431,7 @@ func (p *LocalParticipant) GetPublisherPeerConnection() *webrtc.PeerConnection {
 }
 
 // SetName sets the name of the current participant.
-// updates will be performed only if the participant has canUpdateOwnMetadata grant
+// Updates will be performed only if the participant has canUpdateOwnMetadata grant.
 func (p *LocalParticipant) SetName(name string) {
 	_ = p.engine.SendUpdateParticipantMetadata(&livekit.UpdateParticipantMetadata{
 		Name: name,
@@ -483,7 +487,7 @@ func (p *LocalParticipant) onTrackMuted(pub *LocalTrackPublication, muted bool) 
 	}
 }
 
-// Control who can subscribe to LocalParticipant's published tracks.
+// SetSubscriptionPermission controls who can subscribe to LocalParticipant's published tracks.
 //
 // By default, all participants can subscribe. This allows fine-grained control over
 // who is able to subscribe at a participant and track level.
@@ -559,9 +563,8 @@ func (p *LocalParticipant) HandleIncomingRpcResponse(requestId string, payload *
 	}
 }
 
-// Initiate an RPC call to a remote participant
-//   - @param params - For parameters for initiating the RPC call, see PerformRpcParams
-//   - @returns A string payload or an error
+// PerformRpc initiates an RPC call to a remote participant.
+// Returns the response payload or an error if the call fails or times out.
 func (p *LocalParticipant) PerformRpc(params PerformRpcParams) (*string, error) {
 	responseTimeout := 10000 * time.Millisecond
 	if params.ResponseTimeout != nil {
@@ -707,8 +710,8 @@ func (p *LocalParticipant) StreamText(options StreamTextOptions) *TextStreamWrit
 	return writer
 }
 
-// SendText creates a new text stream writer with the provided options.
-// It will return a TextStreamInfo that can be used to get metadata about the stream.
+// SendText sends a text message as a stream to other participants.
+// Returns TextStreamInfo that can be used to get metadata about the stream.
 func (p *LocalParticipant) SendText(text string, options StreamTextOptions) *TextStreamInfo {
 	if options.TotalSize == 0 {
 		textInBytes := []byte(text)
@@ -830,9 +833,9 @@ func (p *LocalParticipant) StreamBytes(options StreamBytesOptions) *ByteStreamWr
 	return writer
 }
 
-// SendFile sends a file to the remote participant as a byte stream with the provided options.
-// It will return a ByteStreamInfo that can be used to get metadata about the stream.
-// Error is returned if the file cannot be read.
+// SendFile sends a file to other participants as a byte stream.
+// Returns ByteStreamInfo that can be used to get metadata about the stream.
+// Returns an error if the file cannot be read.
 func (p *LocalParticipant) SendFile(filePath string, options StreamBytesOptions) (*ByteStreamInfo, error) {
 	if options.TotalSize == 0 {
 		fileInfo, err := os.Stat(filePath)

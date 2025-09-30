@@ -99,14 +99,16 @@ type ConnectInfo struct {
 
 type ConnectOption func(*signalling.ConnectParams)
 
+// WithAutoSubscribe sets whether the participant should automatically subscribe to tracks.
+// Default is true.
 func WithAutoSubscribe(val bool) ConnectOption {
 	return func(p *signalling.ConnectParams) {
 		p.AutoSubscribe = val
 	}
 }
 
-// Retransmit buffer size to reponse to nack request,
-// must be one of: 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768
+// WithRetransmitBufferSize sets the retransmit buffer size to respond to NACK requests.
+// Must be one of: 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768.
 func WithRetransmitBufferSize(val uint16) ConnectOption {
 	return func(p *signalling.ConnectParams) {
 		p.RetransmitBufferSize = val
@@ -121,30 +123,36 @@ func WithPacer(pacer pacer.Factory) ConnectOption {
 	}
 }
 
+// WithInterceptors sets custom RTP interceptors for the connection.
 func WithInterceptors(interceptors []interceptor.Factory) ConnectOption {
 	return func(p *signalling.ConnectParams) {
 		p.Interceptors = interceptors
 	}
 }
 
+// WithICETransportPolicy sets the ICE transport policy (UDP, Relay, etc.).
 func WithICETransportPolicy(iceTransportPolicy webrtc.ICETransportPolicy) ConnectOption {
 	return func(p *signalling.ConnectParams) {
 		p.ICETransportPolicy = iceTransportPolicy
 	}
 }
 
+// WithDisableRegionDiscovery disables automatic region discovery for LiveKit Cloud.
 func WithDisableRegionDiscovery() ConnectOption {
 	return func(p *signalling.ConnectParams) {
 		p.DisableRegionDiscovery = true
 	}
 }
 
+// WithMetadata sets custom metadata for the participant.
 func WithMetadata(metadata string) ConnectOption {
 	return func(p *signalling.ConnectParams) {
 		p.Metadata = metadata
 	}
 }
 
+// WithExtraAttributes sets additional key-value attributes for the participant.
+// Empty string values will be ignored.
 func WithExtraAttributes(attrs map[string]string) ConnectOption {
 	return func(p *signalling.ConnectParams) {
 		if len(attrs) != 0 && p.Attributes == nil {
@@ -248,6 +256,8 @@ func (r *Room) Name() string {
 	return r.name
 }
 
+// SID returns the unique session ID of the room.
+// This will block until session ID is available, which could take up to 2s after joining the room.
 func (r *Room) SID() string {
 	<-r.sidReady
 	r.lock.RLock()
@@ -351,15 +361,18 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 	return nil
 }
 
+// Disconnect leaves the room, indicating the client initiated the disconnect.
 func (r *Room) Disconnect() {
-	r.DisconnectWithReason(livekit.DisconnectReason_UNKNOWN_REASON)
+	r.DisconnectWithReason(livekit.DisconnectReason_CLIENT_INITIATED)
 }
 
+// DisconnectWithReason leaves the room with a specific disconnect reason.
 func (r *Room) DisconnectWithReason(reason livekit.DisconnectReason) {
 	_ = r.engine.SendLeaveWithReason(reason)
 	r.cleanup()
 }
 
+// ConnectionState returns the current connection state of the room.
 func (r *Room) ConnectionState() ConnectionState {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
@@ -428,6 +441,9 @@ func (r *Room) clearParticipantDefers(sid livekit.ParticipantID, pi *livekit.Par
 	}
 }
 
+// GetParticipantByIdentity returns a remote participant by their identity.
+// Returns nil if not found.
+// Note: this represents the current view from the local participant's perspective
 func (r *Room) GetParticipantByIdentity(identity string) *RemoteParticipant {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
@@ -435,6 +451,9 @@ func (r *Room) GetParticipantByIdentity(identity string) *RemoteParticipant {
 	return r.remoteParticipants[livekit.ParticipantIdentity(identity)]
 }
 
+// GetParticipantBySID returns a remote participant by their session ID.
+// Returns nil if not found.
+// Note: this represents the current view from the local participant's perspective
 func (r *Room) GetParticipantBySID(sid string) *RemoteParticipant {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
@@ -445,6 +464,9 @@ func (r *Room) GetParticipantBySID(sid string) *RemoteParticipant {
 	return nil
 }
 
+// GetRemoteParticipants returns all remote participants in the room as seen by the local participant
+// Note: this does not represent the exact state from the server's view. To get all participants that
+// exists on the server, use [RoomServiceClient.ListParticipants] instead.
 func (r *Room) GetRemoteParticipants() []*RemoteParticipant {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
@@ -456,6 +478,8 @@ func (r *Room) GetRemoteParticipants() []*RemoteParticipant {
 	return participants
 }
 
+// ActiveSpeakers returns a list of currently active speakers.
+// Speakers are ordered by audio level (loudest first).
 func (r *Room) ActiveSpeakers() []Participant {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
@@ -468,12 +492,14 @@ func (r *Room) Metadata() string {
 	return r.metadata
 }
 
+// ServerInfo returns information about the LiveKit server.
 func (r *Room) ServerInfo() *livekit.ServerInfo {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 	return proto.Clone(r.serverInfo).(*livekit.ServerInfo)
 }
 
+// SifTrailer returns the SIF (Server Injected Frames) trailer data used by E2EE
 func (r *Room) SifTrailer() []byte {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
@@ -612,6 +638,8 @@ func (r *Room) setSid(sid string, allowEmpty bool) {
 	r.lock.Unlock()
 }
 
+// Simulate triggers various test scenarios for debugging and testing purposes.
+// This is primarily used for development and testing.
 func (r *Room) Simulate(scenario SimulateScenario) {
 	r.engine.Simulate(scenario)
 }
@@ -654,15 +682,14 @@ func (r *Room) RegisterRpcMethod(method string, handler RpcHandlerFunc) error {
 	return nil
 }
 
-// Unregisters a previously registered RPC method.
-//   - @param method - The name of the RPC method to unregister
+// UnregisterRpcMethod unregisters a previously registered RPC method.
 func (r *Room) UnregisterRpcMethod(method string) {
 	r.rpcHandlers.Delete(method)
 }
 
-// Registers a handler for a text stream.
-// It will be called when a text stream is received for the given topic.
-// The handler will be called with the stream reader and the participant identity that sent the stream.
+// RegisterTextStreamHandler registers a handler for incoming text streams on a specific topic.
+// The handler will be called when a text stream is received for the given topic.
+// It returns an error if a handler is already registered for this topic.
 func (r *Room) RegisterTextStreamHandler(topic string, handler TextStreamHandler) error {
 	if _, loaded := r.textStreamHandlers.LoadOrStore(topic, handler); loaded {
 		return fmt.Errorf("text stream handler already registered for topic: %s", topic)
@@ -670,14 +697,14 @@ func (r *Room) RegisterTextStreamHandler(topic string, handler TextStreamHandler
 	return nil
 }
 
-// Unregisters a handler for a text stream.
+// UnregisterTextStreamHandler removes a previously registered text stream handler.
 func (r *Room) UnregisterTextStreamHandler(topic string) {
 	r.textStreamHandlers.Delete(topic)
 }
 
-// Registers a handler for a byte stream.
-// It will be called when a byte stream is received for the given topic.
-// The handler will be called with the stream reader and the participant identity that sent the stream.
+// RegisterByteStreamHandler registers a handler for incoming byte streams on a specific topic.
+// The handler will be called when a byte stream is received for the given topic.
+// It returns an error if a handler is already registered for this topic.
 func (r *Room) RegisterByteStreamHandler(topic string, handler ByteStreamHandler) error {
 	if _, loaded := r.byteStreamHandlers.LoadOrStore(topic, handler); loaded {
 		return fmt.Errorf("byte stream handler already registered for topic: %s", topic)
@@ -685,7 +712,7 @@ func (r *Room) RegisterByteStreamHandler(topic string, handler ByteStreamHandler
 	return nil
 }
 
-// Unregisters a handler for a byte stream.
+// UnregisterByteStreamHandler removes a previously registered byte stream handler.
 func (r *Room) UnregisterByteStreamHandler(topic string) {
 	r.byteStreamHandlers.Delete(topic)
 }

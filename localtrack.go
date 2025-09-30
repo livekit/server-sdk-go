@@ -92,7 +92,7 @@ type LocalTrackOptions func(s *LocalTrack)
 type LocalSampleTrackOptions = LocalTrackOptions
 
 // WithSimulcast marks the current track for simulcasting.
-// In order to use simulcast, simulcastID must be identical across all layers
+// In order to use simulcast, simulcastID must be identical across all layers.
 func WithSimulcast(simulcastID string, layer *livekit.VideoLayer) LocalTrackOptions {
 	return func(s *LocalTrack) {
 		s.videoLayer = layer
@@ -100,6 +100,7 @@ func WithSimulcast(simulcastID string, layer *livekit.VideoLayer) LocalTrackOpti
 	}
 }
 
+// WithRTCPHandler sets a callback to receive RTCP packets for the track.
 func WithRTCPHandler(cb func(rtcp.Packet)) LocalTrackOptions {
 	return func(s *LocalTrack) {
 		s.onRTCP = cb
@@ -140,11 +141,12 @@ func NewLocalSampleTrack(c webrtc.RTPCodecCapability, opts ...LocalTrackOptions)
 	return NewLocalTrack(c, opts...)
 }
 
-// SetLogger overrides default logger.
+// SetLogger overrides default logger for this track.
 func (s *LocalTrack) SetLogger(l protoLogger.Logger) {
 	s.log = l
 }
 
+// SetTransceiver sets the RTP transceiver for this track.
 func (s *LocalTrack) SetTransceiver(transceiver *webrtc.RTPTransceiver) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -152,32 +154,33 @@ func (s *LocalTrack) SetTransceiver(transceiver *webrtc.RTPTransceiver) {
 	s.transceiver = transceiver
 }
 
-// ID is the unique identifier for this Track. This should be unique for the
+// ID returns the unique identifier for this Track. This should be unique for the
 // stream, but doesn't have to globally unique. A common example would be 'audio' or 'video'
-// and StreamID would be 'desktop' or 'webcam'
+// and StreamID would be 'desktop' or 'webcam'.
 func (s *LocalTrack) ID() string { return s.rtpTrack.ID() }
 
-// RID is the RTP stream identifier.
+// RID returns the RTP stream identifier.
 func (s *LocalTrack) RID() string {
 	return s.rtpTrack.RID()
 }
 
-// StreamID is the group this track belongs too. This must be unique
+// StreamID returns the group this track belongs to. This must be unique.
 func (s *LocalTrack) StreamID() string { return s.rtpTrack.StreamID() }
 
-// Kind controls if this TrackLocal is audio or video
+// Kind returns whether this TrackLocal is audio or video.
 func (s *LocalTrack) Kind() webrtc.RTPCodecType { return s.rtpTrack.Kind() }
 
-// Codec gets the Codec of the track
+// Codec returns the codec capability of the track.
 func (s *LocalTrack) Codec() webrtc.RTPCodecCapability {
 	return s.rtpTrack.Codec()
 }
 
+// IsBound returns whether the track is currently bound to a peer connection.
 func (s *LocalTrack) IsBound() bool {
 	return s.bound.Load()
 }
 
-// Bind is an interface for TrackLocal, not for external consumption
+// Bind is an interface for TrackLocal, not for external consumption.
 func (s *LocalTrack) Bind(t webrtc.TrackLocalContext) (webrtc.RTPCodecParameters, error) {
 	codec, err := s.rtpTrack.Bind(t)
 	if err != nil {
@@ -235,7 +238,7 @@ func (s *LocalTrack) Bind(t webrtc.TrackLocalContext) (webrtc.RTPCodecParameters
 	return codec, err
 }
 
-// Unbind is an interface for TrackLocal, not for external consumption
+// Unbind is an interface for TrackLocal, not for external consumption.
 func (s *LocalTrack) Unbind(t webrtc.TrackLocalContext) error {
 	s.lock.Lock()
 	provider := s.provider
@@ -262,6 +265,8 @@ func (s *LocalTrack) Unbind(t webrtc.TrackLocalContext) error {
 	return err
 }
 
+// StartWrite starts writing samples from the provided SampleProvider.
+// The onComplete callback is called when writing finishes.
 func (s *LocalTrack) StartWrite(provider SampleProvider, onComplete func()) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -288,20 +293,21 @@ func (s *LocalTrack) StartWrite(provider SampleProvider, onComplete func()) erro
 	return nil
 }
 
-// OnBind sets a callback to be called when the track has been negotiated for publishing and bound to a peer connection
+// OnBind sets a callback to be called when the track has been negotiated for publishing and bound to a peer connection.
 func (s *LocalTrack) OnBind(f func()) {
 	s.lock.Lock()
 	s.onBind = f
 	s.lock.Unlock()
 }
 
-// OnUnbind sets a callback to be called after the track is removed from a peer connection
+// OnUnbind sets a callback to be called after the track is removed from a peer connection.
 func (s *LocalTrack) OnUnbind(f func()) {
 	s.lock.Lock()
 	s.onUnbind = f
 	s.lock.Unlock()
 }
 
+// WriteRTP writes an RTP packet to the track with optional sample write options.
 func (s *LocalTrack) WriteRTP(p *rtp.Packet, opts *SampleWriteOptions) error {
 	s.lock.RLock()
 	transceiver := s.transceiver
@@ -340,6 +346,8 @@ func (s *LocalTrack) WriteRTP(p *rtp.Packet, opts *SampleWriteOptions) error {
 	return s.rtpTrack.WriteRTP(p)
 }
 
+// WriteSample writes a media sample to the track with optional write options.
+// This handles timing, RTP packetization, and sample ordering automatically.
 func (s *LocalTrack) WriteSample(sample media.Sample, opts *SampleWriteOptions) error {
 	s.lock.Lock()
 	if s.packetizer == nil {
@@ -487,6 +495,7 @@ func (s *LocalTrack) WriteSample(sample media.Sample, opts *SampleWriteOptions) 
 	return nil
 }
 
+// Close stops the track and cleans up resources.
 func (s *LocalTrack) Close() error {
 	s.lock.Lock()
 	cancelWrite := s.cancelWrite
@@ -501,6 +510,7 @@ func (s *LocalTrack) Close() error {
 	return nil
 }
 
+// SSRC returns the Synchronization Source identifier for this track.
 func (s *LocalTrack) SSRC() webrtc.SSRC {
 	s.lock.Lock()
 	defer s.lock.Unlock()
