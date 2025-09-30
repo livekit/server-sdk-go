@@ -22,7 +22,7 @@ var (
 	_ DataPacket = (*livekit.ChatMessage)(nil) // implemented in the protocol package
 )
 
-// UserData is a custom user data that can be sent via WebRTC.
+// UserData creates a UserDataPacket with opaque bytes that can be sent via WebRTC.
 func UserData(data []byte) *UserDataPacket {
 	return &UserDataPacket{Payload: data}
 }
@@ -33,7 +33,7 @@ type UserDataPacket struct {
 	Topic   string // optional
 }
 
-// ToProto implements DataPacket.
+// ToProto converts the UserDataPacket to a protobuf DataPacket.
 func (p *UserDataPacket) ToProto() *livekit.DataPacket {
 	var topic *string
 	if p.Topic != "" {
@@ -48,6 +48,7 @@ func (p *UserDataPacket) ToProto() *livekit.DataPacket {
 }
 
 // ChatMessage creates a chat message that can be sent via WebRTC.
+// If timestamp is zero, current time will be used.
 func ChatMessage(ts time.Time, text string) *livekit.ChatMessage {
 	if ts.IsZero() {
 		ts = time.Now()
@@ -89,6 +90,8 @@ func WithDataPublishReliable(reliable bool) DataPublishOption {
 	}
 }
 
+// WithDataPublishDestination sets specific participant identities to send data to.
+// If not set, data will be sent to all participants.
 func WithDataPublishDestination(identities []string) DataPublishOption {
 	return func(o *dataPublishOptions) {
 		o.DestinationIdentities = identities

@@ -150,6 +150,8 @@ type RemoteTrackPublication struct {
 	videoQuality *livekit.VideoQuality
 }
 
+// TrackRemote returns the underlying webrtc.TrackRemote if available.
+// Returns nil if the track is not subscribed
 func (p *RemoteTrackPublication) TrackRemote() *webrtc.TrackRemote {
 	p.lock.RLock()
 	defer p.lock.RUnlock()
@@ -159,12 +161,15 @@ func (p *RemoteTrackPublication) TrackRemote() *webrtc.TrackRemote {
 	return nil
 }
 
+// Receiver returns the RTP receiver associated with this track publication.
 func (p *RemoteTrackPublication) Receiver() *webrtc.RTPReceiver {
 	p.lock.RLock()
 	defer p.lock.RUnlock()
 	return p.receiver
 }
 
+// SetSubscribed subscribes or unsubscribes from this track.
+// When subscribed, track data will be received from the server.
 func (p *RemoteTrackPublication) SetSubscribed(subscribed bool) error {
 	return p.engine.SendUpdateSubscription(
 		&livekit.UpdateSubscription{
@@ -179,12 +184,16 @@ func (p *RemoteTrackPublication) SetSubscribed(subscribed bool) error {
 	)
 }
 
+// IsEnabled returns whether the track is enabled (not disabled).
+// Disabled tracks will not receive media data even when subscribed.
 func (p *RemoteTrackPublication) IsEnabled() bool {
 	p.lock.RLock()
 	defer p.lock.RUnlock()
 	return !p.disabled
 }
 
+// SetEnabled enables or disables the track.
+// When disabled, the track will not receive media data even when subscribed.
 func (p *RemoteTrackPublication) SetEnabled(enabled bool) {
 	p.lock.Lock()
 	p.disabled = !enabled
@@ -193,6 +202,8 @@ func (p *RemoteTrackPublication) SetEnabled(enabled bool) {
 	p.updateSettings()
 }
 
+// SetVideoDimensions sets the preferred video dimensions to receive.
+// This is a hint to the server about what resolution to send.
 func (p *RemoteTrackPublication) SetVideoDimensions(width uint32, height uint32) {
 	p.lock.Lock()
 	p.videoWidth = &width
@@ -202,6 +213,7 @@ func (p *RemoteTrackPublication) SetVideoDimensions(width uint32, height uint32)
 	p.updateSettings()
 }
 
+// SetVideoQuality sets the preferred video quality to receive.
 func (p *RemoteTrackPublication) SetVideoQuality(quality livekit.VideoQuality) error {
 	if quality == livekit.VideoQuality_OFF {
 		return errors.New("cannot set video quality to OFF")
@@ -214,6 +226,7 @@ func (p *RemoteTrackPublication) SetVideoQuality(quality livekit.VideoQuality) e
 	return nil
 }
 
+// OnRTCP sets a callback to receive RTCP packets for this track.
 func (p *RemoteTrackPublication) OnRTCP(cb func(rtcp.Packet)) {
 	p.lock.Lock()
 	p.onRTCP = cb
@@ -312,6 +325,8 @@ func (p *LocalTrackPublication) TrackLocal() webrtc.TrackLocal {
 	return nil
 }
 
+// GetSimulcastTrack returns the simulcast track for a specific quality level.
+// Returns nil if simulcast is not enabled or the quality level doesn't exist.
 func (p *LocalTrackPublication) GetSimulcastTrack(quality livekit.VideoQuality) *LocalTrack {
 	p.lock.RLock()
 	defer p.lock.RUnlock()
@@ -321,10 +336,14 @@ func (p *LocalTrackPublication) GetSimulcastTrack(quality livekit.VideoQuality) 
 	return p.simulcastTracks[quality]
 }
 
+// SetMuted mutes or unmutes the track.
+// When muted, no media data will be sent to other participants.
 func (p *LocalTrackPublication) SetMuted(muted bool) {
 	p.setMuted(muted, false)
 }
 
+// SimulateDisconnection simulates a network disconnection for testing purposes.
+// If duration is 0, the disconnection persists until manually reconnected.
 func (p *LocalTrackPublication) SimulateDisconnection(duration time.Duration) {
 	if track := p.track; track != nil {
 		switch t := track.(type) {
@@ -393,6 +412,8 @@ func (p *LocalTrackPublication) setSender(sender *webrtc.RTPSender, consumeRTCP 
 	}()
 }
 
+// CloseTrack closes the underlying track and all simulcast tracks.
+// This should be called when the track is no longer needed.
 func (p *LocalTrackPublication) CloseTrack() {
 	for _, st := range p.simulcastTracks {
 		st.Close()
