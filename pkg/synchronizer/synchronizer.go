@@ -22,8 +22,10 @@ import (
 )
 
 const (
-	DefaultMaxTsDiff          = time.Minute
-	DefaultOldPacketThreshold = 500 * time.Millisecond
+	DefaultMaxTsDiff                    = time.Minute
+	DefaultMaxDriftAdjustment           = 5 * time.Millisecond
+	DefaultDriftAdjustmentWindowPercent = 0.0 // 0 -> disables throttling
+	DefaultOldPacketThreshold           = 500 * time.Millisecond
 )
 
 type SynchronizerOption func(*SynchronizerConfig)
@@ -31,11 +33,14 @@ type SynchronizerOption func(*SynchronizerConfig)
 // SynchronizerConfig holds configuration for the Synchronizer
 type SynchronizerConfig struct {
 	MaxTsDiff                         time.Duration
-	OnStarted                         func()
+	MaxDriftAdjustment                time.Duration
+	DriftAdjustmentWindowPercent      float64
 	AudioPTSAdjustmentDisabled        bool
 	PreJitterBufferReceiveTimeEnabled bool
 	RTCPSenderReportRebaseEnabled     bool
 	OldPacketThreshold                time.Duration
+
+	OnStarted func()
 }
 
 // WithMaxTsDiff sets the maximum acceptable difference between RTP packets
@@ -46,10 +51,27 @@ func WithMaxTsDiff(maxTsDiff time.Duration) SynchronizerOption {
 	}
 }
 
-// WithOnStarted sets the callback to be called when the synchronizer starts
-func WithOnStarted(onStarted func()) SynchronizerOption {
+// WithMaxDriftAdjustment sets the maximum drift adjustment applied at a time
+func WithMaxDriftAdjustment(maxDriftAdjustment time.Duration) SynchronizerOption {
 	return func(config *SynchronizerConfig) {
-		config.OnStarted = onStarted
+		config.MaxDriftAdjustment = maxDriftAdjustment
+	}
+}
+
+// WithDriftAdjustmentWinddowPercent controls throttling of how often drift adjustments are applied
+// Throttles PTS adjustment to a limited amount in a time window.
+// This setting determines how long a certain amount of adjustment
+// throttles the next adjustment.
+//
+// For example, if a 1ms adjustment is appied at 1%, it means that
+// 1ms is 1% of ajustment window, so the adjustment window is 100ms
+// and next adjustment will not be applied till that time elapses
+//
+// With the settings of 5ms adjustment at 5%, a mamximum adjustment
+// of 5ms per 100ms
+func WithDriftAdjustmentWindowPercent(driftAdjustmentWindowPercent float64) SynchronizerOption {
+	return func(config *SynchronizerConfig) {
+		config.DriftAdjustmentWindowPercent = driftAdjustmentWindowPercent
 	}
 }
 
@@ -86,6 +108,13 @@ func WithOldPacketThreshold(oldPacketThreshold time.Duration) SynchronizerOption
 	}
 }
 
+// WithOnStarted sets the callback to be called when the synchronizer starts
+func WithOnStarted(onStarted func()) SynchronizerOption {
+	return func(config *SynchronizerConfig) {
+		config.OnStarted = onStarted
+	}
+}
+
 // a single Synchronizer is shared between all audio and video writers
 type Synchronizer struct {
 	sync.RWMutex
@@ -102,9 +131,11 @@ type Synchronizer struct {
 
 func NewSynchronizer(onStarted func()) *Synchronizer {
 	config := SynchronizerConfig{
-		MaxTsDiff:          DefaultMaxTsDiff,
-		OnStarted:          onStarted,
-		OldPacketThreshold: DefaultOldPacketThreshold,
+		MaxTsDiff:                    DefaultMaxTsDiff,
+		MaxDriftAdjustment:           DefaultMaxDriftAdjustment,
+		DriftAdjustmentWindowPercent: DefaultDriftAdjustmentWindowPercent,
+		OldPacketThreshold:           DefaultOldPacketThreshold,
+		OnStarted:                    onStarted,
 	}
 
 	return &Synchronizer{
@@ -118,9 +149,11 @@ func NewSynchronizer(onStarted func()) *Synchronizer {
 
 func NewSynchronizerWithOptions(opts ...SynchronizerOption) *Synchronizer {
 	config := SynchronizerConfig{
-		MaxTsDiff:          DefaultMaxTsDiff,
-		OnStarted:          nil,
-		OldPacketThreshold: DefaultOldPacketThreshold,
+		MaxTsDiff:                    DefaultMaxTsDiff,
+		MaxDriftAdjustment:           DefaultMaxDriftAdjustment,
+		DriftAdjustmentWindowPercent: DefaultDriftAdjustmentWindowPercent,
+		OldPacketThreshold:           DefaultOldPacketThreshold,
+		OnStarted:                    nil,
 	}
 
 	for _, opt := range opts {

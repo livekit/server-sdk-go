@@ -31,19 +31,6 @@ import (
 )
 
 const (
-	cMaxAdjustment = 5 * time.Millisecond
-	// Throttle PTS adjustment to a limited amount ina time window.
-	// This setting determines how long a certain amount of adjustment
-	// throttles the next adjustment.
-	//
-	// For sample, if a 1ms adjustment is appied at 1%, it means that
-	// 1ms is 1% of ajustment window, so the adjustement window is 100ms
-	// and next adjustment will not applied for till tha time elapses
-	//
-	// With the settings of 5ms adjustment at 5%, a mamximum adjustment
-	// of 5ms per 100ms
-	cAdjustmentWindowPercent = 5.0
-
 	cStartTimeAdjustWindow    = 2 * time.Minute
 	cStartTimeAdjustThreshold = 5 * time.Second
 )
@@ -67,7 +54,9 @@ type TrackSynchronizer struct {
 
 	// config
 	maxTsDiff                         time.Duration // maximum acceptable difference between RTP packets
-	audioPTSAdjustmentsDisabled       bool          // disable audio packets PTS adjustments on SRs
+	maxDriftAdjustment                time.Duration // maximum drift adjustment at a time
+	driftAdjustmentWindowPercent      float64
+	audioPTSAdjustmentsDisabled       bool // disable audio packets PTS adjustments on SRs
 	preJitterBufferReceiveTimeEnabled bool
 	rtcpSenderReportRebaseEnabled     bool
 	oldPacketThreshold                time.Duration
@@ -105,6 +94,8 @@ func newTrackSynchronizer(s *Synchronizer, track TrackRemote) *TrackSynchronizer
 		logger:                            logger.GetLogger().WithValues("trackID", track.ID(), "codec", track.Codec().MimeType),
 		rtpConverter:                      newRTPConverter(int64(track.Codec().ClockRate)),
 		maxTsDiff:                         s.config.MaxTsDiff,
+		maxDriftAdjustment:                s.config.MaxDriftAdjustment,
+		driftAdjustmentWindowPercent:      s.config.DriftAdjustmentWindowPercent,
 		audioPTSAdjustmentsDisabled:       s.config.AudioPTSAdjustmentDisabled,
 		preJitterBufferReceiveTimeEnabled: s.config.PreJitterBufferReceiveTimeEnabled,
 		rtcpSenderReportRebaseEnabled:     s.config.RTCPSenderReportRebaseEnabled,
@@ -144,6 +135,8 @@ func (t *TrackSynchronizer) Initialize(pkt *rtp.Packet) {
 		"startRTP", t.startRTP,
 		"currentPTSOffset", t.currentPTSOffset,
 		"maxTsDiff", t.maxTsDiff,
+		"maxDriftAdjustment", t.maxDriftAdjustment,
+		"driftAdjustmentWindowPercent", t.driftAdjustmentWindowPercent,
 		"audioPTSAdjustmentDisabled", t.audioPTSAdjustmentsDisabled,
 		"preJitterBufferReceiveTimeEnabled", t.preJitterBufferReceiveTimeEnabled,
 		"rtcpSenderReportRebaseEnabled", t.rtcpSenderReportRebaseEnabled,
@@ -235,13 +228,16 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 	if t.shouldAdjustPTS() {
 		prevCurrentPTSOffset := t.currentPTSOffset
 		if t.currentPTSOffset > t.desiredPTSOffset {
-			t.currentPTSOffset = max(t.currentPTSOffset-cMaxAdjustment, t.desiredPTSOffset)
+			t.currentPTSOffset = max(t.currentPTSOffset-t.maxDriftAdjustment, t.desiredPTSOffset)
 		} else if t.currentPTSOffset < t.desiredPTSOffset {
-			t.currentPTSOffset = min(t.currentPTSOffset+cMaxAdjustment, t.desiredPTSOffset)
+			t.currentPTSOffset = min(t.currentPTSOffset+t.maxDriftAdjustment, t.desiredPTSOffset)
 		}
 
 		// throttle further adjustment till a window proportional to this adjustment elapses
-		throttle := time.Duration(math.Abs(float64(t.currentPTSOffset-prevCurrentPTSOffset)) * 100.0 / float64(cAdjustmentWindowPercent))
+		throttle := time.Duration(0)
+		if t.driftAdjustmentWindowPercent > 0.0 {
+			throttle = time.Duration(math.Abs(float64(t.currentPTSOffset-prevCurrentPTSOffset)) * 100.0 / t.driftAdjustmentWindowPercent)
+		}
 		t.nextPTSAdjustmentAt = mono.Now().Add(throttle)
 
 		t.logger.Infow(
@@ -358,13 +354,16 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 	if t.shouldAdjustPTS() {
 		prevCurrentPTSOffset := t.currentPTSOffset
 		if t.currentPTSOffset > t.desiredPTSOffset {
-			t.currentPTSOffset = max(t.currentPTSOffset-cMaxAdjustment, t.desiredPTSOffset)
+			t.currentPTSOffset = max(t.currentPTSOffset-t.maxDriftAdjustment, t.desiredPTSOffset)
 		} else if t.currentPTSOffset < t.desiredPTSOffset {
-			t.currentPTSOffset = min(t.currentPTSOffset+cMaxAdjustment, t.desiredPTSOffset)
+			t.currentPTSOffset = min(t.currentPTSOffset+t.maxDriftAdjustment, t.desiredPTSOffset)
 		}
 
 		// throttle further adjustment till a window proportional to this adjustment elapses
-		throttle := time.Duration(math.Abs(float64(t.currentPTSOffset-prevCurrentPTSOffset)) * 100.0 / float64(cAdjustmentWindowPercent))
+		throttle := time.Duration(0)
+		if t.driftAdjustmentWindowPercent > 0.0 {
+			throttle = time.Duration(math.Abs(float64(t.currentPTSOffset-prevCurrentPTSOffset)) * 100.0 / t.driftAdjustmentWindowPercent)
+		}
 		t.nextPTSAdjustmentAt = mono.Now().Add(throttle)
 
 		t.logger.Infow(
