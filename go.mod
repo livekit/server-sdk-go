@@ -8,7 +8,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/livekit/mageutil v0.0.0-20250511045019-0f1ff63f7731
-	github.com/livekit/media-sdk v0.0.0-20250518151703-b07af88637c5
+	github.com/livekit/media-sdk v0.0.0-20250927154350-bd99739b439b
 	github.com/livekit/mediatransportutil v0.0.0-20250519131108-fb90f5acfded
 	github.com/livekit/protocol v1.42.0
 	github.com/magefile/mage v1.15.0
@@ -80,7 +80,7 @@ require (
 	github.com/wlynxg/anet v0.0.5 // indirect
 	github.com/zeebo/xxh3 v1.0.2 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	go.uber.org/zap v1.27.0 // indirect
+	go.uber.org/zap v1.27.0
 	go.uber.org/zap/exp v0.3.0 // indirect
 	golang.org/x/net v0.43.0 // indirect
 	golang.org/x/sync v0.16.0 // indirect

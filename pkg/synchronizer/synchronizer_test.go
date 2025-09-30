@@ -9,6 +9,7 @@ import (
 	"github.com/pion/webrtc/v4"
 	"github.com/stretchr/testify/require"
 
+	"github.com/livekit/media-sdk/jitter"
 	"github.com/livekit/mediatransportutil"
 	"github.com/livekit/server-sdk-go/v2/pkg/synchronizer"
 	"github.com/livekit/server-sdk-go/v2/pkg/synchronizer/synchronizerfakes"
@@ -27,8 +28,11 @@ func near(t *testing.T, got, want, tol time.Duration) {
 	require.LessOrEqualf(t, d, tol, "got %v, want ~%v (±%v)", got, want, tol)
 }
 
-func pkt(ts uint32) *rtp.Packet {
-	return &rtp.Packet{Header: rtp.Header{Timestamp: ts}}
+func pkt(ts uint32) jitter.ExtPacket {
+	return jitter.ExtPacket{
+		ReceivedAt: time.Now(),
+		Packet:     &rtp.Packet{Header: rtp.Header{Timestamp: ts}},
+	}
 }
 
 func fakeAudio48k(ssrc uint32) *synchronizerfakes.FakeTrackRemote {
@@ -69,7 +73,7 @@ func TestInitialize_AndSameTimestamp(t *testing.T) {
 	ts := uint32(1_000_000)
 	tsync := s.AddTrack(tr, "p1")
 
-	tsync.Initialize(pkt(ts))
+	tsync.Initialize(pkt(ts).Packet)
 
 	adj0, err := tsync.GetPTS(pkt(ts))
 	require.NoError(t, err)
@@ -89,7 +93,7 @@ func TestMonotonicPTS_SmallRTPDelta(t *testing.T) {
 	delta20ms := uint32(48000 * 20 / 1000) // 960 ticks
 
 	tsync := s.AddTrack(tr, "p1")
-	tsync.Initialize(pkt(ts0))
+	tsync.Initialize(pkt(ts0).Packet)
 
 	// establish startTime
 	_, _ = tsync.GetPTS(pkt(ts0))
@@ -108,7 +112,7 @@ func TestUnacceptableDrift_ResetsToEstimatedPTS(t *testing.T) {
 	delta2s := uint32(48000 * 2) // 96,000 ticks
 
 	tsync := s.AddTrack(tr, "p1")
-	tsync.Initialize(pkt(ts0))
+	tsync.Initialize(pkt(ts0).Packet)
 
 	// establish startTime
 	_, _ = tsync.GetPTS(pkt(ts0))
@@ -120,18 +124,18 @@ func TestUnacceptableDrift_ResetsToEstimatedPTS(t *testing.T) {
 
 func TestOnSenderReport_SlewsTowardDesiredOffset(t *testing.T) {
 	const (
-		maxAdjustment = 5 * time.Millisecond
+		maxAdjustment = 5 * time.Millisecond // TrackSynchronizer's cMaxAdjustment
 		ts0           = uint32(900_000)
 		stepRTP       = uint32(48000 * 20 / 1000) // 20 ms @ 48 kHz
 		stepDur       = 20 * time.Millisecond
 		desired       = 50 * time.Millisecond // target offset from SR
 	)
 
-	s := synchronizer.NewSynchronizerWithOptions(synchronizer.WithMaxTsDiff(1 * time.Second))
+	s := synchronizer.NewSynchronizerWithOptions(synchronizer.WithMaxTsDiff(5 * time.Second))
 	tr := fakeAudio48k(0xA0010004)
 
 	tsync := s.AddTrack(tr, "p1")
-	tsync.Initialize(pkt(ts0))
+	tsync.Initialize(pkt(ts0).Packet)
 
 	// Anchor wall-clock just before startTime is set.
 	t0 := time.Now()
@@ -151,13 +155,15 @@ func TestOnSenderReport_SlewsTowardDesiredOffset(t *testing.T) {
 		RTPTime: cur,
 	})
 
-	// Converge in N = ceil(desired / 5ms) steps (5ms maxAdjustment)
-	N := int((desired + 5*time.Millisecond - 1) / (5 * time.Millisecond))
+	// Converge in N = ceil(desired / 5ms) steps (5ms cMaxAdjustment) adjusted for throttling
+	N := int((desired + maxAdjustment - 1) / (maxAdjustment))
+	throttle := time.Duration(float64(maxAdjustment.Nanoseconds()) * 100.0 / 5.0)
 
 	for i := 0; i < N; i++ {
 		cur += stepRTP
 		_, err := tsync.GetPTS(pkt(cur))
 		require.NoError(t, err)
+		time.Sleep(throttle)
 	}
 
 	// After N steps, total adjusted delta over base should be:
@@ -174,18 +180,19 @@ func TestOnSenderReport_SlewsTowardDesiredOffset(t *testing.T) {
 // Regression: late video start (~2s) + tiny SR offset (~10ms) must NOT emit a big negative drift
 func TestOnSenderReport_LateVideoStart_SmallSROffset_NoHugeNegativeDrift(t *testing.T) {
 	const (
-		lateStart = 2 * time.Second
-		srOffset  = 50 * time.Millisecond
-		stepSlew  = 5 * time.Millisecond // TrackSynchronizer's maxAdjustment
+		lateStart               = 2 * time.Second
+		srOffset                = 50 * time.Millisecond
+		stepSlew                = 5 * time.Millisecond // TrackSynchronizer's cMaxAdjustment
+		adjustmentWindowPercent = 5.0                  // TrackSynchronizer's cAdjustmentWindowPercent
 	)
 
-	s := synchronizer.NewSynchronizerWithOptions(synchronizer.WithMaxTsDiff(2 * time.Second))
+	s := synchronizer.NewSynchronizerWithOptions(synchronizer.WithMaxTsDiff(5 * time.Second))
 
 	// 1) Audio publishes immediately → establishes startedAt
 	audio := fakeAudio48k(0xA0010005)
 	tsA0 := uint32(1_000_000)
 	aSync := s.AddTrack(audio, "p1")
-	aSync.Initialize(pkt(tsA0))
+	aSync.Initialize(pkt(tsA0).Packet)
 	_, _ = aSync.GetPTS(pkt(tsA0))
 
 	// Simulate a real late video publish
@@ -195,7 +202,7 @@ func TestOnSenderReport_LateVideoStart_SmallSROffset_NoHugeNegativeDrift(t *test
 	video := fakeVideo90k(0x00BEEF01)
 	tsV0 := uint32(2_000_000)
 	vSync := s.AddTrack(video, "p1")
-	vSync.Initialize(pkt(tsV0))
+	vSync.Initialize(pkt(tsV0).Packet)
 	_, _ = vSync.GetPTS(pkt(tsV0))
 
 	// 3) First SR: small positive drift
@@ -218,8 +225,9 @@ func TestOnSenderReport_LateVideoStart_SmallSROffset_NoHugeNegativeDrift(t *test
 	step33ms := uint32(90000 * 33 / 1000) // ~33 ms per 30fps frame at 90 kHz
 	stepDur := 33 * time.Millisecond
 
-	// Converge in N = ceil(srOffset / stepSlew) steps (50ms / 5ms = 10)
+	// Converge in N = ceil(srOffset / stepSlew) steps (50ms / 5ms = 10) adjusted for throttling
 	N := int((srOffset + stepSlew - 1) / stepSlew)
+	throttle := time.Duration(float64(stepSlew.Nanoseconds()) * 100.0 / adjustmentWindowPercent)
 
 	cur := tsV0
 	var adj time.Duration
@@ -229,6 +237,7 @@ func TestOnSenderReport_LateVideoStart_SmallSROffset_NoHugeNegativeDrift(t *test
 		cur += step33ms
 		adj, err = vSync.GetPTS(pkt(cur))
 		require.NoError(t, err)
+		time.Sleep(throttle)
 	}
 
 	// After N steps, the extra beyond content cadence should be ~srOffset
