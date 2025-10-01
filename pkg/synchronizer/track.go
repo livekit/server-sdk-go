@@ -645,7 +645,7 @@ func (t *TrackSynchronizer) shouldAdjustPTS() bool {
 	if t.track.Kind() == webrtc.RTPCodecTypeAudio && !t.rtcpSenderReportRebaseEnabled {
 		adjustmentEnabled = !t.audioPTSAdjustmentsDisabled
 	}
-	// add a deadband of t.maxDriftAdjustment to makre sure no PTS adjustment is smaller than that
+	// add a deadband of t.maxDriftAdjustment to make sure no PTS adjustment is smaller than that
 	diff := t.desiredPTSOffset - t.currentPTSOffset
 	if diff > -t.maxDriftAdjustment && diff < t.maxDriftAdjustment {
 		return false
