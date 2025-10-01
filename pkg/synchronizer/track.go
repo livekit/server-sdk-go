@@ -171,6 +171,8 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 		t.logger.Infow(
 			"starting track synchronizer",
 			"state", t,
+			"pktReceiveTime", pkt.ReceivedAt,
+			"startDelay", t.startTime.Sub(pkt.ReceivedAt),
 		)
 	}
 
