@@ -415,7 +415,7 @@ func (t *TrackSynchronizer) onSenderReportWithoutRebase(pkt *rtcp.SenderReport) 
 		SenderReport: pkt,
 		receivedAt:   mono.UnixNano(),
 	}
-	if (t.lastSR.RTPTime != 0 && (pkt.RTPTime-t.lastSR.RTPTime) > (1<<31)) || pkt.RTPTime == t.lastSR.RTPTime {
+	if t.lastSR != nil && ((t.lastSR.RTPTime != 0 && (pkt.RTPTime-t.lastSR.RTPTime) > (1<<31)) || pkt.RTPTime == t.lastSR.RTPTime) {
 		t.logger.Debugw(
 			"dropping duplicate or out-of-order sender report",
 			"receivedSR", wrappedAugmentedSenderReportLogger{augmented},
@@ -484,7 +484,7 @@ func (t *TrackSynchronizer) onSenderReportWithRebase(pkt *rtcp.SenderReport) {
 		return
 	}
 
-	if (t.lastSR.RTPTime != 0 && (pkt.RTPTime-t.lastSR.RTPTime) > (1<<31)) || pkt.RTPTime == t.lastSR.RTPTime {
+	if t.lastSR != nil && ((t.lastSR.RTPTime != 0 && (pkt.RTPTime-t.lastSR.RTPTime) > (1<<31)) || pkt.RTPTime == t.lastSR.RTPTime) {
 		t.logger.Debugw(
 			"dropping duplicate or out-of-order sender report",
 			"receivedSR", wrappedAugmentedSenderReportLogger{augmented},
