@@ -164,3 +164,86 @@ func TestGetPTSWithRebase_PropelsForward(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, want, adj2)
 }
+
+func TestShouldAdjustPTS_Deadband_Suppresses(t *testing.T) {
+	clock := uint32(48000)
+	ts := newTSForTests(t, clock, webrtc.RTPCodecTypeVideo) // video avoids audio gating path
+	ts.maxDriftAdjustment = 5 * time.Millisecond
+	ts.currentPTSOffset = 100 * time.Millisecond
+
+	// within dead-band: +4ms
+	ts.desiredPTSOffset = 104 * time.Millisecond
+
+	// ensure throttle window has elapsed
+	ts.nextPTSAdjustmentAt = mono.Now().Add(-time.Second)
+
+	require.False(t, ts.shouldAdjustPTS(), "delta < step should suppress adjustment")
+}
+
+func TestShouldAdjustPTS_Deadband_BoundaryAdjusts(t *testing.T) {
+	clock := uint32(48000)
+	ts := newTSForTests(t, clock, webrtc.RTPCodecTypeVideo)
+	ts.maxDriftAdjustment = 5 * time.Millisecond
+	ts.currentPTSOffset = 100 * time.Millisecond
+
+	// exactly at boundary: +5ms
+	ts.desiredPTSOffset = 105 * time.Millisecond
+	ts.nextPTSAdjustmentAt = mono.Now().Add(-time.Second)
+
+	require.True(t, ts.shouldAdjustPTS(), "delta == step should allow adjustment")
+}
+
+func TestShouldAdjustPTS_Deadband_AboveAdjusts(t *testing.T) {
+	clock := uint32(48000)
+	ts := newTSForTests(t, clock, webrtc.RTPCodecTypeVideo)
+	ts.maxDriftAdjustment = 5 * time.Millisecond
+	ts.currentPTSOffset = 100 * time.Millisecond
+
+	// above dead-band: +12ms
+	ts.desiredPTSOffset = 112 * time.Millisecond
+	ts.nextPTSAdjustmentAt = mono.Now().Add(-time.Second)
+
+	require.True(t, ts.shouldAdjustPTS(), "delta > step should allow adjustment")
+}
+
+func TestShouldAdjustPTS_Deadband_NegativeDelta_Suppresses(t *testing.T) {
+	clock := uint32(48000)
+	ts := newTSForTests(t, clock, webrtc.RTPCodecTypeVideo)
+	ts.maxDriftAdjustment = 5 * time.Millisecond
+	ts.currentPTSOffset = 100 * time.Millisecond
+
+	// within dead-band on negative side: -4ms
+	ts.desiredPTSOffset = 96 * time.Millisecond
+	ts.nextPTSAdjustmentAt = mono.Now().Add(-time.Second)
+
+	require.False(t, ts.shouldAdjustPTS(), "negative delta with |delta| < step should suppress adjustment")
+}
+
+func TestShouldAdjustPTS_Deadband_NegativeDelta_AboveAdjusts(t *testing.T) {
+	clock := uint32(48000)
+	ts := newTSForTests(t, clock, webrtc.RTPCodecTypeVideo)
+	ts.maxDriftAdjustment = 5 * time.Millisecond
+	ts.currentPTSOffset = 100 * time.Millisecond
+
+	// beyond dead-band on negative side: -6ms
+	ts.desiredPTSOffset = 94 * time.Millisecond
+	ts.nextPTSAdjustmentAt = mono.Now().Add(-time.Second)
+
+	require.True(t, ts.shouldAdjustPTS(), "negative delta with |delta| > step should allow adjustment")
+}
+
+func TestShouldAdjustPTS_AudioGating_DisabledBlocks(t *testing.T) {
+	clock := uint32(48000)
+	ts := newTSForTests(t, clock, webrtc.RTPCodecTypeAudio)
+
+	// Force the path where audio gating can block adjustments:
+	ts.rtcpSenderReportRebaseEnabled = false
+	ts.audioPTSAdjustmentsDisabled = true
+
+	ts.maxDriftAdjustment = 5 * time.Millisecond
+	ts.currentPTSOffset = 100 * time.Millisecond
+	ts.desiredPTSOffset = 140 * time.Millisecond // large delta
+	ts.nextPTSAdjustmentAt = mono.Now().Add(-time.Second)
+
+	require.False(t, ts.shouldAdjustPTS(), "audio gating should block adjustment when disabled")
+}
