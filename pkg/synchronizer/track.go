@@ -34,6 +34,7 @@ import (
 const (
 	cStartTimeAdjustWindow    = 2 * time.Minute
 	cStartTimeAdjustThreshold = 5 * time.Second
+	cStartTimeAdjustStep      = 5 * time.Millisecond
 
 	cHighDriftLoggingThreshold = 20 * time.Millisecond
 )
@@ -90,6 +91,7 @@ type TrackSynchronizer struct {
 
 	propagationDelayEstimator *OWDEstimator
 	totalStartTimeAdjustment  time.Duration
+	startTimeAdjustResidual   time.Duration
 }
 
 func newTrackSynchronizer(s *Synchronizer, track TrackRemote) *TrackSynchronizer {
@@ -585,7 +587,7 @@ func (t *TrackSynchronizer) maybeAdjustStartTime(asr *augmentedSenderReport) int
 	if int32(samplesDiff) < 0 {
 		// out-of-order, pre-start, skip
 		t.logger.Debugw(
-			"no adjustment due to pre-staart report",
+			"no adjustment due to pre-start report",
 			"receivedSR", wrappedAugmentedSenderReportLogger{asr},
 			"state", t,
 			"nowTS", nowTS,
@@ -623,9 +625,8 @@ func (t *TrackSynchronizer) maybeAdjustStartTime(asr *augmentedSenderReport) int
 				getLoggingFields()...,
 			)
 		} else {
-			t.logger.Debugw("adjusting start time", getLoggingFields()...)
-			t.totalStartTimeAdjustment += time.Duration(startTimeNano - adjustedStartTimeNano)
-			t.startTime = time.Unix(0, adjustedStartTimeNano)
+			applied := t.applyQuantizedStartTimeAdvance(time.Duration(startTimeNano - adjustedStartTimeNano))
+			t.logger.Debugw("adjusting start time", append(getLoggingFields(), "applied", applied)...)
 		}
 	}
 
@@ -650,6 +651,25 @@ func (t *TrackSynchronizer) shouldAdjustPTS() bool {
 
 func (t *TrackSynchronizer) isPacketTooOld(packetTime time.Time) bool {
 	return t.oldPacketThreshold != 0 && mono.Now().Sub(packetTime) > t.oldPacketThreshold
+}
+
+func (t *TrackSynchronizer) applyQuantizedStartTimeAdvance(deltaTotal time.Duration) time.Duration {
+	// include any prior residual
+	deltaTotal += t.startTimeAdjustResidual
+
+	quanta := deltaTotal / cStartTimeAdjustStep
+	residual := deltaTotal % cStartTimeAdjustStep
+
+	if quanta > 0 {
+		applied := quanta * cStartTimeAdjustStep
+		t.startTime = t.startTime.Add(-applied)
+		t.totalStartTimeAdjustment += applied
+		t.startTimeAdjustResidual = residual
+		return applied
+	}
+
+	t.startTimeAdjustResidual = deltaTotal
+	return 0
 }
 
 func (t *TrackSynchronizer) MarshalLogObject(e zapcore.ObjectEncoder) error {
