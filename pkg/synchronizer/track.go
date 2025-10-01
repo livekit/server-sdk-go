@@ -34,7 +34,6 @@ import (
 const (
 	cStartTimeAdjustWindow    = 2 * time.Minute
 	cStartTimeAdjustThreshold = 5 * time.Second
-	cStartTimeAdjustStep      = 5 * time.Millisecond
 
 	cHighDriftLoggingThreshold = 20 * time.Millisecond
 )
@@ -646,6 +645,12 @@ func (t *TrackSynchronizer) shouldAdjustPTS() bool {
 	if t.track.Kind() == webrtc.RTPCodecTypeAudio && !t.rtcpSenderReportRebaseEnabled {
 		adjustmentEnabled = !t.audioPTSAdjustmentsDisabled
 	}
+	// add a deadband of t.maxDriftAdjustment to makre sure no PTS adjustment is smaller than that
+	diff := t.desiredPTSOffset - t.currentPTSOffset
+	if diff > -t.maxDriftAdjustment && diff < t.maxDriftAdjustment {
+		return false
+	}
+
 	return adjustmentEnabled && (t.currentPTSOffset != t.desiredPTSOffset)
 }
 
@@ -657,11 +662,11 @@ func (t *TrackSynchronizer) applyQuantizedStartTimeAdvance(deltaTotal time.Durat
 	// include any prior residual
 	deltaTotal += t.startTimeAdjustResidual
 
-	quanta := deltaTotal / cStartTimeAdjustStep
-	residual := deltaTotal % cStartTimeAdjustStep
+	quanta := deltaTotal / t.maxDriftAdjustment
+	residual := deltaTotal % t.maxDriftAdjustment
 
 	if quanta > 0 {
-		applied := quanta * cStartTimeAdjustStep
+		applied := quanta * t.maxDriftAdjustment
 		t.startTime = t.startTime.Add(-applied)
 		t.totalStartTimeAdjustment += applied
 		t.startTimeAdjustResidual = residual
