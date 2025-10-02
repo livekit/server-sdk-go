@@ -172,11 +172,12 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 	t.Lock()
 	defer t.Unlock()
 
+	now := mono.Now()
 	if t.startTime.IsZero() {
 		if t.preJitterBufferReceiveTimeEnabled {
 			t.startTime = pkt.ReceivedAt
 		} else {
-			t.startTime = mono.Now()
+			t.startTime = now
 		}
 		t.logger.Infow(
 			"starting track synchronizer",
@@ -213,19 +214,21 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 		}
 	}
 
-	lastTS := t.lastTS
-	if lastTS == 0 {
-		lastTS = ts
+	estimatedPTS := now.Sub(t.startTime)
+
+	var pts time.Duration
+	if t.lastPTS == 0 {
+		// start with estimated PTS to absorb any start latency
+		pts = max(time.Nanosecond, estimatedPTS) // prevent lastPTS from being stuck at 0
+	} else {
+		pts = t.lastPTS + t.toDuration(ts-t.lastTS)
 	}
 
-	pts := t.lastPTS + t.toDuration(ts-lastTS)
-	estimatedPTS := time.Since(t.startTime)
 	if pts < t.lastPTS || !t.acceptable(pts-estimatedPTS) {
 		newStartRTP := ts - t.toRTP(estimatedPTS)
 		t.logger.Infow(
 			"correcting PTS",
 			"currentTS", ts,
-			"lastTS", lastTS,
 			"PTS", pts,
 			"estimatedPTS", estimatedPTS,
 			"offset", pts-estimatedPTS,
@@ -276,7 +279,7 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 
 	// update previous values
 	t.lastTS = ts
-	t.lastTime = mono.Now()
+	t.lastTime = now
 	t.lastPTS = pts
 	t.lastPTSAdjusted = adjusted
 
@@ -332,19 +335,21 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 		return 0, ErrPacketTooOld
 	}
 
-	lastTS := t.lastTS
-	if lastTS == 0 {
-		lastTS = ts
+	now := mono.Now()
+	estimatedPTS := max(time.Nanosecond, now.Sub(t.startTime))
+
+	var pts time.Duration
+	if t.lastPTS == 0 {
+		// start with estimated PTS to absorb any start latency
+		pts = max(time.Nanosecond, estimatedPTS) // prevent lastPTS from being stuck at 0
+	} else {
+		pts = t.lastPTS + t.toDuration(ts-t.lastTS)
 	}
 
-	pts := t.lastPTS + t.toDuration(ts-lastTS)
-	now := mono.Now()
-	estimatedPTS := now.Sub(t.startTime)
 	if pts < t.lastPTS || !t.acceptable(pts-estimatedPTS) {
 		t.logger.Infow(
 			"correcting PTS",
 			"currentTS", ts,
-			"lastTS", lastTS,
 			"PTS", pts,
 			"estimatedPTS", estimatedPTS,
 			"offset", pts-estimatedPTS,
