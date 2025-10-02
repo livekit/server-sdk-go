@@ -15,7 +15,7 @@ require (
 	github.com/pion/dtls/v3 v3.0.7
 	github.com/pion/interceptor v0.1.41
 	github.com/pion/rtcp v1.2.15
-	github.com/pion/rtp v1.8.22
+	github.com/pion/rtp/v2 v2.0.0
 	github.com/pion/sdp/v3 v3.0.15
 	github.com/pion/webrtc/v4 v4.1.5-0.20250828044558-c376d0edf977
 	github.com/stretchr/testify v1.11.1
@@ -26,7 +26,10 @@ require (
 	google.golang.org/protobuf v1.36.8
 )
 
-require golang.org/x/mod v0.27.0
+require (
+	github.com/pion/rtp v1.8.22
+	golang.org/x/mod v0.27.0
+)
 
 require (
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.11.3 // indirect
