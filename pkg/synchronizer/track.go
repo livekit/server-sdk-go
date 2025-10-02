@@ -219,7 +219,7 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 	var pts time.Duration
 	if t.lastPTS == 0 {
 		// start with estimated PTS to absorb any start latency
-		pts = estimatedPTS
+		pts = max(time.Nanosecond, estimatedPTS) // prevent lastPTS from being stuck at 0
 	} else {
 		pts = t.lastPTS + t.toDuration(ts-t.lastTS)
 	}
@@ -336,12 +336,12 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 	}
 
 	now := mono.Now()
-	estimatedPTS := now.Sub(t.startTime)
+	estimatedPTS := max(time.Nanosecond, now.Sub(t.startTime))
 
 	var pts time.Duration
 	if t.lastPTS == 0 {
 		// start with estimated PTS to absorb any start latency
-		pts = estimatedPTS
+		pts = max(time.Nanosecond, estimatedPTS) // prevent lastPTS from being stuck at 0
 	} else {
 		pts = t.lastPTS + t.toDuration(ts-t.lastTS)
 	}
