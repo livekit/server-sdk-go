@@ -91,6 +91,15 @@ type TrackSynchronizer struct {
 	propagationDelayEstimator *OWDEstimator
 	totalStartTimeAdjustment  time.Duration
 	startTimeAdjustResidual   time.Duration
+
+	// packet stats
+	numEmitted           uint32
+	numDroppedOld        uint32
+	numDroppedOutOfOrder uint32
+	numDroppedEOF        uint32
+
+	// sender report stats
+	numSenderReports uint32
 }
 
 func newTrackSynchronizer(s *Synchronizer, track TrackRemote) *TrackSynchronizer {
@@ -182,6 +191,7 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 	// if first packet of a frame was accepted,
 	// accept all packets of the frame even if they are old
 	if ts == t.lastTS {
+		t.numEmitted++
 		return t.lastPTSAdjusted, nil
 	}
 
@@ -190,6 +200,7 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 		// drop all packets of the frame irrespective of whether they are old or not
 		if ts == t.lastTSOldDropped || t.isPacketTooOld(pkt.ReceivedAt) {
 			t.lastTSOldDropped = ts
+			t.numDroppedOld++
 			t.logger.Infow(
 				"dropping old packet",
 				"currentTS", ts,
@@ -259,6 +270,7 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 
 	// if past end time, return EOF
 	if t.maxPTS > 0 && (adjusted > t.maxPTS) {
+		t.numDroppedEOF++
 		return 0, io.EOF
 	}
 
@@ -268,6 +280,7 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 	t.lastPTS = pts
 	t.lastPTSAdjusted = adjusted
 
+	t.numEmitted++
 	return adjusted, nil
 }
 
@@ -288,11 +301,13 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 	// if first packet of a frame was accepted,
 	// accept all packets of the frame even if they are old
 	if ts == t.lastTS {
+		t.numEmitted++
 		return t.lastPTSAdjusted, nil
 	}
 
 	// packets are expected in order, just a safety net
 	if (ts - t.lastTS) > (1 << 31) {
+		t.numDroppedOutOfOrder++
 		t.logger.Infow(
 			"dropping out-of-order packet",
 			"currentTS", ts,
@@ -305,6 +320,7 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 	// drop all packets of the frame irrespective of whether they are old or not
 	if ts == t.lastTSOldDropped || t.isPacketTooOld(pkt.ReceivedAt) {
 		t.lastTSOldDropped = ts
+		t.numDroppedOld++
 		t.logger.Infow(
 			"dropping old packet",
 			"currentTS", ts,
@@ -385,6 +401,7 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 
 	// if past end time, return EOF
 	if t.maxPTS > 0 && (adjusted > t.maxPTS) {
+		t.numDroppedEOF++
 		return 0, io.EOF
 	}
 
@@ -394,6 +411,7 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 	t.lastPTS = pts
 	t.lastPTSAdjusted = adjusted
 
+	t.numEmitted++
 	return adjusted, nil
 }
 
@@ -419,13 +437,15 @@ func (t *TrackSynchronizer) onSenderReportWithoutRebase(pkt *rtcp.SenderReport) 
 		receivedAt:   mono.UnixNano(),
 	}
 	if t.lastSR != nil && ((t.lastSR.RTPTime != 0 && (pkt.RTPTime-t.lastSR.RTPTime) > (1<<31)) || pkt.RTPTime == t.lastSR.RTPTime) {
-		t.logger.Debugw(
+		t.logger.Infow(
 			"dropping duplicate or out-of-order sender report",
 			"receivedSR", wrappedAugmentedSenderReportLogger{augmented},
 			"state", t,
 		)
 		return
 	}
+
+	t.numSenderReports++
 
 	var pts time.Duration
 	if pkt.RTPTime > t.lastTS {
@@ -434,7 +454,7 @@ func (t *TrackSynchronizer) onSenderReportWithoutRebase(pkt *rtcp.SenderReport) 
 		pts = t.lastPTS - t.toDuration(t.lastTS-pkt.RTPTime)
 	}
 	if !t.acceptable(pts - time.Since(t.startTime)) {
-		t.logger.Debugw(
+		t.logger.Infow(
 			"ignoring sender report with unacceptable offset",
 			"receivedSR", wrappedAugmentedSenderReportLogger{augmented},
 			"state", t,
@@ -488,13 +508,15 @@ func (t *TrackSynchronizer) onSenderReportWithRebase(pkt *rtcp.SenderReport) {
 	}
 
 	if t.lastSR != nil && ((t.lastSR.RTPTime != 0 && (pkt.RTPTime-t.lastSR.RTPTime) > (1<<31)) || pkt.RTPTime == t.lastSR.RTPTime) {
-		t.logger.Debugw(
+		t.logger.Infow(
 			"dropping duplicate or out-of-order sender report",
 			"receivedSR", wrappedAugmentedSenderReportLogger{augmented},
 			"state", t,
 		)
 		return
 	}
+
+	t.numSenderReports++
 
 	var ptsSR time.Duration
 	if (pkt.RTPTime - t.lastTS) < (1 << 31) {
@@ -503,7 +525,7 @@ func (t *TrackSynchronizer) onSenderReportWithRebase(pkt *rtcp.SenderReport) {
 		ptsSR = t.lastPTS - t.toDuration(t.lastTS-pkt.RTPTime)
 	}
 	if !t.acceptable(ptsSR - time.Since(t.startTime)) {
-		t.logger.Debugw(
+		t.logger.Infow(
 			"ignoring sender report with unacceptable offset",
 			"receivedSR", wrappedAugmentedSenderReportLogger{augmented},
 			"state", t,
@@ -627,7 +649,7 @@ func (t *TrackSynchronizer) maybeAdjustStartTime(asr *augmentedSenderReport) int
 			)
 		} else {
 			applied := t.applyQuantizedStartTimeAdvance(time.Duration(startTimeNano - adjustedStartTimeNano))
-			t.logger.Debugw("adjusting start time", append(getLoggingFields(), "applied", applied)...)
+			t.logger.Infow("adjusting start time", append(getLoggingFields(), "applied", applied)...)
 		}
 	}
 
@@ -702,6 +724,11 @@ func (t *TrackSynchronizer) MarshalLogObject(e zapcore.ObjectEncoder) error {
 	e.AddTime("nextPTSAdjustmentAt", t.nextPTSAdjustmentAt)
 	e.AddObject("propagationDelayEstimator", t.propagationDelayEstimator)
 	e.AddDuration("totalStartTimeAdjustment", t.totalStartTimeAdjustment)
+	e.AddUint32("numEmitted", t.numEmitted)
+	e.AddUint32("numDroppedOld", t.numDroppedOld)
+	e.AddUint32("numDroppedOutOfOrder", t.numDroppedOutOfOrder)
+	e.AddUint32("numDroppedEOF", t.numDroppedEOF)
+	e.AddUint32("numSenderReports", t.numSenderReports)
 	return nil
 }
 
