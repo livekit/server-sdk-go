@@ -213,19 +213,18 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 		}
 	}
 
-	lastTS := t.lastTS
-	if lastTS == 0 {
-		lastTS = ts
-	}
-
-	pts := t.lastPTS + t.toDuration(ts-lastTS)
+	var pts time.Duration
 	estimatedPTS := time.Since(t.startTime)
+	if t.lastPTS == 0 {
+		pts = estimatedPTS
+	} else {
+		pts = t.lastPTS + t.toDuration(ts-t.lastTS)
+	}
 	if pts < t.lastPTS || !t.acceptable(pts-estimatedPTS) {
 		newStartRTP := ts - t.toRTP(estimatedPTS)
 		t.logger.Infow(
 			"correcting PTS",
 			"currentTS", ts,
-			"lastTS", lastTS,
 			"PTS", pts,
 			"estimatedPTS", estimatedPTS,
 			"offset", pts-estimatedPTS,
@@ -332,19 +331,17 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 		return 0, ErrPacketTooOld
 	}
 
-	lastTS := t.lastTS
-	if lastTS == 0 {
-		lastTS = ts
+	var pts time.Duration
+	estimatedPTS := time.Since(t.startTime)
+	if t.lastPTS == 0 {
+		pts = estimatedPTS
+	} else {
+		pts = t.lastPTS + t.toDuration(ts-t.lastTS)
 	}
-
-	pts := t.lastPTS + t.toDuration(ts-lastTS)
-	now := mono.Now()
-	estimatedPTS := now.Sub(t.startTime)
 	if pts < t.lastPTS || !t.acceptable(pts-estimatedPTS) {
 		t.logger.Infow(
 			"correcting PTS",
 			"currentTS", ts,
-			"lastTS", lastTS,
 			"PTS", pts,
 			"estimatedPTS", estimatedPTS,
 			"offset", pts-estimatedPTS,
