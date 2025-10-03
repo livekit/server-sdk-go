@@ -315,7 +315,7 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 	}
 
 	// packets are expected in order, just a safety net
-	if (ts - t.lastTS) > (1 << 31) {
+	if t.lastTS != 0 && (ts-t.lastTS) > (1<<31) {
 		t.numDroppedOutOfOrder++
 		t.logger.Infow(
 			"dropping out-of-order packet",
