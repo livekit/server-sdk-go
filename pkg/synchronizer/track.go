@@ -697,6 +697,9 @@ func (t *TrackSynchronizer) isPacketTooOld(packetTime time.Time) bool {
 	return t.oldPacketThreshold != 0 && mono.Now().Sub(packetTime) > t.oldPacketThreshold
 }
 
+// avoid applying small changes to start time as it will cause subsequent PTSes
+// to have micro jumps potentially causing audible distortion,
+// the bet is more infrequent larger jumps  is better than more frequent smaller jumps
 func (t *TrackSynchronizer) applyQuantizedStartTimeAdvance(deltaTotal time.Duration) time.Duration {
 	// include any prior residual
 	deltaTotal += t.startTimeAdjustResidual
