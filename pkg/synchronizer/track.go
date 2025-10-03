@@ -608,6 +608,7 @@ func (t *TrackSynchronizer) updatePropagationDelay(asr *augmentedSenderReport) i
 func (t *TrackSynchronizer) maybeAdjustStartTime(asr *augmentedSenderReport) int64 {
 	nowNano := mono.UnixNano()
 	startTimeNano := t.startTime.UnixNano()
+	t.logger.Debugw("startTime", "startTime", t.startTime, "nano", startTimeNano) // REMOVE
 	if time.Duration(nowNano-startTimeNano) > cStartTimeAdjustWindow || asr.receivedAtAdjusted == 0 {
 		return 0
 	}
@@ -670,7 +671,7 @@ func (t *TrackSynchronizer) maybeAdjustStartTime(asr *augmentedSenderReport) int
 		}
 	}
 
-	return startTimeNano - adjustedStartTimeNano
+	return requestedAdjustment
 }
 
 func (t *TrackSynchronizer) acceptable(d time.Duration) bool {
