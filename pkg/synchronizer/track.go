@@ -90,7 +90,6 @@ type TrackSynchronizer struct {
 
 	propagationDelayEstimator *OWDEstimator
 	totalStartTimeAdjustment  time.Duration
-	startTimeAdjustResidual   time.Duration
 
 	// packet stats
 	numEmitted           uint32
@@ -663,8 +662,8 @@ func (t *TrackSynchronizer) maybeAdjustStartTime(asr *augmentedSenderReport) int
 				getLoggingFields()...,
 			)
 		} else {
-			applied := t.applyQuantizedStartTimeAdvance(time.Duration(requestedAdjustment))
-			t.logger.Infow("adjusting start time", append(getLoggingFields(), "appliedAdjustment", applied)...)
+			t.startTime = time.Unix(0, adjustedStartTimeNano)
+			t.logger.Infow("adjusting start time", getLoggingFields()...)
 		}
 	}
 
@@ -697,25 +696,6 @@ func (t *TrackSynchronizer) isPacketTooOld(packetTime time.Time) bool {
 	return t.oldPacketThreshold != 0 && mono.Now().Sub(packetTime) > t.oldPacketThreshold
 }
 
-func (t *TrackSynchronizer) applyQuantizedStartTimeAdvance(deltaTotal time.Duration) time.Duration {
-	// include any prior residual
-	deltaTotal += t.startTimeAdjustResidual
-
-	quanta := deltaTotal / t.maxDriftAdjustment
-	residual := deltaTotal % t.maxDriftAdjustment
-
-	if quanta > 0 {
-		applied := quanta * t.maxDriftAdjustment
-		t.startTime = t.startTime.Add(-applied)
-		t.totalStartTimeAdjustment += applied
-		t.startTimeAdjustResidual = residual
-		return applied
-	}
-
-	t.startTimeAdjustResidual = deltaTotal
-	return 0
-}
-
 func (t *TrackSynchronizer) MarshalLogObject(e zapcore.ObjectEncoder) error {
 	if t == nil {
 		return nil
@@ -739,7 +719,6 @@ func (t *TrackSynchronizer) MarshalLogObject(e zapcore.ObjectEncoder) error {
 	e.AddTime("nextPTSAdjustmentAt", t.nextPTSAdjustmentAt)
 	e.AddObject("propagationDelayEstimator", t.propagationDelayEstimator)
 	e.AddDuration("totalStartTimeAdjustment", t.totalStartTimeAdjustment)
-	e.AddDuration("startTimeAdjustResidual", t.startTimeAdjustResidual)
 	e.AddUint32("numEmitted", t.numEmitted)
 	e.AddUint32("numDroppedOld", t.numDroppedOld)
 	e.AddUint32("numDroppedOutOfOrder", t.numDroppedOutOfOrder)
