@@ -53,7 +53,6 @@ func newTSForTests(tc *testing.T, clockRate uint32, kind webrtc.RTPCodecType) *T
 	}
 	// set a stable startTime well in the past to make time.Since(startTime) > 0
 	t.startTime = time.Now().Add(-150 * time.Millisecond)
-	t.initTime = t.startTime
 	// pick an arbitrary RTP base
 	t.startRTP = 1000
 	return t
@@ -144,7 +143,7 @@ func TestGetPTSWithRebase_PropelsForward(t *testing.T) {
 	ts1 := ts.startRTP + rtp500ms
 	adj1, err := ts.getPTSWithRebase(jitter.ExtPacket{
 		Packet:     &rtp.Packet{Header: rtp.Header{Timestamp: ts1}},
-		ReceivedAt: time.Time{}, // not used for estimatedPTS here
+		ReceivedAt: mono.Now(),
 	})
 	require.NoError(t, err)
 	require.InDelta(t, 500*time.Millisecond, adj1, float64(20*time.Millisecond))
@@ -159,7 +158,7 @@ func TestGetPTSWithRebase_PropelsForward(t *testing.T) {
 
 	adj2, err := ts.getPTSWithRebase(jitter.ExtPacket{
 		Packet:     &rtp.Packet{Header: rtp.Header{Timestamp: ts2}},
-		ReceivedAt: time.Time{},
+		ReceivedAt: mono.Now(),
 	})
 	require.NoError(t, err)
 	require.Equal(t, want, adj2)

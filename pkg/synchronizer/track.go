@@ -65,9 +65,9 @@ type TrackSynchronizer struct {
 	oldPacketThreshold                time.Duration
 
 	// timing info
-	initTime         time.Time
-	startTime        time.Time // time first packet was pushed
-	startRTP         uint32    // RTP timestamp of PTS 0
+	startTime        time.Time // time at initialization --> this should be when first packet is received
+	startRTP         uint32    // RTP timestamp of first packet
+	firstTime        time.Time // time at which first packet was pushed
 	lastTS           uint32    // previous RTP timestamp
 	lastTime         time.Time
 	lastPTS          time.Duration // previous presentation timestamp
@@ -141,7 +141,7 @@ func (t *TrackSynchronizer) Initialize(pkt *rtp.Packet) {
 	t.desiredPTSOffset = t.currentPTSOffset
 	t.basePTSOffset = t.desiredPTSOffset
 
-	t.initTime = now
+	t.startTime = now
 	t.startRTP = pkt.Timestamp
 	t.lastPTS = 0
 	t.lastPTSAdjusted = t.currentPTSOffset
@@ -174,17 +174,19 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 	defer t.Unlock()
 
 	now := mono.Now()
-	if t.startTime.IsZero() {
-		if t.preJitterBufferReceiveTimeEnabled {
-			t.startTime = pkt.ReceivedAt
-		} else {
-			t.startTime = now
-		}
+	var pktReceiveTime time.Time
+	if t.preJitterBufferReceiveTimeEnabled {
+		pktReceiveTime = pkt.ReceivedAt
+	} else {
+		pktReceiveTime = now
+	}
+	if t.firstTime.IsZero() {
+		t.firstTime = now
 		t.logger.Infow(
 			"starting track synchronizer",
 			"state", t,
 			"pktReceiveTime", pkt.ReceivedAt,
-			"startDelay", t.startTime.Sub(pkt.ReceivedAt),
+			"startDelay", t.firstTime.Sub(pkt.ReceivedAt),
 		)
 	}
 
@@ -215,7 +217,7 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 		}
 	}
 
-	estimatedPTS := now.Sub(t.startTime)
+	estimatedPTS := pktReceiveTime.Sub(t.startTime)
 
 	var pts time.Duration
 	if t.lastPTS == 0 {
@@ -292,11 +294,14 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 	t.Lock()
 	defer t.Unlock()
 
-	if t.startTime.IsZero() {
-		t.startTime = pkt.ReceivedAt
+	now := mono.Now()
+	if t.firstTime.IsZero() {
+		t.firstTime = now
 		t.logger.Infow(
 			"starting track synchronizer",
 			"state", t,
+			"pktReceiveTime", pkt.ReceivedAt,
+			"startDelay", t.firstTime.Sub(pkt.ReceivedAt),
 		)
 	}
 
@@ -329,15 +334,14 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 			"dropping old packet",
 			"currentTS", ts,
 			"receivedAt", pkt.ReceivedAt,
-			"now", mono.Now(),
-			"age", mono.Now().Sub(pkt.ReceivedAt),
+			"now", now,
+			"age", now.Sub(pkt.ReceivedAt),
 			"state", t,
 		)
 		return 0, ErrPacketTooOld
 	}
 
-	now := mono.Now()
-	estimatedPTS := max(time.Nanosecond, now.Sub(t.startTime))
+	estimatedPTS := pkt.ReceivedAt.Sub(t.startTime)
 
 	var pts time.Duration
 	if t.lastPTS == 0 {
@@ -716,9 +720,9 @@ func (t *TrackSynchronizer) MarshalLogObject(e zapcore.ObjectEncoder) error {
 		return nil
 	}
 
-	e.AddTime("initTime", t.initTime)
 	e.AddTime("startTime", t.startTime)
 	e.AddUint32("startRTP", t.startRTP)
+	e.AddTime("firstTime", t.firstTime)
 	e.AddUint32("lastTS", t.lastTS)
 	e.AddTime("lastTime", t.lastTime)
 	e.AddDuration("lastPTS", t.lastPTS)
