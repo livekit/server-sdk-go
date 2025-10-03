@@ -148,6 +148,7 @@ func (t *TrackSynchronizer) Initialize(pkt *rtp.Packet) {
 	t.logger.Infow(
 		"initialized track synchronizer",
 		"state", t,
+		"SSRC", t.track.SSRC(),
 		"maxTsDiff", t.maxTsDiff,
 		"maxDriftAdjustment", t.maxDriftAdjustment,
 		"driftAdjustmentWindowPercent", t.driftAdjustmentWindowPercent,
@@ -422,6 +423,10 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 
 // onSenderReport handles pts adjustments for a track
 func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
+	if pkt.SSRC != uint32(t.track.SSRC()) {
+		return
+	}
+
 	if t.rtcpSenderReportRebaseEnabled {
 		t.onSenderReportWithRebase(pkt)
 	} else {
@@ -784,6 +789,7 @@ func (w wrappedAugmentedSenderReportLogger) MarshalLogObject(e zapcore.ObjectEnc
 		return nil
 	}
 
+	e.AddUint32("SSRC", asr.SSRC)
 	e.AddUint32("RTPTime", asr.RTPTime)
 	e.AddTime("NTPTime", mediatransportutil.NtpTime(asr.NTPTime).Time())
 	e.AddUint32("PacketCount", asr.PacketCount)
