@@ -638,13 +638,14 @@ func (t *TrackSynchronizer) maybeAdjustStartTime(asr *augmentedSenderReport) int
 	timeSinceStart := time.Duration(nowNano - startTimeNano)
 	now := startTimeNano + timeSinceStart.Nanoseconds()
 	adjustedStartTimeNano := now - samplesDuration.Nanoseconds()
+	requestedAdjustment := startTimeNano - adjustedStartTimeNano
 
 	getLoggingFields := func() []interface{} {
 		return []interface{}{
 			"nowTime", time.Unix(0, now),
-			"before", t.startTime,
+			"before", time.Unix(0, startTimeNano),
 			"after", time.Unix(0, adjustedStartTimeNano),
-			"adjustment", time.Duration(startTimeNano - adjustedStartTimeNano),
+			"requestedAdjustment", time.Duration(requestedAdjustment),
 			"nowTS", nowTS,
 			"timeSinceReceive", timeSinceReceive,
 			"timeSinceStart", timeSinceStart,
@@ -656,18 +657,18 @@ func (t *TrackSynchronizer) maybeAdjustStartTime(asr *augmentedSenderReport) int
 	}
 
 	if adjustedStartTimeNano < startTimeNano {
-		if startTimeNano-adjustedStartTimeNano > cStartTimeAdjustThreshold.Nanoseconds() {
+		if requestedAdjustment > cStartTimeAdjustThreshold.Nanoseconds() {
 			t.logger.Warnw(
 				"adjusting start time, too big, ignoring", nil,
 				getLoggingFields()...,
 			)
 		} else {
-			applied := t.applyQuantizedStartTimeAdvance(time.Duration(startTimeNano - adjustedStartTimeNano))
-			t.logger.Infow("adjusting start time", append(getLoggingFields(), "applied", applied)...)
+			applied := t.applyQuantizedStartTimeAdvance(time.Duration(requestedAdjustment))
+			t.logger.Infow("adjusting start time", append(getLoggingFields(), "appliedAdjustment", applied)...)
 		}
 	}
 
-	return startTimeNano - adjustedStartTimeNano
+	return requestedAdjustment
 }
 
 func (t *TrackSynchronizer) acceptable(d time.Duration) bool {
@@ -696,6 +697,9 @@ func (t *TrackSynchronizer) isPacketTooOld(packetTime time.Time) bool {
 	return t.oldPacketThreshold != 0 && mono.Now().Sub(packetTime) > t.oldPacketThreshold
 }
 
+// avoid applying small changes to start time as it will cause subsequent PTSes
+// to have micro jumps potentially causing audible distortion,
+// the bet is more infrequent larger jumps  is better than more frequent smaller jumps
 func (t *TrackSynchronizer) applyQuantizedStartTimeAdvance(deltaTotal time.Duration) time.Duration {
 	// include any prior residual
 	deltaTotal += t.startTimeAdjustResidual
@@ -738,6 +742,7 @@ func (t *TrackSynchronizer) MarshalLogObject(e zapcore.ObjectEncoder) error {
 	e.AddTime("nextPTSAdjustmentAt", t.nextPTSAdjustmentAt)
 	e.AddObject("propagationDelayEstimator", t.propagationDelayEstimator)
 	e.AddDuration("totalStartTimeAdjustment", t.totalStartTimeAdjustment)
+	e.AddDuration("startTimeAdjustResidual", t.startTimeAdjustResidual)
 	e.AddUint32("numEmitted", t.numEmitted)
 	e.AddUint32("numDroppedOld", t.numDroppedOld)
 	e.AddUint32("numDroppedOutOfOrder", t.numDroppedOutOfOrder)
