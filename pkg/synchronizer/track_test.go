@@ -208,7 +208,7 @@ func TestShouldAdjustPTS_Deadband_AboveAdjusts(t *testing.T) {
 func TestPrimeForStartWithStartGate(t *testing.T) {
 	clock := uint32(90000)
 	ts := newTSForTests(t, clock, webrtc.RTPCodecTypeVideo)
-	ts.startGate = newStartGate(clock, webrtc.RTPCodecTypeVideo)
+	ts.startGate = newStartGate(clock, webrtc.RTPCodecTypeVideo, ts.logger)
 	ts.sync = NewSynchronizerWithOptions()
 
 	stepDur := 20 * time.Millisecond

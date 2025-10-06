@@ -118,7 +118,7 @@ func newTrackSynchronizer(s *Synchronizer, track TrackRemote) *TrackSynchronizer
 	}
 
 	if s.config.EnableStartGate {
-		t.startGate = newStartGate(track.Codec().ClockRate, track.Kind())
+		t.startGate = newStartGate(track.Codec().ClockRate, track.Kind(), t.logger)
 	}
 
 	return t
