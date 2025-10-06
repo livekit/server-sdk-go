@@ -205,6 +205,58 @@ func TestShouldAdjustPTS_Deadband_AboveAdjusts(t *testing.T) {
 	require.True(t, ts.shouldAdjustPTS(), "delta > step should allow adjustment")
 }
 
+func TestPrimeForStartWithStartGate(t *testing.T) {
+	clock := uint32(90000)
+	ts := newTSForTests(t, clock, webrtc.RTPCodecTypeVideo)
+	ts.startGate = newStartGate(clock, webrtc.RTPCodecTypeVideo)
+	ts.sync = NewSynchronizerWithOptions()
+
+	stepDur := 20 * time.Millisecond
+	step := ts.rtpConverter.toRTP(stepDur)
+	baseTS := ts.startRTP
+	base := time.Now()
+
+	for i := 0; i < 5; i++ {
+		timestamp := baseTS + uint32(i+1)*step
+		pkt := jitter.ExtPacket{
+			Packet:     &rtp.Packet{Header: rtp.Header{Timestamp: timestamp}, Payload: []byte{0x01}},
+			ReceivedAt: base.Add(time.Duration(i+1) * stepDur),
+		}
+		ready, dropped, done := ts.PrimeForStart(pkt)
+		require.False(t, done)
+		require.Zero(t, dropped)
+		require.Nil(t, ready)
+	}
+
+	finalPkt := jitter.ExtPacket{
+		Packet:     &rtp.Packet{Header: rtp.Header{Timestamp: baseTS + uint32(6*step)}, Payload: []byte{0x02}},
+		ReceivedAt: base.Add(6 * stepDur),
+	}
+	ready, dropped, done := ts.PrimeForStart(finalPkt)
+	require.True(t, done, "gate should be done after final packet")
+	require.Zero(t, dropped, "no packets should be dropped")
+	require.NotEmpty(t, ready, "ready should have at least the final packet")
+	require.True(t, ts.initialized, "track should be initialized")
+}
+
+func TestPrimeForStartWithoutStartGate(t *testing.T) {
+	clock := uint32(48000)
+	ts := newTSForTests(t, clock, webrtc.RTPCodecTypeAudio)
+	ts.startGate = nil
+	ts.sync = NewSynchronizerWithOptions()
+
+	pkt := jitter.ExtPacket{
+		Packet:     &rtp.Packet{Header: rtp.Header{Timestamp: ts.startRTP + 1234}, Payload: []byte{0x01}},
+		ReceivedAt: time.Now(),
+	}
+
+	ready, dropped, done := ts.PrimeForStart(pkt)
+	require.True(t, done, "gate should be done after packet")
+	require.Zero(t, dropped, "no packets should be dropped")
+	require.Len(t, ready, 1, "ready should have the packet")
+	require.True(t, ts.initialized, "track should be initialized")
+}
+
 func TestShouldAdjustPTS_Deadband_NegativeDelta_Suppresses(t *testing.T) {
 	clock := uint32(48000)
 	ts := newTSForTests(t, clock, webrtc.RTPCodecTypeVideo)

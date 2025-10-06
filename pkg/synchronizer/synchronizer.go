@@ -39,6 +39,7 @@ type SynchronizerConfig struct {
 	PreJitterBufferReceiveTimeEnabled bool
 	RTCPSenderReportRebaseEnabled     bool
 	OldPacketThreshold                time.Duration
+	EnableStartGate                   bool
 
 	OnStarted func()
 }
@@ -105,6 +106,13 @@ func WithRTCPSenderReportRebaseEnabled() SynchronizerOption {
 func WithOldPacketThreshold(oldPacketThreshold time.Duration) SynchronizerOption {
 	return func(config *SynchronizerConfig) {
 		config.OldPacketThreshold = oldPacketThreshold
+	}
+}
+
+// WithStartGate enabled will buffer incoming packets until pacing stabilizes before initializing tracks
+func WithStartGate() SynchronizerOption {
+	return func(config *SynchronizerConfig) {
+		config.EnableStartGate = true
 	}
 }
 
