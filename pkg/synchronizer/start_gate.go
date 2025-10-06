@@ -22,11 +22,12 @@ type startGate interface {
 // closely enough to assume we are caught up with the realtime stream. Minimum
 // arrival spacing is derived from a fraction of the expected RTP interval
 type burstEstimatorGate struct {
-	clockRate        uint32
-	maxSkew          time.Duration
-	minArrivalFactor float64
-	minArrivalFloor  time.Duration
-	scoreTarget      int
+	clockRate         uint32
+	maxSkew           time.Duration
+	minArrivalFactor  float64
+	minArrivalFloor   time.Duration
+	scoreTarget       int
+	maxStableDuration time.Duration
 
 	score       int
 	lastTS      uint32
@@ -39,12 +40,13 @@ type burstEstimatorGate struct {
 
 func newStartGate(clockRate uint32, kind webrtc.RTPCodecType) startGate {
 	be := &burstEstimatorGate{
-		clockRate:        clockRate,
-		maxSkew:          20 * time.Millisecond,
-		minArrivalFactor: 0.2,
-		minArrivalFloor:  time.Millisecond,
-		scoreTarget:      5,
-		maxBuffer:        1000, // high bitrate key frames can span hundreds of packets
+		clockRate:         clockRate,
+		maxSkew:           20 * time.Millisecond,
+		minArrivalFactor:  0.2,
+		minArrivalFloor:   time.Millisecond,
+		scoreTarget:       5,
+		maxBuffer:         1000, // high bitrate key frames can span hundreds of packets
+		maxStableDuration: time.Second,
 	}
 
 	if kind == webrtc.RTPCodecTypeAudio {
@@ -122,10 +124,9 @@ func (b *burstEstimatorGate) Push(pkt jitter.ExtPacket) ([]jitter.ExtPacket, int
 		return nil, dropped, false
 	}
 
-	if b.score < b.scoreTarget {
-		b.score++
-	}
-	if b.score >= b.scoreTarget {
+	b.score++
+
+	if b.score >= b.scoreTarget || b.totalBufferedDuration() >= b.maxStableDuration {
 		b.done = true
 		ready := b.buffer
 		b.buffer = nil
@@ -158,4 +159,13 @@ func (b *burstEstimatorGate) restartSequence(seed jitter.ExtPacket) int {
 	b.score = 0
 	b.buffer = append(b.buffer, seed)
 	return dropped
+}
+
+func (b *burstEstimatorGate) totalBufferedDuration() time.Duration {
+	if len(b.buffer) < 2 {
+		return 0
+	}
+	first := b.buffer[0].Timestamp
+	last := b.buffer[len(b.buffer)-1].Timestamp
+	return b.timestampToDuration(last - first)
 }
