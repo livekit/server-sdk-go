@@ -15,6 +15,7 @@
 package synchronizer
 
 import (
+	"fmt"
 	"io"
 	"math"
 	"sync"
@@ -36,6 +37,7 @@ const (
 	cStartTimeAdjustThreshold = 5 * time.Second
 
 	cHighDriftLoggingThreshold = 20 * time.Millisecond
+	cGapHistogramNumBins       = 101
 )
 
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
@@ -69,6 +71,7 @@ type TrackSynchronizer struct {
 	startRTP         uint32    // RTP timestamp of first packet
 	firstTime        time.Time // time at which first packet was pushed
 	lastTS           uint32    // previous RTP timestamp
+	lastSN           uint16    // previous RTP sequence number
 	lastTime         time.Time
 	lastPTS          time.Duration // previous presentation timestamp
 	lastPTSAdjusted  time.Duration // previous adjusted presentation timestamp
@@ -92,14 +95,7 @@ type TrackSynchronizer struct {
 	totalStartTimeAdjustment  time.Duration
 	startTimeAdjustResidual   time.Duration
 
-	// packet stats
-	numEmitted           uint32
-	numDroppedOld        uint32
-	numDroppedOutOfOrder uint32
-	numDroppedEOF        uint32
-
-	// sender report stats
-	numSenderReports uint32
+	stats stats
 }
 
 func newTrackSynchronizer(s *Synchronizer, track TrackRemote) *TrackSynchronizer {
@@ -132,7 +128,13 @@ func (t *TrackSynchronizer) OnSenderReport(f func(drift time.Duration)) {
 // Initialize should be called as soon as the first packet is received
 func (t *TrackSynchronizer) Initialize(pkt *rtp.Packet) {
 	now := mono.Now()
-	startedAt := t.sync.getOrSetStartedAt(now.UnixNano())
+	t.Lock()
+	synchronizer := t.sync
+	t.Unlock()
+	if synchronizer == nil {
+		return
+	}
+	startedAt := synchronizer.getOrSetStartedAt(now.UnixNano())
 
 	t.Lock()
 	defer t.Unlock()
@@ -157,6 +159,14 @@ func (t *TrackSynchronizer) Initialize(pkt *rtp.Packet) {
 		"rtcpSenderReportRebaseEnabled", t.rtcpSenderReportRebaseEnabled,
 		"oldPacketThreshold", t.oldPacketThreshold,
 	)
+}
+
+func (t *TrackSynchronizer) Close() {
+	t.Lock()
+	defer t.Unlock()
+
+	t.sync = nil
+	t.logger.Infow("closing track synchronizer", "state", t)
 }
 
 // GetPTS will adjust PTS offsets if necessary
@@ -188,14 +198,17 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 			"pktReceiveTime", pkt.ReceivedAt,
 			"startDelay", t.firstTime.Sub(pkt.ReceivedAt),
 		)
+	} else {
+		t.updateGapHistogram(pkt.SequenceNumber - t.lastSN)
 	}
+	t.lastSN = pkt.SequenceNumber
 
 	ts := pkt.Timestamp
 
 	// if first packet of a frame was accepted,
 	// accept all packets of the frame even if they are old
 	if ts == t.lastTS {
-		t.numEmitted++
+		t.stats.numEmitted++
 		return t.lastPTSAdjusted, nil
 	}
 
@@ -204,7 +217,7 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 		// drop all packets of the frame irrespective of whether they are old or not
 		if ts == t.lastTSOldDropped || t.isPacketTooOld(pkt.ReceivedAt) {
 			t.lastTSOldDropped = ts
-			t.numDroppedOld++
+			t.stats.numDroppedOld++
 			t.logger.Infow(
 				"dropping old packet",
 				"currentTS", ts,
@@ -276,7 +289,7 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 
 	// if past end time, return EOF
 	if t.maxPTS > 0 && (adjusted > t.maxPTS) {
-		t.numDroppedEOF++
+		t.stats.numDroppedEOF++
 		return 0, io.EOF
 	}
 
@@ -286,7 +299,7 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 	t.lastPTS = pts
 	t.lastPTSAdjusted = adjusted
 
-	t.numEmitted++
+	t.stats.numEmitted++
 	return adjusted, nil
 }
 
@@ -303,20 +316,23 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 			"pktReceiveTime", pkt.ReceivedAt,
 			"startDelay", t.firstTime.Sub(pkt.ReceivedAt),
 		)
+	} else {
+		t.updateGapHistogram(pkt.SequenceNumber - t.lastSN)
 	}
+	t.lastSN = pkt.SequenceNumber
 
 	ts := pkt.Timestamp
 
 	// if first packet of a frame was accepted,
 	// accept all packets of the frame even if they are old
 	if ts == t.lastTS {
-		t.numEmitted++
+		t.stats.numEmitted++
 		return t.lastPTSAdjusted, nil
 	}
 
 	// packets are expected in order, just a safety net
 	if t.lastTS != 0 && (ts-t.lastTS) > (1<<31) {
-		t.numDroppedOutOfOrder++
+		t.stats.numDroppedOutOfOrder++
 		t.logger.Infow(
 			"dropping out-of-order packet",
 			"currentTS", ts,
@@ -329,7 +345,7 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 	// drop all packets of the frame irrespective of whether they are old or not
 	if ts == t.lastTSOldDropped || t.isPacketTooOld(pkt.ReceivedAt) {
 		t.lastTSOldDropped = ts
-		t.numDroppedOld++
+		t.stats.numDroppedOld++
 		t.logger.Infow(
 			"dropping old packet",
 			"currentTS", ts,
@@ -411,7 +427,7 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 
 	// if past end time, return EOF
 	if t.maxPTS > 0 && (adjusted > t.maxPTS) {
-		t.numDroppedEOF++
+		t.stats.numDroppedEOF++
 		return 0, io.EOF
 	}
 
@@ -421,7 +437,7 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 	t.lastPTS = pts
 	t.lastPTSAdjusted = adjusted
 
-	t.numEmitted++
+	t.stats.numEmitted++
 	return adjusted, nil
 }
 
@@ -459,7 +475,7 @@ func (t *TrackSynchronizer) onSenderReportWithoutRebase(pkt *rtcp.SenderReport) 
 		return
 	}
 
-	t.numSenderReports++
+	t.stats.numSenderReports++
 
 	var pts time.Duration
 	if pkt.RTPTime > t.lastTS {
@@ -530,7 +546,7 @@ func (t *TrackSynchronizer) onSenderReportWithRebase(pkt *rtcp.SenderReport) {
 		return
 	}
 
-	t.numSenderReports++
+	t.stats.numSenderReports++
 
 	var ptsSR time.Duration
 	if (pkt.RTPTime - t.lastTS) < (1 << 31) {
@@ -719,6 +735,21 @@ func (t *TrackSynchronizer) applyQuantizedStartTimeAdvance(deltaTotal time.Durat
 	return 0
 }
 
+func (t *TrackSynchronizer) updateGapHistogram(gap uint16) {
+	if gap < 2 {
+		return
+	}
+
+	missing := gap - 1
+	if int(missing) > len(t.stats.gapHistogram) {
+		t.stats.gapHistogram[len(t.stats.gapHistogram)-1]++
+	} else {
+		t.stats.gapHistogram[missing-1]++
+	}
+
+	t.stats.largestGap = max(missing, t.stats.largestGap)
+}
+
 func (t *TrackSynchronizer) MarshalLogObject(e zapcore.ObjectEncoder) error {
 	if t == nil {
 		return nil
@@ -738,16 +769,13 @@ func (t *TrackSynchronizer) MarshalLogObject(e zapcore.ObjectEncoder) error {
 	e.AddDuration("basePTSOffset", t.basePTSOffset)
 	e.AddDuration("totalPTSAdjustmentPositive", t.totalPTSAdjustmentPositive)
 	e.AddDuration("totalPTSAdjustmentNegative", t.totalPTSAdjustmentNegative)
+	e.AddUint16("lastSN", t.lastSN)
 	e.AddObject("lastSR", wrappedAugmentedSenderReportLogger{t.lastSR})
 	e.AddTime("nextPTSAdjustmentAt", t.nextPTSAdjustmentAt)
 	e.AddObject("propagationDelayEstimator", t.propagationDelayEstimator)
 	e.AddDuration("totalStartTimeAdjustment", t.totalStartTimeAdjustment)
 	e.AddDuration("startTimeAdjustResidual", t.startTimeAdjustResidual)
-	e.AddUint32("numEmitted", t.numEmitted)
-	e.AddUint32("numDroppedOld", t.numDroppedOld)
-	e.AddUint32("numDroppedOutOfOrder", t.numDroppedOutOfOrder)
-	e.AddUint32("numDroppedEOF", t.numDroppedEOF)
-	e.AddUint32("numSenderReports", t.numSenderReports)
+	e.AddObject("stats", t.stats)
 	return nil
 }
 
@@ -805,5 +833,54 @@ func (w wrappedAugmentedSenderReportLogger) MarshalLogObject(e zapcore.ObjectEnc
 	e.AddUint32("OctetCount", asr.OctetCount)
 	e.AddTime("receivedAt", time.Unix(0, asr.receivedAt))
 	e.AddTime("receivedAtAdjusted", time.Unix(0, asr.receivedAtAdjusted))
+	return nil
+}
+
+// -----------------------------
+
+type stats struct {
+	// packet stats
+	numEmitted           uint32
+	numDroppedOld        uint32
+	numDroppedOutOfOrder uint32
+	numDroppedEOF        uint32
+
+	gapHistogram [cGapHistogramNumBins]uint32
+	largestGap   uint16
+
+	// sender report stats
+	numSenderReports uint32
+}
+
+func (s stats) MarshalLogObject(e zapcore.ObjectEncoder) error {
+	e.AddUint32("numEmitted", s.numEmitted)
+	e.AddUint32("numDroppedOld", s.numDroppedOld)
+	e.AddUint32("numDroppedOutOfOrder", s.numDroppedOutOfOrder)
+	e.AddUint32("numDroppedEOF", s.numDroppedEOF)
+
+	hasLoss := false
+	first := true
+	str := "["
+	for burst, count := range s.gapHistogram {
+		if count == 0 {
+			continue
+		}
+
+		hasLoss = true
+
+		if !first {
+			str += ", "
+		}
+		first = false
+		str += fmt.Sprintf("%d:%d", burst+1, count)
+	}
+	str += "]"
+	if hasLoss {
+		e.AddString("gapHistogram", str)
+	}
+
+	e.AddUint16("largestGap", s.largestGap)
+
+	e.AddUint32("numSenderReports", s.numSenderReports)
 	return nil
 }

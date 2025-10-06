@@ -203,7 +203,7 @@ func (s *Synchronizer) RemoveTrack(trackID string) {
 
 	p.Lock()
 	if ts := p.tracks[ssrc]; ts != nil {
-		ts.sync = nil
+		ts.Close()
 	}
 	delete(p.tracks, ssrc)
 	p.Unlock()
