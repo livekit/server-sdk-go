@@ -145,8 +145,7 @@ func (b *burstEstimatorGate) enforceWindow() int {
 		return 0
 	}
 	dropped := len(b.buffer) - b.maxBuffer
-	copy(b.buffer, b.buffer[dropped:])
-	b.buffer = b.buffer[:len(b.buffer)-dropped]
+	b.buffer = b.buffer[dropped:]
 	b.score = 0
 	return dropped
 }
