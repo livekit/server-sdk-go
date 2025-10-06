@@ -17,16 +17,16 @@ type startGate interface {
 	Push(pkt jitter.ExtPacket) ([]jitter.ExtPacket, int, bool)
 }
 
-// burstEstimatorGate implements startGate using the burst-estimation logic.
-// It buffers packets until their arrival cadence matches
-// the RTP timestamp spacing well enough to assume we are caught up with the
-// realtime stream. The gate can be configured with different tolerances for
-// audio and video since video keyframes may span hundreds of packets.
+// burstEstimatorGate implements startGate using the burst-estimation logic. It
+// buffers packets until their arrival cadence matches the RTP timestamp spacing
+// closely enough to assume we are caught up with the realtime stream. Minimum
+// arrival spacing is derived from a fraction of the expected RTP interval
 type burstEstimatorGate struct {
-	clockRate   uint32
-	maxSkew     time.Duration
-	minArrival  time.Duration
-	scoreTarget int
+	clockRate        uint32
+	maxSkew          time.Duration
+	minArrivalFactor float64
+	minArrivalFloor  time.Duration
+	scoreTarget      int
 
 	score       int
 	lastTS      uint32
@@ -39,11 +39,12 @@ type burstEstimatorGate struct {
 
 func newStartGate(clockRate uint32, kind webrtc.RTPCodecType) startGate {
 	be := &burstEstimatorGate{
-		clockRate:   clockRate,
-		maxSkew:     20 * time.Millisecond,
-		minArrival:  2 * time.Millisecond,
-		scoreTarget: 5,
-		maxBuffer:   1000, // high bitrate key frames can span hundreds of packets
+		clockRate:        clockRate,
+		maxSkew:          20 * time.Millisecond,
+		minArrivalFactor: 0.2,
+		minArrivalFloor:  time.Millisecond,
+		scoreTarget:      5,
+		maxBuffer:        1000, // high bitrate key frames can span hundreds of packets
 	}
 
 	if kind == webrtc.RTPCodecTypeAudio {
@@ -95,13 +96,14 @@ func (b *burstEstimatorGate) Push(pkt jitter.ExtPacket) ([]jitter.ExtPacket, int
 	b.lastArrival = pkt.ReceivedAt
 
 	tsDuration := b.timestampToDuration(uint32(signedTsDelta))
-	if tsDuration <= 0 {
-		dropped := b.restartSequence()
-		return nil, dropped, false
+
+	minArrival := time.Duration(float64(tsDuration) * b.minArrivalFactor)
+	if minArrival < b.minArrivalFloor {
+		minArrival = b.minArrivalFloor
 	}
 
-	if arrivalDelta < b.minArrival {
-		dropped := b.restartSequence()
+	if arrivalDelta < minArrival {
+		dropped := b.restartSequence(pkt)
 		return nil, dropped, false
 	}
 
@@ -111,7 +113,7 @@ func (b *burstEstimatorGate) Push(pkt jitter.ExtPacket) ([]jitter.ExtPacket, int
 	}
 
 	if skew > b.maxSkew {
-		dropped := b.restartSequence()
+		dropped := b.restartSequence(pkt)
 		return nil, dropped, false
 	}
 
@@ -150,9 +152,10 @@ func (b *burstEstimatorGate) enforceWindow() int {
 	return dropped
 }
 
-func (b *burstEstimatorGate) restartSequence() int {
+func (b *burstEstimatorGate) restartSequence(seed jitter.ExtPacket) int {
 	dropped := len(b.buffer)
 	b.buffer = b.buffer[:0]
 	b.score = 0
+	b.buffer = append(b.buffer, seed)
 	return dropped
 }
