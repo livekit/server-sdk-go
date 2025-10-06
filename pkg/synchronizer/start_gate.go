@@ -23,9 +23,8 @@ type startGate interface {
 // arrival spacing is derived from a fraction of the expected RTP interval
 type burstEstimatorGate struct {
 	clockRate         uint32
-	maxSkew           time.Duration
+	maxSkewFactor     float64
 	minArrivalFactor  float64
-	minArrivalFloor   time.Duration
 	scoreTarget       int
 	maxStableDuration time.Duration
 
@@ -41,16 +40,14 @@ type burstEstimatorGate struct {
 func newStartGate(clockRate uint32, kind webrtc.RTPCodecType) startGate {
 	be := &burstEstimatorGate{
 		clockRate:         clockRate,
-		maxSkew:           20 * time.Millisecond,
+		maxSkewFactor:     0.3,
 		minArrivalFactor:  0.2,
-		minArrivalFloor:   time.Millisecond,
 		scoreTarget:       5,
 		maxBuffer:         1000, // high bitrate key frames can span hundreds of packets
 		maxStableDuration: time.Second,
 	}
 
 	if kind == webrtc.RTPCodecTypeAudio {
-		be.maxSkew = 8 * time.Millisecond
 		be.maxBuffer = 200
 	}
 
@@ -100,9 +97,6 @@ func (b *burstEstimatorGate) Push(pkt jitter.ExtPacket) ([]jitter.ExtPacket, int
 	tsDuration := b.timestampToDuration(uint32(signedTsDelta))
 
 	minArrival := time.Duration(float64(tsDuration) * b.minArrivalFactor)
-	if minArrival < b.minArrivalFloor {
-		minArrival = b.minArrivalFloor
-	}
 
 	if arrivalDelta < minArrival {
 		dropped := b.restartSequence(pkt)
@@ -114,7 +108,9 @@ func (b *burstEstimatorGate) Push(pkt jitter.ExtPacket) ([]jitter.ExtPacket, int
 		skew = -skew
 	}
 
-	if skew > b.maxSkew {
+	maxSkew := time.Duration(float64(tsDuration) * b.maxSkewFactor)
+
+	if skew > maxSkew {
 		dropped := b.restartSequence(pkt)
 		return nil, dropped, false
 	}
