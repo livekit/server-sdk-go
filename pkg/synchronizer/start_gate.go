@@ -208,16 +208,11 @@ func (b *burstEstimatorGate) logCompletion(reason string) {
 		return
 	}
 
-	elapsed := time.Duration(0)
-	if !b.firstArrival.IsZero() {
-		elapsed = time.Since(b.firstArrival)
-	}
-
 	b.logger.Infow(
 		"start gate sequence completed",
 		"reason", reason,
 		"score", b.score,
-		"elapsed", elapsed,
+		"elapsed", time.Since(b.firstArrival),
 		"droppedPackets", b.totalDropped,
 	)
 }
