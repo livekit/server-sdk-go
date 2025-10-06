@@ -1,9 +1,11 @@
 package synchronizer
 
 import (
+	"strings"
 	"time"
 
 	"github.com/livekit/media-sdk/jitter"
+	"github.com/livekit/protocol/logger"
 	"github.com/pion/webrtc/v4"
 )
 
@@ -27,6 +29,9 @@ type burstEstimatorGate struct {
 	minArrivalFactor  float64
 	scoreTarget       int
 	maxStableDuration time.Duration
+	flushAfter        time.Duration
+	firstArrival      time.Time
+	logger            logger.Logger
 
 	score       int
 	lastTS      uint32
@@ -35,9 +40,12 @@ type burstEstimatorGate struct {
 	done        bool
 	buffer      []jitter.ExtPacket
 	maxBuffer   int
+
+	// stats
+	totalDropped int
 }
 
-func newStartGate(clockRate uint32, kind webrtc.RTPCodecType) startGate {
+func newStartGate(clockRate uint32, kind webrtc.RTPCodecType, logger logger.Logger) startGate {
 	be := &burstEstimatorGate{
 		clockRate:         clockRate,
 		maxSkewFactor:     0.3,
@@ -45,6 +53,8 @@ func newStartGate(clockRate uint32, kind webrtc.RTPCodecType) startGate {
 		scoreTarget:       5,
 		maxBuffer:         1000, // high bitrate key frames can span hundreds of packets
 		maxStableDuration: time.Second,
+		flushAfter:        2 * time.Second,
+		logger:            logger,
 	}
 
 	if kind == webrtc.RTPCodecTypeAudio {
@@ -60,6 +70,20 @@ func newStartGate(clockRate uint32, kind webrtc.RTPCodecType) startGate {
 func (b *burstEstimatorGate) Push(pkt jitter.ExtPacket) ([]jitter.ExtPacket, int, bool) {
 	if b.done {
 		return nil, 0, true
+	}
+
+	elapsed := time.Duration(0)
+	if !b.firstArrival.IsZero() {
+		elapsed = time.Since(b.firstArrival)
+	} else {
+		b.firstArrival = time.Now()
+	}
+	if b.flushAfter > 0 && elapsed > b.flushAfter {
+		ready := append(b.buffer, pkt)
+		b.buffer = nil
+		b.done = true
+		b.logCompletion("flush_after_timeout")
+		return ready, 0, true
 	}
 
 	if len(pkt.Payload) == 0 {
@@ -122,10 +146,21 @@ func (b *burstEstimatorGate) Push(pkt jitter.ExtPacket) ([]jitter.ExtPacket, int
 
 	b.score++
 
-	if b.score >= b.scoreTarget || b.totalBufferedDuration() >= b.maxStableDuration {
+	reachedScore := b.score >= b.scoreTarget
+	reachedDuration := b.totalBufferedDuration() >= b.maxStableDuration
+	if reachedScore || reachedDuration {
 		b.done = true
 		ready := b.buffer
 		b.buffer = nil
+		reasons := make([]string, 0, 2)
+		if reachedScore {
+			reasons = append(reasons, "score_target")
+		}
+		if reachedDuration {
+			reasons = append(reasons, "max_stable_duration")
+		}
+		reason := strings.Join(reasons, ",")
+		b.logCompletion(reason)
 		return ready, 0, true
 	}
 
@@ -146,6 +181,7 @@ func (b *burstEstimatorGate) enforceWindow() int {
 	dropped := len(b.buffer) - b.maxBuffer
 	b.buffer = b.buffer[dropped:]
 	b.score = 0
+	b.totalDropped += dropped
 	return dropped
 }
 
@@ -154,6 +190,7 @@ func (b *burstEstimatorGate) restartSequence(seed jitter.ExtPacket) int {
 	b.buffer = b.buffer[:0]
 	b.score = 0
 	b.buffer = append(b.buffer, seed)
+	b.totalDropped += dropped
 	return dropped
 }
 
@@ -164,4 +201,23 @@ func (b *burstEstimatorGate) totalBufferedDuration() time.Duration {
 	first := b.buffer[0].Timestamp
 	last := b.buffer[len(b.buffer)-1].Timestamp
 	return b.timestampToDuration(last - first)
+}
+
+func (b *burstEstimatorGate) logCompletion(reason string) {
+	if b.logger == nil {
+		return
+	}
+
+	elapsed := time.Duration(0)
+	if !b.firstArrival.IsZero() {
+		elapsed = time.Since(b.firstArrival)
+	}
+
+	b.logger.Infow(
+		"start gate sequence completed",
+		"reason", reason,
+		"score", b.score,
+		"elapsed", elapsed,
+		"droppedPackets", b.totalDropped,
+	)
 }
