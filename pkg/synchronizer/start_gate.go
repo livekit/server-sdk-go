@@ -96,18 +96,12 @@ func (b *burstEstimatorGate) Push(pkt jitter.ExtPacket) ([]jitter.ExtPacket, int
 
 	tsDuration := b.timestampToDuration(uint32(signedTsDelta))
 	if tsDuration <= 0 {
-		dropped := len(b.buffer)
-		b.buffer = b.buffer[:0]
-		b.score = 0
-		b.buffer = append(b.buffer, pkt)
+		dropped := b.restartSequence()
 		return nil, dropped, false
 	}
 
 	if arrivalDelta < b.minArrival {
-		dropped := len(b.buffer)
-		b.buffer = b.buffer[:0]
-		b.score = 0
-		b.buffer = append(b.buffer, pkt)
+		dropped := b.restartSequence()
 		return nil, dropped, false
 	}
 
@@ -117,10 +111,7 @@ func (b *burstEstimatorGate) Push(pkt jitter.ExtPacket) ([]jitter.ExtPacket, int
 	}
 
 	if skew > b.maxSkew {
-		dropped := len(b.buffer)
-		b.buffer = b.buffer[:0]
-		b.score = 0
-		b.buffer = append(b.buffer, pkt)
+		dropped := b.restartSequence()
 		return nil, dropped, false
 	}
 
@@ -156,6 +147,13 @@ func (b *burstEstimatorGate) enforceWindow() int {
 	dropped := len(b.buffer) - b.maxBuffer
 	copy(b.buffer, b.buffer[dropped:])
 	b.buffer = b.buffer[:len(b.buffer)-dropped]
+	b.score = 0
+	return dropped
+}
+
+func (b *burstEstimatorGate) restartSequence() int {
+	dropped := len(b.buffer)
+	b.buffer = b.buffer[:0]
 	b.score = 0
 	return dropped
 }
