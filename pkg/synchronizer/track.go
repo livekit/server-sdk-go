@@ -166,7 +166,7 @@ func (t *TrackSynchronizer) Close() {
 	defer t.Unlock()
 
 	t.sync = nil
-	t.logger.Infow("closing synchronizer", "state", t)
+	t.logger.Infow("closing track synchronizer", "state", t)
 }
 
 // GetPTS will adjust PTS offsets if necessary
