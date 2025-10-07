@@ -139,6 +139,10 @@ func (t *TrackSynchronizer) OnSenderReport(f func(drift time.Duration)) {
 func (t *TrackSynchronizer) PrimeForStart(pkt jitter.ExtPacket) ([]jitter.ExtPacket, int, bool) {
 	if t.initialized || t.startGate == nil {
 		if !t.initialized {
+			// skip dummy packets
+			if len(pkt.Payload) == 0 {
+				return nil, 0, false
+			}
 			t.Initialize(pkt.Packet)
 		}
 		return []jitter.ExtPacket{pkt}, 0, true
