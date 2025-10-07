@@ -137,12 +137,13 @@ func (t *TrackSynchronizer) OnSenderReport(f func(drift time.Duration)) {
 // dropped while waiting, and a boolean indicating whether the track is ready to
 // process samples. After the gate finishes, there is no need to call the API again.
 func (t *TrackSynchronizer) PrimeForStart(pkt jitter.ExtPacket) ([]jitter.ExtPacket, int, bool) {
+	if !t.initialized && len(pkt.Payload) == 0 {
+		// skip dummy packets until the track is initialized
+		return nil, 0, false
+	}
+
 	if t.initialized || t.startGate == nil {
 		if !t.initialized {
-			// skip dummy packets
-			if len(pkt.Payload) == 0 {
-				return nil, 0, false
-			}
 			t.Initialize(pkt.Packet)
 		}
 		return []jitter.ExtPacket{pkt}, 0, true
@@ -154,7 +155,7 @@ func (t *TrackSynchronizer) PrimeForStart(pkt jitter.ExtPacket) ([]jitter.ExtPac
 	}
 
 	if len(ready) == 0 {
-		ready = append(ready, pkt)
+		ready = []jitter.ExtPacket{pkt}
 	}
 
 	if !t.initialized {
