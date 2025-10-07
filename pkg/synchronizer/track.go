@@ -56,6 +56,7 @@ type TrackSynchronizer struct {
 	track  TrackRemote
 	logger logger.Logger
 	*rtpConverter
+	startGate startGate
 
 	// config
 	maxTsDiff                         time.Duration // maximum acceptable difference between RTP packets
@@ -94,6 +95,7 @@ type TrackSynchronizer struct {
 	propagationDelayEstimator *OWDEstimator
 	totalStartTimeAdjustment  time.Duration
 	startTimeAdjustResidual   time.Duration
+	initialized               bool
 
 	stats stats
 }
@@ -115,6 +117,10 @@ func newTrackSynchronizer(s *Synchronizer, track TrackRemote) *TrackSynchronizer
 		propagationDelayEstimator:         NewOWDEstimator(OWDEstimatorParamsDefault),
 	}
 
+	if s.config.EnableStartGate {
+		t.startGate = newStartGate(track.Codec().ClockRate, track.Kind(), t.logger)
+	}
+
 	return t
 }
 
@@ -125,19 +131,56 @@ func (t *TrackSynchronizer) OnSenderReport(f func(drift time.Duration)) {
 	t.onSR = f
 }
 
+// PrimeForStart buffers incoming packets until pacing stabilizes, initializing the
+// track synchronizer automatically once a suitable sequence has been observed.
+// It returns the packets that should be forwarded, the number of packets
+// dropped while waiting, and a boolean indicating whether the track is ready to
+// process samples. After the gate finishes, there is no need to call the API again.
+func (t *TrackSynchronizer) PrimeForStart(pkt jitter.ExtPacket) ([]jitter.ExtPacket, int, bool) {
+	if !t.initialized && len(pkt.Payload) == 0 {
+		// skip dummy packets until the track is initialized
+		return nil, 0, false
+	}
+
+	if t.initialized || t.startGate == nil {
+		if !t.initialized {
+			t.Initialize(pkt.Packet)
+		}
+		return []jitter.ExtPacket{pkt}, 0, true
+	}
+
+	ready, dropped, done := t.startGate.Push(pkt)
+	if !done {
+		return nil, dropped, false
+	}
+
+	if len(ready) == 0 {
+		ready = []jitter.ExtPacket{pkt}
+	}
+
+	if !t.initialized {
+		t.Initialize(ready[0].Packet)
+	}
+
+	return ready, dropped, true
+}
+
 // Initialize should be called as soon as the first packet is received
 func (t *TrackSynchronizer) Initialize(pkt *rtp.Packet) {
 	now := mono.Now()
 	t.Lock()
 	synchronizer := t.sync
 	t.Unlock()
-	if synchronizer == nil {
-		return
+	startedAt := now.UnixNano()
+	if synchronizer != nil {
+		startedAt = synchronizer.getOrSetStartedAt(now.UnixNano())
 	}
-	startedAt := synchronizer.getOrSetStartedAt(now.UnixNano())
 
 	t.Lock()
 	defer t.Unlock()
+	if t.initialized {
+		return
+	}
 
 	t.currentPTSOffset = time.Duration(now.UnixNano() - startedAt)
 	t.desiredPTSOffset = t.currentPTSOffset
@@ -147,6 +190,7 @@ func (t *TrackSynchronizer) Initialize(pkt *rtp.Packet) {
 	t.startRTP = pkt.Timestamp
 	t.lastPTS = 0
 	t.lastPTSAdjusted = t.currentPTSOffset
+	t.initialized = true
 	t.logger.Infow(
 		"initialized track synchronizer",
 		"state", t,
