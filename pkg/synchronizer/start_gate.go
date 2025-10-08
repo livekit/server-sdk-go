@@ -86,10 +86,6 @@ func (b *burstEstimatorGate) Push(pkt jitter.ExtPacket) ([]jitter.ExtPacket, int
 		return ready, 0, true
 	}
 
-	if len(pkt.Payload) == 0 {
-		return nil, 0, false
-	}
-
 	if !b.hasLast {
 		b.lastTS = pkt.Timestamp
 		b.lastArrival = pkt.ReceivedAt
