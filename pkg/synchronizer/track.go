@@ -139,7 +139,7 @@ func (t *TrackSynchronizer) OnSenderReport(f func(drift time.Duration)) {
 func (t *TrackSynchronizer) PrimeForStart(pkt jitter.ExtPacket) ([]jitter.ExtPacket, int, bool) {
 	if t.initialized || t.startGate == nil {
 		if !t.initialized {
-			t.Initialize(pkt.Packet)
+			t.initialize(pkt)
 		}
 		return []jitter.ExtPacket{pkt}, 0, true
 	}
@@ -154,7 +154,7 @@ func (t *TrackSynchronizer) PrimeForStart(pkt jitter.ExtPacket) ([]jitter.ExtPac
 	}
 
 	if !t.initialized {
-		t.Initialize(ready[0].Packet)
+		t.initialize(ready[0])
 	}
 
 	return ready, dropped, true
@@ -162,13 +162,26 @@ func (t *TrackSynchronizer) PrimeForStart(pkt jitter.ExtPacket) ([]jitter.ExtPac
 
 // Initialize should be called as soon as the first packet is received
 func (t *TrackSynchronizer) Initialize(pkt *rtp.Packet) {
-	now := mono.Now()
+	t.initialize(jitter.ExtPacket{
+		Packet:     pkt,
+		ReceivedAt: mono.Now(),
+	})
+}
+
+func (t *TrackSynchronizer) initialize(extPkt jitter.ExtPacket) {
+	receivedAt := extPkt.ReceivedAt
+	if receivedAt.IsZero() {
+		receivedAt = mono.Now()
+	}
+
 	t.Lock()
 	synchronizer := t.sync
 	t.Unlock()
-	startedAt := now.UnixNano()
+
+	startedAt := receivedAt.UnixNano()
+	firstStartedAt := startedAt
 	if synchronizer != nil {
-		startedAt = synchronizer.getOrSetStartedAt(now.UnixNano())
+		firstStartedAt = synchronizer.getOrSetStartedAt(startedAt)
 	}
 
 	t.Lock()
@@ -177,12 +190,12 @@ func (t *TrackSynchronizer) Initialize(pkt *rtp.Packet) {
 		return
 	}
 
-	t.currentPTSOffset = time.Duration(now.UnixNano() - startedAt)
+	t.currentPTSOffset = time.Duration(startedAt - firstStartedAt)
 	t.desiredPTSOffset = t.currentPTSOffset
 	t.basePTSOffset = t.desiredPTSOffset
 
-	t.startTime = now
-	t.startRTP = pkt.Timestamp
+	t.startTime = receivedAt
+	t.startRTP = extPkt.Packet.Timestamp
 	t.lastPTS = 0
 	t.lastPTSAdjusted = t.currentPTSOffset
 	t.initialized = true

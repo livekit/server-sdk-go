@@ -122,6 +122,63 @@ func TestGetPTSWithoutRebase_Increasing(t *testing.T) {
 	require.Greater(t, adj2, adj1)
 }
 
+func TestGetPTSWithoutRebase_NegativeAdjustedPTS(t *testing.T) {
+	sync := NewSynchronizerWithOptions()
+	base := time.Now()
+	futureStart := base.Add(500 * time.Millisecond)
+	sync.getOrSetStartedAt(futureStart.UnixNano())
+
+	track := fakeTrack{id: "neg", rate: 90000, kind: webrtc.RTPCodecTypeVideo}
+	ts := newTrackSynchronizer(sync, track)
+	ts.logger = logger.NewTestLogger(t)
+
+	firstReceivedAt := base
+	firstPacket := jitter.ExtPacket{
+		Packet: &rtp.Packet{
+			Header:  rtp.Header{Timestamp: 90000, SequenceNumber: 1},
+			Payload: []byte{0x01},
+		},
+		ReceivedAt: firstReceivedAt,
+	}
+
+	ts.initialize(firstPacket)
+	require.Less(t, ts.currentPTSOffset, time.Duration(0), "expected negative PTS offset when synchronizer start is later")
+
+	stepTS := ts.rtpConverter.toRTP(10 * time.Millisecond)
+	secondPacket := jitter.ExtPacket{
+		Packet: &rtp.Packet{
+			Header:  rtp.Header{Timestamp: firstPacket.Packet.Timestamp + stepTS, SequenceNumber: 2},
+			Payload: []byte{0x02},
+		},
+		ReceivedAt: firstReceivedAt.Add(10 * time.Millisecond),
+	}
+
+	adjusted, err := ts.GetPTS(secondPacket)
+	require.NoError(t, err)
+	require.Less(t, adjusted, time.Duration(0), "expected negative adjusted PTS")
+}
+
+func TestInitializeUsesBufferedPacketTiming(t *testing.T) {
+	sync := NewSynchronizerWithOptions()
+	syncStart := mono.Now().Add(-250 * time.Millisecond)
+	sync.getOrSetStartedAt(syncStart.UnixNano())
+
+	track := fakeTrack{id: "init", rate: 90000, kind: webrtc.RTPCodecTypeVideo}
+	ts := newTrackSynchronizer(sync, track)
+	ts.logger = logger.NewTestLogger(t)
+
+	receivedAt := time.Now().Add(-50 * time.Millisecond)
+	packet := &rtp.Packet{Header: rtp.Header{Timestamp: 42}}
+	extPkt := jitter.ExtPacket{Packet: packet, ReceivedAt: receivedAt}
+
+	ts.initialize(extPkt)
+
+	require.True(t, ts.initialized, "track should initialize")
+	require.Equal(t, receivedAt, ts.startTime, "startTime should match buffered arrival time")
+	require.Equal(t, packet.Timestamp, ts.startRTP, "startRTP should come from packet timestamp")
+	require.InDelta(t, receivedAt.Sub(syncStart), ts.currentPTSOffset, float64(5*time.Millisecond))
+}
+
 func TestGetPTSWithRebase_PropelsForward(t *testing.T) {
 	clock := uint32(48000)
 	ts := newTSForTests(t, clock, webrtc.RTPCodecTypeAudio)
