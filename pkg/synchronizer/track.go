@@ -66,6 +66,7 @@ type TrackSynchronizer struct {
 	preJitterBufferReceiveTimeEnabled bool
 	rtcpSenderReportRebaseEnabled     bool
 	oldPacketThreshold                time.Duration
+	enableStartGate                   bool
 
 	// timing info
 	startTime        time.Time // time at initialization --> this should be when first packet is received
@@ -113,6 +114,7 @@ func newTrackSynchronizer(s *Synchronizer, track TrackRemote) *TrackSynchronizer
 		preJitterBufferReceiveTimeEnabled: s.config.PreJitterBufferReceiveTimeEnabled,
 		rtcpSenderReportRebaseEnabled:     s.config.RTCPSenderReportRebaseEnabled,
 		oldPacketThreshold:                s.config.OldPacketThreshold,
+		enableStartGate:                   s.config.EnableStartGate,
 		nextPTSAdjustmentAt:               mono.Now(),
 		propagationDelayEstimator:         NewOWDEstimator(OWDEstimatorParamsDefault),
 	}
@@ -210,6 +212,7 @@ func (t *TrackSynchronizer) initialize(extPkt jitter.ExtPacket) {
 		"preJitterBufferReceiveTimeEnabled", t.preJitterBufferReceiveTimeEnabled,
 		"rtcpSenderReportRebaseEnabled", t.rtcpSenderReportRebaseEnabled,
 		"oldPacketThreshold", t.oldPacketThreshold,
+		"enableStartGate", t.enableStartGate,
 	)
 }
 
@@ -352,6 +355,9 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 	t.lastPTSAdjusted = adjusted
 
 	t.stats.numEmitted++
+	if adjusted < 0 {
+		t.stats.numNegativePTS++
+	}
 	return adjusted, nil
 }
 
@@ -490,6 +496,9 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 	t.lastPTSAdjusted = adjusted
 
 	t.stats.numEmitted++
+	if adjusted < 0 {
+		t.stats.numNegativePTS++
+	}
 	return adjusted, nil
 }
 
@@ -897,6 +906,8 @@ type stats struct {
 	numDroppedOutOfOrder uint32
 	numDroppedEOF        uint32
 
+	numNegativePTS uint32
+
 	gapHistogram [cGapHistogramNumBins]uint32
 	largestGap   uint16
 
@@ -909,6 +920,8 @@ func (s stats) MarshalLogObject(e zapcore.ObjectEncoder) error {
 	e.AddUint32("numDroppedOld", s.numDroppedOld)
 	e.AddUint32("numDroppedOutOfOrder", s.numDroppedOutOfOrder)
 	e.AddUint32("numDroppedEOF", s.numDroppedEOF)
+
+	e.AddUint32("numNegativePTS", s.numNegativePTS)
 
 	hasLoss := false
 	first := true
