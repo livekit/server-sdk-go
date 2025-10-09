@@ -21,16 +21,16 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/twitchtv/twirp v8.1.3+incompatible
 	go.uber.org/atomic v1.11.0
-	golang.org/x/crypto v0.41.0
-	golang.org/x/exp v0.0.0-20250819193227-8b4c13bb791b
-	google.golang.org/protobuf v1.36.8
+	golang.org/x/crypto v0.43.0
+	golang.org/x/exp v0.0.0-20251009144603-d2f985daa21b
+	google.golang.org/protobuf v1.36.10
 )
 
-require golang.org/x/mod v0.27.0
+require golang.org/x/mod v0.29.0
 
 require (
-	github.com/maxbrunsfeld/counterfeiter/v6 v6.11.3 // indirect
-	golang.org/x/tools v0.36.0 // indirect
+	github.com/maxbrunsfeld/counterfeiter/v6 v6.12.0 // indirect
+	golang.org/x/tools v0.38.0 // indirect
 )
 
 require (
@@ -82,10 +82,10 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0
 	go.uber.org/zap/exp v0.3.0 // indirect
-	golang.org/x/net v0.43.0 // indirect
-	golang.org/x/sync v0.16.0 // indirect
-	golang.org/x/sys v0.35.0 // indirect
-	golang.org/x/text v0.28.0 // indirect
+	golang.org/x/net v0.46.0 // indirect
+	golang.org/x/sync v0.17.0 // indirect
+	golang.org/x/sys v0.37.0 // indirect
+	golang.org/x/text v0.30.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250825161204-c5933d9347a5 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250825161204-c5933d9347a5 // indirect
 	google.golang.org/grpc v1.75.0 // indirect
