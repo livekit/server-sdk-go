@@ -69,16 +69,18 @@ type TrackSynchronizer struct {
 	enableStartGate                   bool
 
 	// timing info
-	startTime        time.Time // time at initialization --> this should be when first packet is received
-	startRTP         uint32    // RTP timestamp of first packet
-	firstTime        time.Time // time at which first packet was pushed
-	lastTS           uint32    // previous RTP timestamp
-	lastSN           uint16    // previous RTP sequence number
-	lastTime         time.Time
-	lastPTS          time.Duration // previous presentation timestamp
-	lastPTSAdjusted  time.Duration // previous adjusted presentation timestamp
-	lastTSOldDropped uint32        // previous dropped RTP timestamp due to old packet
-	maxPTS           time.Duration // maximum valid PTS (set after EOS)
+	startTime              time.Time // time at initialization --> this should be when first packet is received
+	startRTP               uint32    // RTP timestamp of first packet
+	firstTime              time.Time // time at which first packet was pushed
+	lastTS                 uint32    // previous RTP timestamp
+	lastSN                 uint16    // previous RTP sequence number
+	lastTime               time.Time
+	lastPTS                time.Duration // previous presentation timestamp
+	lastPTSAdjusted        time.Duration // previous adjusted presentation timestamp
+	lastTSOldDropped       uint32        // previous dropped RTP timestamp due to old packet
+	maxPTS                 time.Duration // maximum valid PTS (set after EOS)
+	oldSequenceDuration    time.Duration // duration the sequence of of old and discarded packets
+	fallingBehindThreshold time.Duration // threshold at which a track is considered falling behind
 
 	// offsets
 	currentPTSOffset           time.Duration // presentation timestamp offset (used for a/v sync)
@@ -114,6 +116,7 @@ func newTrackSynchronizer(s *Synchronizer, track TrackRemote) *TrackSynchronizer
 		preJitterBufferReceiveTimeEnabled: s.config.PreJitterBufferReceiveTimeEnabled,
 		rtcpSenderReportRebaseEnabled:     s.config.RTCPSenderReportRebaseEnabled,
 		oldPacketThreshold:                s.config.OldPacketThreshold,
+		fallingBehindThreshold:            s.config.FallingBehindThreshold,
 		enableStartGate:                   s.config.EnableStartGate,
 		nextPTSAdjustmentAt:               mono.Now(),
 		propagationDelayEstimator:         NewOWDEstimator(OWDEstimatorParamsDefault),
@@ -264,15 +267,23 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 	// accept all packets of the frame even if they are old
 	if ts == t.lastTS {
 		t.stats.numEmitted++
+		t.oldSequenceDuration = 0
 		return t.lastPTSAdjusted, nil
+	}
+
+	fallingBehind := t.trackFallingBehind()
+	if fallingBehind {
+		// reset the old sequence duration if the track is falling behind, as we are going to pull the track forward
+		t.oldSequenceDuration = 0
 	}
 
 	if t.preJitterBufferReceiveTimeEnabled {
 		// if first packet a frame was too old and dropped,
-		// drop all packets of the frame irrespective of whether they are old or not
-		if ts == t.lastTSOldDropped || t.isPacketTooOld(pkt.ReceivedAt) {
+		// drop all packets of the frame irrespective of whether they are old or not, unless the track is falling behind
+		if (ts == t.lastTSOldDropped || t.isPacketTooOld(pkt.ReceivedAt)) && !fallingBehind {
 			t.lastTSOldDropped = ts
 			t.stats.numDroppedOld++
+			t.oldSequenceDuration += t.toDuration(ts - t.lastTS)
 			t.logger.Infow(
 				"dropping old packet",
 				"currentTS", ts,
@@ -295,7 +306,7 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 		pts = t.lastPTS + t.toDuration(ts-t.lastTS)
 	}
 
-	if pts < t.lastPTS || !t.acceptable(pts-estimatedPTS) {
+	if pts < t.lastPTS || !t.acceptable(pts-estimatedPTS) || fallingBehind {
 		newStartRTP := ts - t.toRTP(estimatedPTS)
 		t.logger.Infow(
 			"correcting PTS",
@@ -358,6 +369,7 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 	if adjusted < 0 {
 		t.stats.numNegativePTS++
 	}
+	t.oldSequenceDuration = 0
 	return adjusted, nil
 }
 
@@ -385,6 +397,7 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 	// accept all packets of the frame even if they are old
 	if ts == t.lastTS {
 		t.stats.numEmitted++
+		t.oldSequenceDuration = 0
 		return t.lastPTSAdjusted, nil
 	}
 
@@ -399,11 +412,18 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 		return 0, ErrPacketOutOfOrder
 	}
 
+	fallingBehind := t.trackFallingBehind()
+	if fallingBehind {
+		// reset the old sequence duration if the track is falling behind, as we are going to pull the track forward
+		t.oldSequenceDuration = 0
+	}
+
 	// if first packet a frame was too old and dropped,
-	// drop all packets of the frame irrespective of whether they are old or not
-	if ts == t.lastTSOldDropped || t.isPacketTooOld(pkt.ReceivedAt) {
+	// drop all packets of the frame irrespective of whether they are old or not, unless the track is falling behind
+	if (ts == t.lastTSOldDropped || t.isPacketTooOld(pkt.ReceivedAt)) && !fallingBehind {
 		t.lastTSOldDropped = ts
 		t.stats.numDroppedOld++
+		t.oldSequenceDuration += t.toDuration(ts - t.lastTS)
 		t.logger.Infow(
 			"dropping old packet",
 			"currentTS", ts,
@@ -425,7 +445,7 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 		pts = t.lastPTS + t.toDuration(ts-t.lastTS)
 	}
 
-	if pts < t.lastPTS || !t.acceptable(pts-estimatedPTS) {
+	if pts < t.lastPTS || !t.acceptable(pts-estimatedPTS) || fallingBehind {
 		t.logger.Infow(
 			"correcting PTS",
 			"currentTS", ts,
@@ -499,6 +519,7 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 	if adjusted < 0 {
 		t.stats.numNegativePTS++
 	}
+	t.oldSequenceDuration = 0
 	return adjusted, nil
 }
 
@@ -772,6 +793,10 @@ func (t *TrackSynchronizer) shouldAdjustPTS() bool {
 
 func (t *TrackSynchronizer) isPacketTooOld(packetTime time.Time) bool {
 	return t.oldPacketThreshold != 0 && mono.Now().Sub(packetTime) > t.oldPacketThreshold
+}
+
+func (t *TrackSynchronizer) trackFallingBehind() bool {
+	return t.oldSequenceDuration > t.fallingBehindThreshold
 }
 
 // avoid applying small changes to start time as it will cause subsequent PTSes
