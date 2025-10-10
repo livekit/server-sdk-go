@@ -26,6 +26,7 @@ const (
 	DefaultMaxDriftAdjustment           = 5 * time.Millisecond
 	DefaultDriftAdjustmentWindowPercent = 0.0 // 0 -> disables throttling
 	DefaultOldPacketThreshold           = 500 * time.Millisecond
+	DefaultFallingBehindThreshold       = 10 * time.Second
 )
 
 type SynchronizerOption func(*SynchronizerConfig)
@@ -39,6 +40,7 @@ type SynchronizerConfig struct {
 	PreJitterBufferReceiveTimeEnabled bool
 	RTCPSenderReportRebaseEnabled     bool
 	OldPacketThreshold                time.Duration
+	FallingBehindThreshold            time.Duration
 	EnableStartGate                   bool
 
 	OnStarted func()
@@ -109,6 +111,14 @@ func WithOldPacketThreshold(oldPacketThreshold time.Duration) SynchronizerOption
 	}
 }
 
+// WithFallingBehindThreshold sets the threshold at which a track is considered falling behind
+// at which point the track will be pulled forward
+func WithFallingBehindThreshold(fallingBehindThreshold time.Duration) SynchronizerOption {
+	return func(config *SynchronizerConfig) {
+		config.FallingBehindThreshold = fallingBehindThreshold
+	}
+}
+
 // WithStartGate enabled will buffer incoming packets until pacing stabilizes before initializing tracks
 func WithStartGate() SynchronizerOption {
 	return func(config *SynchronizerConfig) {
@@ -143,6 +153,7 @@ func NewSynchronizer(onStarted func()) *Synchronizer {
 		MaxDriftAdjustment:           DefaultMaxDriftAdjustment,
 		DriftAdjustmentWindowPercent: DefaultDriftAdjustmentWindowPercent,
 		OldPacketThreshold:           DefaultOldPacketThreshold,
+		FallingBehindThreshold:       DefaultFallingBehindThreshold,
 		OnStarted:                    onStarted,
 	}
 
@@ -161,6 +172,7 @@ func NewSynchronizerWithOptions(opts ...SynchronizerOption) *Synchronizer {
 		MaxDriftAdjustment:           DefaultMaxDriftAdjustment,
 		DriftAdjustmentWindowPercent: DefaultDriftAdjustmentWindowPercent,
 		OldPacketThreshold:           DefaultOldPacketThreshold,
+		FallingBehindThreshold:       DefaultFallingBehindThreshold,
 		OnStarted:                    nil,
 	}
 

@@ -355,3 +355,112 @@ func TestShouldAdjustPTS_AudioGating_DisabledBlocks(t *testing.T) {
 
 	require.False(t, ts.shouldAdjustPTS(), "audio gating should block adjustment when disabled")
 }
+
+type fallingBehindResult struct {
+	ts             *TrackSynchronizer
+	frameStep      uint32
+	frameDuration  time.Duration
+	laggedBaseTime time.Time
+	dropCount      int
+	firstAdjusted  time.Duration
+}
+
+func runFallingBehindScenario(t *testing.T, withRebase bool) fallingBehindResult {
+	clock := uint32(90000)
+	ts := newTSForTests(t, clock, webrtc.RTPCodecTypeVideo)
+	ts.oldPacketThreshold = 50 * time.Millisecond
+
+	if withRebase {
+		ts.rtcpSenderReportRebaseEnabled = true
+	} else {
+		ts.preJitterBufferReceiveTimeEnabled = true
+	}
+
+	baseReceive := mono.Now()
+	lag := 25 * time.Second
+	leadBeforeLag := lag + 5*time.Second
+	ts.startTime = baseReceive.Add(-leadBeforeLag)
+
+	firstPkt := jitter.ExtPacket{
+		Packet:     &rtp.Packet{Header: rtp.Header{Timestamp: ts.startRTP}},
+		ReceivedAt: baseReceive,
+	}
+
+	var (
+		firstAdjusted time.Duration
+		err           error
+	)
+	if withRebase {
+		firstAdjusted, err = ts.getPTSWithRebase(firstPkt)
+	} else {
+		firstAdjusted, err = ts.getPTSWithoutRebase(firstPkt)
+	}
+	require.NoError(t, err)
+	require.Greater(t, firstAdjusted, time.Duration(0))
+
+	frameDuration := 20 * time.Millisecond
+	frameStep := ts.rtpConverter.toRTP(frameDuration)
+	laggedBase := baseReceive.Add(-lag)
+
+	dropCount := 0
+	for !ts.trackFallingBehind() {
+		dropCount++
+		pkt := jitter.ExtPacket{
+			Packet:     &rtp.Packet{Header: rtp.Header{Timestamp: ts.startRTP + uint32(dropCount)*frameStep}},
+			ReceivedAt: laggedBase.Add(time.Duration(dropCount) * frameDuration),
+		}
+
+		if withRebase {
+			_, err = ts.getPTSWithRebase(pkt)
+		} else {
+			_, err = ts.getPTSWithoutRebase(pkt)
+		}
+		require.ErrorIs(t, err, ErrPacketTooOld)
+	}
+
+	require.GreaterOrEqual(t, ts.oldSequenceDuration, ts.fallingBehindThreshold)
+
+	return fallingBehindResult{
+		ts:             ts,
+		frameStep:      frameStep,
+		frameDuration:  frameDuration,
+		laggedBaseTime: laggedBase,
+		dropCount:      dropCount,
+		firstAdjusted:  firstAdjusted,
+	}
+}
+
+func TestTrackFallingBehindWithoutRebasePullsForward(t *testing.T) {
+	res := runFallingBehindScenario(t, false)
+
+	initialStartRTP := res.ts.startRTP
+	fallingBehindPkt := jitter.ExtPacket{
+		Packet:     &rtp.Packet{Header: rtp.Header{Timestamp: res.ts.startRTP + uint32(res.dropCount+1)*res.frameStep}},
+		ReceivedAt: res.laggedBaseTime.Add(time.Duration(res.dropCount+1) * res.frameDuration),
+	}
+
+	expectedAdjusted := fallingBehindPkt.ReceivedAt.Sub(res.ts.startTime) + res.ts.currentPTSOffset
+	adjusted, err := res.ts.getPTSWithoutRebase(fallingBehindPkt)
+	require.NoError(t, err)
+	require.InDelta(t, expectedAdjusted, adjusted, float64(3*time.Millisecond))
+	require.Greater(t, res.firstAdjusted-expectedAdjusted, 10*time.Second)
+	require.Zero(t, res.ts.oldSequenceDuration)
+	require.NotEqual(t, initialStartRTP, res.ts.startRTP, "startRTP should advance when correcting a lagging track")
+}
+
+func TestTrackFallingBehindWithRebasePullsForward(t *testing.T) {
+	res := runFallingBehindScenario(t, true)
+
+	fallingBehindPkt := jitter.ExtPacket{
+		Packet:     &rtp.Packet{Header: rtp.Header{Timestamp: res.ts.startRTP + uint32(res.dropCount+1)*res.frameStep}},
+		ReceivedAt: res.laggedBaseTime.Add(time.Duration(res.dropCount+1) * res.frameDuration),
+	}
+
+	prevAdjusted := res.ts.lastPTSAdjusted
+	expectedAdjusted := fallingBehindPkt.ReceivedAt.Sub(res.ts.startTime) + res.ts.currentPTSOffset
+	adjusted, err := res.ts.getPTSWithRebase(fallingBehindPkt)
+	require.NoError(t, err)
+	require.InDelta(t, prevAdjusted+time.Millisecond, adjusted, float64(3*time.Millisecond))
+	require.Greater(t, prevAdjusted-expectedAdjusted, 10*time.Second)
+	require.Zero(t, res.ts.oldSequenceDuration)
+}
