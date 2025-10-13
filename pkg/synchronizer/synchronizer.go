@@ -149,7 +149,7 @@ type Synchronizer struct {
 	psBySSRC     map[uint32]*participantSynchronizer
 	ssrcByID     map[string]uint32
 
-	externalMediaTime time.Time
+	externalMediaStartTime time.Time
 }
 
 func NewSynchronizer(onStarted func()) *Synchronizer {
@@ -304,7 +304,7 @@ func (s *Synchronizer) GetEndedAt() int64 {
 
 func (s *Synchronizer) getExternalMediaDeadline() (time.Duration, bool) {
 	s.RLock()
-	startTime := s.externalMediaTime
+	startTime := s.externalMediaStartTime
 	cb := s.config.MediaRunningTime
 	maxDelay := s.config.MaxMediaRunningTimeDelay
 	s.RUnlock()
@@ -315,8 +315,8 @@ func (s *Synchronizer) getExternalMediaDeadline() (time.Duration, bool) {
 		if mediaRunningTime, ok := cb(); ok {
 			startTime = now.Add(-mediaRunningTime)
 			s.Lock()
-			if s.externalMediaTime.IsZero() {
-				s.externalMediaTime = startTime
+			if s.externalMediaStartTime.IsZero() {
+				s.externalMediaStartTime = startTime
 			}
 			s.Unlock()
 		}
