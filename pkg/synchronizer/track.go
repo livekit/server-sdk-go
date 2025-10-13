@@ -773,7 +773,7 @@ func (t *TrackSynchronizer) normalizePTSToMediaPipelineTimeline(ptsIn time.Durat
 			t.lastTimelyPacket = now
 		}
 		if now.Sub(t.lastTimelyPacket) > cMaxTimelyPacketAge {
-			// track is constantlty behind, correct PTS to pull the track forward
+			// track is constantly behind, correct PTS to pull the track forward
 			newPTS := deadline + t.maxMediaRunningTimeDelay - t.currentPTSOffset
 			newPTS = max(newPTS, 0)
 
