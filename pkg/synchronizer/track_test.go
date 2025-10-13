@@ -369,7 +369,7 @@ func TestShouldAdjustPTS_AudioGating_DisabledBlocks(t *testing.T) {
 func TestNormalizePTSToMediaPipelineTimeline_NoPipeline(t *testing.T) {
 	ts := newTSForTests(t, 90000, webrtc.RTPCodecTypeAudio)
 	ptsIn := 5 * time.Second
-	adjusted, ptsOut := ts.normalizePTSToMediaPipelineTimeline(ptsIn, 0)
+	adjusted, ptsOut := ts.normalizePTSToMediaPipelineTimeline(ptsIn, 0, mono.Now())
 	require.Equal(t, ptsIn, ptsOut)
 	require.Equal(t, ptsIn+ts.currentPTSOffset, adjusted)
 }
@@ -386,7 +386,7 @@ func TestNormalizePTSToMediaPipelineTimeline_FreshBehindDoesNotCorrect(t *testin
 	initialTimely := mono.Now()
 	ts.lastTimelyPacket = initialTimely
 
-	adjusted, ptsOut := ts.normalizePTSToMediaPipelineTimeline(ptsIn, sampleTS)
+	adjusted, ptsOut := ts.normalizePTSToMediaPipelineTimeline(ptsIn, sampleTS, mono.Now())
 	require.Equal(t, ptsIn, ptsOut)
 	require.Equal(t, ptsIn+ts.currentPTSOffset, adjusted)
 	require.Equal(t, initialStartRTP, ts.startRTP, "fresh lag must not rebase immediately")
@@ -403,10 +403,10 @@ func TestNormalizePTSToMediaPipelineTimeline_CorrectsAfterLongLag(t *testing.T) 
 	initialStartRTP := ts.startRTP
 	ts.lastTimelyPacket = mono.Now().Add(-cMaxTimelyPacketAge - time.Second)
 
-	deadline, ok := ts.sync.getMediaPipelineDeadline()
+	deadline, ok := ts.sync.getExternalMediaDeadline()
 	require.True(t, ok)
 
-	adjusted, ptsOut := ts.normalizePTSToMediaPipelineTimeline(ptsIn, sampleTS)
+	adjusted, ptsOut := ts.normalizePTSToMediaPipelineTimeline(ptsIn, sampleTS, mono.Now())
 	require.NotEqual(t, initialStartRTP, ts.startRTP, "expected track to rebase when lag persists")
 	expectedPTS := deadline + ts.maxMediaRunningTimeDelay - ts.currentPTSOffset
 	require.InDelta(t, float64(expectedPTS), float64(ptsOut), float64(3*time.Millisecond))

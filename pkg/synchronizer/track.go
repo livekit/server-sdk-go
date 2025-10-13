@@ -349,7 +349,7 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 		)
 	}
 
-	adjusted, pts := t.normalizePTSToMediaPipelineTimeline(pts, ts)
+	adjusted, pts := t.normalizePTSToMediaPipelineTimeline(pts, ts, now)
 
 	// if past end time, return EOF
 	if t.maxPTS > 0 && (adjusted > t.maxPTS) {
@@ -476,7 +476,7 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 		)
 	}
 
-	adjusted, pts := t.normalizePTSToMediaPipelineTimeline(pts, ts)
+	adjusted, pts := t.normalizePTSToMediaPipelineTimeline(pts, ts, now)
 
 	if adjusted < t.lastPTSAdjusted {
 		// always move it forward
@@ -758,17 +758,16 @@ func (t *TrackSynchronizer) maybeAdjustStartTime(asr *augmentedSenderReport) int
 	return requestedAdjustment
 }
 
-func (t *TrackSynchronizer) normalizePTSToMediaPipelineTimeline(ptsIn time.Duration, ts uint32) (adjusted, ptsOut time.Duration) {
-	now := mono.Now()
+func (t *TrackSynchronizer) normalizePTSToMediaPipelineTimeline(ptsIn time.Duration, ts uint32, now time.Time) (adjusted, ptsOut time.Duration) {
 	adjustedIn := ptsIn + t.currentPTSOffset
 	adjusted = adjustedIn
 	ptsOut = ptsIn
 
 	if t.sync == nil {
-		return adjusted, ptsOut
+		return
 	}
 
-	deadline, ok := t.sync.getMediaPipelineDeadline()
+	deadline, ok := t.sync.getExternalMediaDeadline()
 	if ok && adjustedIn < deadline {
 		if t.lastTimelyPacket.IsZero() {
 			t.lastTimelyPacket = now
@@ -798,7 +797,7 @@ func (t *TrackSynchronizer) normalizePTSToMediaPipelineTimeline(ptsIn time.Durat
 	} else {
 		t.lastTimelyPacket = now
 	}
-	return adjusted, ptsOut
+	return
 }
 
 func (t *TrackSynchronizer) acceptable(d time.Duration) bool {
