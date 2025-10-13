@@ -889,6 +889,7 @@ func (t *TrackSynchronizer) MarshalLogObject(e zapcore.ObjectEncoder) error {
 	e.AddDuration("totalStartTimeAdjustment", t.totalStartTimeAdjustment)
 	e.AddDuration("startTimeAdjustResidual", t.startTimeAdjustResidual)
 	e.AddTime("lastTimelyPacket", t.lastTimelyPacket)
+	e.AddDuration("maxMediaRunningTimeDelay", t.maxMediaRunningTimeDelay)
 	e.AddObject("stats", t.stats)
 	return nil
 }
