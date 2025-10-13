@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/livekit/protocol/utils/mono"
 	"github.com/pion/rtcp"
 )
 
@@ -42,6 +43,9 @@ type SynchronizerConfig struct {
 	EnableStartGate                   bool
 
 	OnStarted func()
+
+	MediaRunningTime         func() (time.Duration, bool)
+	MaxMediaRunningTimeDelay time.Duration
 }
 
 // WithMaxTsDiff sets the maximum acceptable difference between RTP packets
@@ -123,6 +127,15 @@ func WithOnStarted(onStarted func()) SynchronizerOption {
 	}
 }
 
+// WithMediaRunningTime sets the callback to be called to get the media running time
+// maxMediaRunningTimeDelay is the maximum allowed latency a packet can be behind the media running time
+func WithMediaRunningTime(mediaRunningTime func() (time.Duration, bool), maxMediaRunningTimeDelay time.Duration) SynchronizerOption {
+	return func(config *SynchronizerConfig) {
+		config.MediaRunningTime = mediaRunningTime
+		config.MaxMediaRunningTimeDelay = maxMediaRunningTimeDelay
+	}
+}
+
 // a single Synchronizer is shared between all audio and video writers
 type Synchronizer struct {
 	sync.RWMutex
@@ -135,6 +148,9 @@ type Synchronizer struct {
 	psByIdentity map[string]*participantSynchronizer
 	psBySSRC     map[uint32]*participantSynchronizer
 	ssrcByID     map[string]uint32
+
+	// start time of the external live media (if used, 0 otherwise)
+	externalMediaStartTime time.Time
 }
 
 func NewSynchronizer(onStarted func()) *Synchronizer {
@@ -144,6 +160,7 @@ func NewSynchronizer(onStarted func()) *Synchronizer {
 		DriftAdjustmentWindowPercent: DefaultDriftAdjustmentWindowPercent,
 		OldPacketThreshold:           DefaultOldPacketThreshold,
 		OnStarted:                    onStarted,
+		MediaRunningTime:             nil,
 	}
 
 	return &Synchronizer{
@@ -162,6 +179,7 @@ func NewSynchronizerWithOptions(opts ...SynchronizerOption) *Synchronizer {
 		DriftAdjustmentWindowPercent: DefaultDriftAdjustmentWindowPercent,
 		OldPacketThreshold:           DefaultOldPacketThreshold,
 		OnStarted:                    nil,
+		MediaRunningTime:             nil,
 	}
 
 	for _, opt := range opts {
@@ -283,4 +301,31 @@ func (s *Synchronizer) GetEndedAt() int64 {
 	defer s.RUnlock()
 
 	return s.endedAt
+}
+
+func (s *Synchronizer) getExternalMediaDeadline() (time.Duration, bool) {
+	s.RLock()
+	startTime := s.externalMediaStartTime
+	cb := s.config.MediaRunningTime
+	maxDelay := s.config.MaxMediaRunningTimeDelay
+	s.RUnlock()
+
+	now := mono.Now()
+
+	if startTime.IsZero() && cb != nil {
+		if mediaRunningTime, ok := cb(); ok {
+			startTime = now.Add(-mediaRunningTime)
+			s.Lock()
+			if s.externalMediaStartTime.IsZero() {
+				s.externalMediaStartTime = startTime
+			}
+			s.Unlock()
+		}
+	}
+
+	if startTime.IsZero() {
+		return 0, false
+	}
+
+	return now.Sub(startTime) - maxDelay, true
 }
