@@ -149,6 +149,7 @@ type Synchronizer struct {
 	psBySSRC     map[uint32]*participantSynchronizer
 	ssrcByID     map[string]uint32
 
+	// start time of the external live media (if used, 0 otherwise)
 	externalMediaStartTime time.Time
 }
 
