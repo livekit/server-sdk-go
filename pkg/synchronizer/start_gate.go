@@ -50,7 +50,7 @@ func newStartGate(clockRate uint32, kind webrtc.RTPCodecType, logger logger.Logg
 		clockRate:         clockRate,
 		maxSkewFactor:     0.3,
 		minArrivalFactor:  0.2,
-		scoreTarget:       5,
+		scoreTarget:       10000,
 		maxBuffer:         1000, // high bitrate key frames can span hundreds of packets
 		maxStableDuration: time.Second,
 		flushAfter:        2 * time.Second,
