@@ -415,7 +415,7 @@ func (e *RTCEngine) createPublisherPCLocked(configuration webrtc.Configuration) 
 		e.hasPublish.Store(true)
 		if err := e.signalTransport.SendMessage(
 			e.signalling.SignalSdpOffer(
-				protosignalling.ToProtoSessionDescription(offer, 0),
+				protosignalling.ToProtoSessionDescription(offer, 0, nil),
 			),
 		); err != nil {
 			e.log.Errorw("could not send offer for publisher pc", err)
@@ -829,7 +829,7 @@ func (e *RTCEngine) createSubscriberPCAnswerAndSend() error {
 	e.log.Debugw("sending answer for subscriber", "answer", answer)
 	if err := e.signalTransport.SendMessage(
 		e.signalling.SignalSdpAnswer(
-			protosignalling.ToProtoSessionDescription(answer, 0),
+			protosignalling.ToProtoSessionDescription(answer, 0, nil),
 		),
 	); err != nil {
 		e.log.Errorw("could not send answer for subscriber pc", err)
@@ -1269,7 +1269,7 @@ func (e *RTCEngine) OnReconnectResponse(res *livekit.ReconnectResponse) error {
 	return nil
 }
 
-func (e *RTCEngine) OnAnswer(sd webrtc.SessionDescription, answerId uint32) {
+func (e *RTCEngine) OnAnswer(sd webrtc.SessionDescription, answerId uint32, _midToTrackID map[string]string) {
 	if e.closed.Load() {
 		e.log.Debugw("ignoring SDP answer after closed")
 		return
@@ -1282,7 +1282,7 @@ func (e *RTCEngine) OnAnswer(sd webrtc.SessionDescription, answerId uint32) {
 	}
 }
 
-func (e *RTCEngine) OnOffer(sd webrtc.SessionDescription, offerId uint32) {
+func (e *RTCEngine) OnOffer(sd webrtc.SessionDescription, offerId uint32, _midToTrackID map[string]string) {
 	if e.closed.Load() {
 		e.log.Debugw("ignoring SDP offer after closed")
 		return

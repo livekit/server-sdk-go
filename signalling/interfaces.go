@@ -121,8 +121,8 @@ type SignalHandler interface {
 type SignalProcessor interface {
 	OnJoinResponse(joinResponse *livekit.JoinResponse) error
 	OnReconnectResponse(reconnectResponse *livekit.ReconnectResponse) error
-	OnAnswer(sd webrtc.SessionDescription, answerId uint32)
-	OnOffer(sd webrtc.SessionDescription, offerId uint32)
+	OnAnswer(sd webrtc.SessionDescription, answerId uint32, midToTrackID map[string]string)
+	OnOffer(sd webrtc.SessionDescription, offerId uint32, midToTrackID map[string]string)
 	OnTrickle(init webrtc.ICECandidateInit, target livekit.SignalTarget)
 	OnParticipantUpdate([]*livekit.ParticipantInfo)
 	OnLocalTrackPublished(response *livekit.TrackPublishedResponse)

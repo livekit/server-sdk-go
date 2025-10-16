@@ -598,8 +598,8 @@ func (r *Room) sendSyncState() {
 	getDCinfo(r.engine.GetDataChannelSub(livekit.DataPacket_LOSSY), livekit.SignalTarget_SUBSCRIBER)
 
 	r.engine.SendSyncState(&livekit.SyncState{
-		Offer:  protosignalling.ToProtoSessionDescription(*previousOffer, 0),
-		Answer: protosignalling.ToProtoSessionDescription(*previousAnswer, 0),
+		Offer:  protosignalling.ToProtoSessionDescription(*previousOffer, 0, nil),
+		Answer: protosignalling.ToProtoSessionDescription(*previousAnswer, 0, nil),
 		Subscription: &livekit.UpdateSubscription{
 			TrackSids: trackSids,
 			Subscribe: !sendUnsub,
