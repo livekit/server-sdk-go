@@ -24,6 +24,8 @@ import (
 	"github.com/bep/debounce"
 	"github.com/pion/dtls/v3"
 	"github.com/pion/interceptor"
+	"github.com/pion/interceptor/pkg/cc"
+	"github.com/pion/interceptor/pkg/gcc"
 	"github.com/pion/interceptor/pkg/nack"
 	"github.com/pion/interceptor/pkg/twcc"
 	"github.com/pion/sdp/v3"
@@ -65,6 +67,10 @@ type PCTransport struct {
 	onRTTUpdate                func(rtt uint32)
 
 	OnOffer func(description webrtc.SessionDescription)
+
+	// Bandwidth estimation
+	estimator     cc.BandwidthEstimator
+	estimatorChan chan cc.BandwidthEstimator
 }
 
 type PCTransportParams struct {
@@ -109,6 +115,13 @@ func (t *PCTransport) registerDefaultInterceptors(params PCTransportParams, i *i
 	}
 	i.Add(twccGenerator)
 
+	// twcc header extension interceptor (must be before LimitSizeInterceptor)
+	twccHeaderExt, err := twcc.NewHeaderExtensionInterceptor()
+	if err != nil {
+		return err
+	}
+	i.Add(twccHeaderExt)
+
 	i.Add(sdkinterceptor.NewLimitSizeInterceptorFactory())
 
 	if params.OnRTTUpdate != nil {
@@ -126,6 +139,23 @@ func (t *PCTransport) registerDefaultInterceptors(params PCTransportParams, i *i
 		}
 	}
 	i.Add(lkinterceptor.NewRTTFromXRFactory(onXRRtt))
+
+	// Add GCC congestion control (only for sender transports)
+	if params.IsSender {
+		congestionController, err := cc.NewInterceptor(func() (cc.BandwidthEstimator, error) {
+			return gcc.NewSendSideBWE(gcc.SendSideBWEInitialBitrate(500_000))
+		})
+		if err != nil {
+			return err
+		}
+
+		estimatorChan := make(chan cc.BandwidthEstimator, 1)
+		congestionController.OnNewPeerConnection(func(id string, estimator cc.BandwidthEstimator) {
+			estimatorChan <- estimator
+		})
+		i.Add(congestionController)
+		t.estimatorChan = estimatorChan
+	}
 
 	return nil
 }
@@ -448,4 +478,22 @@ func (t *PCTransport) createAndSendOffer(options *webrtc.OfferOptions) error {
 
 func (t *PCTransport) SetConfiguration(config webrtc.Configuration) error {
 	return t.pc.SetConfiguration(config)
+}
+
+// GetBandwidthEstimator returns the current bandwidth estimator
+func (t *PCTransport) GetBandwidthEstimator() cc.BandwidthEstimator {
+	// If we already have an estimator, return it
+	if t.estimator != nil {
+		return t.estimator
+	}
+
+	// Otherwise, try to get it from the channel (non-blocking)
+	select {
+	case estimator := <-t.estimatorChan:
+		t.estimator = estimator
+		return estimator
+	default:
+		// No estimator available yet
+		return nil
+	}
 }
