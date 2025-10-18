@@ -315,7 +315,7 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 		t.startRTP = newStartRTP
 	}
 
-	if t.shouldAdjustPTS() {
+	if t.shouldAdjustPTS(pts) {
 		prevCurrentPTSOffset := t.currentPTSOffset
 		if t.currentPTSOffset > t.desiredPTSOffset {
 			t.currentPTSOffset = max(t.currentPTSOffset-t.maxDriftAdjustment, t.desiredPTSOffset)
@@ -431,7 +431,7 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 		pts = estimatedPTS
 	}
 
-	if t.shouldAdjustPTS() {
+	if t.shouldAdjustPTS(pts) {
 		prevCurrentPTSOffset := t.currentPTSOffset
 		if t.currentPTSOffset > t.desiredPTSOffset {
 			t.currentPTSOffset = max(t.currentPTSOffset-t.maxDriftAdjustment, t.desiredPTSOffset)
@@ -737,7 +737,7 @@ func (t *TrackSynchronizer) acceptable(d time.Duration) bool {
 	return d > -t.maxTsDiff && d < t.maxTsDiff
 }
 
-func (t *TrackSynchronizer) shouldAdjustPTS() bool {
+func (t *TrackSynchronizer) shouldAdjustPTS(newPTS time.Duration) bool {
 	if mono.Now().Before(t.nextPTSAdjustmentAt) {
 		return false
 	}
@@ -746,8 +746,13 @@ func (t *TrackSynchronizer) shouldAdjustPTS() bool {
 	if t.track.Kind() == webrtc.RTPCodecTypeAudio && !t.rtcpSenderReportRebaseEnabled {
 		adjustmentEnabled = !t.audioPTSAdjustmentsDisabled
 	}
-	// add a deadband of t.maxDriftAdjustment to make sure no PTS adjustment is smaller than that
+
 	diff := t.desiredPTSOffset - t.currentPTSOffset
+	if newPTS-t.lastPTS <= t.maxDriftAdjustment && diff < 0 {
+		// don't regress the PTS
+		return false
+	}
+	// add a deadband of t.maxDriftAdjustment to make sure no PTS adjustment is smaller than that
 	if diff > -t.maxDriftAdjustment && diff < t.maxDriftAdjustment {
 		return false
 	}
