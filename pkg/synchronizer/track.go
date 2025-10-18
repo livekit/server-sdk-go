@@ -335,6 +335,20 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 	}
 
 	adjusted := pts + t.currentPTSOffset
+	if adjusted < t.lastPTSAdjusted {
+		// always move it forward
+		t.logger.Infow(
+			"propelling PTS forward",
+			"currentTS", ts,
+			"PTS", pts,
+			"estimatedPTS", estimatedPTS,
+			"ptsOffset", pts-estimatedPTS,
+			"adjustedPTS", adjusted,
+			"adjustedPTSOffset", adjusted-t.lastPTSAdjusted,
+			"state", t,
+		)
+		adjusted = t.lastPTSAdjusted + time.Millisecond
+	}
 
 	// if past end time, return EOF
 	if t.maxPTS > 0 && (adjusted > t.maxPTS) {
