@@ -566,7 +566,7 @@ func (p *LocalParticipant) HandleIncomingRpcResponse(requestId string, payload *
 // PerformRpc initiates an RPC call to a remote participant.
 // Returns the response payload or an error if the call fails or times out.
 func (p *LocalParticipant) PerformRpc(params PerformRpcParams) (*string, error) {
-	responseTimeout := 10000 * time.Millisecond
+	responseTimeout := 15000 * time.Millisecond
 	if params.ResponseTimeout != nil {
 		responseTimeout = *params.ResponseTimeout
 	}
@@ -574,7 +574,8 @@ func (p *LocalParticipant) PerformRpc(params PerformRpcParams) (*string, error) 
 	resultChan := make(chan *string, 1)
 	errorChan := make(chan error, 1)
 
-	maxRoundTripLatency := 2000 * time.Millisecond
+	maxRoundTripLatency := 7000 * time.Millisecond
+	minEffectiveResponseTimeout := 1 * time.Second
 
 	go func() {
 		if byteLength(params.Payload) > MaxPayloadBytes {
@@ -587,9 +588,16 @@ func (p *LocalParticipant) PerformRpc(params PerformRpcParams) (*string, error) 
 			return
 		}
 
+		effectiveResponseTimeout := responseTimeout - maxRoundTripLatency
+		if effectiveResponseTimeout < minEffectiveResponseTimeout {
+			effectiveResponseTimeout = minEffectiveResponseTimeout
+		}
 		id := uuid.New().String()
-		p.engine.publishRpcRequest(params.DestinationIdentity, id, params.Method, params.Payload, responseTimeout-maxRoundTripLatency)
+		p.engine.publishRpcRequest(params.DestinationIdentity, id, params.Method, params.Payload, effectiveResponseTimeout)
 
+		// Client-side timers:
+		// - responseTimer: total time client is willing to wait for a response.
+		// - ackTimer: time allowed for initial ACK/round-trip.
 		responseTimer := time.AfterFunc(responseTimeout, func() {
 			p.rpcPendingResponses.Delete(id)
 
