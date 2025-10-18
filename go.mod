@@ -22,14 +22,14 @@ require (
 	github.com/twitchtv/twirp v8.1.3+incompatible
 	go.uber.org/atomic v1.11.0
 	golang.org/x/crypto v0.43.0
-	golang.org/x/exp v0.0.0-20251009144603-d2f985daa21b
+	golang.org/x/exp v0.0.0-20251017212417-90e834f514db
 	google.golang.org/protobuf v1.36.10
 )
 
 require golang.org/x/mod v0.29.0
 
 require (
-	github.com/maxbrunsfeld/counterfeiter/v6 v6.11.3 // indirect
+	github.com/maxbrunsfeld/counterfeiter/v6 v6.12.0 // indirect
 	golang.org/x/tools v0.38.0 // indirect
 )
 
