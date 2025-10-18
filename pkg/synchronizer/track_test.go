@@ -365,7 +365,6 @@ func TestShouldAdjustPTS_NoPTSRegression(t *testing.T) {
 	ts.lastPTS = 200 * time.Millisecond
 	currentPTS := ts.lastPTS + ts.maxDriftAdjustment - time.Millisecond
 
-	// within dead-band on negative side: -4ms
 	ts.desiredPTSOffset = 80 * time.Millisecond
 	ts.nextPTSAdjustmentAt = mono.Now().Add(-time.Second)
 

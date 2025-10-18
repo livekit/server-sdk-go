@@ -748,7 +748,7 @@ func (t *TrackSynchronizer) shouldAdjustPTS(newPTS time.Duration) bool {
 	}
 
 	diff := t.desiredPTSOffset - t.currentPTSOffset
-	if newPTS-t.lastPTS < t.maxDriftAdjustment && diff < 0 {
+	if newPTS-t.lastPTS <= t.maxDriftAdjustment && diff < 0 {
 		// don't regress the PTS
 		return false
 	}
