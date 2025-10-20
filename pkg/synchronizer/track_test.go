@@ -427,3 +427,32 @@ func TestNormalizePTSToMediaPipelineTimeline_CorrectsAfterLongLag(t *testing.T) 
 	require.InDelta(t, float64(expectedPTS), float64(ptsOut), float64(3*time.Millisecond))
 	require.InDelta(t, float64(expectedPTS+ts.currentPTSOffset), float64(adjusted), float64(3*time.Millisecond))
 }
+
+func TestAcceptableSRDrift_UsesOldPacketThreshold(t *testing.T) {
+	ts := newTSForTests(t, 48000, webrtc.RTPCodecTypeAudio)
+	ts.oldPacketThreshold = 400 * time.Millisecond
+	ts.maxMediaRunningTimeDelay = 0
+
+	require.True(t, ts.acceptableSRDrift(399*time.Millisecond))
+	require.True(t, ts.acceptableSRDrift(-399*time.Millisecond))
+	require.False(t, ts.acceptableSRDrift(400*time.Millisecond))
+}
+
+func TestAcceptableSRDrift_PrefersMediaRunningTimeDelay(t *testing.T) {
+	ts := newTSForTests(t, 48000, webrtc.RTPCodecTypeAudio)
+	ts.oldPacketThreshold = time.Second
+	ts.maxMediaRunningTimeDelay = 150 * time.Millisecond
+
+	require.True(t, ts.acceptableSRDrift(149*time.Millisecond))
+	require.True(t, ts.acceptableSRDrift(-149*time.Millisecond))
+	require.False(t, ts.acceptableSRDrift(151*time.Millisecond))
+}
+
+func TestAcceptableSRDrift_FallsBackToDefault(t *testing.T) {
+	ts := newTSForTests(t, 48000, webrtc.RTPCodecTypeAudio)
+	ts.oldPacketThreshold = 0
+	ts.maxMediaRunningTimeDelay = 0
+
+	require.True(t, ts.acceptableSRDrift(time.Second))
+	require.False(t, ts.acceptableSRDrift(3*time.Second))
+}
