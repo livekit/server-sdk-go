@@ -39,6 +39,7 @@ const (
 	cHighDriftLoggingThreshold  = 20 * time.Millisecond
 	cGapHistogramNumBins        = 101
 	cPTSAdjustmentLogSampleStep = 400 * time.Millisecond
+	cMaxTimelyPacketAge         = 10 * time.Second
 )
 
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
@@ -81,6 +82,11 @@ type TrackSynchronizer struct {
 	lastTSOldDropped uint32        // previous dropped RTP timestamp due to old packet
 	maxPTS           time.Duration // maximum valid PTS (set after EOS)
 
+	lastTimelyPacket time.Time
+
+	mediaRunningTime         func() (time.Duration, bool)
+	maxMediaRunningTimeDelay time.Duration
+
 	// offsets
 	currentPTSOffset           time.Duration // presentation timestamp offset (used for a/v sync)
 	desiredPTSOffset           time.Duration // desired presentation timestamp offset (used for a/v sync)
@@ -121,6 +127,8 @@ func newTrackSynchronizer(s *Synchronizer, track TrackRemote) *TrackSynchronizer
 		enableStartGate:                   s.config.EnableStartGate,
 		nextPTSAdjustmentAt:               mono.Now(),
 		propagationDelayEstimator:         NewOWDEstimator(OWDEstimatorParamsDefault),
+		mediaRunningTime:                  s.config.MediaRunningTime,
+		maxMediaRunningTimeDelay:          s.config.MaxMediaRunningTimeDelay,
 		lastPTSAdjustedLogBucket:          math.MaxInt64,
 	}
 
@@ -334,7 +342,8 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 		t.logPTSAdjustmentSampled(ts, pts, estimatedPTS, prevCurrentPTSOffset, throttle)
 	}
 
-	adjusted := pts + t.currentPTSOffset
+	adjusted, pts := t.normalizePTSToMediaPipelineTimeline(pts, ts, now)
+
 	if adjusted < t.lastPTSAdjusted {
 		// always move it forward
 		t.logger.Infow(
@@ -464,7 +473,8 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 		t.logPTSAdjustmentSampled(ts, pts, estimatedPTS, prevCurrentPTSOffset, throttle)
 	}
 
-	adjusted := pts + t.currentPTSOffset
+	adjusted, pts := t.normalizePTSToMediaPipelineTimeline(pts, ts, now)
+
 	if adjusted < t.lastPTSAdjusted {
 		// always move it forward
 		t.logger.Infow(
@@ -747,6 +757,48 @@ func (t *TrackSynchronizer) maybeAdjustStartTime(asr *augmentedSenderReport) int
 	return requestedAdjustment
 }
 
+func (t *TrackSynchronizer) normalizePTSToMediaPipelineTimeline(ptsIn time.Duration, ts uint32, now time.Time) (adjusted, ptsOut time.Duration) {
+	adjustedIn := ptsIn + t.currentPTSOffset
+	adjusted = adjustedIn
+	ptsOut = ptsIn
+
+	if t.sync == nil {
+		return
+	}
+
+	deadline, ok := t.sync.getExternalMediaDeadline()
+	if ok && adjustedIn < deadline {
+		if t.lastTimelyPacket.IsZero() {
+			t.lastTimelyPacket = now
+		}
+		if now.Sub(t.lastTimelyPacket) > cMaxTimelyPacketAge {
+			// track is constantly behind, correct PTS to pull the track forward
+			newPTS := deadline + t.maxMediaRunningTimeDelay - t.currentPTSOffset
+			newPTS = max(newPTS, 0)
+
+			newStartRTP := ts - t.toRTP(newPTS)
+			t.logger.Infow(
+				"correcting PTS to pull the track forward",
+				"currentTS", ts,
+				"PTS", ptsIn,
+				"newStartRTP", newStartRTP,
+				"correctedPTS", newPTS,
+				"ptsOffset", newPTS-ptsIn,
+				"deadline", deadline,
+				"state", t,
+				"lastTimelyPacketAgo", now.Sub(t.lastTimelyPacket),
+			)
+			ptsOut = newPTS
+			adjusted = ptsOut + t.currentPTSOffset
+			t.startRTP = newStartRTP
+			t.lastTimelyPacket = now
+		}
+	} else {
+		t.lastTimelyPacket = now
+	}
+	return
+}
+
 func (t *TrackSynchronizer) acceptable(d time.Duration) bool {
 	return d > -t.maxTsDiff && d < t.maxTsDiff
 }
@@ -866,6 +918,8 @@ func (t *TrackSynchronizer) MarshalLogObject(e zapcore.ObjectEncoder) error {
 	e.AddObject("propagationDelayEstimator", t.propagationDelayEstimator)
 	e.AddDuration("totalStartTimeAdjustment", t.totalStartTimeAdjustment)
 	e.AddDuration("startTimeAdjustResidual", t.startTimeAdjustResidual)
+	e.AddTime("lastTimelyPacket", t.lastTimelyPacket)
+	e.AddDuration("maxMediaRunningTimeDelay", t.maxMediaRunningTimeDelay)
 	e.AddObject("stats", t.stats)
 	return nil
 }

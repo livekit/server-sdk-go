@@ -58,6 +58,16 @@ func newTSForTests(tc *testing.T, clockRate uint32, kind webrtc.RTPCodecType) *T
 	return t
 }
 
+func newTSPipelineForTests(t *testing.T, running, delay time.Duration) *TrackSynchronizer {
+	s := NewSynchronizerWithOptions(
+		WithMediaRunningTime(func() (time.Duration, bool) { return running, true }, delay),
+	)
+	ts := newTrackSynchronizer(s, fakeTrack{id: "pipeline", rate: 90000, kind: webrtc.RTPCodecTypeAudio})
+	ts.logger = logger.NewTestLogger(t)
+	ts.startTime = time.Now().Add(-running)
+	return ts
+}
+
 // ---- tests ----
 
 func TestApplyQuantizedStartTimeAdvance_ExactQuanta(t *testing.T) {
@@ -369,4 +379,51 @@ func TestShouldAdjustPTS_NoPTSRegression(t *testing.T) {
 	ts.nextPTSAdjustmentAt = mono.Now().Add(-time.Second)
 
 	require.False(t, ts.shouldAdjustPTS(currentPTS), "should not adjust PTS when it would regress")
+}
+
+func TestNormalizePTSToMediaPipelineTimeline_NoPipeline(t *testing.T) {
+	ts := newTSForTests(t, 90000, webrtc.RTPCodecTypeAudio)
+	ptsIn := 5 * time.Second
+	adjusted, ptsOut := ts.normalizePTSToMediaPipelineTimeline(ptsIn, 0, mono.Now())
+	require.Equal(t, ptsIn, ptsOut)
+	require.Equal(t, ptsIn+ts.currentPTSOffset, adjusted)
+}
+
+func TestNormalizePTSToMediaPipelineTimeline_FreshBehindDoesNotCorrect(t *testing.T) {
+	running := 10 * time.Second
+	delay := 50 * time.Millisecond
+	ts := newTSPipelineForTests(t, running, delay)
+	ptsIn := running - delay - time.Second
+	ts.lastPTS = ptsIn
+	ts.lastPTSAdjusted = ptsIn
+	sampleTS := ts.toRTP(ptsIn)
+	initialStartRTP := ts.startRTP
+	initialTimely := mono.Now()
+	ts.lastTimelyPacket = initialTimely
+
+	adjusted, ptsOut := ts.normalizePTSToMediaPipelineTimeline(ptsIn, sampleTS, mono.Now())
+	require.Equal(t, ptsIn, ptsOut)
+	require.Equal(t, ptsIn+ts.currentPTSOffset, adjusted)
+	require.Equal(t, initialStartRTP, ts.startRTP, "fresh lag must not rebase immediately")
+}
+
+func TestNormalizePTSToMediaPipelineTimeline_CorrectsAfterLongLag(t *testing.T) {
+	running := 20 * time.Second
+	delay := 100 * time.Millisecond
+	ts := newTSPipelineForTests(t, running, delay)
+	ptsIn := running - delay - 5*time.Second
+	ts.lastPTS = ptsIn
+	ts.lastPTSAdjusted = ptsIn
+	sampleTS := ts.toRTP(ptsIn)
+	initialStartRTP := ts.startRTP
+	ts.lastTimelyPacket = mono.Now().Add(-cMaxTimelyPacketAge - time.Second)
+
+	deadline, ok := ts.sync.getExternalMediaDeadline()
+	require.True(t, ok)
+
+	adjusted, ptsOut := ts.normalizePTSToMediaPipelineTimeline(ptsIn, sampleTS, mono.Now())
+	require.NotEqual(t, initialStartRTP, ts.startRTP, "expected track to rebase when lag persists")
+	expectedPTS := deadline + ts.maxMediaRunningTimeDelay - ts.currentPTSOffset
+	require.InDelta(t, float64(expectedPTS), float64(ptsOut), float64(3*time.Millisecond))
+	require.InDelta(t, float64(expectedPTS+ts.currentPTSOffset), float64(adjusted), float64(3*time.Millisecond))
 }
