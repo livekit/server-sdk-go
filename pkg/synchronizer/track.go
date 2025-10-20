@@ -40,6 +40,7 @@ const (
 	cGapHistogramNumBins        = 101
 	cPTSAdjustmentLogSampleStep = 400 * time.Millisecond
 	cMaxTimelyPacketAge         = 10 * time.Second
+	cDefaultOldPacketThreshold  = time.Second * 2
 )
 
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
@@ -571,7 +572,7 @@ func (t *TrackSynchronizer) onSenderReportWithoutRebase(pkt *rtcp.SenderReport) 
 		)
 	}
 
-	if !t.acceptable(drift) {
+	if !t.acceptableSRDrift(drift) {
 		t.logger.Infow(
 			"ignoring sender report with unacceptable drift",
 			"receivedSR", wrappedAugmentedSenderReportLogger{augmented},
@@ -656,7 +657,7 @@ func (t *TrackSynchronizer) onSenderReportWithRebase(pkt *rtcp.SenderReport) {
 		)
 	}
 
-	if !t.acceptable(drift) {
+	if !t.acceptableSRDrift(drift) {
 		t.logger.Infow(
 			"ignoring sender report with unacceptable drift",
 			"receivedSR", wrappedAugmentedSenderReportLogger{augmented},
@@ -803,6 +804,17 @@ func (t *TrackSynchronizer) acceptable(d time.Duration) bool {
 	return d > -t.maxTsDiff && d < t.maxTsDiff
 }
 
+func (t *TrackSynchronizer) acceptableSRDrift(drift time.Duration) bool {
+	oldPacketThreshold := cDefaultOldPacketThreshold
+	if t.maxMediaRunningTimeDelay > 0 {
+		oldPacketThreshold = t.maxMediaRunningTimeDelay
+	} else if t.oldPacketThreshold > 0 {
+		oldPacketThreshold = t.oldPacketThreshold
+	}
+	return drift.Abs() < oldPacketThreshold
+
+}
+
 func (t *TrackSynchronizer) shouldAdjustPTS(newPTS time.Duration) bool {
 	if mono.Now().Before(t.nextPTSAdjustmentAt) {
 		return false
@@ -818,6 +830,7 @@ func (t *TrackSynchronizer) shouldAdjustPTS(newPTS time.Duration) bool {
 		// don't regress the PTS
 		return false
 	}
+
 	// add a deadband of t.maxDriftAdjustment to make sure no PTS adjustment is smaller than that
 	if diff > -t.maxDriftAdjustment && diff < t.maxDriftAdjustment {
 		return false
