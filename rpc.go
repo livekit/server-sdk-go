@@ -58,7 +58,10 @@ type PerformRpcParams struct {
 	Method string
 	// The method payload
 	Payload string
-	// Timeout for receiving a response after initial connection. Default: 10000ms
+	// Timeout for receiving a response after the initial connection (in milliseconds).
+	// If a value less than 8000 ms is provided, it will be automatically clamped to 8000 ms
+	// to ensure sufficient time for round-trip latency buffering.
+	// Default: 15000 ms.
 	ResponseTimeout *time.Duration
 }
 

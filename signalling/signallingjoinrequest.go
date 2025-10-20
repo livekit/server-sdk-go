@@ -75,7 +75,7 @@ func (s *signallingJoinRequest) ConnectQueryParams(
 		Metadata:              connectParams.Metadata,
 		ParticipantAttributes: connectParams.Attributes,
 		AddTrackRequests:      addTrackRequests,
-		PublisherOffer:        protosignalling.ToProtoSessionDescription(publisherOffer, 0),
+		PublisherOffer:        protosignalling.ToProtoSessionDescription(publisherOffer, 0, nil),
 	}
 	if connectParams.Reconnect {
 		joinRequest.Reconnect = true

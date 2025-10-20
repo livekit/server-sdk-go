@@ -243,7 +243,7 @@ func TestShouldAdjustPTS_Deadband_Suppresses(t *testing.T) {
 	// ensure throttle window has elapsed
 	ts.nextPTSAdjustmentAt = mono.Now().Add(-time.Second)
 
-	require.False(t, ts.shouldAdjustPTS(), "delta < step should suppress adjustment")
+	require.False(t, ts.shouldAdjustPTS(80*time.Millisecond), "delta < step should suppress adjustment")
 }
 
 func TestShouldAdjustPTS_Deadband_BoundaryAdjusts(t *testing.T) {
@@ -256,7 +256,7 @@ func TestShouldAdjustPTS_Deadband_BoundaryAdjusts(t *testing.T) {
 	ts.desiredPTSOffset = 105 * time.Millisecond
 	ts.nextPTSAdjustmentAt = mono.Now().Add(-time.Second)
 
-	require.True(t, ts.shouldAdjustPTS(), "delta == step should allow adjustment")
+	require.True(t, ts.shouldAdjustPTS(80*time.Millisecond), "delta == step should allow adjustment")
 }
 
 func TestShouldAdjustPTS_Deadband_AboveAdjusts(t *testing.T) {
@@ -269,7 +269,7 @@ func TestShouldAdjustPTS_Deadband_AboveAdjusts(t *testing.T) {
 	ts.desiredPTSOffset = 112 * time.Millisecond
 	ts.nextPTSAdjustmentAt = mono.Now().Add(-time.Second)
 
-	require.True(t, ts.shouldAdjustPTS(), "delta > step should allow adjustment")
+	require.True(t, ts.shouldAdjustPTS(80*time.Millisecond), "delta > step should allow adjustment")
 }
 
 func TestPrimeForStartWithStartGate(t *testing.T) {
@@ -334,7 +334,7 @@ func TestShouldAdjustPTS_Deadband_NegativeDelta_Suppresses(t *testing.T) {
 	ts.desiredPTSOffset = 96 * time.Millisecond
 	ts.nextPTSAdjustmentAt = mono.Now().Add(-time.Second)
 
-	require.False(t, ts.shouldAdjustPTS(), "negative delta with |delta| < step should suppress adjustment")
+	require.False(t, ts.shouldAdjustPTS(80*time.Millisecond), "negative delta with |delta| < step should suppress adjustment")
 }
 
 func TestShouldAdjustPTS_Deadband_NegativeDelta_AboveAdjusts(t *testing.T) {
@@ -347,7 +347,7 @@ func TestShouldAdjustPTS_Deadband_NegativeDelta_AboveAdjusts(t *testing.T) {
 	ts.desiredPTSOffset = 94 * time.Millisecond
 	ts.nextPTSAdjustmentAt = mono.Now().Add(-time.Second)
 
-	require.True(t, ts.shouldAdjustPTS(), "negative delta with |delta| > step should allow adjustment")
+	require.True(t, ts.shouldAdjustPTS(80*time.Millisecond), "negative delta with |delta| > step should allow adjustment")
 }
 
 func TestShouldAdjustPTS_AudioGating_DisabledBlocks(t *testing.T) {
@@ -363,7 +363,22 @@ func TestShouldAdjustPTS_AudioGating_DisabledBlocks(t *testing.T) {
 	ts.desiredPTSOffset = 140 * time.Millisecond // large delta
 	ts.nextPTSAdjustmentAt = mono.Now().Add(-time.Second)
 
-	require.False(t, ts.shouldAdjustPTS(), "audio gating should block adjustment when disabled")
+	require.False(t, ts.shouldAdjustPTS(80*time.Millisecond), "audio gating should block adjustment when disabled")
+}
+
+func TestShouldAdjustPTS_NoPTSRegression(t *testing.T) {
+	clock := uint32(48000)
+	ts := newTSForTests(t, clock, webrtc.RTPCodecTypeVideo)
+	ts.maxDriftAdjustment = 5 * time.Millisecond
+	ts.currentPTSOffset = 100 * time.Millisecond
+
+	ts.lastPTS = 200 * time.Millisecond
+	currentPTS := ts.lastPTS + ts.maxDriftAdjustment - time.Millisecond
+
+	ts.desiredPTSOffset = 80 * time.Millisecond
+	ts.nextPTSAdjustmentAt = mono.Now().Add(-time.Second)
+
+	require.False(t, ts.shouldAdjustPTS(currentPTS), "should not adjust PTS when it would regress")
 }
 
 func TestNormalizePTSToMediaPipelineTimeline_NoPipeline(t *testing.T) {

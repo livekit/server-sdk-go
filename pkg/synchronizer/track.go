@@ -36,10 +36,10 @@ const (
 	cStartTimeAdjustWindow    = 2 * time.Minute
 	cStartTimeAdjustThreshold = 5 * time.Second
 
-	cMaxTimelyPacketAge = 10 * time.Second
-
-	cHighDriftLoggingThreshold = 20 * time.Millisecond
-	cGapHistogramNumBins       = 101
+	cHighDriftLoggingThreshold  = 20 * time.Millisecond
+	cGapHistogramNumBins        = 101
+	cPTSAdjustmentLogSampleStep = 400 * time.Millisecond
+	cMaxTimelyPacketAge         = 10 * time.Second
 )
 
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
@@ -105,6 +105,9 @@ type TrackSynchronizer struct {
 	startTimeAdjustResidual   time.Duration
 	initialized               bool
 
+	// logging
+	lastPTSAdjustedLogBucket int64
+
 	stats stats
 }
 
@@ -126,6 +129,7 @@ func newTrackSynchronizer(s *Synchronizer, track TrackRemote) *TrackSynchronizer
 		propagationDelayEstimator:         NewOWDEstimator(OWDEstimatorParamsDefault),
 		mediaRunningTime:                  s.config.MediaRunningTime,
 		maxMediaRunningTimeDelay:          s.config.MaxMediaRunningTimeDelay,
+		lastPTSAdjustedLogBucket:          math.MaxInt64,
 	}
 
 	if s.config.EnableStartGate {
@@ -319,7 +323,7 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 		t.startRTP = newStartRTP
 	}
 
-	if t.shouldAdjustPTS() {
+	if t.shouldAdjustPTS(pts) {
 		prevCurrentPTSOffset := t.currentPTSOffset
 		if t.currentPTSOffset > t.desiredPTSOffset {
 			t.currentPTSOffset = max(t.currentPTSOffset-t.maxDriftAdjustment, t.desiredPTSOffset)
@@ -335,21 +339,25 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 			throttle = time.Duration(math.Abs(float64(t.currentPTSOffset-prevCurrentPTSOffset)) * 100.0 / t.driftAdjustmentWindowPercent)
 		}
 		t.nextPTSAdjustmentAt = mono.Now().Add(throttle)
+		t.logPTSAdjustmentSampled(ts, pts, estimatedPTS, prevCurrentPTSOffset, throttle)
+	}
 
+	adjusted, pts := t.normalizePTSToMediaPipelineTimeline(pts, ts, now)
+
+	if adjusted < t.lastPTSAdjusted {
+		// always move it forward
 		t.logger.Infow(
-			"adjusting PTS offset",
+			"propelling PTS forward",
 			"currentTS", ts,
 			"PTS", pts,
 			"estimatedPTS", estimatedPTS,
 			"ptsOffset", pts-estimatedPTS,
-			"prevCurrentPTSOffset", prevCurrentPTSOffset,
-			"changeCurrentPTSOffset", t.currentPTSOffset-prevCurrentPTSOffset,
-			"throttle", throttle,
+			"adjustedPTS", adjusted,
+			"adjustedPTSOffset", adjusted-t.lastPTSAdjusted,
 			"state", t,
 		)
+		adjusted = t.lastPTSAdjusted + time.Millisecond
 	}
-
-	adjusted, pts := t.normalizePTSToMediaPipelineTimeline(pts, ts, now)
 
 	// if past end time, return EOF
 	if t.maxPTS > 0 && (adjusted > t.maxPTS) {
@@ -446,7 +454,7 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 		pts = estimatedPTS
 	}
 
-	if t.shouldAdjustPTS() {
+	if t.shouldAdjustPTS(pts) {
 		prevCurrentPTSOffset := t.currentPTSOffset
 		if t.currentPTSOffset > t.desiredPTSOffset {
 			t.currentPTSOffset = max(t.currentPTSOffset-t.maxDriftAdjustment, t.desiredPTSOffset)
@@ -462,18 +470,7 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 			throttle = time.Duration(math.Abs(float64(t.currentPTSOffset-prevCurrentPTSOffset)) * 100.0 / t.driftAdjustmentWindowPercent)
 		}
 		t.nextPTSAdjustmentAt = mono.Now().Add(throttle)
-
-		t.logger.Infow(
-			"adjusting PTS offset",
-			"currentTS", ts,
-			"PTS", pts,
-			"estimatedPTS", estimatedPTS,
-			"ptsOffset", pts-estimatedPTS,
-			"prevCurrentPTSOffset", prevCurrentPTSOffset,
-			"changeCurrentPTSOffset", t.currentPTSOffset-prevCurrentPTSOffset,
-			"throttle", throttle,
-			"state", t,
-		)
+		t.logPTSAdjustmentSampled(ts, pts, estimatedPTS, prevCurrentPTSOffset, throttle)
 	}
 
 	adjusted, pts := t.normalizePTSToMediaPipelineTimeline(pts, ts, now)
@@ -565,9 +562,6 @@ func (t *TrackSynchronizer) onSenderReportWithoutRebase(pkt *rtcp.SenderReport) 
 	}
 
 	drift := mediatransportutil.NtpTime(pkt.NTPTime).Time().Sub(t.startTime.Add(pts))
-	if t.onSR != nil {
-		t.onSR(drift)
-	}
 	if drift > cHighDriftLoggingThreshold || drift < -cHighDriftLoggingThreshold {
 		t.logger.Infow(
 			"high drift sender report",
@@ -585,6 +579,10 @@ func (t *TrackSynchronizer) onSenderReportWithoutRebase(pkt *rtcp.SenderReport) 
 			"drift", drift,
 		)
 		return
+	}
+
+	if t.onSR != nil {
+		t.onSR(drift)
 	}
 
 	t.desiredPTSOffset = t.basePTSOffset + drift
@@ -646,9 +644,6 @@ func (t *TrackSynchronizer) onSenderReportWithRebase(pkt *rtcp.SenderReport) {
 
 	// drift is based on local clock
 	drift := time.Unix(0, augmented.receivedAtAdjusted).Sub(t.startTime.Add(ptsSR))
-	if t.onSR != nil {
-		t.onSR(drift)
-	}
 	if drift > cHighDriftLoggingThreshold || drift < -cHighDriftLoggingThreshold {
 		t.logger.Infow(
 			"high drift sender report",
@@ -669,6 +664,10 @@ func (t *TrackSynchronizer) onSenderReportWithRebase(pkt *rtcp.SenderReport) {
 			"drift", drift,
 		)
 		return
+	}
+
+	if t.onSR != nil {
+		t.onSR(drift)
 	}
 
 	t.desiredPTSOffset = t.basePTSOffset + drift
@@ -804,7 +803,7 @@ func (t *TrackSynchronizer) acceptable(d time.Duration) bool {
 	return d > -t.maxTsDiff && d < t.maxTsDiff
 }
 
-func (t *TrackSynchronizer) shouldAdjustPTS() bool {
+func (t *TrackSynchronizer) shouldAdjustPTS(newPTS time.Duration) bool {
 	if mono.Now().Before(t.nextPTSAdjustmentAt) {
 		return false
 	}
@@ -813,8 +812,13 @@ func (t *TrackSynchronizer) shouldAdjustPTS() bool {
 	if t.track.Kind() == webrtc.RTPCodecTypeAudio && !t.rtcpSenderReportRebaseEnabled {
 		adjustmentEnabled = !t.audioPTSAdjustmentsDisabled
 	}
-	// add a deadband of t.maxDriftAdjustment to make sure no PTS adjustment is smaller than that
+
 	diff := t.desiredPTSOffset - t.currentPTSOffset
+	if newPTS-t.lastPTS <= t.maxDriftAdjustment && diff < 0 {
+		// don't regress the PTS
+		return false
+	}
+	// add a deadband of t.maxDriftAdjustment to make sure no PTS adjustment is smaller than that
 	if diff > -t.maxDriftAdjustment && diff < t.maxDriftAdjustment {
 		return false
 	}
@@ -861,6 +865,32 @@ func (t *TrackSynchronizer) updateGapHistogram(gap uint16) {
 	}
 
 	t.stats.largestGap = max(missing, t.stats.largestGap)
+}
+
+// sample the PTS adjustment and log it every cPTSAdjustmentLogSampleStep ms and make sure the last change is logged
+func (t *TrackSynchronizer) logPTSAdjustmentSampled(ts uint32, pts, estimatedPTS, prevCurrentPTSOffset, throttle time.Duration) {
+	diff := (t.currentPTSOffset - t.desiredPTSOffset).Abs()
+	bucket := int64(diff / cPTSAdjustmentLogSampleStep)
+
+	if bucket != t.lastPTSAdjustedLogBucket || diff < 2*t.maxDriftAdjustment {
+		t.logger.Infow(
+			"adjusting PTS offset",
+			"currentTS", ts,
+			"PTS", pts,
+			"estimatedPTS", estimatedPTS,
+			"ptsOffset", pts-estimatedPTS,
+			"prevCurrentPTSOffset", prevCurrentPTSOffset,
+			"changeCurrentPTSOffset", t.currentPTSOffset-prevCurrentPTSOffset,
+			"throttle", throttle,
+			"state", t,
+		)
+		if diff < 2*t.maxDriftAdjustment {
+			t.lastPTSAdjustedLogBucket = math.MaxInt64
+		} else {
+			t.lastPTSAdjustedLogBucket = bucket
+		}
+	}
+
 }
 
 func (t *TrackSynchronizer) MarshalLogObject(e zapcore.ObjectEncoder) error {
