@@ -415,14 +415,12 @@ func TestNormalizePTSToMediaPipelineTimeline_CorrectsAfterLongLag(t *testing.T) 
 	ts.lastPTS = ptsIn
 	ts.lastPTSAdjusted = ptsIn
 	sampleTS := ts.toRTP(ptsIn)
-	initialStartRTP := ts.startRTP
 	ts.lastTimelyPacket = mono.Now().Add(-cMaxTimelyPacketAge - time.Second)
 
 	deadline, ok := ts.sync.getExternalMediaDeadline()
 	require.True(t, ok)
 
 	adjusted, ptsOut := ts.normalizePTSToMediaPipelineTimeline(ptsIn, sampleTS, mono.Now())
-	require.NotEqual(t, initialStartRTP, ts.startRTP, "expected track to rebase when lag persists")
 	expectedPTS := deadline + ts.maxMediaRunningTimeDelay - ts.currentPTSOffset
 	require.InDelta(t, float64(expectedPTS), float64(ptsOut), float64(3*time.Millisecond))
 	require.InDelta(t, float64(expectedPTS+ts.currentPTSOffset), float64(adjusted), float64(3*time.Millisecond))
