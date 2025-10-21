@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//	http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,65 +16,25 @@ package cloudagents
 
 import (
 	"archive/tar"
-	"bytes"
 	"compress/gzip"
-	"embed"
 	"fmt"
 	"io"
 	"io/fs"
-	"mime/multipart"
-	"net/http"
 	"path"
 	"path/filepath"
 	"strings"
 
-	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
-
 	"github.com/moby/patternmatcher"
-	"github.com/schollz/progressbar/v3"
 )
 
-var (
-
-	//go:embed defaults/*
-	embedfs embed.FS
-
-	defaultExcludePatterns = []string{
-		"Dockerfile",
-		".dockerignore",
-		".gitignore",
-		".git",
-		"node_modules",
-		".env",
-		".env.*",
-	}
-
-	ignoreFilePatterns = []string{
-		".gitignore",
-		".dockerignore",
-	}
-)
-
-func uploadSource(
+func createSourceTarball(
 	directory fs.FS,
-	presignedUrl string,
-	presignedPostRequest *livekit.PresignedPostRequest,
 	excludeFiles []string,
 	projectType ProjectType,
+	w io.Writer,
 ) error {
 	excludeFiles = append(excludeFiles, defaultExcludePatterns...)
-
-	loadExcludeFiles := func(dir fs.FS, filename string) (bool, string, error) {
-		if _, err := fs.Stat(dir, filename); err == nil {
-			content, err := fs.ReadFile(dir, filename)
-			if err != nil {
-				return false, "", err
-			}
-			return true, string(content), nil
-		}
-		return false, "", nil
-	}
 
 	foundDockerIgnore := false
 	for _, exclude := range ignoreFilePatterns {
@@ -99,28 +59,13 @@ func uploadSource(
 		excludeFiles = append(excludeFiles, strings.Split(string(dockerIgnoreContent), "\n")...)
 	}
 
-	matcher, err := patternmatcher.New(excludeFiles)
-	if err != nil {
-		return fmt.Errorf("failed to create pattern matcher: %w", err)
-	}
-
 	for i, exclude := range excludeFiles {
 		excludeFiles[i] = strings.TrimSpace(exclude)
 	}
 
-	checkFilesToInclude := func(p string) bool {
-		fileName := path.Base(p)
-		// we have to include the Dockerfile in the upload, as it is required for the build
-		if strings.Contains(fileName, "Dockerfile") {
-			return true
-		}
-
-		if ignored, err := matcher.MatchesOrParentMatches(p); ignored {
-			return false
-		} else if err != nil {
-			return false
-		}
-		return true
+	matcher, err := patternmatcher.New(excludeFiles)
+	if err != nil {
+		return fmt.Errorf("failed to create pattern matcher: %w", err)
 	}
 
 	// we walk the directory first to calculate the total size of the tarball
@@ -136,7 +81,7 @@ func uploadSource(
 			return err
 		}
 
-		if !checkFilesToInclude(path) {
+		if !checkFilesToInclude(matcher, path) {
 			return nil
 		}
 
@@ -149,22 +94,7 @@ func uploadSource(
 		return fmt.Errorf("failed to calculate total size: %w", err)
 	}
 
-	tarProgress := progressbar.NewOptions64(
-		totalSize,
-		progressbar.OptionSetDescription("Compressing files"),
-		progressbar.OptionSetWidth(30),
-		progressbar.OptionShowBytes(true),
-		progressbar.OptionSetTheme(progressbar.Theme{
-			Saucer:        "=",
-			SaucerHead:    ">",
-			SaucerPadding: " ",
-			BarStart:      "[",
-			BarEnd:        "]",
-		}),
-	)
-
-	var buffer bytes.Buffer
-	gzipWriter := gzip.NewWriter(&buffer)
+	gzipWriter := gzip.NewWriter(w)
 	defer gzipWriter.Close()
 	tarWriter := tar.NewWriter(gzipWriter)
 	defer tarWriter.Close()
@@ -179,7 +109,7 @@ func uploadSource(
 			return err
 		}
 
-		if !checkFilesToInclude(path) {
+		if !checkFilesToInclude(matcher, path) {
 			logger.Debugw("excluding file from tarball", "path", path)
 			return nil
 		}
@@ -217,9 +147,7 @@ func uploadSource(
 		if err := tarWriter.WriteHeader(header); err != nil {
 			return fmt.Errorf("failed to write tar header for file %s: %w", path, err)
 		}
-
-		reader := io.TeeReader(file, tarProgress)
-		_, err = io.Copy(tarWriter, reader)
+		_, err = io.Copy(tarWriter, file)
 		if err != nil {
 			return fmt.Errorf("failed to copy file content for %s: %w", path, err)
 		}
@@ -237,89 +165,33 @@ func uploadSource(
 		return fmt.Errorf("failed to close gzip writer: %w", err)
 	}
 
-	uploadProgress := progressbar.NewOptions64(
-		int64(buffer.Len()),
-		progressbar.OptionSetDescription("Uploading"),
-		progressbar.OptionSetWidth(30),
-		progressbar.OptionShowBytes(true),
-		progressbar.OptionSetTheme(progressbar.Theme{
-			Saucer:        "=",
-			SaucerHead:    ">",
-			SaucerPadding: " ",
-			BarStart:      "[",
-			BarEnd:        "]",
-		}),
-	)
-
-	if presignedPostRequest != nil {
-		if err := multipartUpload(presignedPostRequest.Url, presignedPostRequest.Values, &buffer); err != nil {
-			return fmt.Errorf("multipart upload failed: %w", err)
-		}
-	} else {
-		if err := upload(presignedUrl, &buffer, uploadProgress); err != nil {
-			return fmt.Errorf("upload failed: %w", err)
-		}
-	}
-
 	return nil
 }
 
-func upload(presignedUrl string, buffer *bytes.Buffer, uploadProgress *progressbar.ProgressBar) error {
-	req, err := http.NewRequest("PUT", presignedUrl, io.TeeReader(buffer, uploadProgress))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+func checkFilesToInclude(matcher *patternmatcher.PatternMatcher, p string) bool {
+	fileName := path.Base(p)
+	// we have to include the Dockerfile in the upload, as it is required for the build
+	if strings.Contains(fileName, "Dockerfile") {
+		return true
 	}
-	req.Header.Set("Content-Type", "application/gzip")
-	req.ContentLength = int64(buffer.Len())
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to upload tarball: %w", err)
+
+	if ignored, err := matcher.MatchesOrParentMatches(p); ignored {
+		return false
+	} else if err != nil {
+		return false
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("failed to upload tarball: %d: %s", resp.StatusCode, body)
-	}
-	return nil
+	return true
 }
 
-func multipartUpload(presignedURL string, fields map[string]string, buf *bytes.Buffer) error {
-	var b bytes.Buffer
-	w := multipart.NewWriter(&b)
-	fileName, ok := fields["key"]
-	if !ok {
-		fileName = "upload.tar.gz"
-	}
-	for k, v := range fields {
-		if err := w.WriteField(k, v); err != nil {
-			return err
+func loadExcludeFiles(dir fs.FS, filename string) (bool, string, error) {
+	if _, err := fs.Stat(dir, filename); err == nil {
+		content, err := fs.ReadFile(dir, filename)
+		if err != nil {
+			return false, "", err
 		}
+		return true, string(content), nil
 	}
-	part, err := w.CreateFormFile("file", fileName)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(part, buf); err != nil {
-		return err
-	}
-	if err := w.Close(); err != nil {
-		return err
-	}
-	req, err := http.NewRequest("POST", presignedURL, &b)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", w.FormDataContentType())
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusNoContent {
-		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("failed to upload tarball: %d: %s", resp.StatusCode, respBody)
-	}
-	return nil
+	return false, "", nil
 }
 
 // Converts a path (possibly Windows-style) to a Unix-style path.
