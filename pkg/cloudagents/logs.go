@@ -55,9 +55,8 @@ func (c *Client) StreamLogs(ctx context.Context, logType, agentID string, writer
 		var errorResponse APIError
 		if err := json.NewDecoder(resp.Body).Decode(&errorResponse); err != nil {
 			return fmt.Errorf("failed to parse error response: %w", err)
-		} else {
-			return fmt.Errorf("failed to get logs: %s", errorResponse.Message)
 		}
+		return fmt.Errorf("failed to get logs: %s - %v", errorResponse.Message, errorResponse.Meta)
 	}
 	scanner := bufio.NewScanner(resp.Body)
 	for {
