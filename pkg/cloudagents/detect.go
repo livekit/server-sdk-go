@@ -71,7 +71,7 @@ func (p ProjectType) DefaultEntrypoint() string {
 	}
 }
 
-func detectProjectType(dir fs.FS) (ProjectType, error) {
+func DetectProjectType(dir fs.FS) (ProjectType, error) {
 	// Node.js detection
 	if fileExists(dir, "package.json") {
 		return ProjectTypeNode, nil

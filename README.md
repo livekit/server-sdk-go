@@ -373,19 +373,6 @@ func ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-## Release
-
-This project shares the same **major** and **minor** version as [`livekit-cli`](https://github.com/livekit/livekit-cli) for compatibility. The `livekit-cli` version must not exceed `server-sdk-go` **major** and **minor** versions.
-
-valid | server-sdk-go | livekit-cli
---- | --- | ---
-✅ | 2.2.x | 2.2.x
-✅ | 2.3.x | 2.2.x
-✅ | 3.0.x | 2.2.x
-❌ | 2.3.x | 2.4.x
-
-When introducing breaking changes to `server-sdk-go`, update the `livekit-cli` version accordingly.
-
 <!--BEGIN_REPO_NAV-->
 <br/><table>
 <thead><tr><th colspan="2">LiveKit Ecosystem</th></tr></thead>

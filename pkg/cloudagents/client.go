@@ -125,7 +125,7 @@ func (c *Client) uploadAndBuild(
 	source fs.FS,
 	excludeFiles []string,
 ) error {
-	projectType, err := detectProjectType(source)
+	projectType, err := DetectProjectType(source)
 	if err != nil {
 		return err
 	}
