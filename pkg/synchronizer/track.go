@@ -85,7 +85,6 @@ type TrackSynchronizer struct {
 
 	lastTimelyPacket time.Time
 
-	mediaRunningTime         func() (time.Duration, bool)
 	maxMediaRunningTimeDelay time.Duration
 
 	// offsets
@@ -128,7 +127,6 @@ func newTrackSynchronizer(s *Synchronizer, track TrackRemote) *TrackSynchronizer
 		enableStartGate:                   s.config.EnableStartGate,
 		nextPTSAdjustmentAt:               mono.Now(),
 		propagationDelayEstimator:         NewOWDEstimator(OWDEstimatorParamsDefault),
-		mediaRunningTime:                  s.config.MediaRunningTime,
 		maxMediaRunningTimeDelay:          s.config.MaxMediaRunningTimeDelay,
 		lastPTSAdjustedLogBucket:          math.MaxInt64,
 	}
@@ -310,18 +308,15 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 	}
 
 	if pts < t.lastPTS || !t.acceptable(pts-estimatedPTS) {
-		newStartRTP := ts - t.toRTP(estimatedPTS)
 		t.logger.Infow(
 			"correcting PTS",
 			"currentTS", ts,
 			"PTS", pts,
 			"estimatedPTS", estimatedPTS,
 			"offset", pts-estimatedPTS,
-			"newStartRTP", newStartRTP,
 			"state", t,
 		)
 		pts = estimatedPTS
-		t.startRTP = newStartRTP
 	}
 
 	if t.shouldAdjustPTS(pts) {
@@ -777,12 +772,10 @@ func (t *TrackSynchronizer) normalizePTSToMediaPipelineTimeline(ptsIn time.Durat
 			newPTS := deadline + t.maxMediaRunningTimeDelay - t.currentPTSOffset
 			newPTS = max(newPTS, 0)
 
-			newStartRTP := ts - t.toRTP(newPTS)
 			t.logger.Infow(
 				"correcting PTS to pull the track forward",
 				"currentTS", ts,
 				"PTS", ptsIn,
-				"newStartRTP", newStartRTP,
 				"correctedPTS", newPTS,
 				"ptsOffset", newPTS-ptsIn,
 				"deadline", deadline,
@@ -791,7 +784,6 @@ func (t *TrackSynchronizer) normalizePTSToMediaPipelineTimeline(ptsIn time.Durat
 			)
 			ptsOut = newPTS
 			adjusted = ptsOut + t.currentPTSOffset
-			t.startRTP = newStartRTP
 			t.lastTimelyPacket = now
 		}
 	} else {

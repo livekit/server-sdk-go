@@ -242,6 +242,14 @@ func (s *Synchronizer) GetStartedAt() int64 {
 	return s.startedAt
 }
 
+// SetMediaRunningTime updates the external media running time provider after the synchronizer has been created.
+// Passing a nil provider clears the configuration.
+func (s *Synchronizer) SetMediaRunningTime(mediaRunningTime func() (time.Duration, bool)) {
+	s.Lock()
+	s.config.MediaRunningTime = mediaRunningTime
+	s.Unlock()
+}
+
 func (s *Synchronizer) getOrSetStartedAt(now int64) int64 {
 	s.Lock()
 	defer s.Unlock()
