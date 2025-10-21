@@ -32,7 +32,7 @@ func (c *Client) newRequest(method, url string, body io.Reader) (*http.Request, 
 	if err := c.setAuthToken(req); err != nil {
 		return nil, err
 	}
-	setLivekitVersionHeader(req)
+	c.setLivekitHeaders(req)
 	return req, nil
 }
 
@@ -48,7 +48,10 @@ func (c *Client) setAuthToken(req *http.Request) error {
 	return nil
 }
 
-// setLivekitVersionHeader sets the LiveKit version header in the request header.
-func setLivekitVersionHeader(req *http.Request) {
+// setLivekitHeaders set the LiveKit headers in the request header.
+func (c *Client) setLivekitHeaders(req *http.Request) {
+	for k, v := range c.headers {
+		req.Header.Set(k, v)
+	}
 	req.Header.Set("X-LIVEKIT-CLI-VERSION", lksdk.Version)
 }

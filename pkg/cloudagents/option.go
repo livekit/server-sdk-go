@@ -45,3 +45,9 @@ func WithHTTPClient(httpClient *http.Client) ClientOption {
 		c.httpClient = httpClient
 	}
 }
+
+func WithHeaders(headers map[string]string) ClientOption {
+	return func(c *Client) {
+		c.headers = headers
+	}
+}

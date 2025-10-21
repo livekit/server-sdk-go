@@ -37,6 +37,7 @@ type Client struct {
 	apiSecret  string
 	agentsURL  string
 	httpClient *http.Client
+	headers    map[string]string
 	logger     logger.Logger
 }
 
@@ -53,7 +54,7 @@ func New(opts ...ClientOption) (*Client, error) {
 	}
 	agentClient, err := lksdk.NewAgentClient(client.projectURL, client.apiKey, client.apiSecret, twirp.WithClientHooks(&twirp.ClientHooks{
 		RequestPrepared: func(ctx context.Context, req *http.Request) (context.Context, error) {
-			setLivekitVersionHeader(req)
+			client.setLivekitHeaders(req)
 			return ctx, nil
 		},
 	}))
