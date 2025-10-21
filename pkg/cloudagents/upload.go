@@ -16,7 +16,6 @@ package cloudagents
 
 import (
 	"bytes"
-	"embed"
 	"fmt"
 	"io"
 	"io/fs"
@@ -27,10 +26,6 @@ import (
 )
 
 var (
-
-	//go:embed defaults/*
-	embedfs embed.FS
-
 	defaultExcludePatterns = []string{
 		"Dockerfile",
 		".dockerignore",
@@ -52,10 +47,9 @@ func uploadSource(
 	presignedUrl string,
 	presignedPostRequest *livekit.PresignedPostRequest,
 	excludeFiles []string,
-	projectType ProjectType,
 ) error {
 	var buf bytes.Buffer
-	if err := createSourceTarball(directory, excludeFiles, projectType, &buf); err != nil {
+	if err := createSourceTarball(directory, excludeFiles, &buf); err != nil {
 		return fmt.Errorf("failed to sanitize source: %w", err)
 	}
 	if presignedPostRequest != nil {

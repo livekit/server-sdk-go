@@ -31,32 +31,17 @@ import (
 func createSourceTarball(
 	directory fs.FS,
 	excludeFiles []string,
-	projectType ProjectType,
 	w io.Writer,
 ) error {
 	excludeFiles = append(excludeFiles, defaultExcludePatterns...)
 
-	foundDockerIgnore := false
 	for _, exclude := range ignoreFilePatterns {
-		found, content, err := loadExcludeFiles(directory, exclude)
+		_, content, err := loadExcludeFiles(directory, exclude)
 		if err != nil {
 			logger.Debugw("failed to load exclude file", "filename", exclude, "error", err)
 			continue
 		}
-		if exclude == ".dockerignore" && found {
-			foundDockerIgnore = true
-		}
 		excludeFiles = append(excludeFiles, strings.Split(content, "\n")...)
-	}
-
-	// need to ensure we use a dockerignore file
-	// if we fail to load a dockerignore file, we have to exit
-	if !foundDockerIgnore {
-		dockerIgnoreContent, err := embedfs.ReadFile(path.Join("defaults", string(projectType)+".dockerignore"))
-		if err != nil {
-			return fmt.Errorf("failed to load exclude file %s: %w", string(projectType), err)
-		}
-		excludeFiles = append(excludeFiles, strings.Split(string(dockerIgnoreContent), "\n")...)
 	}
 
 	for i, exclude := range excludeFiles {

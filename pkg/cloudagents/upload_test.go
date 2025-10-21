@@ -69,7 +69,7 @@ func TestUploadSource(t *testing.T) {
 	}))
 	defer mockServer.Close()
 
-	err = uploadSource(os.DirFS(tmpDir), mockServer.URL, nil, []string{}, ProjectTypePythonPip)
+	err = uploadSource(os.DirFS(tmpDir), mockServer.URL, nil, []string{})
 	require.NoError(t, err)
 }
 
@@ -114,7 +114,7 @@ func TestUploadSourcePost(t *testing.T) {
 	err = uploadSource(os.DirFS(tmpDir), "", &livekit.PresignedPostRequest{
 		Url:    mockServer.URL,
 		Values: map[string]string{},
-	}, []string{}, ProjectTypePythonPip)
+	}, []string{})
 	require.NoError(t, err)
 }
 
@@ -151,7 +151,7 @@ func TestUploadSourceFilePermissions(t *testing.T) {
 	//   https://learn.microsoft.com/en-us/windows/win32/secauthz/access-control-lists
 	//
 	if runtime.GOOS != "windows" {
-		err = uploadSource(os.DirFS(tmpDir), mockServer.URL, nil, []string{}, ProjectTypePythonPip)
+		err = uploadSource(os.DirFS(tmpDir), mockServer.URL, nil, []string{})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "permission denied")
 	}
@@ -159,7 +159,7 @@ func TestUploadSourceFilePermissions(t *testing.T) {
 	err = os.Remove(restrictedFile)
 	require.NoError(t, err)
 
-	err = uploadSource(os.DirFS(tmpDir), mockServer.URL, nil, []string{}, ProjectTypePythonPip)
+	err = uploadSource(os.DirFS(tmpDir), mockServer.URL, nil, []string{})
 	require.NoError(t, err)
 }
 
@@ -254,7 +254,7 @@ func TestUploadSourceDotfiles(t *testing.T) {
 	}))
 	defer mockServer.Close()
 
-	err = uploadSource(os.DirFS(tmpDir), mockServer.URL, nil, []string{}, ProjectTypePythonPip)
+	err = uploadSource(os.DirFS(tmpDir), mockServer.URL, nil, []string{})
 	require.NoError(t, err)
 
 	contents := readTarContents(t, tarBuffer.Bytes())
@@ -339,7 +339,7 @@ func TestUploadSourceDeepDirectories(t *testing.T) {
 	}))
 	defer mockServer.Close()
 
-	err = uploadSource(os.DirFS(tmpDir), mockServer.URL, nil, []string{}, ProjectTypePythonPip)
+	err = uploadSource(os.DirFS(tmpDir), mockServer.URL, nil, []string{})
 	require.NoError(t, err)
 
 	contents := readTarContents(t, tarBuffer.Bytes())
@@ -436,7 +436,7 @@ venv/
 	}))
 	defer mockServer.Close()
 
-	err = uploadSource(os.DirFS(tmpDir), mockServer.URL, nil, []string{}, ProjectTypePythonPip)
+	err = uploadSource(os.DirFS(tmpDir), mockServer.URL, nil, []string{})
 	require.NoError(t, err)
 
 	contents := readTarContents(t, tarBuffer.Bytes())
@@ -490,6 +490,8 @@ func TestUploadSourceWithPipPythonProject(t *testing.T) {
 	require.NoError(t, err)
 	err = os.WriteFile(filepath.Join(tmpDir, "other-Dockerfile"), []byte("other Dockerfile content"), 0644)
 	require.NoError(t, err)
+	err = os.WriteFile(filepath.Join(tmpDir, ".dockerignore"), []byte(pipDockerIgnoreContent), 0644)
+	require.NoError(t, err)
 
 	excludedDirsCheck := []string{
 		"__pycache__",
@@ -540,7 +542,7 @@ func TestUploadSourceWithPipPythonProject(t *testing.T) {
 	}))
 	defer mockServer.Close()
 
-	err = uploadSource(os.DirFS(tmpDir), mockServer.URL, nil, []string{"**/livekit.toml"}, ProjectTypePythonPip)
+	err = uploadSource(os.DirFS(tmpDir), mockServer.URL, nil, []string{"**/livekit.toml"})
 	require.NoError(t, err)
 
 	contents := readTarContents(t, tarBuffer.Bytes())
@@ -624,6 +626,8 @@ func TestUploadSourceWithUvPythonProject(t *testing.T) {
 	require.NoError(t, err)
 	err = os.WriteFile(filepath.Join(tmpDir, "Dockerfile.dev"), []byte("Dockerfile dev content"), 0644)
 	require.NoError(t, err)
+	err = os.WriteFile(filepath.Join(tmpDir, ".dockerignore"), []byte(uvDockerIgnoreContent), 0644)
+	require.NoError(t, err)
 
 	var tarBuffer bytes.Buffer
 	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -633,7 +637,7 @@ func TestUploadSourceWithUvPythonProject(t *testing.T) {
 	}))
 	defer mockServer.Close()
 
-	err = uploadSource(os.DirFS(tmpDir), mockServer.URL, nil, []string{"**/livekit.toml"}, ProjectTypePythonUV)
+	err = uploadSource(os.DirFS(tmpDir), mockServer.URL, nil, []string{"**/livekit.toml"})
 	require.NoError(t, err)
 
 	contents := readTarContents(t, tarBuffer.Bytes())
@@ -724,6 +728,8 @@ func TestUploadSourceWithNodeProject(t *testing.T) {
 	require.NoError(t, err)
 	err = os.WriteFile(filepath.Join(tmpDir, ".DS_Store"), []byte("mac file"), 0644)
 	require.NoError(t, err)
+	err = os.WriteFile(filepath.Join(tmpDir, ".dockerignore"), []byte(nodeJsDockerIgnoreContent), 0644)
+	require.NoError(t, err)
 
 	var tarBuffer bytes.Buffer
 	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -733,7 +739,7 @@ func TestUploadSourceWithNodeProject(t *testing.T) {
 	}))
 	defer mockServer.Close()
 
-	err = uploadSource(os.DirFS(tmpDir), mockServer.URL, nil, []string{"**/livekit.toml"}, ProjectTypeNode)
+	err = uploadSource(os.DirFS(tmpDir), mockServer.URL, nil, []string{"**/livekit.toml"})
 	require.NoError(t, err)
 
 	contents := readTarContents(t, tarBuffer.Bytes())
@@ -798,3 +804,139 @@ func TestUploadSourceWithNodeProject(t *testing.T) {
 		}
 	}
 }
+
+var pipDockerIgnoreContent = `
+# Python bytecode and artifacts
+**/__pycache__/
+**/*.py[cod]
+**/*.pyo
+**/*.pyd
+**/*.egg-info/
+**/dist/
+**/build/
+
+# Virtual environments
+**/.venv/
+**/venv/
+
+# Caches and test output
+**/.cache/
+**/.pytest_cache/
+**/.ruff_cache/
+**/coverage/
+
+# Logs and temp files
+**/*.log
+**/*.gz
+**/*.tgz
+**/.tmp
+**/.cache
+
+# Environment variables
+**/.env
+**/.env.*
+
+# VCS, editor, OS
+.git
+.gitignore
+.gitattributes
+.github/
+.idea/
+.vscode/
+.DS_Store
+
+# Project docs and misc
+README.md
+LICENSE
+
+# Project tests
+test/
+tests/
+eval/
+evals/`
+
+var uvDockerIgnoreContent = `
+# Python bytecode and artifacts
+**/__pycache__/
+**/*.py[cod]
+**/*.pyo
+**/*.pyd
+**/*.egg-info/
+**/dist/
+**/build/
+
+# Virtual environments
+**/.venv/
+**/venv/
+
+# Caches and test output
+**/.cache/
+**/.pytest_cache/
+**/.ruff_cache/
+**/coverage/
+
+# Logs and temp files
+**/*.log
+**/*.gz
+**/*.tgz
+**/.tmp
+**/.cache
+
+# Environment variables
+**/.env
+**/.env.*
+
+# VCS, editor, OS
+.git
+.gitignore
+.gitattributes
+.github/
+.idea/
+.vscode/
+.DS_Store
+
+# Project docs and misc
+README.md
+LICENSE
+
+# Project tests
+test/
+tests/
+eval/
+evals/
+`
+
+var nodeJsDockerIgnoreContent = `
+# Node.js dependencies
+**/node_modules
+**/npm-debug.log
+**/yarn-error.log
+**/pnpm-debug.log
+
+# Build outputs
+**/dist
+**/build
+**/coverage
+
+# Local environment & config files
+**/.env
+**/.env.local
+.DS_Store
+
+# Logs & temp files
+**/*.log
+**/*.gz
+**/*.tgz
+**/.tmp
+**/.cache
+
+# Docker artifacts
+Dockerfile*
+.dockerignore
+
+# Git & Editor files
+.git
+.gitignore
+.idea
+.vscode
+`

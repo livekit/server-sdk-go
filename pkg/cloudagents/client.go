@@ -125,16 +125,11 @@ func (c *Client) uploadAndBuild(
 	source fs.FS,
 	excludeFiles []string,
 ) error {
-	projectType, err := DetectProjectType(source)
-	if err != nil {
-		return err
-	}
 	if err := uploadSource(
 		source,
 		presignedUrl,
 		presignedPostRequest,
 		excludeFiles,
-		projectType,
 	); err != nil {
 		return err
 	}
