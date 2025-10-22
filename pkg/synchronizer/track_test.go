@@ -25,6 +25,7 @@ import (
 	"github.com/livekit/media-sdk/jitter"
 	"github.com/livekit/protocol/logger"
 	"github.com/livekit/protocol/utils/mono"
+	"github.com/livekit/protocol/utils/rtputil"
 )
 
 // ---- test fakes & helpers ----
@@ -47,7 +48,7 @@ func newTSForTests(tc *testing.T, clockRate uint32, kind webrtc.RTPCodecType) *T
 		sync:               nil, // construct directly to avoid depending on Synchronizer
 		track:              fakeTrack{id: "t", rate: clockRate, kind: kind},
 		logger:             logger.NewTestLogger(tc),
-		rtpConverter:       newRTPConverter(int64(clockRate)),
+		RTPConverter:       rtputil.NewRTPConverter(int64(clockRate)),
 		maxTsDiff:          200 * time.Millisecond,
 		maxDriftAdjustment: 5 * time.Millisecond,
 	}
@@ -110,7 +111,7 @@ func TestGetPTSWithoutRebase_Increasing(t *testing.T) {
 
 	// Simulate accepting two frames in order: 20ms and then 20ms later
 	// Convert 20ms -> RTP ticks
-	rtp20ms := ts.rtpConverter.toRTP(20 * time.Millisecond)
+	rtp20ms := ts.ToRTP(20 * time.Millisecond)
 
 	now := time.Now()
 	// First packet initializes lastTS path
@@ -154,7 +155,7 @@ func TestGetPTSWithoutRebase_NegativeAdjustedPTS(t *testing.T) {
 	ts.initialize(firstPacket)
 	require.Less(t, ts.currentPTSOffset, time.Duration(0), "expected negative PTS offset when synchronizer start is later")
 
-	stepTS := ts.rtpConverter.toRTP(10 * time.Millisecond)
+	stepTS := ts.ToRTP(10 * time.Millisecond)
 	secondPacket := jitter.ExtPacket{
 		Packet: &rtp.Packet{
 			Header:  rtp.Header{Timestamp: firstPacket.Packet.Timestamp + stepTS, SequenceNumber: 2},
@@ -203,8 +204,8 @@ func TestGetPTSWithRebase_PropelsForward(t *testing.T) {
 	ts.startRTP = 100000
 	ts.lastTS = ts.startRTP
 
-	rtp500ms := ts.rtpConverter.toRTP(500 * time.Millisecond)
-	rtp10ms := ts.rtpConverter.toRTP(10 * time.Millisecond)
+	rtp500ms := ts.ToRTP(500 * time.Millisecond)
+	rtp10ms := ts.ToRTP(10 * time.Millisecond)
 
 	// First packet (~500ms)
 	ts1 := ts.startRTP + rtp500ms
@@ -279,7 +280,7 @@ func TestPrimeForStartWithStartGate(t *testing.T) {
 	ts.sync = NewSynchronizerWithOptions()
 
 	stepDur := 20 * time.Millisecond
-	step := ts.rtpConverter.toRTP(stepDur)
+	step := ts.ToRTP(stepDur)
 	baseTS := ts.startRTP
 	base := time.Now()
 
@@ -396,7 +397,7 @@ func TestNormalizePTSToMediaPipelineTimeline_FreshBehindDoesNotCorrect(t *testin
 	ptsIn := running - delay - time.Second
 	ts.lastPTS = ptsIn
 	ts.lastPTSAdjusted = ptsIn
-	sampleTS := ts.toRTP(ptsIn)
+	sampleTS := ts.ToRTP(ptsIn)
 	initialStartRTP := ts.startRTP
 	initialTimely := mono.Now()
 	ts.lastTimelyPacket = initialTimely
@@ -414,7 +415,7 @@ func TestNormalizePTSToMediaPipelineTimeline_CorrectsAfterLongLag(t *testing.T) 
 	ptsIn := running - delay - 5*time.Second
 	ts.lastPTS = ptsIn
 	ts.lastPTSAdjusted = ptsIn
-	sampleTS := ts.toRTP(ptsIn)
+	sampleTS := ts.ToRTP(ptsIn)
 	ts.lastTimelyPacket = mono.Now().Add(-cMaxTimelyPacketAge - time.Second)
 
 	deadline, ok := ts.sync.getExternalMediaDeadline()
