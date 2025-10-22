@@ -10,27 +10,25 @@ require (
 	github.com/livekit/mageutil v0.0.0-20250511045019-0f1ff63f7731
 	github.com/livekit/media-sdk v0.0.0-20250927154350-bd99739b439b
 	github.com/livekit/mediatransportutil v0.0.0-20250825135402-7bc31f107ade
-	github.com/livekit/protocol v1.42.2-0.20251016024155-8cf58ff15ac6
+	github.com/livekit/protocol v1.42.3-0.20251022070801-a1e0e55a5c55
 	github.com/magefile/mage v1.15.0
 	github.com/pion/dtls/v3 v3.0.7
 	github.com/pion/interceptor v0.1.41
-	github.com/pion/rtcp v1.2.15
-	github.com/pion/rtp v1.8.23
+	github.com/pion/rtcp v1.2.16
+	github.com/pion/rtp v1.8.24
 	github.com/pion/sdp/v3 v3.0.16
 	github.com/pion/webrtc/v4 v4.1.6
 	github.com/stretchr/testify v1.11.1
 	github.com/twitchtv/twirp v8.1.3+incompatible
 	go.uber.org/atomic v1.11.0
 	golang.org/x/crypto v0.43.0
-	golang.org/x/exp v0.0.0-20251009144603-d2f985daa21b
+	golang.org/x/exp v0.0.0-20251017212417-90e834f514db
 	google.golang.org/protobuf v1.36.10
 )
 
 require (
 	github.com/moby/buildkit v0.25.1
 	github.com/moby/patternmatcher v0.6.0
-	github.com/pelletier/go-toml v1.9.5
-	github.com/schollz/progressbar/v3 v3.18.0
 	golang.org/x/mod v0.29.0
 )
 
@@ -60,7 +58,6 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.26.1 // indirect
 	github.com/in-toto/in-toto-golang v0.9.0 // indirect
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.11.3 // indirect
-	github.com/mitchellh/colorstring v0.0.0-20190213212951-d06e56a500db // indirect
 	github.com/moby/locker v1.0.1 // indirect
 	github.com/moby/sys/signal v0.7.1 // indirect
 	github.com/morikuni/aec v1.0.0 // indirect
@@ -69,7 +66,6 @@ require (
 	github.com/opencontainers/runc v1.2.3 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
-	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/secure-systems-lab/go-securesystemslib v0.6.0 // indirect
 	github.com/shibumi/go-pathspec v1.3.0 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
@@ -87,7 +83,6 @@ require (
 	go.opentelemetry.io/otel/sdk v1.37.0 // indirect
 	go.opentelemetry.io/otel/trace v1.37.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.5.0 // indirect
-	golang.org/x/term v0.36.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
 	golang.org/x/tools v0.38.0 // indirect
 )
@@ -114,7 +109,7 @@ require (
 	github.com/jfreymuth/vorbis v1.0.2 // indirect
 	github.com/joho/godotenv v1.5.1
 	github.com/jxskiss/base62 v1.1.0 // indirect
-	github.com/klauspost/compress v1.18.0 // indirect
+	github.com/klauspost/compress v1.18.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/lithammer/shortuuid/v4 v4.2.0 // indirect
 	github.com/livekit/psrpc v0.7.0 // indirect
@@ -133,7 +128,7 @@ require (
 	github.com/pion/turn/v4 v4.1.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect
-	github.com/redis/go-redis/v9 v9.14.0 // indirect
+	github.com/redis/go-redis/v9 v9.14.1 // indirect
 	github.com/stoewer/go-strcase v1.3.1 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
 	github.com/zeebo/xxh3 v1.0.2 // indirect
@@ -144,8 +139,8 @@ require (
 	golang.org/x/sync v0.17.0
 	golang.org/x/sys v0.37.0 // indirect
 	golang.org/x/text v0.30.0 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20251014184007-4626949a642f // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20251014184007-4626949a642f // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20251020155222-88f65dc88635 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20251020155222-88f65dc88635 // indirect
 	google.golang.org/grpc v1.76.0 // indirect
 	gopkg.in/hraban/opus.v2 v2.0.0-20230925203106-0188a62cb302 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
