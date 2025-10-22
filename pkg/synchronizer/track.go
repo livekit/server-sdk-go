@@ -29,7 +29,6 @@ import (
 	"github.com/livekit/media-sdk/jitter"
 	"github.com/livekit/mediatransportutil"
 	"github.com/livekit/protocol/logger"
-	"github.com/livekit/protocol/utils"
 	"github.com/livekit/protocol/utils/mono"
 )
 
@@ -59,7 +58,7 @@ type TrackSynchronizer struct {
 	sync   *Synchronizer
 	track  TrackRemote
 	logger logger.Logger
-	*utils.RTPConverter
+	*rtpConverter
 	startGate startGate
 
 	// config
@@ -117,7 +116,7 @@ func newTrackSynchronizer(s *Synchronizer, track TrackRemote) *TrackSynchronizer
 		sync:                              s,
 		track:                             track,
 		logger:                            logger.GetLogger().WithValues("trackID", track.ID(), "codec", track.Codec().MimeType),
-		RTPConverter:                      utils.NewRTPConverter(int64(track.Codec().ClockRate)),
+		rtpConverter:                      newRTPConverter(int64(track.Codec().ClockRate)),
 		maxTsDiff:                         s.config.MaxTsDiff,
 		maxDriftAdjustment:                s.config.MaxDriftAdjustment,
 		driftAdjustmentWindowPercent:      s.config.DriftAdjustmentWindowPercent,
@@ -305,7 +304,7 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 		// start with estimated PTS to absorb any start latency
 		pts = max(time.Nanosecond, estimatedPTS) // prevent lastPTS from being stuck at 0
 	} else {
-		pts = t.lastPTS + t.ToDuration(ts-t.lastTS)
+		pts = t.lastPTS + t.toDuration(ts-t.lastTS)
 	}
 
 	if pts < t.lastPTS || !t.acceptable(pts-estimatedPTS) {
@@ -436,7 +435,7 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 		// start with estimated PTS to absorb any start latency
 		pts = max(time.Nanosecond, estimatedPTS) // prevent lastPTS from being stuck at 0
 	} else {
-		pts = t.lastPTS + t.ToDuration(ts-t.lastTS)
+		pts = t.lastPTS + t.toDuration(ts-t.lastTS)
 	}
 
 	if pts < t.lastPTS || !t.acceptable(pts-estimatedPTS) {
@@ -544,9 +543,9 @@ func (t *TrackSynchronizer) onSenderReportWithoutRebase(pkt *rtcp.SenderReport) 
 
 	var pts time.Duration
 	if pkt.RTPTime > t.lastTS {
-		pts = t.lastPTS + t.ToDuration(pkt.RTPTime-t.lastTS)
+		pts = t.lastPTS + t.toDuration(pkt.RTPTime-t.lastTS)
 	} else {
-		pts = t.lastPTS - t.ToDuration(t.lastTS-pkt.RTPTime)
+		pts = t.lastPTS - t.toDuration(t.lastTS-pkt.RTPTime)
 	}
 	if !t.acceptable(pts - time.Since(t.startTime)) {
 		t.logger.Infow(
@@ -616,9 +615,9 @@ func (t *TrackSynchronizer) onSenderReportWithRebase(pkt *rtcp.SenderReport) {
 
 	var ptsSR time.Duration
 	if (pkt.RTPTime - t.lastTS) < (1 << 31) {
-		ptsSR = t.lastPTS + t.ToDuration(pkt.RTPTime-t.lastTS)
+		ptsSR = t.lastPTS + t.toDuration(pkt.RTPTime-t.lastTS)
 	} else {
-		ptsSR = t.lastPTS - t.ToDuration(t.lastTS-pkt.RTPTime)
+		ptsSR = t.lastPTS - t.toDuration(t.lastTS-pkt.RTPTime)
 	}
 	if !t.acceptable(ptsSR - time.Since(t.startTime)) {
 		t.logger.Infow(
@@ -702,7 +701,7 @@ func (t *TrackSynchronizer) maybeAdjustStartTime(asr *augmentedSenderReport) int
 	// in some network element along the way), push back first time
 	// to an earlier instance.
 	timeSinceReceive := time.Duration(nowNano - asr.receivedAtAdjusted)
-	nowTS := asr.RTPTime + t.ToRTP(timeSinceReceive)
+	nowTS := asr.RTPTime + t.toRTP(timeSinceReceive)
 	samplesDiff := nowTS - t.startRTP
 	if int32(samplesDiff) < 0 {
 		// out-of-order, pre-start, skip
@@ -717,7 +716,7 @@ func (t *TrackSynchronizer) maybeAdjustStartTime(asr *augmentedSenderReport) int
 		return 0
 	}
 
-	samplesDuration := t.ToDuration(samplesDiff)
+	samplesDuration := t.toDuration(samplesDiff)
 	timeSinceStart := time.Duration(nowNano - startTimeNano)
 	now := startTimeNano + timeSinceStart.Nanoseconds()
 	adjustedStartTimeNano := now - samplesDuration.Nanoseconds()
@@ -931,6 +930,33 @@ func (t *TrackSynchronizer) MarshalLogObject(e zapcore.ObjectEncoder) error {
 }
 
 // ---------------------------
+
+type rtpConverter struct {
+	ts  uint64
+	rtp uint64
+}
+
+func newRTPConverter(clockRate int64) *rtpConverter {
+	ts := time.Second.Nanoseconds()
+	for _, i := range []int64{10, 3, 2} {
+		for ts%i == 0 && clockRate%i == 0 {
+			ts /= i
+			clockRate /= i
+		}
+	}
+
+	return &rtpConverter{ts: uint64(ts), rtp: uint64(clockRate)}
+}
+
+func (c *rtpConverter) toDuration(rtpDuration uint32) time.Duration {
+	return time.Duration(uint64(rtpDuration) * c.ts / c.rtp)
+}
+
+func (c *rtpConverter) toRTP(duration time.Duration) uint32 {
+	return uint32(duration.Nanoseconds() * int64(c.rtp) / int64(c.ts))
+}
+
+// -----------------------------
 
 type augmentedSenderReport struct {
 	*rtcp.SenderReport
