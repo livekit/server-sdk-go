@@ -26,8 +26,8 @@ import (
 )
 
 type APIError struct {
-	Message string             `json:"msg"`
-	Meta    *map[string]string `json:"meta,omitempty"`
+	Message string            `json:"msg"`
+	Meta    map[string]string `json:"meta,omitempty"`
 }
 
 // StreamLogs streams the logs for the given agent.
