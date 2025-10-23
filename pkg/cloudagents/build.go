@@ -20,9 +20,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 
 	bkclient "github.com/moby/buildkit/client"
@@ -30,7 +30,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func (c *Client) build(ctx context.Context, id string) error {
+func (c *Client) build(ctx context.Context, id string, writer io.Writer) error {
 	params := url.Values{}
 	params.Add("agent_id", id)
 	fullUrl := fmt.Sprintf("%s/build?%s", c.agentsURL, params.Encode())
@@ -50,7 +50,7 @@ func (c *Client) build(ctx context.Context, id string) error {
 	ch := make(chan *bkclient.SolveStatus)
 	eg, ctx := errgroup.WithContext(ctx)
 	eg.Go(func() error {
-		display, err := progressui.NewDisplay(os.Stderr, "auto")
+		display, err := progressui.NewDisplay(writer, "plain")
 		if err != nil {
 			return err
 		}

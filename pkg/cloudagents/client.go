@@ -17,6 +17,7 @@ package cloudagents
 import (
 	"context"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"os"
@@ -76,6 +77,7 @@ func (c *Client) CreateAgent(
 	secrets []*lkproto.AgentSecret,
 	regions []string,
 	excludeFiles []string,
+	buildLogStreamWriter io.Writer,
 ) (*lkproto.CreateAgentResponse, error) {
 	resp, err := c.AgentClient.CreateAgent(ctx, &lkproto.CreateAgentRequest{
 		Secrets: secrets,
@@ -90,6 +92,7 @@ func (c *Client) CreateAgent(
 		resp.PresignedPostRequest,
 		source,
 		excludeFiles,
+		buildLogStreamWriter,
 	); err != nil {
 		return nil, err
 	}
@@ -103,6 +106,7 @@ func (c *Client) DeployAgent(
 	source fs.FS,
 	secrets []*lkproto.AgentSecret,
 	excludeFiles []string,
+	buildLogStreamWriter io.Writer,
 ) error {
 	resp, err := c.AgentClient.DeployAgent(ctx, &lkproto.DeployAgentRequest{
 		AgentId: agentID,
@@ -114,7 +118,7 @@ func (c *Client) DeployAgent(
 	if !resp.Success {
 		return fmt.Errorf("failed to deploy agent: %s", resp.Message)
 	}
-	return c.uploadAndBuild(ctx, agentID, resp.PresignedUrl, resp.PresignedPostRequest, source, excludeFiles)
+	return c.uploadAndBuild(ctx, agentID, resp.PresignedUrl, resp.PresignedPostRequest, source, excludeFiles, buildLogStreamWriter)
 }
 
 // uploadAndBuild uploads the source and triggers remote build
@@ -125,6 +129,7 @@ func (c *Client) uploadAndBuild(
 	presignedPostRequest *lkproto.PresignedPostRequest,
 	source fs.FS,
 	excludeFiles []string,
+	buildLogStreamWriter io.Writer,
 ) error {
 	if err := uploadSource(
 		source,
@@ -134,7 +139,7 @@ func (c *Client) uploadAndBuild(
 	); err != nil {
 		return err
 	}
-	if err := c.build(ctx, agentID); err != nil {
+	if err := c.build(ctx, agentID, buildLogStreamWriter); err != nil {
 		return err
 	}
 	return nil
@@ -142,12 +147,13 @@ func (c *Client) uploadAndBuild(
 
 func (c *Client) getAgentsURL(serverRegion string) string {
 	agentsURL := c.projectURL
+	if os.Getenv("LK_AGENTS_URL") != "" {
+		agentsURL = os.Getenv("LK_AGENTS_URL")
+	}
 	if strings.HasPrefix(agentsURL, "ws") {
 		agentsURL = strings.Replace(agentsURL, "ws", "http", 1)
 	}
-	if os.Getenv("LK_AGENTS_URL") != "" {
-		agentsURL = os.Getenv("LK_AGENTS_URL")
-	} else if !strings.Contains(agentsURL, "localhost") && !strings.Contains(agentsURL, "127.0.0.1") {
+	if !strings.Contains(agentsURL, "localhost") && !strings.Contains(agentsURL, "127.0.0.1") {
 		pattern := `^https://[a-zA-Z0-9\-]+\.`
 		re := regexp.MustCompile(pattern)
 		if serverRegion != "" {
