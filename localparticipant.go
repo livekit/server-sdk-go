@@ -92,8 +92,15 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 	}
 
 	// LocalTrack will consume rtcp packets so we don't need to consume again
-	_, isSampleTrack := track.(*LocalTrack)
+	lt, isSampleTrack := track.(*LocalTrack)
 	pub.setSender(sender, !isSampleTrack)
+	if isSampleTrack {
+		for _, tr := range transport.PeerConnection().GetTransceivers() {
+			if tr.Sender() == sender {
+				tr.SetCodecPreferences([]webrtc.RTPCodecParameters{{RTPCodecCapability: lt.Codec()}})
+			}
+		}
+	}
 
 	req := &livekit.AddTrackRequest{
 		Cid:        track.ID(),
