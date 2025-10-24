@@ -178,8 +178,9 @@ func (w *WebhookHandler) handleCallsWebhook(value WebhookValue) {
 	for _, call := range value.Calls {
 		switch call.Event {
 		case "connect":
-			ctx, _ := context.WithTimeout(context.Background(), 60*time.Second)
-			if w.callDirection == CallDirectionInbound {
+			ctx := context.Background()
+			switch w.callDirection {
+			case CallDirectionInbound:
 				participantIdentity := guid.New("WAID_")[:8]
 				participantName := call.From
 				logger.Infow("Accepting whatsapp call", "call_id", call.ID, "from", call.From, "session_sdp", call.Session.SDP)
@@ -200,6 +201,30 @@ func (w *WebhookHandler) handleCallsWebhook(value WebhookValue) {
 					logger.Errorw("Failed to accept whatsapp call", err)
 				} else {
 					logger.Infow("Whatsapp call accepted", "response", res)
+
+					go func() {
+						time.AfterFunc(12*time.Second, func() {
+							w.connectorClient.DisconnectWhatsAppCall(ctx, &livekit.DisconnectWhatsAppCallRequest{
+								WhatsappApiKey: w.metaApiKey,
+								WhatsappCallId: call.ID,
+							})
+						})
+					}()
+				}
+			case CallDirectionOutbound:
+				res, err := w.connectorClient.ConnectWhatsAppCall(ctx, &livekit.ConnectWhatsAppCallRequest{
+					WhatsappPhoneNumberId: value.Metadata.PhoneNumberID,
+					WhatsappApiKey:        w.metaApiKey,
+					WhatsappCallId:        call.ID,
+					Sdp: &livekit.SessionDescription{
+						Type: "answer",
+						Sdp:  call.Session.SDP,
+					},
+				})
+				if err != nil {
+					logger.Errorw("Failed to connect whatsapp call", err)
+				} else {
+					logger.Infow("Whatsapp call connected", "response", res)
 				}
 			}
 		case "terminate":
