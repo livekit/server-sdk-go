@@ -34,6 +34,7 @@ import (
 const (
 	// defaults to 30 fps
 	defaultH264FrameDuration = 33 * time.Millisecond
+	defaultH265FrameDuration = 33 * time.Millisecond
 )
 
 // ReaderSampleProvider provides samples by reading from an io.ReadCloser implementation
@@ -292,7 +293,7 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 				return sample, nil
 			}
 
-			sample.Duration = defaultH264FrameDuration
+			sample.Duration = defaultH265FrameDuration
 			break
 		}
 
