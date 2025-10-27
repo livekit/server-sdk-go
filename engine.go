@@ -408,7 +408,10 @@ func (e *RTCEngine) createPublisherPCLocked(configuration webrtc.Configuration) 
 	})
 
 	e.publisher.pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
-		e.handleICEConnectionStateChange(e.publisher, livekit.SignalTarget_PUBLISHER, state)
+		e.pclock.Lock()
+		publisher := e.publisher
+		e.pclock.Unlock()
+		e.handleICEConnectionStateChange(publisher, livekit.SignalTarget_PUBLISHER, state)
 	})
 
 	e.publisher.OnOffer = func(offer webrtc.SessionDescription) {
@@ -489,7 +492,10 @@ func (e *RTCEngine) createSubscriberPCLocked(configuration webrtc.Configuration)
 	})
 
 	e.subscriber.pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
-		e.handleICEConnectionStateChange(e.subscriber, livekit.SignalTarget_SUBSCRIBER, state)
+		e.pclock.Lock()
+		subscriber := e.subscriber
+		e.pclock.Unlock()
+		e.handleICEConnectionStateChange(subscriber, livekit.SignalTarget_SUBSCRIBER, state)
 	})
 
 	e.subscriber.pc.OnTrack(func(remote *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
@@ -517,9 +523,13 @@ func (e *RTCEngine) handleICEConnectionStateChange(
 	signalTarget livekit.SignalTarget,
 	state webrtc.ICEConnectionState,
 ) {
+	if transport == nil {
+		return
+	}
+
 	switch state {
 	case webrtc.ICEConnectionStateConnected:
-		var fields []interface{}
+		var fields []any
 		if pair, err := transport.GetSelectedCandidatePair(); err == nil {
 			fields = append(fields, "transport", signalTarget, "iceCandidatePair", pair)
 		}
