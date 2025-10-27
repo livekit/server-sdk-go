@@ -34,6 +34,8 @@ var (
 		"node_modules",
 		".env",
 		".env.*",
+		".venv",
+		"venv",
 	}
 
 	ignoreFilePatterns = []string{
