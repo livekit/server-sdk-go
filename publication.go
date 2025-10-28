@@ -457,6 +457,7 @@ type TrackPublicationOptions struct {
 	// Opus only
 	DisableDTX bool
 	Stereo     bool
+	DisableRed bool
 	// which stream the track belongs to, used to group tracks together.
 	// if not specified, server will infer it from track source to bundle camera/microphone, screenshare/audio together
 	Stream string
