@@ -83,6 +83,9 @@ type ConnectParams struct {
 	Interceptors []interceptor.Factory
 
 	ICETransportPolicy webrtc.ICETransportPolicy
+
+	// internal use
+	Codecs []webrtc.RTPCodecParameters
 }
 
 type SignalTransport interface {
@@ -136,5 +139,6 @@ type SignalProcessor interface {
 	OnLeave(*livekit.LeaveRequest)
 	OnLocalTrackSubscribed(trackSubscribed *livekit.TrackSubscribed)
 	OnSubscribedQualityUpdate(subscribedQualityUpdate *livekit.SubscribedQualityUpdate)
+	OnSubscribedAudioCodecUpdate(subscribedAudioCodecUpdate *livekit.SubscribedAudioCodecUpdate)
 	OnMediaSectionsRequirement(mediaSectionsRequirement *livekit.MediaSectionsRequirement)
 }

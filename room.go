@@ -167,6 +167,13 @@ func WithExtraAttributes(attrs map[string]string) ConnectOption {
 	}
 }
 
+// for internal use to test codecs
+func withCodecs(codecs []webrtc.RTPCodecParameters) ConnectOption {
+	return func(p *signalling.ConnectParams) {
+		p.Codecs = codecs
+	}
+}
+
 type PLIWriter func(webrtc.SSRC)
 
 type Room struct {
@@ -220,7 +227,7 @@ func NewRoom(callback *RoomCallback) *Room {
 	r.callback.Merge(callback)
 
 	r.engine = NewRTCEngine(r.useSinglePeerConnection, r, r.getLocalParticipantSID)
-	r.LocalParticipant = newLocalParticipant(r.engine, r.callback, r.serverInfo)
+	r.LocalParticipant = newLocalParticipant(r.engine, r.callback, r.serverInfo, r.log)
 	return r
 }
 
@@ -248,6 +255,12 @@ func ConnectToRoomWithToken(url, token string, callback *RoomCallback, opts ...C
 func (r *Room) SetLogger(l protoLogger.Logger) {
 	r.log = l
 	r.engine.SetLogger(l)
+	r.LocalParticipant.SetLogger(l)
+	r.lock.RLock()
+	for _, rp := range r.remoteParticipants {
+		rp.SetLogger(l)
+	}
+	r.lock.RUnlock()
 }
 
 func (r *Room) Name() string {
@@ -528,7 +541,7 @@ func (r *Room) addRemoteParticipant(pi *livekit.ParticipantInfo, updateExisting 
 		if subscriber, ok := r.engine.Subscriber(); ok {
 			_ = subscriber.pc.WriteRTCP(pli)
 		}
-	})
+	}, r.log.WithValues("participant", pi.Identity))
 	r.remoteParticipants[livekit.ParticipantIdentity(pi.Identity)] = rp
 	r.sidToIdentity[livekit.ParticipantID(pi.Sid)] = livekit.ParticipantIdentity(pi.Identity)
 	return rp
@@ -1032,36 +1045,11 @@ func (r *Room) OnLocalTrackSubscribed(trackSubscribed *livekit.TrackSubscribed) 
 }
 
 func (r *Room) OnSubscribedQualityUpdate(subscribedQualityUpdate *livekit.SubscribedQualityUpdate) {
-	trackPublication := r.LocalParticipant.getLocalPublication(subscribedQualityUpdate.TrackSid)
-	if trackPublication == nil {
-		r.log.Debugw("recieved subscribed quality update for unknown track", "trackID", subscribedQualityUpdate.TrackSid)
-		return
-	}
+	r.LocalParticipant.handleSubscribedQualityUpdate(subscribedQualityUpdate)
+}
 
-	r.log.Infow(
-		"handling subscribed quality update",
-		"trackID", trackPublication.SID(),
-		"mime", trackPublication.MimeType(),
-		"subscribedQualityUpdate", protoLogger.Proto(subscribedQualityUpdate),
-	)
-	for _, subscribedCodec := range subscribedQualityUpdate.SubscribedCodecs {
-		if !strings.HasSuffix(strings.ToLower(trackPublication.MimeType()), subscribedCodec.Codec) {
-			continue
-		}
-
-		for _, subscribedQuality := range subscribedCodec.Qualities {
-			track := trackPublication.GetSimulcastTrack(subscribedQuality.Quality)
-			if track != nil {
-				track.setMuted(!subscribedQuality.Enabled)
-				r.log.Infow(
-					"updating layer enable",
-					"trackID", trackPublication.SID(),
-					"quality", subscribedQuality.Quality,
-					"enabled", subscribedQuality.Enabled,
-				)
-			}
-		}
-	}
+func (r *Room) OnSubscribedAudioCodecUpdate(subscribedAudioCodecUpdate *livekit.SubscribedAudioCodecUpdate) {
+	r.LocalParticipant.handleSubscribedAudioCodecUpdate(subscribedAudioCodecUpdate)
 }
 
 func (r *Room) OnMediaSectionsRequirement(mediaSectionsRequirement *livekit.MediaSectionsRequirement) {

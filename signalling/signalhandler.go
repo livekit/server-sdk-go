@@ -116,6 +116,9 @@ func (s *signalhandler) HandleMessage(msg proto.Message) error {
 	case *livekit.SignalResponse_SubscribedQualityUpdate:
 		s.params.Processor.OnSubscribedQualityUpdate(payload.SubscribedQualityUpdate)
 
+	case *livekit.SignalResponse_SubscribedAudioCodecUpdate:
+		s.params.Processor.OnSubscribedAudioCodecUpdate(payload.SubscribedAudioCodecUpdate)
+
 	case *livekit.SignalResponse_MediaSectionsRequirement:
 		s.params.Processor.OnMediaSectionsRequirement(payload.MediaSectionsRequirement)
 	}

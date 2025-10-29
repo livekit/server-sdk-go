@@ -20,6 +20,7 @@ import (
 	"github.com/pion/webrtc/v4"
 
 	"github.com/livekit/protocol/livekit"
+	protoLogger "github.com/livekit/protocol/logger"
 )
 
 type RemoteParticipant struct {
@@ -28,9 +29,9 @@ type RemoteParticipant struct {
 	engine    *RTCEngine
 }
 
-func newRemoteParticipant(pi *livekit.ParticipantInfo, roomCallback *RoomCallback, engine *RTCEngine, pliWriter PLIWriter) *RemoteParticipant {
+func newRemoteParticipant(pi *livekit.ParticipantInfo, roomCallback *RoomCallback, engine *RTCEngine, pliWriter PLIWriter, log protoLogger.Logger) *RemoteParticipant {
 	p := &RemoteParticipant{
-		baseParticipant: *newBaseParticipant(roomCallback),
+		baseParticipant: *newBaseParticipant(roomCallback, log.WithValues("isLocal", false)),
 		engine:          engine,
 		pliWriter:       pliWriter,
 	}
@@ -179,4 +180,8 @@ func (p *RemoteParticipant) unpublishAllTracks() {
 	p.tracks.Clear()
 	p.audioTracks.Clear()
 	p.videoTracks.Clear()
+}
+
+func (p *RemoteParticipant) SetLogger(logger protoLogger.Logger) {
+	p.baseParticipant.SetLogger(logger.WithValues("isLocal", false))
 }

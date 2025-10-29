@@ -17,6 +17,7 @@ package lksdk
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -69,6 +70,7 @@ type PCTransport struct {
 
 type PCTransportParams struct {
 	Configuration webrtc.Configuration
+	Codecs        []webrtc.RTPCodecParameters
 
 	RetransmitBufferSize uint16
 	Pacer                pacer.Factory
@@ -132,7 +134,17 @@ func (t *PCTransport) registerDefaultInterceptors(params PCTransportParams, i *i
 
 func NewPCTransport(params PCTransportParams) (*PCTransport, error) {
 	m := &webrtc.MediaEngine{}
-	if err := m.RegisterDefaultCodecs(); err != nil {
+	if len(params.Codecs) > 0 {
+		for _, codec := range params.Codecs {
+			codecType := webrtc.RTPCodecTypeAudio
+			if strings.HasPrefix(codec.MimeType, "video/") {
+				codecType = webrtc.RTPCodecTypeVideo
+			}
+			if err := m.RegisterCodec(codec, codecType); err != nil {
+				return nil, err
+			}
+		}
+	} else if err := m.RegisterDefaultCodecs(); err != nil {
 		return nil, err
 	}
 	audioLevelExtension := webrtc.RTPHeaderExtensionCapability{URI: sdp.AudioLevelURI}

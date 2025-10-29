@@ -15,6 +15,7 @@
 package lksdk
 
 import (
+	"context"
 	"errors"
 	"math/rand"
 	"os"
@@ -43,6 +44,27 @@ const (
 
 var (
 	apiKey, apiSecret string
+
+	VP8KeyFrame8x8 = []byte{
+		0x10, 0x02, 0x00, 0x9d, 0x01, 0x2a, 0x08, 0x00,
+		0x08, 0x00, 0x00, 0x47, 0x08, 0x85, 0x85, 0x88,
+		0x85, 0x84, 0x88, 0x02, 0x02, 0x00, 0x0c, 0x0d,
+		0x60, 0x00, 0xfe, 0xff, 0xab, 0x50, 0x80,
+	}
+
+	H264KeyFrame2x2SPS = []byte{
+		0x67, 0x42, 0xc0, 0x1f, 0x0f, 0xd9, 0x1f, 0x88,
+		0x88, 0x84, 0x00, 0x00, 0x03, 0x00, 0x04, 0x00,
+		0x00, 0x03, 0x00, 0xc8, 0x3c, 0x60, 0xc9, 0x20,
+	}
+	H264KeyFrame2x2PPS = []byte{
+		0x68, 0x87, 0xcb, 0x83, 0xcb, 0x20,
+	}
+	H264KeyFrame2x2IDR = []byte{
+		0x65, 0x88, 0x84, 0x0a, 0xf2, 0x62, 0x80, 0x00,
+		0xa7, 0xbe,
+	}
+	H264KeyFrame2x2 = [][]byte{H264KeyFrame2x2SPS, H264KeyFrame2x2PPS, H264KeyFrame2x2IDR}
 )
 
 func TestMain(m *testing.M) {
@@ -54,30 +76,61 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func createAgent(roomName string, callback *RoomCallback, name string) (*Room, error) {
+func createAgent(roomName string, callback *RoomCallback, name string, connectOpts ...ConnectOption) (*Room, error) {
 	room, err := ConnectToRoom(host, ConnectInfo{
 		APIKey:              apiKey,
 		APISecret:           apiSecret,
 		RoomName:            roomName,
 		ParticipantIdentity: name,
-	}, callback)
+	}, callback, connectOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return room, nil
 }
 
-func pubNullTrack(t *testing.T, room *Room, name string) *LocalTrackPublication {
-	track, err := NewLocalTrack(webrtc.RTPCodecCapability{
-		MimeType:  webrtc.MimeTypeOpus,
-		Channels:  2,
-		ClockRate: 48000,
-	})
-	require.NoError(t, err)
-	provider := &NullSampleProvider{
-		BytesPerSample: 1000,
-		SampleDuration: 50 * time.Millisecond,
+type SampleTestProvider struct {
+	BaseSampleProvider
+	SampleDuration time.Duration
+	Codec          webrtc.RTPCodecCapability
+}
+
+func NewSampleTestProvider(codec webrtc.RTPCodecCapability) *SampleTestProvider {
+	sampleDuration := 50 * time.Millisecond
+	if strings.Contains(codec.MimeType, "video/") {
+		sampleDuration = time.Second / 10
 	}
+	return &SampleTestProvider{
+		SampleDuration: sampleDuration,
+		Codec:          codec,
+	}
+}
+
+func (p *SampleTestProvider) NextSample(ctx context.Context) (media.Sample, error) {
+	payload := make([]byte, 512)
+	switch {
+	case strings.Contains(p.Codec.MimeType, "VP8"):
+		payload = payload[:len(VP8KeyFrame8x8)]
+		copy(payload, VP8KeyFrame8x8)
+	case strings.Contains(p.Codec.MimeType, "H264"):
+		payload = payload[:0]
+		for _, nalu := range H264KeyFrame2x2 {
+			// Annex B prefix
+			payload = append(payload, 0x00, 0x00, 0x00, 0x01)
+			payload = append(payload, nalu...)
+		}
+	default:
+	}
+	return media.Sample{
+		Data:     payload,
+		Duration: p.SampleDuration,
+	}, nil
+}
+
+func pubNullTrack(t *testing.T, room *Room, name string, codecs ...webrtc.RTPCodecCapability) *LocalTrackPublication {
+	track, err := NewLocalTrack(codecs[0])
+	require.NoError(t, err)
+	provider := NewSampleTestProvider(codecs[0])
 
 	track.OnBind(func() {
 		if err := track.StartWrite(provider, func() {}); err != nil {
@@ -85,9 +138,25 @@ func pubNullTrack(t *testing.T, room *Room, name string) *LocalTrackPublication 
 		}
 	})
 
+	var opts []LocalTrackPublishOption
+	if len(codecs) > 1 {
+		backupTrack, err := NewLocalTrack(codecs[1])
+		require.NoError(t, err)
+
+		backupProvider := NewSampleTestProvider(codecs[1])
+
+		backupTrack.OnBind(func() {
+			if err := backupTrack.StartWrite(backupProvider, func() {}); err != nil {
+				backupTrack.log.Errorw("Could not start writing", err)
+			}
+		})
+
+		opts = append(opts, WithBackupCodec(backupTrack))
+	}
 	localPub, err := room.LocalParticipant.PublishTrack(track, &TrackPublicationOptions{
-		Name: name,
-	})
+		Name:              name,
+		BackupCodecPolicy: livekit.BackupCodecPolicy_SIMULCAST,
+	}, opts...)
 	require.NoError(t, err)
 	return localPub
 }
@@ -141,7 +210,12 @@ func TestJoin(t *testing.T) {
 
 	pub.LocalParticipant.PublishDataPacket(UserData([]byte("test")), WithDataPublishReliable(true))
 	pub.LocalParticipant.PublishDataPacket(&livekit.SipDTMF{Digit: "#"}, WithDataPublishReliable(true))
-	localPub := pubNullTrack(t, pub, audioTrackName)
+	localPub := pubNullTrack(t, pub, audioTrackName, webrtc.RTPCodecCapability{
+		MimeType:  webrtc.MimeTypeOpus,
+		ClockRate: 48000,
+		Channels:  2,
+	})
+
 	require.Equal(t, localPub.Name(), audioTrackName)
 
 	require.Eventually(t, func() bool { return trackReceived.Load() }, 5*time.Second, 100*time.Millisecond)
@@ -205,7 +279,11 @@ func TestResume(t *testing.T) {
 		require.Equal(t, ConnectionStateConnected, sub.ConnectionState())
 	}
 
-	localPub := pubNullTrack(t, pub, audioTrackName)
+	localPub := pubNullTrack(t, pub, audioTrackName, webrtc.RTPCodecCapability{
+		MimeType:  webrtc.MimeTypeOpus,
+		ClockRate: 48000,
+		Channels:  2,
+	})
 	require.Equal(t, localPub.Name(), audioTrackName)
 	require.Eventually(t, func() bool { return trackReceived.Load() }, 5*time.Second, 100*time.Millisecond)
 
@@ -406,4 +484,83 @@ func TestLimitPayloadSize(t *testing.T) {
 	require.ErrorIs(t, localTrack.WriteRTP(&rtpPkt), interceptor.ErrPayloadSizeTooLarge)
 
 	pub.Disconnect()
+}
+
+func TestSimulcastCodec(t *testing.T) {
+	cases := []struct {
+		name                      string
+		primaryCodec, backupCodec webrtc.RTPCodecCapability
+	}{
+		{
+			name: "video",
+			primaryCodec: webrtc.RTPCodecCapability{
+				MimeType:  webrtc.MimeTypeVP8,
+				ClockRate: 90000,
+			},
+			backupCodec: webrtc.RTPCodecCapability{
+				MimeType:  webrtc.MimeTypeH264,
+				ClockRate: 90000,
+			},
+		},
+		{
+			name: "audio",
+			primaryCodec: webrtc.RTPCodecCapability{
+				MimeType:  webrtc.MimeTypePCMU,
+				ClockRate: 8000,
+				Channels:  1,
+			},
+			backupCodec: webrtc.RTPCodecCapability{
+				MimeType:  webrtc.MimeTypeOpus,
+				ClockRate: 48000,
+				Channels:  2,
+			},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			pub, err := createAgent(t.Name(), nil, "publisher")
+			require.NoError(t, err)
+			trackPub := pubNullTrack(t, pub, "simulcast_codec", []webrtc.RTPCodecCapability{c.primaryCodec, c.backupCodec}...)
+			t.Log("published track with simulcast codecs:", trackPub.SID())
+
+			var subWG sync.WaitGroup
+			subWG.Add(2) // primary and backup
+			primarySub, err := createAgent(t.Name(), &RoomCallback{
+				ParticipantCallback: ParticipantCallback{
+					OnTrackSubscribed: func(track *webrtc.TrackRemote, publication *RemoteTrackPublication, rp *RemoteParticipant) {
+						subWG.Done()
+						t.Log("primary codec subscribed:", track.Codec().MimeType, publication.SID())
+						require.Equal(t, publication.SID(), trackPub.SID())
+						require.Equal(t, c.primaryCodec.MimeType, track.Codec().MimeType)
+					},
+				},
+			}, "primary_subscriber")
+			require.NoError(t, err)
+
+			backupSub, err := createAgent(t.Name(), &RoomCallback{
+				ParticipantCallback: ParticipantCallback{
+					OnTrackSubscribed: func(track *webrtc.TrackRemote, publication *RemoteTrackPublication, rp *RemoteParticipant) {
+						subWG.Done()
+						t.Log("backup codec subscribed:", track.Codec().MimeType, publication.SID())
+						require.Equal(t, publication.SID(), trackPub.SID())
+						require.Equal(t, c.backupCodec.MimeType, track.Codec().MimeType)
+					},
+				},
+			}, "backup_subscriber", withCodecs([]webrtc.RTPCodecParameters{
+				{
+					RTPCodecCapability: c.backupCodec,
+					PayloadType:        96,
+				},
+			}))
+			require.NoError(t, err)
+
+			subWG.Wait()
+
+			pub.Disconnect()
+			primarySub.Disconnect()
+			backupSub.Disconnect()
+		})
+	}
+
 }
