@@ -181,3 +181,7 @@ func (p *RemoteParticipant) unpublishAllTracks() {
 	p.audioTracks.Clear()
 	p.videoTracks.Clear()
 }
+
+func (p *RemoteParticipant) SetLogger(logger protoLogger.Logger) {
+	p.baseParticipant.SetLogger(logger.WithValues("isLocal", false))
+}

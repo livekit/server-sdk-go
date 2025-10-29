@@ -180,6 +180,10 @@ func (p *baseParticipant) IsScreenShareAudioEnabled() bool {
 	return pub != nil && !pub.IsMuted()
 }
 
+func (p *baseParticipant) SetLogger(l protoLogger.Logger) {
+	p.log = l
+}
+
 func (p *baseParticipant) setAudioLevel(level float32) {
 	p.audioLevel.Store(float64(level))
 }

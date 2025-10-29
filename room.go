@@ -255,6 +255,12 @@ func ConnectToRoomWithToken(url, token string, callback *RoomCallback, opts ...C
 func (r *Room) SetLogger(l protoLogger.Logger) {
 	r.log = l
 	r.engine.SetLogger(l)
+	r.LocalParticipant.SetLogger(l)
+	r.lock.RLock()
+	for _, rp := range r.remoteParticipants {
+		rp.SetLogger(l)
+	}
+	r.lock.RUnlock()
 }
 
 func (r *Room) Name() string {

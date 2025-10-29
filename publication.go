@@ -613,6 +613,10 @@ func (p *LocalTrackPublication) unpublish(transport *PCTransport) error {
 	return nil
 }
 
+func (p *LocalTrackPublication) SetLogger(log protoLogger.Logger) {
+	p.log = log
+}
+
 type TrackPublicationOptions struct {
 	Name   string
 	Source livekit.TrackSource

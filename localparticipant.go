@@ -155,18 +155,22 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 	}
 
 	// TODO: support e2ee for backup codecs
-	if pubOptions.backupCodecTrack != nil && req.Encryption == livekit.Encryption_NONE {
-		req.SimulcastCodecs = []*livekit.SimulcastCodec{
-			{
-				Codec: primaryCodec.MimeType,
-				Cid:   track.ID(),
-			},
-			{
-				Codec: pubOptions.backupCodecTrack.Codec().MimeType,
-				Cid:   pubOptions.backupCodecTrack.ID(),
-			},
+	if pubOptions.backupCodecTrack != nil {
+		if req.Encryption == livekit.Encryption_NONE {
+			req.SimulcastCodecs = []*livekit.SimulcastCodec{
+				{
+					Codec: primaryCodec.MimeType,
+					Cid:   track.ID(),
+				},
+				{
+					Codec: pubOptions.backupCodecTrack.Codec().MimeType,
+					Cid:   pubOptions.backupCodecTrack.ID(),
+				},
+			}
+			pub.setBackupCodecTrack(pubOptions.backupCodecTrack)
+		} else {
+			p.log.Warnw("backup codec publication with encryption is not supported, ignoring backup codec", nil)
 		}
-		pub.setBackupCodecTrack(pubOptions.backupCodecTrack)
 	}
 	if err := p.engine.SendAddTrack(req); err != nil {
 		return nil, err
@@ -1105,4 +1109,13 @@ func (p *LocalParticipant) getPublishTransport() *PCTransport {
 	}
 
 	return nil
+}
+
+func (p *LocalParticipant) SetLogger(log protoLogger.Logger) {
+	p.baseParticipant.SetLogger(log.WithValues("isLocal", true))
+	p.tracks.Range(func(key, value interface{}) bool {
+		pub := value.(*LocalTrackPublication)
+		pub.SetLogger(p.log)
+		return true
+	})
 }
