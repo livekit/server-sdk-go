@@ -351,5 +351,6 @@ func (t *PCMLocalTrack) emitLogSnapshot(snapshot *pcmLocalTrackLogSnapshot) {
 		"queue_s", queueSeconds,
 		"total_written", snapshot.totalWritten,
 		"total_processed", snapshot.totalProcessed,
+		"source_sample_rate", t.sourceSampleRate,
 	)
 }
