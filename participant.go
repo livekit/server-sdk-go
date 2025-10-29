@@ -22,6 +22,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/livekit/protocol/livekit"
+	protoLogger "github.com/livekit/protocol/logger"
 )
 
 type Participant interface {
@@ -47,6 +48,7 @@ type Participant interface {
 }
 
 type baseParticipant struct {
+	log               protoLogger.Logger
 	sid               string
 	identity          string
 	name              string
@@ -66,12 +68,13 @@ type baseParticipant struct {
 	tracks      *sync.Map
 }
 
-func newBaseParticipant(roomCallback *RoomCallback) *baseParticipant {
+func newBaseParticipant(roomCallback *RoomCallback, log protoLogger.Logger) *baseParticipant {
 	p := &baseParticipant{
 		audioTracks:  &sync.Map{},
 		videoTracks:  &sync.Map{},
 		tracks:       &sync.Map{},
 		roomCallback: roomCallback,
+		log:          log,
 		Callback:     NewParticipantCallback(),
 	}
 	// need to initialize

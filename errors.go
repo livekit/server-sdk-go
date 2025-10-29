@@ -33,4 +33,5 @@ var (
 	ErrCannotConnectSignal      = errors.New("could not establish signal connection")
 	ErrNoPeerConnection         = errors.New("peer connection not established")
 	ErrAborted                  = errors.New("operation was aborted")
+	ErrMissingPrimaryCodec      = errors.New("primary track must be TrackLocalWithCodec when backup codec is present")
 )

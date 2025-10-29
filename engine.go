@@ -71,39 +71,8 @@ type engineHandler interface {
 	OnStreamTrailer(*livekit.DataStream_Trailer)
 	OnLocalTrackSubscribed(trackSubscribed *livekit.TrackSubscribed)
 	OnSubscribedQualityUpdate(subscribedQualityUpdate *livekit.SubscribedQualityUpdate)
+	OnSubscribedAudioCodecUpdate(subscribedAudioCodecUpdate *livekit.SubscribedAudioCodecUpdate)
 	OnMediaSectionsRequirement(mediaSectionsRequirement *livekit.MediaSectionsRequirement)
-}
-
-type nullEngineHandler struct{}
-
-func (n *nullEngineHandler) OnLocalTrackUnpublished(response *livekit.TrackUnpublishedResponse)   {}
-func (n *nullEngineHandler) OnTrackRemoteMuted(request *livekit.MuteTrackRequest)                 {}
-func (n *nullEngineHandler) OnDisconnected(reason DisconnectionReason)                            {}
-func (n *nullEngineHandler) OnMediaTrack(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {}
-func (n *nullEngineHandler) OnParticipantUpdate([]*livekit.ParticipantInfo)                       {}
-func (n *nullEngineHandler) OnSpeakersChanged([]*livekit.SpeakerInfo)                             {}
-func (n *nullEngineHandler) OnDataPacket(identity string, dataPacket DataPacket)                  {}
-func (n *nullEngineHandler) OnConnectionQuality([]*livekit.ConnectionQualityInfo)                 {}
-func (n *nullEngineHandler) OnRoomUpdate(room *livekit.Room)                                      {}
-func (n *nullEngineHandler) OnRoomMoved(moved *livekit.RoomMovedResponse)                         {}
-func (n *nullEngineHandler) OnRestarting()                                                        {}
-func (n *nullEngineHandler) OnRestarted(room *livekit.Room, participant *livekit.ParticipantInfo, otherParticipants []*livekit.ParticipantInfo) {
-}
-func (n *nullEngineHandler) OnResuming()                                   {}
-func (n *nullEngineHandler) OnResumed()                                    {}
-func (n *nullEngineHandler) OnTranscription(*livekit.Transcription)        {}
-func (n *nullEngineHandler) OnSignalClientConnected(*livekit.JoinResponse) {}
-func (n *nullEngineHandler) OnRpcRequest(callerIdentity, requestId, method, payload string, responseTimeout time.Duration, version uint32) {
-}
-func (n *nullEngineHandler) OnRpcAck(requestId string)                                        {}
-func (n *nullEngineHandler) OnRpcResponse(requestId string, payload *string, error *RpcError) {}
-func (n *nullEngineHandler) OnStreamHeader(*livekit.DataStream_Header, string)                {}
-func (n *nullEngineHandler) OnStreamChunk(*livekit.DataStream_Chunk)                          {}
-func (n *nullEngineHandler) OnStreamTrailer(*livekit.DataStream_Trailer)                      {}
-func (n *nullEngineHandler) OnLocalTrackSubscribed(trackSubscribed *livekit.TrackSubscribed)  {}
-func (n *nullEngineHandler) OnSubscribedQualityUpdate(subscribedQualityUpdate *livekit.SubscribedQualityUpdate) {
-}
-func (n *nullEngineHandler) OnMediaSectionsRequirement(mediaSectionsRequirement *livekit.MediaSectionsRequirement) {
 }
 
 // -------------------------------------------
@@ -374,6 +343,7 @@ func (e *RTCEngine) createPublisherPCLocked(configuration webrtc.Configuration) 
 	var err error
 	if e.publisher, err = NewPCTransport(PCTransportParams{
 		Configuration:        configuration,
+		Codecs:               e.connParams.Codecs,
 		RetransmitBufferSize: e.connParams.RetransmitBufferSize,
 		Pacer:                e.connParams.Pacer,
 		Interceptors:         e.connParams.Interceptors,
@@ -460,6 +430,7 @@ func (e *RTCEngine) createSubscriberPCLocked(configuration webrtc.Configuration)
 	var err error
 	if e.subscriber, err = NewPCTransport(PCTransportParams{
 		Configuration:        configuration,
+		Codecs:               e.connParams.Codecs,
 		RetransmitBufferSize: e.connParams.RetransmitBufferSize,
 	}); err != nil {
 		return err
@@ -1393,6 +1364,10 @@ func (e *RTCEngine) OnLocalTrackSubscribed(trackSubscribed *livekit.TrackSubscri
 
 func (e *RTCEngine) OnSubscribedQualityUpdate(subscribedQualityUpdate *livekit.SubscribedQualityUpdate) {
 	e.engineHandler.OnSubscribedQualityUpdate(subscribedQualityUpdate)
+}
+
+func (e *RTCEngine) OnSubscribedAudioCodecUpdate(subscribedAudioCodecUpdate *livekit.SubscribedAudioCodecUpdate) {
+	e.engineHandler.OnSubscribedAudioCodecUpdate(subscribedAudioCodecUpdate)
 }
 
 func (e *RTCEngine) OnMediaSectionsRequirement(mediaSectionsRequirement *livekit.MediaSectionsRequirement) {

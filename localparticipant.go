@@ -15,10 +15,12 @@
 package lksdk
 
 import (
+	"fmt"
 	"mime"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,6 +29,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/livekit/protocol/livekit"
+	protoLogger "github.com/livekit/protocol/logger"
 )
 
 const (
@@ -43,9 +46,9 @@ type LocalParticipant struct {
 	rpcPendingResponses *sync.Map
 }
 
-func newLocalParticipant(engine *RTCEngine, roomcallback *RoomCallback, serverInfo *livekit.ServerInfo) *LocalParticipant {
+func newLocalParticipant(engine *RTCEngine, roomcallback *RoomCallback, serverInfo *livekit.ServerInfo, log protoLogger.Logger) *LocalParticipant {
 	return &LocalParticipant{
-		baseParticipant:     *newBaseParticipant(roomcallback),
+		baseParticipant:     *newBaseParticipant(roomcallback, log.WithValues("isLocal", true)),
 		engine:              engine,
 		serverInfo:          serverInfo,
 		rpcPendingAcks:      &sync.Map{},
@@ -55,7 +58,17 @@ func newLocalParticipant(engine *RTCEngine, roomcallback *RoomCallback, serverIn
 
 // PublishTrack publishes a local track to the room.
 // The track will be available to other participants in the room.
-func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPublicationOptions) (*LocalTrackPublication, error) {
+func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPublicationOptions, pubOpts ...LocalTrackPublishOption) (*LocalTrackPublication, error) {
+	pubOptions := &LocalTrackPublishOptions{}
+	for _, opt := range pubOpts {
+		opt(pubOptions)
+	}
+	if pubOptions.backupCodecTrack != nil {
+		if _, ok := track.(TrackLocalWithCodec); !ok {
+			return nil, ErrMissingPrimaryCodec
+		}
+	}
+
 	if opts == nil {
 		opts = &TrackPublicationOptions{}
 	}
@@ -78,7 +91,7 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 	p.engine.RegisterTrackPublishedListener(track.ID(), pubChan)
 	defer p.engine.UnregisterTrackPublishedListener(track.ID())
 
-	pub := NewLocalTrackPublication(kind, track, *opts, p.engine)
+	pub := NewLocalTrackPublication(kind, track, *opts, p.engine, p.log)
 	pub.onMuteChanged = p.onTrackMuted
 
 	// add transceivers - re-use if possible, AddTrack will try to re-use.
@@ -93,26 +106,42 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 
 	// LocalTrack will consume rtcp packets so we don't need to consume again
 	lt, isSampleTrack := track.(*LocalTrack)
-	pub.setSender(sender, !isSampleTrack)
+	var primaryCodec webrtc.RTPCodecCapability
 	if isSampleTrack {
+		primaryCodec = lt.Codec()
+	} else {
+		if _, ok := track.(TrackLocalWithCodec); ok {
+			primaryCodec = track.(TrackLocalWithCodec).Codec()
+		}
+		pub.readRTCP(sender)
+	}
+	if primaryCodec.MimeType != "" {
 		for _, tr := range transport.PeerConnection().GetTransceivers() {
 			if tr.Sender() == sender {
-				tr.SetCodecPreferences([]webrtc.RTPCodecParameters{{RTPCodecCapability: lt.Codec()}})
+				codecs := append([]webrtc.RTPCodecParameters{}, sender.GetParameters().Codecs...)
+				for i, c := range codecs {
+					if strings.EqualFold(c.RTPCodecCapability.MimeType, primaryCodec.MimeType) {
+						codecs[0], codecs[i] = codecs[i], codecs[0]
+						break
+					}
+				}
+				tr.SetCodecPreferences(codecs)
 			}
 		}
 	}
 
 	req := &livekit.AddTrackRequest{
-		Cid:        track.ID(),
-		Name:       opts.Name,
-		Source:     opts.Source,
-		Type:       kind.ProtoType(),
-		Width:      uint32(opts.VideoWidth),
-		Height:     uint32(opts.VideoHeight),
-		DisableDtx: opts.DisableDTX,
-		Stereo:     opts.Stereo,
-		Stream:     opts.Stream,
-		Encryption: opts.Encryption,
+		Cid:               track.ID(),
+		Name:              opts.Name,
+		Source:            opts.Source,
+		Type:              kind.ProtoType(),
+		Width:             uint32(opts.VideoWidth),
+		Height:            uint32(opts.VideoHeight),
+		DisableDtx:        opts.DisableDTX,
+		Stereo:            opts.Stereo,
+		Stream:            opts.Stream,
+		Encryption:        opts.Encryption,
+		BackupCodecPolicy: opts.BackupCodecPolicy,
 	}
 	if kind == TrackKindVideo {
 		// single layer
@@ -123,6 +152,21 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 				Height:  uint32(opts.VideoHeight),
 			},
 		}
+	}
+
+	// TODO: support e2ee for backup codecs
+	if pubOptions.backupCodecTrack != nil && req.Encryption == livekit.Encryption_NONE {
+		req.SimulcastCodecs = []*livekit.SimulcastCodec{
+			{
+				Codec: primaryCodec.MimeType,
+				Cid:   track.ID(),
+			},
+			{
+				Codec: pubOptions.backupCodecTrack.Codec().MimeType,
+				Cid:   pubOptions.backupCodecTrack.ID(),
+			},
+		}
+		pub.setBackupCodecTrack(pubOptions.backupCodecTrack)
 	}
 	if err := p.engine.SendAddTrack(req); err != nil {
 		return nil, err
@@ -150,7 +194,7 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 
 // PublishSimulcastTrack publishes a simulcast track with up to three quality layers to the server.
 // This allows the server to dynamically switch between different quality levels based on network conditions.
-func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *TrackPublicationOptions) (*LocalTrackPublication, error) {
+func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *TrackPublicationOptions, pubOpts ...LocalTrackPublishOption) (*LocalTrackPublication, error) {
 	if len(tracks) == 0 {
 		return nil, nil
 	}
@@ -162,6 +206,11 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *Tra
 		if track.videoLayer == nil || track.RID() == "" {
 			return nil, ErrInvalidSimulcastTrack
 		}
+	}
+
+	pubOptions := &LocalTrackPublishOptions{}
+	for _, opt := range pubOpts {
+		opt(pubOptions)
 	}
 
 	tracksCopy := make([]*LocalTrack, len(tracks))
@@ -186,7 +235,7 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *Tra
 	p.engine.RegisterTrackPublishedListener(mainTrack.ID(), pubChan)
 	defer p.engine.UnregisterTrackPublishedListener(mainTrack.ID())
 
-	pub := NewLocalTrackPublication(KindFromRTPType(mainTrack.Kind()), nil, *opts, p.engine)
+	pub := NewLocalTrackPublication(KindFromRTPType(mainTrack.Kind()), nil, *opts, p.engine, p.log)
 	pub.onMuteChanged = p.onTrackMuted
 
 	transport := p.getPublishTransport()
@@ -220,8 +269,6 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *Tra
 					break
 				}
 			}
-
-			pub.setSender(sender, false)
 		} else {
 			if err = sender.AddEncoding(st); err != nil {
 				return nil, err
@@ -235,23 +282,48 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *Tra
 	for _, st := range tracksCopy {
 		layers = append(layers, st.videoLayer)
 	}
-	err = p.engine.SendAddTrack(
-		&livekit.AddTrackRequest{
-			Cid:    mainTrack.ID(),
-			Name:   opts.Name,
-			Source: opts.Source,
-			Type:   pub.Kind().ProtoType(),
-			Width:  mainTrack.videoLayer.Width,
-			Height: mainTrack.videoLayer.Height,
-			Layers: layers,
-			SimulcastCodecs: []*livekit.SimulcastCodec{
-				{
-					Codec: mainTrack.Codec().MimeType,
-					Cid:   mainTrack.ID(),
-				},
+	req := &livekit.AddTrackRequest{
+		Cid:    mainTrack.ID(),
+		Name:   opts.Name,
+		Source: opts.Source,
+		Type:   pub.Kind().ProtoType(),
+		Width:  mainTrack.videoLayer.Width,
+		Height: mainTrack.videoLayer.Height,
+		Layers: layers,
+		SimulcastCodecs: []*livekit.SimulcastCodec{
+			{
+				Codec:          mainTrack.Codec().MimeType,
+				Cid:            mainTrack.ID(),
+				Layers:         layers,
+				VideoLayerMode: livekit.VideoLayer_ONE_SPATIAL_LAYER_PER_STREAM,
 			},
 		},
-	)
+	}
+	if len(pubOptions.backupCodecTracks) > 0 {
+		backupTracksCopy := make([]*LocalTrack, len(pubOptions.backupCodecTracks))
+		copy(backupTracksCopy, pubOptions.backupCodecTracks)
+
+		// tracks should be low to high
+		sort.Slice(backupTracksCopy, func(i, j int) bool {
+			return backupTracksCopy[i].videoLayer.Width < backupTracksCopy[j].videoLayer.Width
+		})
+
+		var backupLayers []*livekit.VideoLayer
+		for _, st := range backupTracksCopy {
+			backupLayers = append(backupLayers, st.videoLayer)
+		}
+
+		backupTrackMain := backupTracksCopy[len(backupTracksCopy)-1]
+		req.SimulcastCodecs = append(req.SimulcastCodecs, &livekit.SimulcastCodec{
+			Codec:          backupTrackMain.Codec().MimeType,
+			Cid:            backupTrackMain.ID(),
+			Layers:         backupLayers,
+			VideoLayerMode: livekit.VideoLayer_ONE_SPATIAL_LAYER_PER_STREAM,
+		})
+
+		pub.setBackupCodecTracksForSimulcast(backupTracksCopy)
+	}
+	err = p.engine.SendAddTrack(req)
 	if err != nil {
 		return nil, err
 	}
@@ -277,6 +349,162 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *Tra
 	return pub, nil
 }
 
+func (p *LocalParticipant) handleSubscribedQualityUpdate(subscribedQualityUpdate *livekit.SubscribedQualityUpdate) {
+	trackPublication := p.getLocalPublication(subscribedQualityUpdate.TrackSid)
+	if trackPublication == nil {
+		p.log.Infow("recieved subscribed quality update for unknown track", "trackID", subscribedQualityUpdate.TrackSid)
+		return
+	}
+
+	p.log.Infow(
+		"handling subscribed quality update",
+		"trackID", trackPublication.SID(),
+		"mime", trackPublication.MimeType(),
+		"subscribedQualityUpdate", protoLogger.Proto(subscribedQualityUpdate),
+	)
+	newCodecs := trackPublication.setPublishingCodecsQuality(subscribedQualityUpdate.SubscribedCodecs)
+	if len(newCodecs) > 0 {
+		go func() {
+			for _, codec := range newCodecs {
+				p.log.Infow("publishing backup codec from subscribed quality update", "trackID", trackPublication.SID(), "codec", codec)
+				if err := p.publishAdditionalCodecForTrack(trackPublication, codec); err != nil {
+					p.log.Warnw("failed to publish backup codec", err, "trackID", trackPublication.SID(), "codec", codec)
+				}
+			}
+		}()
+	}
+}
+
+func (p *LocalParticipant) handleSubscribedAudioCodecUpdate(subscribedAudioCodecUpdate *livekit.SubscribedAudioCodecUpdate) {
+	trackPublication := p.getLocalPublication(subscribedAudioCodecUpdate.TrackSid)
+	if trackPublication == nil {
+		p.log.Debugw("recieved subscribed audio codec update for unknown track", "trackID", subscribedAudioCodecUpdate.TrackSid)
+		return
+	}
+
+	p.log.Infow(
+		"handling subscribed audio codec update",
+		"trackID", trackPublication.SID(),
+		"mime", trackPublication.MimeType(),
+		"subscribedAudioCodecUpdate", protoLogger.Proto(subscribedAudioCodecUpdate),
+	)
+	newCodecs := trackPublication.setAudioCodecSubscribed(subscribedAudioCodecUpdate.SubscribedAudioCodecs)
+	if len(newCodecs) > 0 {
+		go func() {
+			for _, codec := range newCodecs {
+				p.log.Infow("publishing backup codec from subscribed audio codec update", "trackID", trackPublication.SID(), "codec", codec)
+				if err := p.publishAdditionalCodecForTrack(trackPublication, codec); err != nil {
+					p.log.Warnw("failed to publish backup codec", err, "trackID", trackPublication.SID(), "codec", codec)
+				}
+			}
+		}()
+	}
+}
+
+func (p *LocalParticipant) publishAdditionalCodecForTrack(trackPublication *LocalTrackPublication, codec string) error {
+	track, tracks := trackPublication.getBackupCodecTrack()
+	if track == nil && len(tracks) == 0 {
+		return fmt.Errorf("%w: required codec %s", ErrCannotFindTrack, codec)
+	}
+
+	transport := p.getPublishTransport()
+	if transport == nil {
+		return ErrNoPeerConnection
+	}
+
+	mainTrack := track
+	if track == nil {
+		sort.Slice(tracks, func(i, j int) bool {
+			return tracks[i].videoLayer.Width < tracks[j].videoLayer.Width
+		})
+		mainTrack = tracks[len(tracks)-1]
+	}
+
+	if !strings.Contains(strings.ToLower(mainTrack.Codec().MimeType), strings.ToLower(codec)) {
+		return fmt.Errorf("%w: required codec %s, available codec %s", ErrCannotFindTrack, codec, mainTrack.Codec().MimeType)
+	}
+
+	p.log.Debugw("publishing additional codec for track", "cID", mainTrack.ID(), "codec", codec, "trackID", trackPublication.SID())
+
+	pubChan := make(chan *livekit.TrackPublishedResponse, 1)
+	p.engine.RegisterTrackPublishedListener(mainTrack.ID(), pubChan)
+	defer p.engine.UnregisterTrackPublishedListener(mainTrack.ID())
+
+	pc := transport.PeerConnection()
+	if track != nil {
+		sender, err := pc.AddTrack(track)
+		if err != nil {
+			return err
+		}
+
+		for _, tr := range pc.GetTransceivers() {
+			if tr.Sender() == sender {
+				codecs := append([]webrtc.RTPCodecParameters{}, sender.GetParameters().Codecs...)
+				for i, c := range codecs {
+					if strings.EqualFold(c.RTPCodecCapability.MimeType, mainTrack.Codec().MimeType) {
+						codecs[0], codecs[i] = codecs[i], codecs[0]
+						break
+					}
+				}
+				tr.SetCodecPreferences(codecs)
+			}
+		}
+	} else { // simulcast backup tracks
+		var (
+			transceiver *webrtc.RTPTransceiver
+			sender      *webrtc.RTPSender
+			err         error
+		)
+		for idx, st := range tracks {
+			if idx == 0 {
+				sender, err = pc.AddTrack(st)
+				if err != nil {
+					return err
+				}
+
+				for _, tr := range pc.GetTransceivers() {
+					if tr.Sender() == sender {
+						transceiver = tr
+						break
+					}
+				}
+			} else {
+				if err = sender.AddEncoding(st); err != nil {
+					return err
+				}
+			}
+			st.SetTransceiver(transceiver)
+		}
+	}
+
+	req := &livekit.AddTrackRequest{
+		Cid: mainTrack.ID(),
+		Sid: trackPublication.SID(),
+		SimulcastCodecs: []*livekit.SimulcastCodec{
+			{
+				Codec: codec,
+				Cid:   mainTrack.ID(),
+			},
+		},
+	}
+	if err := p.engine.SendAddTrack(req); err != nil {
+		return err
+	}
+	trackPublication.setBackupCodecPublished()
+
+	transport.Negotiate()
+
+	select {
+	case <-pubChan:
+		break
+	case <-time.After(trackPublishTimeout):
+		return ErrTrackPublishTimeout
+	}
+
+	p.log.Infow("published additional codec for track", "trackID", trackPublication.SID(), "codec", codec)
+	return nil
+}
+
 func (p *LocalParticipant) republishTracks() {
 	var localPubs []*LocalTrackPublication
 	p.tracks.Range(func(key, value interface{}) bool {
@@ -296,14 +524,11 @@ func (p *LocalParticipant) republishTracks() {
 
 	for _, pub := range localPubs {
 		opt := pub.PublicationOptions()
-		if len(pub.simulcastTracks) > 0 {
-			var tracks []*LocalTrack
-			for _, st := range pub.simulcastTracks {
-				tracks = append(tracks, st)
-			}
-			p.PublishSimulcastTrack(tracks, &opt)
+		backupCodecTrack, backupCodecTracksForSimulcast := pub.getBackupCodecTrack()
+		if tracks := pub.TrackLocalForSimulcast(); len(tracks) > 0 {
+			p.PublishSimulcastTrack(tracks, &opt, WithBackupCodecForSimulcastTrack(backupCodecTracksForSimulcast))
 		} else if track := pub.TrackLocal(); track != nil {
-			_, err := p.PublishTrack(track, &opt)
+			_, err := p.PublishTrack(track, &opt, WithBackupCodec(backupCodecTrack))
 			if err != nil {
 				p.engine.log.Warnw("could not republish track", err, "track", pub.SID())
 			}
@@ -394,20 +619,12 @@ func (p *LocalParticipant) UnpublishTrack(sid string) error {
 		return nil
 	}
 
-	var err error
-	if localTrack, ok := pub.track.(webrtc.TrackLocal); ok {
-		transport := p.getPublishTransport()
-		if transport == nil {
-			return ErrNoPeerConnection
-		}
-		for _, sender := range transport.pc.GetSenders() {
-			if sender.Track() == localTrack {
-				err = transport.pc.RemoveTrack(sender)
-				break
-			}
-		}
-		transport.Negotiate()
+	transport := p.getPublishTransport()
+	if transport == nil {
+		return ErrNoPeerConnection
 	}
+	err := pub.unpublish(transport)
+	transport.Negotiate()
 
 	pub.CloseTrack()
 
