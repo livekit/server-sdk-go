@@ -242,10 +242,19 @@ func (t *PCMLocalTrack) ClearQueue() {
 	t.emptyBufMu.Unlock()
 }
 
-func (t *PCMLocalTrack) Close() {
+func (t *PCMLocalTrack) Close() error {
 	if t.closed.CompareAndSwap(false, true) {
 		t.mu.Lock()
 		t.cond.Broadcast()
 		t.mu.Unlock()
 	}
+	return nil
+}
+
+func (t *PCMLocalTrack) SampleRate() int {
+	return t.sourceSampleRate
+}
+
+func (t *PCMLocalTrack) String() string {
+	return "PCMLocalTrack"
 }
