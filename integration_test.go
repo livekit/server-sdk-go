@@ -107,7 +107,7 @@ func NewSampleTestProvider(codec webrtc.RTPCodecCapability) *SampleTestProvider 
 }
 
 func (p *SampleTestProvider) NextSample(ctx context.Context) (media.Sample, error) {
-	payload := make([]byte, 1024)
+	payload := make([]byte, 512)
 	switch {
 	case strings.Contains(p.Codec.MimeType, "VP8"):
 		payload = payload[:len(VP8KeyFrame8x8)]
