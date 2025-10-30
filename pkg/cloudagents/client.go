@@ -33,13 +33,14 @@ import (
 // Client is a wrapper around the lksdk.AgentClient that provides a simpler interface for creating and deploying agents.
 type Client struct {
 	*lksdk.AgentClient
-	projectURL string
-	apiKey     string
-	apiSecret  string
-	agentsURL  string
-	httpClient *http.Client
-	headers    map[string]string
-	logger     logger.Logger
+	projectURL    string
+	apiKey        string
+	apiSecret     string
+	agentsURL     string
+	httpClient    *http.Client
+	headers       map[string]string
+	logger        logger.Logger
+	jsonLogStream bool
 }
 
 // New returns a new Client with the given project URL, API key, and API secret.

@@ -47,10 +47,15 @@ func (c *Client) build(ctx context.Context, id string, writer io.Writer) error {
 		return fmt.Errorf("failed to build agent: %s", resp.Status)
 	}
 
+	displayMode := progressui.PlainMode
+	if c.jsonLogStream {
+		displayMode = progressui.RawJSONMode
+	}
+
 	ch := make(chan *bkclient.SolveStatus)
 	eg, ctx := errgroup.WithContext(ctx)
 	eg.Go(func() error {
-		display, err := progressui.NewDisplay(writer, "plain")
+		display, err := progressui.NewDisplay(writer, displayMode)
 		if err != nil {
 			return err
 		}

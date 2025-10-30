@@ -51,3 +51,9 @@ func WithHeaders(headers map[string]string) ClientOption {
 		c.headers = headers
 	}
 }
+
+func WithJsonLogStream() ClientOption {
+	return func(c *Client) {
+		c.jsonLogStream = true
+	}
+}
