@@ -210,17 +210,22 @@ func (t *PCMLocalTrack) processSamples() {
 			break
 		}
 
+		var frame media.PCM16Sample
 		var logSnapshot *pcmLocalTrackLogSnapshot
+
 		t.mu.Lock()
-		frame := t.getFrameFromChunkBuffer()
+		frame = t.getFrameFromChunkBuffer()
 		if frame != nil {
-			t.resampledPCMWriter.WriteSample(frame)
 			t.logState.totalProcessed += uint64(len(frame))
 			logSnapshot = t.collectLogSnapshotLocked(time.Now())
 		}
 		t.mu.Unlock()
-		if logSnapshot != nil {
-			t.emitLogSnapshot(logSnapshot)
+
+		if frame != nil {
+			t.resampledPCMWriter.WriteSample(frame)
+			if logSnapshot != nil {
+				t.emitLogSnapshot(logSnapshot)
+			}
 		}
 
 		<-ticker.C
