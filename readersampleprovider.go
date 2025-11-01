@@ -192,7 +192,6 @@ func NewLocalReaderTrack(in io.ReadCloser, mime string, options ...ReaderSampleP
 	for _, opt := range options {
 		opt(provider)
 	}
-	logger.Infow("h264format", "format", provider.h264Format) // REMOVE
 
 	var clockRate uint32
 
