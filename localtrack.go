@@ -312,9 +312,10 @@ func (s *LocalTrack) WriteRTP(p *rtp.Packet, opts *SampleWriteOptions) error {
 	s.lock.RLock()
 	transceiver := s.transceiver
 	ssrcAcked := s.ssrcAcked
+	audioLevelID := s.audioLevelID
 	s.lock.RUnlock()
 
-	if s.audioLevelID != 0 && opts != nil && opts.AudioLevel != nil {
+	if audioLevelID != 0 && opts != nil && opts.AudioLevel != nil {
 		ext := rtp.AudioLevelExtension{
 			Level: *opts.AudioLevel,
 		}
@@ -322,22 +323,27 @@ func (s *LocalTrack) WriteRTP(p *rtp.Packet, opts *SampleWriteOptions) error {
 		if err != nil {
 			return err
 		}
-		if err := p.Header.SetExtension(s.audioLevelID, data); err != nil {
+		if err := p.Header.SetExtension(audioLevelID, data); err != nil {
 			return err
 		}
 	}
 
 	if s.RID() != "" && transceiver != nil && transceiver.Mid() != "" && !ssrcAcked {
-		if s.sdesMidID != 0 {
+		s.lock.RLock()
+		sdesMidID := s.sdesMidID
+		sdesRtpStreamID := s.sdesRtpStreamID
+		s.lock.RUnlock()
+
+		if sdesMidID != 0 {
 			midValue := transceiver.Mid()
-			if err := p.Header.SetExtension(s.sdesMidID, []byte(midValue)); err != nil {
+			if err := p.Header.SetExtension(sdesMidID, []byte(midValue)); err != nil {
 				return err
 			}
 		}
 
-		if s.sdesRtpStreamID != 0 {
+		if sdesRtpStreamID != 0 {
 			ridValue := s.RID()
-			if err := p.Header.SetExtension(s.sdesRtpStreamID, []byte(ridValue)); err != nil {
+			if err := p.Header.SetExtension(sdesRtpStreamID, []byte(ridValue)); err != nil {
 				return err
 			}
 		}

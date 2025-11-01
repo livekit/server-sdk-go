@@ -16,6 +16,8 @@ package lksdk
 
 import (
 	"context"
+	"encoding/binary"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -37,6 +39,28 @@ const (
 	defaultH265FrameDuration = 33 * time.Millisecond
 )
 
+// ---------------------------------
+
+type H26xFormat int
+
+const (
+	H26xFormatAnnexB H26xFormat = iota
+	H26xFormatAVCC
+)
+
+func (f H26xFormat) String() string {
+	switch f {
+	case H26xFormatAnnexB:
+		return "AnnexB"
+	case H26xFormatAVCC:
+		return "AVCC"
+	default:
+		return fmt.Sprintf("Unknown: %d", f)
+	}
+}
+
+// ---------------------------------
+
 // ReaderSampleProvider provides samples by reading from an io.ReadCloser implementation
 type ReaderSampleProvider struct {
 	// Configuration
@@ -45,6 +69,7 @@ type ReaderSampleProvider struct {
 	OnWriteComplete func()
 	AudioLevel      uint8
 	trackOpts       []LocalTrackOptions
+	h26xFormat      H26xFormat
 
 	// Allow various types of ingress
 	reader io.ReadCloser
@@ -93,6 +118,12 @@ func ReaderTrackWithRTCPHandler(f func(rtcp.Packet)) func(provider *ReaderSample
 func ReaderTrackWithSampleOptions(opts ...LocalTrackOptions) func(provider *ReaderSampleProvider) {
 	return func(provider *ReaderSampleProvider) {
 		provider.trackOpts = append(provider.trackOpts, opts...)
+	}
+}
+
+func ReaderTrackWithH26xFormat(h26xFormat H26xFormat) func(provider *ReaderSampleProvider) {
+	return func(provider *ReaderSampleProvider) {
+		provider.h26xFormat = h26xFormat
 	}
 }
 
@@ -152,8 +183,9 @@ func NewLocalFileTrack(file string, options ...ReaderSampleProviderOption) (*Loc
 // - mime: has to be one of webrtc.MimeType... (e.g. webrtc.MimeTypeOpus)
 func NewLocalReaderTrack(in io.ReadCloser, mime string, options ...ReaderSampleProviderOption) (*LocalTrack, error) {
 	provider := &ReaderSampleProvider{
-		Mime:   mime,
-		reader: in,
+		h26xFormat: H26xFormatAnnexB,
+		Mime:       mime,
+		reader:     in,
 		// default audio level to be fairly loud
 		AudioLevel: 15,
 	}
@@ -196,7 +228,9 @@ func (p *ReaderSampleProvider) OnBind() error {
 	var err error
 	switch p.Mime {
 	case webrtc.MimeTypeH264:
-		p.h264reader, err = h264reader.NewReader(p.reader)
+		if p.h26xFormat == H26xFormatAnnexB {
+			p.h264reader, err = h264reader.NewReader(p.reader)
+		}
 	case webrtc.MimeTypeH265:
 		p.h265reader, err = h265reader.NewReader(p.reader)
 	case webrtc.MimeTypeVP8, webrtc.MimeTypeVP9:
@@ -236,13 +270,30 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 	sample := media.Sample{}
 	switch p.Mime {
 	case webrtc.MimeTypeH264:
-		nal, err := p.h264reader.NextNAL()
-		if err != nil {
-			return sample, err
+		var (
+			nalUnitType h264reader.NalUnitType
+			nalUnitData []byte
+			err         error
+		)
+		switch p.h26xFormat {
+		case H26xFormatAVCC:
+			nalUnitType, nalUnitData, err = nextNALH264AVCC(p.reader)
+			if err != nil {
+				return sample, err
+			}
+
+		default:
+			var nal *h264reader.NAL
+			nal, err = p.h264reader.NextNAL()
+			if err != nil {
+				return sample, err
+			}
+			nalUnitType = nal.UnitType
+			nalUnitData = nal.Data
 		}
 
 		isFrame := false
-		switch nal.UnitType {
+		switch nalUnitType {
 		case h264reader.NalUnitTypeCodedSliceDataPartitionA,
 			h264reader.NalUnitTypeCodedSliceDataPartitionB,
 			h264reader.NalUnitTypeCodedSliceDataPartitionC,
@@ -251,12 +302,13 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 			isFrame = true
 		}
 
-		sample.Data = nal.Data
+		sample.Data = nalUnitData
 		if !isFrame {
 			// return it without duration
 			return sample, nil
 		}
 		sample.Duration = defaultH264FrameDuration
+
 	case webrtc.MimeTypeH265:
 		var (
 			isFrame    bool
@@ -323,4 +375,26 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 		sample.Duration = p.FrameDuration
 	}
 	return sample, nil
+}
+
+// --------------------------------------------------
+
+// minimal AVCC reader (length-prefixed NAL)
+func nextNALH264AVCC(r io.Reader) (h264reader.NalUnitType, []byte, error) {
+	var hdr [4]byte
+	if _, err := io.ReadFull(r, hdr[:]); err != nil {
+		return 0, nil, err
+	}
+
+	n := int(binary.BigEndian.Uint32(hdr[:]))
+	if n <= 0 {
+		return 0, nil, io.ErrUnexpectedEOF
+	}
+
+	buf := make([]byte, n)
+	if _, err := io.ReadFull(r, buf); err != nil {
+		return 0, nil, err
+	}
+
+	return h264reader.NalUnitType(buf[0] & 0x1F), buf, nil
 }
