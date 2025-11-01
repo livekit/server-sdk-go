@@ -41,18 +41,18 @@ const (
 
 // ---------------------------------
 
-type H264Format int
+type H26xFormat int
 
 const (
-	H264FormatAnnexB H264Format = iota
-	H264FormatAVCC
+	H26xFormatAnnexB H26xFormat = iota
+	H26xFormatAVCC
 )
 
-func (f H264Format) String() string {
+func (f H26xFormat) String() string {
 	switch f {
-	case H264FormatAnnexB:
+	case H26xFormatAnnexB:
 		return "AnnexB"
-	case H264FormatAVCC:
+	case H26xFormatAVCC:
 		return "AVCC"
 	default:
 		return fmt.Sprintf("Unknown: %d", f)
@@ -69,7 +69,7 @@ type ReaderSampleProvider struct {
 	OnWriteComplete func()
 	AudioLevel      uint8
 	trackOpts       []LocalTrackOptions
-	h264Format      H264Format
+	h26xFormat      H26xFormat
 
 	// Allow various types of ingress
 	reader io.ReadCloser
@@ -121,9 +121,9 @@ func ReaderTrackWithSampleOptions(opts ...LocalTrackOptions) func(provider *Read
 	}
 }
 
-func ReaderTrackWithH264Format(h264Format H264Format) func(provider *ReaderSampleProvider) {
+func ReaderTrackWithH26xFormat(h26xFormat H26xFormat) func(provider *ReaderSampleProvider) {
 	return func(provider *ReaderSampleProvider) {
-		provider.h264Format = h264Format
+		provider.h26xFormat = h26xFormat
 	}
 }
 
@@ -183,7 +183,7 @@ func NewLocalFileTrack(file string, options ...ReaderSampleProviderOption) (*Loc
 // - mime: has to be one of webrtc.MimeType... (e.g. webrtc.MimeTypeOpus)
 func NewLocalReaderTrack(in io.ReadCloser, mime string, options ...ReaderSampleProviderOption) (*LocalTrack, error) {
 	provider := &ReaderSampleProvider{
-		h264Format: H264FormatAnnexB,
+		h26xFormat: H26xFormatAnnexB,
 		Mime:       mime,
 		reader:     in,
 		// default audio level to be fairly loud
@@ -228,7 +228,7 @@ func (p *ReaderSampleProvider) OnBind() error {
 	var err error
 	switch p.Mime {
 	case webrtc.MimeTypeH264:
-		if p.h264Format == H264FormatAnnexB {
+		if p.h26xFormat == H26xFormatAnnexB {
 			p.h264reader, err = h264reader.NewReader(p.reader)
 		}
 	case webrtc.MimeTypeH265:
@@ -275,8 +275,8 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 			nalUnitData []byte
 			err         error
 		)
-		switch p.h264Format {
-		case H264FormatAVCC:
+		switch p.h26xFormat {
+		case H26xFormatAVCC:
 			nalUnitType, nalUnitData, err = nextNALH264AVCC(p.reader)
 			if err != nil {
 				return sample, err
