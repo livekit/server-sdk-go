@@ -41,19 +41,19 @@ const (
 
 // ---------------------------------
 
-type H26xFormat int
+type H26xStreamingFormat int
 
 const (
-	H26xFormatAnnexB H26xFormat = iota
-	H26xFormatAVCC
+	H26xStreamingFormatAnnexB H26xStreamingFormat = iota
+	H26xStreamingFormatRTP
 )
 
-func (f H26xFormat) String() string {
+func (f H26xStreamingFormat) String() string {
 	switch f {
-	case H26xFormatAnnexB:
+	case H26xStreamingFormatAnnexB:
 		return "AnnexB"
-	case H26xFormatAVCC:
-		return "AVCC"
+	case H26xStreamingFormatRTP:
+		return "RTP"
 	default:
 		return fmt.Sprintf("Unknown: %d", f)
 	}
@@ -64,12 +64,12 @@ func (f H26xFormat) String() string {
 // ReaderSampleProvider provides samples by reading from an io.ReadCloser implementation
 type ReaderSampleProvider struct {
 	// Configuration
-	Mime            string
-	FrameDuration   time.Duration
-	OnWriteComplete func()
-	AudioLevel      uint8
-	trackOpts       []LocalTrackOptions
-	h26xFormat      H26xFormat
+	Mime                string
+	FrameDuration       time.Duration
+	OnWriteComplete     func()
+	AudioLevel          uint8
+	trackOpts           []LocalTrackOptions
+	h26xStreamingFormat H26xStreamingFormat
 
 	// Allow various types of ingress
 	reader io.ReadCloser
@@ -121,9 +121,9 @@ func ReaderTrackWithSampleOptions(opts ...LocalTrackOptions) func(provider *Read
 	}
 }
 
-func ReaderTrackWithH26xFormat(h26xFormat H26xFormat) func(provider *ReaderSampleProvider) {
+func ReaderTrackWithH26xStreamingFormat(h26xStreamingFormat H26xStreamingFormat) func(provider *ReaderSampleProvider) {
 	return func(provider *ReaderSampleProvider) {
-		provider.h26xFormat = h26xFormat
+		provider.h26xStreamingFormat = h26xStreamingFormat
 	}
 }
 
@@ -183,9 +183,9 @@ func NewLocalFileTrack(file string, options ...ReaderSampleProviderOption) (*Loc
 // - mime: has to be one of webrtc.MimeType... (e.g. webrtc.MimeTypeOpus)
 func NewLocalReaderTrack(in io.ReadCloser, mime string, options ...ReaderSampleProviderOption) (*LocalTrack, error) {
 	provider := &ReaderSampleProvider{
-		h26xFormat: H26xFormatAnnexB,
-		Mime:       mime,
-		reader:     in,
+		h26xStreamingFormat: H26xStreamingFormatAnnexB,
+		Mime:                mime,
+		reader:              in,
 		// default audio level to be fairly loud
 		AudioLevel: 15,
 	}
@@ -228,7 +228,7 @@ func (p *ReaderSampleProvider) OnBind() error {
 	var err error
 	switch p.Mime {
 	case webrtc.MimeTypeH264:
-		if p.h26xFormat == H26xFormatAnnexB {
+		if p.h26xStreamingFormat == H26xStreamingFormatAnnexB {
 			p.h264reader, err = h264reader.NewReader(p.reader)
 		}
 	case webrtc.MimeTypeH265:
@@ -275,8 +275,8 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 			nalUnitData []byte
 			err         error
 		)
-		switch p.h26xFormat {
-		case H26xFormatAVCC:
+		switch p.h26xStreamingFormat {
+		case H26xStreamingFormatRTP:
 			nalUnitType, nalUnitData, err = nextNALH264AVCC(p.reader)
 			if err != nil {
 				return sample, err
