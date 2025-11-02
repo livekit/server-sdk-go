@@ -191,6 +191,7 @@ type Room struct {
 	sidToIdentity      map[livekit.ParticipantID]livekit.ParticipantIdentity
 	sidDefers          map[livekit.ParticipantID]map[livekit.TrackID]func(p *RemoteParticipant)
 	metadata           string
+	activeRecording    bool
 	activeSpeakers     []Participant
 	serverInfo         *livekit.ServerInfo
 	regionURLProvider  *regionURLProvider
@@ -505,6 +506,13 @@ func (r *Room) Metadata() string {
 	return r.metadata
 }
 
+// IsRecording returns true if the room is currently being recorded.
+func (r *Room) IsRecording() bool {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+	return r.activeRecording
+}
+
 // ServerInfo returns information about the LiveKit server.
 func (r *Room) ServerInfo() *livekit.ServerInfo {
 	r.lock.RLock()
@@ -769,6 +777,7 @@ func (r *Room) OnRoomJoined(
 	r.lock.Lock()
 	r.name = room.Name
 	r.metadata = room.Metadata
+	r.activeRecording = room.ActiveRecording
 	r.serverInfo = serverInfo
 	r.connectionState = ConnectionStateConnected
 	r.sifTrailer = make([]byte, len(sifTrailer))
@@ -967,15 +976,23 @@ func (r *Room) OnConnectionQuality(updates []*livekit.ConnectionQualityInfo) {
 
 func (r *Room) OnRoomUpdate(room *livekit.Room) {
 	metadataChanged := false
+	recordingChanged := false
 	r.lock.Lock()
 	if r.metadata != room.Metadata {
 		metadataChanged = true
 		r.metadata = room.Metadata
 	}
+	if r.activeRecording != room.ActiveRecording {
+		recordingChanged = true
+		r.activeRecording = room.ActiveRecording
+	}
 	r.lock.Unlock()
 	r.setSid(room.Sid, false)
 	if metadataChanged {
 		go r.callback.OnRoomMetadataChanged(room.Metadata)
+	}
+	if recordingChanged {
+		go r.callback.OnRecordingStatusChanged(room.ActiveRecording)
 	}
 }
 

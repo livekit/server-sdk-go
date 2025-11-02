@@ -167,6 +167,7 @@ type RoomCallback struct {
 	OnParticipantDisconnected func(*RemoteParticipant)
 	OnActiveSpeakersChanged   func([]Participant)
 	OnRoomMetadataChanged     func(metadata string)
+	OnRecordingStatusChanged  func(isRecording bool)
 	OnRoomMoved               func(roomName string, token string)
 	OnReconnecting            func()
 	OnReconnected             func()
@@ -188,6 +189,7 @@ func NewRoomCallback() *RoomCallback {
 		OnParticipantDisconnected: func(participant *RemoteParticipant) {},
 		OnActiveSpeakersChanged:   func(participants []Participant) {},
 		OnRoomMetadataChanged:     func(metadata string) {},
+		OnRecordingStatusChanged:  func(isRecording bool) {},
 		OnRoomMoved:               func(roomName string, token string) {},
 		OnReconnecting:            func() {},
 		OnReconnected:             func() {},
@@ -218,6 +220,9 @@ func (cb *RoomCallback) Merge(other *RoomCallback) {
 	}
 	if other.OnRoomMetadataChanged != nil {
 		cb.OnRoomMetadataChanged = other.OnRoomMetadataChanged
+	}
+	if other.OnRecordingStatusChanged != nil {
+		cb.OnRecordingStatusChanged = other.OnRecordingStatusChanged
 	}
 	if other.OnReconnecting != nil {
 		cb.OnReconnecting = other.OnReconnecting
