@@ -45,15 +45,15 @@ type H26xStreamingFormat int
 
 const (
 	H26xStreamingFormatAnnexB H26xStreamingFormat = iota
-	H26xStreamingFormatRTP
+	H26xStreamingFormatLengthPrefixed
 )
 
 func (f H26xStreamingFormat) String() string {
 	switch f {
 	case H26xStreamingFormatAnnexB:
 		return "AnnexB"
-	case H26xStreamingFormatRTP:
-		return "RTP"
+	case H26xStreamingFormatLengthPrefixed:
+		return "LengthPrefixed"
 	default:
 		return fmt.Sprintf("Unknown: %d", f)
 	}
@@ -276,8 +276,8 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 			err         error
 		)
 		switch p.h26xStreamingFormat {
-		case H26xStreamingFormatRTP:
-			nalUnitType, nalUnitData, err = nextNALH264AVCC(p.reader)
+		case H26xStreamingFormatLengthPrefixed:
+			nalUnitType, nalUnitData, err = nextNALH264LengthPrefixed(p.reader)
 			if err != nil {
 				return sample, err
 			}
@@ -379,8 +379,8 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 
 // --------------------------------------------------
 
-// minimal AVCC reader (length-prefixed NAL)
-func nextNALH264AVCC(r io.Reader) (h264reader.NalUnitType, []byte, error) {
+// minimal length-prefixed NAL reeader
+func nextNALH264LengthPrefixed(r io.Reader) (h264reader.NalUnitType, []byte, error) {
 	var hdr [4]byte
 	if _, err := io.ReadFull(r, hdr[:]); err != nil {
 		return 0, nil, err
