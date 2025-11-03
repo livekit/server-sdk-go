@@ -47,7 +47,7 @@ func (c *Client) build(ctx context.Context, id string, writer io.Writer) error {
 		return fmt.Errorf("failed to build agent: %s", resp.Status)
 	}
 
-	displayMode := progressui.PlainMode
+	displayMode := progressui.AutoMode
 	if c.jsonLogStream {
 		displayMode = progressui.RawJSONMode
 	}
