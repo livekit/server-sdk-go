@@ -137,6 +137,12 @@ func (p *baseParticipant) AudioLevel() float32 {
 	return float32(p.audioLevel.Load())
 }
 
+func (p *baseParticipant) DisconnectReason() livekit.DisconnectReason {
+	p.lock.RLock()
+	defer p.lock.RUnlock()
+	return p.info.GetDisconnectReason()
+}
+
 func (p *baseParticipant) TrackPublications() []TrackPublication {
 	tracks := make([]TrackPublication, 0)
 	p.tracks.Range(func(_, value interface{}) bool {
