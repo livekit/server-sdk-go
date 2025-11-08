@@ -8,9 +8,9 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/livekit/mageutil v0.0.0-20250511045019-0f1ff63f7731
-	github.com/livekit/media-sdk v0.0.0-20250927154350-bd99739b439b
-	github.com/livekit/mediatransportutil v0.0.0-20250825135402-7bc31f107ade
-	github.com/livekit/protocol v1.42.3-0.20251023002554-070839e4cae7
+	github.com/livekit/media-sdk v0.0.0-20251106223430-dd8f5e0de2cf
+	github.com/livekit/mediatransportutil v0.0.0-20250922175932-f537f0880397
+	github.com/livekit/protocol v1.43.0
 	github.com/magefile/mage v1.15.0
 	github.com/pion/dtls/v3 v3.0.7
 	github.com/pion/interceptor v0.1.41
@@ -112,7 +112,7 @@ require (
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/lithammer/shortuuid/v4 v4.2.0 // indirect
-	github.com/livekit/psrpc v0.7.0 // indirect
+	github.com/livekit/psrpc v0.7.1-0.20251021235041-bdebea7dacf4 // indirect
 	github.com/nats-io/nats.go v1.47.0 // indirect
 	github.com/nats-io/nkeys v0.4.11 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
