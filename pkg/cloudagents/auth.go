@@ -15,6 +15,7 @@
 package cloudagents
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,9 +24,9 @@ import (
 	lksdk "github.com/livekit/server-sdk-go/v2"
 )
 
-// newRequest creates a new HTTP request with the auth and version headers.
-func (c *Client) newRequest(method, url string, body io.Reader) (*http.Request, error) {
-	req, err := http.NewRequest(method, url, body)
+// newRequestWithContext creates a new HTTP request with the auth and version headers.
+func (c *Client) newRequestWithContext(ctx context.Context, method, url string, body io.Reader) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
 		return nil, err
 	}
