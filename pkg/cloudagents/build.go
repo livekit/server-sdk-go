@@ -34,7 +34,7 @@ func (c *Client) build(ctx context.Context, id string, writer io.Writer) error {
 	params := url.Values{}
 	params.Add("agent_id", id)
 	fullUrl := fmt.Sprintf("%s/build?%s", c.agentsURL, params.Encode())
-	req, err := c.newRequest("POST", fullUrl, nil)
+	req, err := c.newRequestWithContext(ctx, "POST", fullUrl, nil)
 	if err != nil {
 		return err
 	}

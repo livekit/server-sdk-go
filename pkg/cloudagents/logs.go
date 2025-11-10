@@ -40,7 +40,7 @@ func (c *Client) StreamLogs(ctx context.Context, logType, agentID string, writer
 	params.Add("agent_id", agentID)
 	params.Add("log_type", logType)
 	fullUrl := fmt.Sprintf("%s/logs?%s", c.getAgentsURL(serverRegion), params.Encode())
-	req, err := c.newRequest("GET", fullUrl, nil)
+	req, err := c.newRequestWithContext(ctx, "GET", fullUrl, nil)
 	if err != nil {
 		return err
 	}
