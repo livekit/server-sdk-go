@@ -79,11 +79,12 @@ type (
 type ParticipantKind int
 
 const (
-	ParticipantStandard = ParticipantKind(livekit.ParticipantInfo_STANDARD)
-	ParticipantIngress  = ParticipantKind(livekit.ParticipantInfo_INGRESS)
-	ParticipantEgress   = ParticipantKind(livekit.ParticipantInfo_EGRESS)
-	ParticipantSIP      = ParticipantKind(livekit.ParticipantInfo_SIP)
-	ParticipantAgent    = ParticipantKind(livekit.ParticipantInfo_AGENT)
+	ParticipantStandard  = ParticipantKind(livekit.ParticipantInfo_STANDARD)
+	ParticipantIngress   = ParticipantKind(livekit.ParticipantInfo_INGRESS)
+	ParticipantEgress    = ParticipantKind(livekit.ParticipantInfo_EGRESS)
+	ParticipantSIP       = ParticipantKind(livekit.ParticipantInfo_SIP)
+	ParticipantAgent     = ParticipantKind(livekit.ParticipantInfo_AGENT)
+	ParticipantConnector = ParticipantKind(livekit.ParticipantInfo_CONNECTOR)
 )
 
 type ConnectInfo struct {
