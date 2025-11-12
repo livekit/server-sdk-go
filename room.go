@@ -923,7 +923,6 @@ func (r *Room) OnParticipantDisconnect(rp *RemoteParticipant, reason livekit.Dis
 
 	rp.info.DisconnectReason = reason
 	go r.callback.OnParticipantDisconnected(rp)
-	go r.callback.OnParticipantDisconnectedWithReason(rp, reason)
 }
 
 func (r *Room) OnSpeakersChanged(speakerUpdates []*livekit.SpeakerInfo) {
@@ -1005,7 +1004,7 @@ func (r *Room) OnRoomMoved(moved *livekit.RoomMovedResponse) {
 	r.OnRoomUpdate(moved.Room)
 
 	for _, rp := range r.GetRemoteParticipants() {
-		r.OnParticipantDisconnect(rp, livekit.DisconnectReason_ROOM_CLOSED)
+		r.OnParticipantDisconnect(rp, livekit.DisconnectReason_MIGRATION)
 	}
 
 	go r.callback.OnRoomMoved(moved.Room.Name, moved.Token)
