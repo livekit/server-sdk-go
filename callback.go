@@ -161,18 +161,17 @@ func GetDisconnectionReason(reason livekit.DisconnectReason) DisconnectionReason
 }
 
 type RoomCallback struct {
-	OnDisconnected                      func()
-	OnDisconnectedWithReason            func(reason DisconnectionReason)
-	OnParticipantConnected              func(*RemoteParticipant)
-	OnParticipantDisconnected           func(*RemoteParticipant)
-	OnParticipantDisconnectedWithReason func(*RemoteParticipant, livekit.DisconnectReason)
-	OnActiveSpeakersChanged             func([]Participant)
-	OnRoomMetadataChanged               func(metadata string)
-	OnRecordingStatusChanged            func(isRecording bool)
-	OnRoomMoved                         func(roomName string, token string)
-	OnReconnecting                      func()
-	OnReconnected                       func()
-	OnLocalTrackSubscribed              func(publication *LocalTrackPublication, lp *LocalParticipant)
+	OnDisconnected            func()
+	OnDisconnectedWithReason  func(reason DisconnectionReason)
+	OnParticipantConnected    func(*RemoteParticipant)
+	OnParticipantDisconnected func(*RemoteParticipant)
+	OnActiveSpeakersChanged   func([]Participant)
+	OnRoomMetadataChanged     func(metadata string)
+	OnRecordingStatusChanged  func(isRecording bool)
+	OnRoomMoved               func(roomName string, token string)
+	OnReconnecting            func()
+	OnReconnected             func()
+	OnLocalTrackSubscribed    func(publication *LocalTrackPublication, lp *LocalParticipant)
 
 	// participant events are sent to the room as well
 	ParticipantCallback
@@ -184,18 +183,17 @@ func NewRoomCallback() *RoomCallback {
 	return &RoomCallback{
 		ParticipantCallback: *pc,
 
-		OnDisconnected:                      func() {},
-		OnDisconnectedWithReason:            func(reason DisconnectionReason) {},
-		OnParticipantConnected:              func(participant *RemoteParticipant) {},
-		OnParticipantDisconnected:           func(participant *RemoteParticipant) {},
-		OnParticipantDisconnectedWithReason: func(participant *RemoteParticipant, reason livekit.DisconnectReason) {},
-		OnActiveSpeakersChanged:             func(participants []Participant) {},
-		OnRoomMetadataChanged:               func(metadata string) {},
-		OnRecordingStatusChanged:            func(isRecording bool) {},
-		OnRoomMoved:                         func(roomName string, token string) {},
-		OnReconnecting:                      func() {},
-		OnReconnected:                       func() {},
-		OnLocalTrackSubscribed:              func(publication *LocalTrackPublication, lp *LocalParticipant) {},
+		OnDisconnected:            func() {},
+		OnDisconnectedWithReason:  func(reason DisconnectionReason) {},
+		OnParticipantConnected:    func(participant *RemoteParticipant) {},
+		OnParticipantDisconnected: func(participant *RemoteParticipant) {},
+		OnActiveSpeakersChanged:   func(participants []Participant) {},
+		OnRoomMetadataChanged:     func(metadata string) {},
+		OnRecordingStatusChanged:  func(isRecording bool) {},
+		OnRoomMoved:               func(roomName string, token string) {},
+		OnReconnecting:            func() {},
+		OnReconnected:             func() {},
+		OnLocalTrackSubscribed:    func(publication *LocalTrackPublication, lp *LocalParticipant) {},
 	}
 }
 
@@ -216,9 +214,6 @@ func (cb *RoomCallback) Merge(other *RoomCallback) {
 	}
 	if other.OnParticipantDisconnected != nil {
 		cb.OnParticipantDisconnected = other.OnParticipantDisconnected
-	}
-	if other.OnParticipantDisconnectedWithReason != nil {
-		cb.OnParticipantDisconnectedWithReason = other.OnParticipantDisconnectedWithReason
 	}
 	if other.OnActiveSpeakersChanged != nil {
 		cb.OnActiveSpeakersChanged = other.OnActiveSpeakersChanged
