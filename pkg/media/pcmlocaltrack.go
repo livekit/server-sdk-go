@@ -52,6 +52,7 @@ type PCMLocalTrack struct {
 
 	closed atomic.Bool
 	muted  atomic.Bool
+	bound  atomic.Bool
 }
 
 // NewPCMLocalTrack creates a wrapper around a webrtc.TrackLocalStaticSample that accepts PCM16 samples via the WriteSample method,
@@ -124,6 +125,14 @@ func NewPCMLocalTrack(
 	return t, nil
 }
 
+func (t *PCMLocalTrack) Bind(trackLocal webrtc.TrackLocalContext) (webrtc.RTPCodecParameters, error) {
+	parameters, err := t.TrackLocalStaticSample.Bind(trackLocal)
+	if err == nil {
+		t.bound.Store(true)
+	}
+	return parameters, err
+}
+
 func (t *PCMLocalTrack) getFrameFromChunkBuffer() media.PCM16Sample {
 	if t.closed.Load() && t.getNumSamplesInChunkBuffer() == 0 {
 		return nil
@@ -165,7 +174,7 @@ func (t *PCMLocalTrack) WriteSample(chunk media.PCM16Sample) error {
 		return errors.New("track is closed")
 	}
 
-	if t.muted.Load() || len(chunk) == 0 {
+	if t.muted.Load() || len(chunk) == 0 || !t.bound.Load() {
 		return nil
 	}
 
