@@ -809,7 +809,7 @@ func (r *Room) OnRestarting() {
 	r.callback.OnReconnecting()
 
 	for _, rp := range r.GetRemoteParticipants() {
-		r.OnParticipantDisconnect(rp)
+		r.OnParticipantDisconnect(rp, livekit.DisconnectReason_UNKNOWN_REASON)
 	}
 }
 
@@ -878,7 +878,7 @@ func (r *Room) OnParticipantUpdate(participants []*livekit.ParticipantInfo) {
 		isNew := rp == nil
 
 		if pi.State == livekit.ParticipantInfo_DISCONNECTED {
-			r.OnParticipantDisconnect(rp)
+			r.OnParticipantDisconnect(rp, pi.GetDisconnectReason())
 		} else if isNew {
 			rp = r.addRemoteParticipant(pi, true)
 			r.clearParticipantDefers(livekit.ParticipantID(pi.Sid), pi)
@@ -907,7 +907,7 @@ func (r *Room) OnParticipantUpdate(participants []*livekit.ParticipantInfo) {
 	}
 }
 
-func (r *Room) OnParticipantDisconnect(rp *RemoteParticipant) {
+func (r *Room) OnParticipantDisconnect(rp *RemoteParticipant, reason livekit.DisconnectReason) {
 	if rp == nil {
 		return
 	}
@@ -921,6 +921,7 @@ func (r *Room) OnParticipantDisconnect(rp *RemoteParticipant) {
 	rp.unpublishAllTracks()
 	r.LocalParticipant.handleParticipantDisconnected(rp.Identity())
 	go r.callback.OnParticipantDisconnected(rp)
+	go r.callback.OnParticipantDisconnectedWithReason(rp, reason)
 }
 
 func (r *Room) OnSpeakersChanged(speakerUpdates []*livekit.SpeakerInfo) {
@@ -1002,7 +1003,7 @@ func (r *Room) OnRoomMoved(moved *livekit.RoomMovedResponse) {
 	r.OnRoomUpdate(moved.Room)
 
 	for _, rp := range r.GetRemoteParticipants() {
-		r.OnParticipantDisconnect(rp)
+		r.OnParticipantDisconnect(rp, livekit.DisconnectReason_ROOM_CLOSED)
 	}
 
 	go r.callback.OnRoomMoved(moved.Room.Name, moved.Token)
