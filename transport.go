@@ -33,6 +33,7 @@ import (
 	lkinterceptor "github.com/livekit/mediatransportutil/pkg/interceptor"
 	"github.com/livekit/mediatransportutil/pkg/pacer"
 	protoLogger "github.com/livekit/protocol/logger"
+	"github.com/livekit/protocol/logger/pionlogger"
 	lksdp "github.com/livekit/protocol/sdp"
 	sdkinterceptor "github.com/livekit/server-sdk-go/v2/pkg/interceptor"
 )
@@ -195,6 +196,10 @@ func NewPCTransport(params PCTransportParams) (*PCTransport, error) {
 	se.SetSRTPProtectionProfiles(dtls.SRTP_AEAD_AES_128_GCM, dtls.SRTP_AES128_CM_HMAC_SHA1_80)
 	se.SetDTLSRetransmissionInterval(dtlsRetransmissionInterval)
 	se.SetICETimeouts(iceDisconnectedTimeout, iceFailedTimeout, iceKeepaliveInterval)
+	lf := pionlogger.NewLoggerFactory(logger)
+	if lf != nil {
+		se.LoggerFactory = lf
+	}
 
 	api := webrtc.NewAPI(webrtc.WithMediaEngine(m), webrtc.WithSettingEngine(se), webrtc.WithInterceptorRegistry(i))
 	pc, err := api.NewPeerConnection(params.Configuration)
