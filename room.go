@@ -809,7 +809,7 @@ func (r *Room) OnRestarting() {
 	r.callback.OnReconnecting()
 
 	for _, rp := range r.GetRemoteParticipants() {
-		r.OnParticipantDisconnect(rp, 0)
+		r.OnParticipantDisconnect(rp, livekit.DisconnectReason_UNKNOWN_REASON)
 	}
 }
 
@@ -1003,7 +1003,7 @@ func (r *Room) OnRoomMoved(moved *livekit.RoomMovedResponse) {
 	r.OnRoomUpdate(moved.Room)
 
 	for _, rp := range r.GetRemoteParticipants() {
-		r.OnParticipantDisconnect(rp, 0)
+		r.OnParticipantDisconnect(rp, livekit.DisconnectReason_ROOM_CLOSED)
 	}
 
 	go r.callback.OnRoomMoved(moved.Room.Name, moved.Token)
