@@ -920,6 +920,8 @@ func (r *Room) OnParticipantDisconnect(rp *RemoteParticipant, reason livekit.Dis
 
 	rp.unpublishAllTracks()
 	r.LocalParticipant.handleParticipantDisconnected(rp.Identity())
+
+	rp.info.DisconnectReason = reason
 	go r.callback.OnParticipantDisconnected(rp)
 	go r.callback.OnParticipantDisconnectedWithReason(rp, reason)
 }
