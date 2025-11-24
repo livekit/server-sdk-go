@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -11,7 +12,6 @@ import (
 
 	"github.com/livekit/media-sdk/res"
 	"github.com/livekit/media-sdk/res/testdata"
-	"github.com/livekit/media-sdk/webm"
 	"github.com/livekit/protocol/logger"
 	lksdk "github.com/livekit/server-sdk-go/v2"
 	lkmedia "github.com/livekit/server-sdk-go/v2/pkg/media"
@@ -21,7 +21,7 @@ const (
 	host      = "ws://localhost:7880"
 	apiKey    = "devkey"
 	apiSecret = "secret"
-	roomName  = "test"
+	roomName  = "dev"
 )
 
 var (
@@ -54,7 +54,7 @@ func getCbForRoom(publish bool) *lksdk.RoomCallback {
 			ParticipantCallback: lksdk.ParticipantCallback{
 				OnTrackSubscribed: func(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
 					if track.Codec().MimeType == webrtc.MimeTypeOpus {
-						subscribePCMTrack, subscribeFileWriter = handleSubscribe(track, 1)
+						handleSubscribe(track)
 					}
 				},
 				OnTrackUnsubscribed: func(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
@@ -93,9 +93,9 @@ func main() {
 	}
 	defer room.Disconnect()
 
-	if publish {
-		go handlePublish(room)
-	}
+	// if publish {
+	// 	go handlePublish(room)
+	// }
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT)
@@ -132,17 +132,30 @@ func handlePublish(room *lksdk.Room) {
 	}
 }
 
-func handleSubscribe(track *webrtc.TrackRemote, targetChannels int) (*lkmedia.PCMRemoteTrack, *os.File) {
-	fileWriter, err := os.Create("test.mka")
-	if err != nil {
-		panic(err)
-	}
+func handleSubscribe(track *webrtc.TrackRemote) {
+	go func() {
+		for {
+			packet, _, rerr := track.ReadRTP()
+			if rerr != nil {
+				logger.Errorw("error reading rtp", rerr)
+				return
+			}
 
-	webmWriter := webm.NewPCM16Writer(fileWriter, lkmedia.DefaultOpusSampleRate, targetChannels, lkmedia.DefaultOpusSampleDuration)
-	pcmTrack, err := lkmedia.NewPCMRemoteTrack(track, webmWriter)
-	if err != nil {
-		panic(err)
-	}
+			opusData := packet.Payload
 
-	return pcmTrack, fileWriter
+			if len(opusData) > 0 {
+				tocByte := opusData[0]
+
+				isStereo := (tocByte & 0x04) != 0
+
+				logger.Infow(fmt.Sprintf("%08b", tocByte))
+
+				if isStereo {
+					logger.Infow("Stereo audio")
+				} else {
+					logger.Infow("Mono audio")
+				}
+			}
+		}
+	}()
 }
