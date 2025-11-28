@@ -28,6 +28,7 @@ import (
 
 	"github.com/livekit/media-sdk/jitter"
 	"github.com/livekit/mediatransportutil"
+	"github.com/livekit/mediatransportutil/pkg/latency"
 	"github.com/livekit/protocol/logger"
 	"github.com/livekit/protocol/utils/mono"
 	"github.com/livekit/protocol/utils/rtputil"
@@ -101,7 +102,7 @@ type TrackSynchronizer struct {
 
 	nextPTSAdjustmentAt time.Time
 
-	propagationDelayEstimator *OWDEstimator
+	propagationDelayEstimator *latency.OWDEstimator
 	totalStartTimeAdjustment  time.Duration
 	startTimeAdjustResidual   time.Duration
 	initialized               bool
@@ -127,7 +128,7 @@ func newTrackSynchronizer(s *Synchronizer, track TrackRemote) *TrackSynchronizer
 		oldPacketThreshold:                s.config.OldPacketThreshold,
 		enableStartGate:                   s.config.EnableStartGate,
 		nextPTSAdjustmentAt:               mono.Now(),
-		propagationDelayEstimator:         NewOWDEstimator(OWDEstimatorParamsDefault),
+		propagationDelayEstimator:         latency.NewOWDEstimator(latency.OWDEstimatorParamsDefault),
 		maxMediaRunningTimeDelay:          s.config.MaxMediaRunningTimeDelay,
 		lastPTSAdjustedLogBucket:          math.MaxInt64,
 	}
