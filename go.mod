@@ -21,7 +21,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/twitchtv/twirp v8.1.3+incompatible
 	go.uber.org/atomic v1.11.0
-	golang.org/x/crypto v0.44.0
+	golang.org/x/crypto v0.45.0
 	golang.org/x/exp v0.0.0-20251125195548-87e1e737ad39
 	google.golang.org/protobuf v1.36.10
 )
