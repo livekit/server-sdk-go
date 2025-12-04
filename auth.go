@@ -20,6 +20,7 @@ import (
 	"github.com/twitchtv/twirp"
 
 	"github.com/livekit/protocol/auth"
+
 	"github.com/livekit/server-sdk-go/v2/signalling"
 )
 
@@ -61,5 +62,15 @@ func (b authBase) withAuth(ctx context.Context, opt authOption, options ...authO
 		return nil, err
 	}
 
-	return twirp.WithHTTPRequestHeaders(ctx, signalling.NewHTTPHeaderWithToken(token))
+	h := signalling.NewHTTPHeaderWithToken(token)
+	ctxH, _ := twirp.HTTPRequestHeaders(ctx)
+
+	// merge new header with the ones already present in the context
+	for k, vv := range ctxH {
+		for _, v := range vv {
+			h.Add(k, v)
+		}
+	}
+
+	return twirp.WithHTTPRequestHeaders(ctx, h)
 }
