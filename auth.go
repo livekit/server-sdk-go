@@ -16,6 +16,7 @@ package lksdk
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/twitchtv/twirp"
 
@@ -64,7 +65,11 @@ func (b authBase) withAuth(ctx context.Context, opt authOption, options ...authO
 
 	h := signalling.NewHTTPHeaderWithToken(token)
 	ctxH, _ := twirp.HTTPRequestHeaders(ctx)
-	ctxH = ctxH.Clone()
+	if ctxH != nil {
+		ctxH = ctxH.Clone()
+	} else {
+		ctxH = make(http.Header)
+	}
 
 	// merge new header with the ones already present in the context
 	for k, vv := range h {
