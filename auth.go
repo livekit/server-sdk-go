@@ -64,13 +64,14 @@ func (b authBase) withAuth(ctx context.Context, opt authOption, options ...authO
 
 	h := signalling.NewHTTPHeaderWithToken(token)
 	ctxH, _ := twirp.HTTPRequestHeaders(ctx)
+	ctxH = ctxH.Clone()
 
 	// merge new header with the ones already present in the context
-	for k, vv := range ctxH {
+	for k, vv := range h {
 		for _, v := range vv {
-			h.Add(k, v)
+			ctxH.Add(k, v)
 		}
 	}
 
-	return twirp.WithHTTPRequestHeaders(ctx, h)
+	return twirp.WithHTTPRequestHeaders(ctx, ctxH)
 }
