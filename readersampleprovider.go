@@ -15,6 +15,7 @@
 package lksdk
 
 import (
+	"bufio"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -70,6 +71,13 @@ type ReaderSampleProvider struct {
 	AudioLevel          uint8
 	trackOpts           []LocalTrackOptions
 	h26xStreamingFormat H26xStreamingFormat
+	userTimestamp       bool
+
+	// When userTimestamp is enabled, SEI user_data_unregistered timestamps
+	// are assumed to precede the actual coded frame NAL. We stash the parsed
+	// timestamp and attach it to the next frame as an LKTS trailer.
+	pendingUserTimestampUs  int64
+	hasPendingUserTimestamp bool
 
 	// Allow various types of ingress
 	reader io.ReadCloser
@@ -80,7 +88,7 @@ type ReaderSampleProvider struct {
 	lastTimestamp uint64
 
 	// for h264
-	h264reader *h264reader.H264Reader
+	h264AnnexBReader *h264AnnexBReader
 
 	// for h265
 	h265reader *h265reader.H265Reader
@@ -124,6 +132,16 @@ func ReaderTrackWithSampleOptions(opts ...LocalTrackOptions) func(provider *Read
 func ReaderTrackWithH26xStreamingFormat(h26xStreamingFormat H26xStreamingFormat) func(provider *ReaderSampleProvider) {
 	return func(provider *ReaderSampleProvider) {
 		provider.h26xStreamingFormat = h26xStreamingFormat
+	}
+}
+
+// ReaderTrackWithUserTimestamp enables attaching the custom LKTS trailer
+// (timestamp_us + magic) to outgoing encoded frame payloads. For H264, the
+// timestamp is parsed from SEI user_data_unregistered NAL units (when present)
+// and assumed to apply to the next coded frame.
+func ReaderTrackWithUserTimestamp(enabled bool) func(provider *ReaderSampleProvider) {
+	return func(provider *ReaderSampleProvider) {
+		provider.userTimestamp = enabled
 	}
 }
 
@@ -221,7 +239,7 @@ func NewLocalReaderTrack(in io.ReadCloser, mime string, options ...ReaderSampleP
 
 func (p *ReaderSampleProvider) OnBind() error {
 	// If we are not closing on unbind, don't do anything on rebind
-	if p.ivfReader != nil || p.h264reader != nil || p.oggReader != nil || p.h265reader != nil {
+	if p.ivfReader != nil || p.h264AnnexBReader != nil || p.oggReader != nil || p.h265reader != nil {
 		return nil
 	}
 
@@ -229,7 +247,10 @@ func (p *ReaderSampleProvider) OnBind() error {
 	switch p.Mime {
 	case webrtc.MimeTypeH264:
 		if p.h26xStreamingFormat == H26xStreamingFormatAnnexB {
-			p.h264reader, err = h264reader.NewReader(p.reader)
+			// NOTE: pion/webrtc's h264reader drops SEI NAL units, but we need to
+			// observe them (e.g. for userTimestamp SEI user_data_unregistered).
+			// So we use our own minimal Annex-B NAL splitter that does not skip SEI.
+			p.h264AnnexBReader = newH264AnnexBReader(p.reader)
 		}
 	case webrtc.MimeTypeH265:
 		p.h265reader, err = h265reader.NewReader(p.reader)
@@ -275,21 +296,34 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 			nalUnitData []byte
 			err         error
 		)
-		switch p.h26xStreamingFormat {
-		case H26xStreamingFormatLengthPrefixed:
-			nalUnitType, nalUnitData, err = nextNALH264LengthPrefixed(p.reader)
+
+		// Read NALs until we get a non-SEI NAL. Historically (via pion/webrtc's
+		// Annex-B reader) we skipped SEI entirely; we preserve that behavior while
+		// still consuming SEI for timestamp extraction.
+		for {
+			switch p.h26xStreamingFormat {
+			case H26xStreamingFormatLengthPrefixed:
+				nalUnitType, nalUnitData, err = nextNALH264LengthPrefixed(p.reader)
+			default:
+				nalUnitType, nalUnitData, err = p.h264AnnexBReader.NextNAL()
+			}
 			if err != nil {
 				return sample, err
 			}
 
-		default:
-			var nal *h264reader.NAL
-			nal, err = p.h264reader.NextNAL()
-			if err != nil {
-				return sample, err
+			// Parse SEI user_data_unregistered messages (UUID + timestamp_us) when present.
+			if nalUnitType == h264reader.NalUnitTypeSEI {
+				if p.userTimestamp {
+					if ts, ok := parseH264SEIUserDataUnregistered(nalUnitData); ok {
+						p.pendingUserTimestampUs = ts
+						p.hasPendingUserTimestamp = true
+					}
+				}
+				// Do not output SEI as a sample; apply it to the next coded frame.
+				continue
 			}
-			nalUnitType = nal.UnitType
-			nalUnitData = nal.Data
+
+			break
 		}
 
 		isFrame := false
@@ -307,6 +341,20 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 			// return it without duration
 			return sample, nil
 		}
+
+		// Attach the LKTS trailer to the encoded frame payload when enabled.
+		// If we didn't see a preceding timestamp, we still append a trailer with
+		// a zero timestamp (matches the behavior in rust-sdks/webrtc-sys).
+		if p.userTimestamp {
+			ts := int64(0)
+			if p.hasPendingUserTimestamp {
+				ts = p.pendingUserTimestampUs
+				p.hasPendingUserTimestamp = false
+				p.pendingUserTimestampUs = 0
+			}
+			sample.Data = appendUserTimestampTrailer(sample.Data, ts)
+		}
+
 		sample.Duration = defaultH264FrameDuration
 
 	case webrtc.MimeTypeH265:
@@ -377,7 +425,193 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 	return sample, nil
 }
 
+// parseH264SEIUserDataUnregistered parses SEI NAL units (type 6) carrying
+// user_data_unregistered messages and prints the decoded UUID and timestamp.
+//
+// Expected payload format (after the NAL header byte):
+//
+//	payloadType  = 5 (user_data_unregistered)
+//	payloadSize  = 24
+//	UUID         = 16 bytes
+//	timestamp_us = 8 bytes, big-endian
+//	trailing     = 0x80 (stop bits + padding)
+func parseH264SEIUserDataUnregistered(nalData []byte) (int64, bool) {
+	if len(nalData) < 2 {
+		logger.Infow("H264 SEI user_data_unregistered: nal too short", "nal_len", len(nalData))
+		return 0, false
+	}
+
+	// Skip NAL header (first byte).
+	payload := nalData[1:]
+	i := 0
+
+	// Parse payloadType (can be extended with 0xFF bytes).
+	payloadType := 0
+	for i < len(payload) && payload[i] == 0xFF {
+		payloadType += 255
+		i++
+	}
+	if i >= len(payload) {
+		logger.Infow("H264 SEI user_data_unregistered: payloadType truncated", "payload_len", len(payload))
+		return 0, false
+	}
+	payloadType += int(payload[i])
+	i++
+
+	logger.Debugw("H264 SEI NAL parsed payloadType", "payloadType", payloadType)
+
+	// We only care about user_data_unregistered (type 5).
+	if payloadType != 5 {
+		logger.Infow("H264 SEI NAL not user_data_unregistered, skipping", "payloadType", payloadType)
+		return 0, false
+	}
+
+	// Parse payloadSize (can be extended with 0xFF bytes).
+	payloadSize := 0
+	for i < len(payload) && payload[i] == 0xFF {
+		payloadSize += 255
+		i++
+	}
+	if i >= len(payload) {
+		logger.Infow("H264 SEI user_data_unregistered: payloadSize truncated", "payload_len", len(payload))
+		return 0, false
+	}
+	payloadSize += int(payload[i])
+	i++
+
+	if payloadSize < 24 || len(payload) < i+payloadSize {
+		// Not enough data for UUID (16) + timestamp (8).
+		logger.Infow(
+			"H264 SEI user_data_unregistered: insufficient data for UUID + timestamp",
+			"payloadSize", payloadSize,
+			"payload_len", len(payload),
+			"offset", i,
+		)
+		return 0, false
+	}
+
+	userData := payload[i : i+payloadSize]
+	uuidBytes := userData[:16]
+	tsBytes := userData[16:24]
+
+	timestampUS := binary.BigEndian.Uint64(tsBytes)
+
+	// Format UUID as 8-4-4-4-12 hex segments.
+	uuid := fmt.Sprintf("%x-%x-%x-%x-%x",
+		uuidBytes[0:4],
+		uuidBytes[4:6],
+		uuidBytes[6:8],
+		uuidBytes[8:10],
+		uuidBytes[10:16],
+	)
+
+	logger.Infow(
+		"H264 SEI user_data_unregistered parsed",
+		"uuid", uuid,
+		"timestamp_us", timestampUS,
+		"payloadSize", payloadSize,
+	)
+
+	return int64(timestampUS), true
+}
+
 // --------------------------------------------------
+
+// h264AnnexBReader is a minimal H.264 Annex-B NAL unit splitter.
+//
+// Unlike pion/webrtc's h264reader, it does NOT drop SEI NAL units.
+// It returns NAL data without the Annex-B start code (00 00 01 / 00 00 00 01),
+// but including the NAL header byte.
+type h264AnnexBReader struct {
+	r      *bufio.Reader
+	synced bool
+}
+
+func newH264AnnexBReader(in io.Reader) *h264AnnexBReader {
+	return &h264AnnexBReader{
+		r: bufio.NewReaderSize(in, 4096),
+	}
+}
+
+func (r *h264AnnexBReader) syncToStartCode() error {
+	zeros := 0
+	for {
+		b, err := r.r.ReadByte()
+		if err != nil {
+			return err
+		}
+		if b == 0 {
+			zeros++
+			continue
+		}
+		if b == 1 && zeros >= 2 {
+			// Found 00 00 01 (or 00 00 00 01). Start code fully consumed.
+			return nil
+		}
+		zeros = 0
+	}
+}
+
+func (r *h264AnnexBReader) NextNAL() (h264reader.NalUnitType, []byte, error) {
+	if !r.synced {
+		if err := r.syncToStartCode(); err != nil {
+			return 0, nil, err
+		}
+		r.synced = true
+	}
+
+	nal := make([]byte, 0, 1024)
+	zeros := 0
+
+	for {
+		b, err := r.r.ReadByte()
+		if err != nil {
+			if err == io.EOF && len(nal) > 0 {
+				break
+			}
+			return 0, nil, err
+		}
+
+		nal = append(nal, b)
+
+		if b == 0 {
+			zeros++
+			continue
+		}
+
+		if b == 1 && zeros >= 2 {
+			// We just appended a start code for the *next* NAL.
+			// Trim it from the current NAL and return.
+			prefixZeros := 2
+			if zeros > 2 {
+				prefixZeros = 3
+			}
+			trim := prefixZeros + 1 // +1 for the trailing 0x01
+
+			if len(nal) >= trim {
+				nal = nal[:len(nal)-trim]
+			} else {
+				nal = nil
+			}
+
+			// If we encountered consecutive start codes, keep scanning.
+			if len(nal) == 0 {
+				nal = make([]byte, 0, 1024)
+				zeros = 0
+				continue
+			}
+			break
+		}
+
+		zeros = 0
+	}
+
+	if len(nal) == 0 {
+		return 0, nil, io.EOF
+	}
+
+	return h264reader.NalUnitType(nal[0] & 0x1F), nal, nil
+}
 
 // minimal length-prefixed NAL reeader
 func nextNALH264LengthPrefixed(r io.Reader) (h264reader.NalUnitType, []byte, error) {
