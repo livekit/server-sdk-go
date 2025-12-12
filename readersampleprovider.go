@@ -71,9 +71,9 @@ type ReaderSampleProvider struct {
 	AudioLevel          uint8
 	trackOpts           []LocalTrackOptions
 	h26xStreamingFormat H26xStreamingFormat
-	userTimestamp       bool
+	appendUserTimestamp bool
 
-	// When userTimestamp is enabled, SEI user_data_unregistered timestamps
+	// When appendUserTimestamp is enabled, SEI user_data_unregistered timestamps
 	// are assumed to precede the actual coded frame NAL. We stash the parsed
 	// timestamp and attach it to the next frame as an LKTS trailer.
 	pendingUserTimestampUs  int64
@@ -141,7 +141,7 @@ func ReaderTrackWithH26xStreamingFormat(h26xStreamingFormat H26xStreamingFormat)
 // and assumed to apply to the next coded frame.
 func ReaderTrackWithUserTimestamp(enabled bool) func(provider *ReaderSampleProvider) {
 	return func(provider *ReaderSampleProvider) {
-		provider.userTimestamp = enabled
+		provider.appendUserTimestamp = enabled
 	}
 }
 
@@ -248,7 +248,7 @@ func (p *ReaderSampleProvider) OnBind() error {
 	case webrtc.MimeTypeH264:
 		if p.h26xStreamingFormat == H26xStreamingFormatAnnexB {
 			// NOTE: pion/webrtc's h264reader drops SEI NAL units, but we need to
-			// observe them (e.g. for userTimestamp SEI user_data_unregistered).
+			// observe them (e.g. for appendUserTimestamp SEI user_data_unregistered).
 			// So we use our own minimal Annex-B NAL splitter that does not skip SEI.
 			p.h264AnnexBReader = newH264AnnexBReader(p.reader)
 		}
@@ -313,7 +313,7 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 
 			// Parse SEI user_data_unregistered messages (UUID + timestamp_us) when present.
 			if nalUnitType == h264reader.NalUnitTypeSEI {
-				if p.userTimestamp {
+				if p.appendUserTimestamp {
 					if ts, ok := parseH264SEIUserDataUnregistered(nalUnitData); ok {
 						p.pendingUserTimestampUs = ts
 						p.hasPendingUserTimestamp = true
@@ -345,7 +345,7 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 		// Attach the LKTS trailer to the encoded frame payload when enabled.
 		// If we didn't see a preceding timestamp, we still append a trailer with
 		// a zero timestamp (matches the behavior in rust-sdks/webrtc-sys).
-		if p.userTimestamp {
+		if p.appendUserTimestamp {
 			ts := int64(0)
 			if p.hasPendingUserTimestamp {
 				ts = p.pendingUserTimestampUs
