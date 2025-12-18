@@ -432,6 +432,7 @@ func (e *RTCEngine) createSubscriberPCLocked(configuration webrtc.Configuration)
 		Configuration:        configuration,
 		Codecs:               e.connParams.Codecs,
 		RetransmitBufferSize: e.connParams.RetransmitBufferSize,
+		Interceptors:         e.connParams.Interceptors,
 	}); err != nil {
 		return err
 	}
