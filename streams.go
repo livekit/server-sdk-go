@@ -134,7 +134,7 @@ func (w *baseStreamWriter[T]) processWriteQueue() {
 		case task := <-w.writeQueue:
 			w.writeStreamBytes(task.chunks, task.onDone)
 		case <-w.closed.Watch():
-			// Drain any pending tasks - we don't want to send data after the trailer
+			// Drain any pending tasks - close sends a trailer and no data should be sent after that
 			for {
 				select {
 				case <-w.writeQueue:
