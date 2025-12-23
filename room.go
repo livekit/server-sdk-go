@@ -638,10 +638,25 @@ func (r *Room) cleanup() {
 	r.engine.Close()
 	r.LocalParticipant.closeTracks()
 	r.setSid("", true)
+
 	r.byteStreamHandlers.Clear()
+	r.byteStreamReaders.Range(func(key, value any) bool {
+		if reader, ok := value.(*ByteStreamReader); ok {
+			reader.close()
+		}
+		return true
+	})
 	r.byteStreamReaders.Clear()
+
 	r.textStreamHandlers.Clear()
+	r.textStreamReaders.Range(func(key, value any) bool {
+		if reader, ok := value.(*TextStreamReader); ok {
+			reader.close()
+		}
+		return true
+	})
 	r.textStreamReaders.Clear()
+
 	r.rpcHandlers.Clear()
 	r.LocalParticipant.cleanup()
 }
