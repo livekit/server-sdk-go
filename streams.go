@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/frostbyte73/core"
 	protocol "github.com/livekit/protocol/livekit"
 )
 
@@ -104,7 +105,7 @@ type baseStreamWriter[T any] struct {
 	onProgress            func(progress float64)
 
 	chunkIndex uint64
-	closed     atomic.Bool
+	closed     core.Fuse
 	lock       sync.Mutex
 
 	writeQueue chan writeTask
@@ -128,8 +129,20 @@ func newBaseStreamWriter[T any](engine *RTCEngine, header *protocol.DataStream_H
 
 // processes write queue asynchronously
 func (w *baseStreamWriter[T]) processWriteQueue() {
-	for task := range w.writeQueue {
-		w.writeStreamBytes(task.chunks, task.onDone)
+	for {
+		select {
+		case task := <-w.writeQueue:
+			w.writeStreamBytes(task.chunks, task.onDone)
+		case <-w.closed.Watch():
+			// Drain any pending tasks - close sends a trailer and no data should be sent after that
+			for {
+				select {
+				case <-w.writeQueue:
+				default:
+					return
+				}
+			}
+		}
 	}
 }
 
@@ -137,33 +150,39 @@ func (w *baseStreamWriter[T]) processWriteQueue() {
 // depending on the type of the stream writer
 // onDone is a callback function that will be called when the data provided is written to the stream
 func (w *baseStreamWriter[T]) Write(data T, onDone *func()) {
-	if w.closed.Load() {
+	if w.closed.IsBroken() {
 		return
 	}
 
+	var task writeTask
 	switch v := any(data).(type) {
 	case []byte:
-		w.writeQueue <- writeTask{
+		task = writeTask{
 			chunks: chunkBytes(v),
 			onDone: onDone,
 		}
 	case string:
-		w.writeQueue <- writeTask{
+		task = writeTask{
 			chunks: chunkUtf8String(v),
 			onDone: onDone,
 		}
+	default:
+		return
+	}
+
+	select {
+	case w.writeQueue <- task:
+	case <-w.closed.Watch():
 	}
 }
 
 // Close the stream, this will send a stream trailer to notify the receiver that the stream is closed
 func (w *baseStreamWriter[T]) Close() {
-	if !w.closed.Load() {
-		w.closed.Store(true)
-
+	w.closed.Once(func() {
 		w.lock.Lock()
 		w.engine.publishStreamTrailer(w.streamId, w.destinationIdentities)
 		w.lock.Unlock()
-	}
+	})
 }
 
 // writes a list of chunks to the stream
@@ -171,7 +190,7 @@ func (w *baseStreamWriter[T]) writeStreamBytes(chunks [][]byte, onDone *func()) 
 	w.lock.Lock()
 	chunkIndex := w.chunkIndex
 
-	for i := 0; i < len(chunks) && !w.closed.Load(); i++ {
+	for i := 0; i < len(chunks) && !w.closed.IsBroken(); i++ {
 		chunk := chunks[i]
 
 		w.engine.waitForBufferStatusLow(protocol.DataPacket_RELIABLE)

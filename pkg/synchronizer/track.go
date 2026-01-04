@@ -180,14 +180,14 @@ func (t *TrackSynchronizer) PrimeForStart(pkt jitter.ExtPacket) ([]jitter.ExtPac
 func (t *TrackSynchronizer) Initialize(pkt *rtp.Packet) {
 	t.initialize(jitter.ExtPacket{
 		Packet:     pkt,
-		ReceivedAt: mono.Now(),
+		ReceivedAt: time.Now(),
 	})
 }
 
 func (t *TrackSynchronizer) initialize(extPkt jitter.ExtPacket) {
 	receivedAt := extPkt.ReceivedAt
 	if receivedAt.IsZero() {
-		receivedAt = mono.Now()
+		receivedAt = time.Now()
 	}
 
 	t.Lock()
@@ -252,7 +252,7 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 	t.Lock()
 	defer t.Unlock()
 
-	now := mono.Now()
+	now := time.Now()
 	var pktReceiveTime time.Time
 	if t.preJitterBufferReceiveTimeEnabled {
 		pktReceiveTime = pkt.ReceivedAt
@@ -291,8 +291,8 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 				"dropping old packet",
 				"currentTS", ts,
 				"receivedAt", pkt.ReceivedAt,
-				"now", mono.Now(),
-				"age", mono.Now().Sub(pkt.ReceivedAt),
+				"now", time.Now(),
+				"age", time.Since(pkt.ReceivedAt),
 				"state", t,
 			)
 			return 0, ErrPacketTooOld
@@ -336,7 +336,7 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 		if t.driftAdjustmentWindowPercent > 0.0 {
 			throttle = time.Duration(math.Abs(float64(t.currentPTSOffset-prevCurrentPTSOffset)) * 100.0 / t.driftAdjustmentWindowPercent)
 		}
-		t.nextPTSAdjustmentAt = mono.Now().Add(throttle)
+		t.nextPTSAdjustmentAt = time.Now().Add(throttle)
 		t.logPTSAdjustmentSampled(ts, pts, estimatedPTS, prevCurrentPTSOffset, throttle)
 	}
 
@@ -380,7 +380,7 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 	t.Lock()
 	defer t.Unlock()
 
-	now := mono.Now()
+	now := time.Now()
 	if t.firstTime.IsZero() {
 		t.firstTime = now
 		t.logger.Infow(
@@ -533,11 +533,16 @@ func (t *TrackSynchronizer) onSenderReportWithoutRebase(pkt *rtcp.SenderReport) 
 		receivedAt:   mono.UnixNano(),
 	}
 	if t.lastSR != nil && ((t.lastSR.RTPTime != 0 && (pkt.RTPTime-t.lastSR.RTPTime) > (1<<31)) || pkt.RTPTime == t.lastSR.RTPTime) {
-		t.logger.Infow(
-			"dropping duplicate or out-of-order sender report",
-			"receivedSR", wrappedAugmentedSenderReportLogger{augmented},
-			"state", t,
-		)
+		if pkt.RTPTime != t.lastSR.RTPTime {
+			t.logger.Infow(
+				"dropping out-of-order sender report",
+				"receivedSR", wrappedAugmentedSenderReportLogger{augmented},
+				"state", t,
+			)
+			t.stats.numSenderReportsDroppedOutOfOrder++
+		} else {
+			t.stats.numSenderReportsDroppedDuplicate++
+		}
 		return
 	}
 
@@ -605,11 +610,16 @@ func (t *TrackSynchronizer) onSenderReportWithRebase(pkt *rtcp.SenderReport) {
 	}
 
 	if t.lastSR != nil && ((t.lastSR.RTPTime != 0 && (pkt.RTPTime-t.lastSR.RTPTime) > (1<<31)) || pkt.RTPTime == t.lastSR.RTPTime) {
-		t.logger.Infow(
-			"dropping duplicate or out-of-order sender report",
-			"receivedSR", wrappedAugmentedSenderReportLogger{augmented},
-			"state", t,
-		)
+		if pkt.RTPTime != t.lastSR.RTPTime {
+			t.logger.Infow(
+				"dropping out-of-order sender report",
+				"receivedSR", wrappedAugmentedSenderReportLogger{augmented},
+				"state", t,
+			)
+			t.stats.numSenderReportsDroppedOutOfOrder++
+		} else {
+			t.stats.numSenderReportsDroppedDuplicate++
+		}
 		return
 	}
 
@@ -976,7 +986,9 @@ type stats struct {
 	largestGap   uint16
 
 	// sender report stats
-	numSenderReports uint32
+	numSenderReports                  uint32
+	numSenderReportsDroppedOutOfOrder uint32
+	numSenderReportsDroppedDuplicate  uint32
 }
 
 func (s stats) MarshalLogObject(e zapcore.ObjectEncoder) error {
@@ -1011,5 +1023,7 @@ func (s stats) MarshalLogObject(e zapcore.ObjectEncoder) error {
 	e.AddUint16("largestGap", s.largestGap)
 
 	e.AddUint32("numSenderReports", s.numSenderReports)
+	e.AddUint32("numSenderReportsDroppedOutOfOrder", s.numSenderReportsDroppedOutOfOrder)
+	e.AddUint32("numSenderReportsDroppedDuplicate", s.numSenderReportsDroppedDuplicate)
 	return nil
 }
