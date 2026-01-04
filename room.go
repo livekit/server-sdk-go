@@ -131,6 +131,14 @@ func WithInterceptors(interceptors []interceptor.Factory) ConnectOption {
 	}
 }
 
+// WithIncludeDefaultInterceptors sets whether to register default interceptors
+// along with custom interceptors.
+func WithIncludeDefaultInterceptors(include bool) ConnectOption {
+	return func(p *signalling.ConnectParams) {
+		p.IncludeDefaultInterceptors = include
+	}
+}
+
 // WithICETransportPolicy sets the ICE transport policy (UDP, Relay, etc.).
 func WithICETransportPolicy(iceTransportPolicy webrtc.ICETransportPolicy) ConnectOption {
 	return func(p *signalling.ConnectParams) {

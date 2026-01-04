@@ -82,6 +82,8 @@ type ConnectParams struct {
 
 	Interceptors []interceptor.Factory
 
+	IncludeDefaultInterceptors bool
+
 	ICETransportPolicy webrtc.ICETransportPolicy
 
 	// internal use

@@ -76,6 +76,7 @@ type PCTransportParams struct {
 	RetransmitBufferSize uint16
 	Pacer                pacer.Factory
 	Interceptors         []interceptor.Factory
+	IncludeDefaultInterceptors bool
 	OnRTTUpdate          func(rtt uint32)
 	IsSender             bool
 }
@@ -171,6 +172,12 @@ func NewPCTransport(params PCTransportParams) (*PCTransport, error) {
 	if params.Interceptors != nil {
 		for _, c := range params.Interceptors {
 			i.Add(c)
+		}
+		if params.IncludeDefaultInterceptors {
+			err := t.registerDefaultInterceptors(params, i)
+			if err != nil {
+				return nil, err
+			}
 		}
 	} else {
 		err := t.registerDefaultInterceptors(params, i)
