@@ -100,7 +100,7 @@ require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dennwc/iters v1.2.2 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
-	github.com/frostbyte73/core v0.1.1 // indirect
+	github.com/frostbyte73/core v0.1.1
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/gammazero/deque v1.2.0
 	github.com/go-jose/go-jose/v3 v3.0.4 // indirect
