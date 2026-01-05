@@ -73,11 +73,12 @@ type PCTransportParams struct {
 	Configuration webrtc.Configuration
 	Codecs        []webrtc.RTPCodecParameters
 
-	RetransmitBufferSize uint16
-	Pacer                pacer.Factory
-	Interceptors         []interceptor.Factory
-	OnRTTUpdate          func(rtt uint32)
-	IsSender             bool
+	RetransmitBufferSize       uint16
+	Pacer                      pacer.Factory
+	Interceptors               []interceptor.Factory
+	IncludeDefaultInterceptors bool
+	OnRTTUpdate                func(rtt uint32)
+	IsSender                   bool
 }
 
 func (t *PCTransport) registerDefaultInterceptors(params PCTransportParams, i *interceptor.Registry) error {
@@ -171,6 +172,12 @@ func NewPCTransport(params PCTransportParams) (*PCTransport, error) {
 	if params.Interceptors != nil {
 		for _, c := range params.Interceptors {
 			i.Add(c)
+		}
+		if params.IncludeDefaultInterceptors {
+			err := t.registerDefaultInterceptors(params, i)
+			if err != nil {
+				return nil, err
+			}
 		}
 	} else {
 		err := t.registerDefaultInterceptors(params, i)
