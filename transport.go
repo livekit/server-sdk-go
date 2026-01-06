@@ -161,7 +161,11 @@ func NewPCTransport(params PCTransportParams) (*PCTransport, error) {
 	if err := m.RegisterHeaderExtension(sdesRtpStreamIdExtension, webrtc.RTPCodecTypeVideo); err != nil {
 		return nil, err
 	}
-
+	absCaptureTimeURI := "http://www.webrtc.org/experiments/rtp-hdrext/abs-capture-time"
+	absCaptureTimeExtension := webrtc.RTPHeaderExtensionCapability{URI: absCaptureTimeURI}
+	if err := m.RegisterHeaderExtension(absCaptureTimeExtension, webrtc.RTPCodecTypeAudio); err != nil {
+		return nil, err
+	}
 	i := &interceptor.Registry{}
 
 	t := &PCTransport{
