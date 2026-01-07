@@ -342,13 +342,14 @@ func (e *RTCEngine) configure(
 func (e *RTCEngine) createPublisherPCLocked(configuration webrtc.Configuration) error {
 	var err error
 	if e.publisher, err = NewPCTransport(PCTransportParams{
-		Configuration:        configuration,
-		Codecs:               e.connParams.Codecs,
-		RetransmitBufferSize: e.connParams.RetransmitBufferSize,
-		Pacer:                e.connParams.Pacer,
-		Interceptors:         e.connParams.Interceptors,
-		OnRTTUpdate:          e.setRTT,
-		IsSender:             true,
+		Configuration:              configuration,
+		Codecs:                     e.connParams.Codecs,
+		RetransmitBufferSize:       e.connParams.RetransmitBufferSize,
+		Pacer:                      e.connParams.Pacer,
+		Interceptors:               e.connParams.Interceptors,
+		IncludeDefaultInterceptors: e.connParams.IncludeDefaultInterceptors,
+		OnRTTUpdate:                e.setRTT,
+		IsSender:                   true,
 	}); err != nil {
 		return err
 	}
@@ -429,9 +430,11 @@ func (e *RTCEngine) createSubscriberPCLocked(configuration webrtc.Configuration)
 
 	var err error
 	if e.subscriber, err = NewPCTransport(PCTransportParams{
-		Configuration:        configuration,
-		Codecs:               e.connParams.Codecs,
-		RetransmitBufferSize: e.connParams.RetransmitBufferSize,
+		Configuration:              configuration,
+		Codecs:                     e.connParams.Codecs,
+		RetransmitBufferSize:       e.connParams.RetransmitBufferSize,
+		Interceptors:               e.connParams.Interceptors,
+		IncludeDefaultInterceptors: e.connParams.IncludeDefaultInterceptors,
 	}); err != nil {
 		return err
 	}
