@@ -80,7 +80,7 @@ func main() {
 
     // terminate a room and cause participants to leave
     roomClient.DeleteRoom(context.Background(), &livekit.DeleteRoomRequest{
-		Room: roomId,
+		Room: roomName,
 	})
 
     // list participants in a room
