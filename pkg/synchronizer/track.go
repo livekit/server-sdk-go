@@ -658,7 +658,7 @@ func (t *TrackSynchronizer) onSenderReportWithRebase(pkt *rtcp.SenderReport) {
 			"receivedSR", wrappedAugmentedSenderReportLogger{augmented},
 			"state", t,
 			"PTS_SR", ptsSR,
-			"offset", drift,
+			"drift", drift,
 			"ptsSRTime", t.startTime.Add(ptsSR),
 			"estimatedPropagationDelay", estimatedPropagationDelay,
 		)
