@@ -229,7 +229,7 @@ func (p *ReaderSampleProvider) OnBind() error {
 	switch p.Mime {
 	case webrtc.MimeTypeH264:
 		if p.h26xStreamingFormat == H26xStreamingFormatAnnexB {
-			p.h264reader, err = h264reader.NewReader(p.reader)
+			p.h264reader, err = h264reader.NewReaderWithOptions(p.reader, h264reader.WithIncludeSEI(true))
 		}
 	case webrtc.MimeTypeH265:
 		p.h265reader, err = h265reader.NewReader(p.reader)
@@ -290,6 +290,13 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 			}
 			nalUnitType = nal.UnitType
 			nalUnitData = nal.Data
+		}
+
+		if nalUnitType == h264reader.NalUnitTypeSEI {
+			// If SEI, clear the data and do not return a frame (try next NAL)
+			sample.Data = nil
+			sample.Duration = 0
+			return sample, nil
 		}
 
 		isFrame := false
