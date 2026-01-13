@@ -37,6 +37,9 @@ const (
 	// defaults to 30 fps
 	defaultH264FrameDuration = 33 * time.Millisecond
 	defaultH265FrameDuration = 33 * time.Millisecond
+	// G.711 uses 20ms frames at 8kHz = 160 samples
+	defaultG711FrameDuration   = 20 * time.Millisecond
+	defaultG711SamplesPerFrame = 160
 )
 
 // ---------------------------------
@@ -87,6 +90,9 @@ type ReaderSampleProvider struct {
 
 	// for ogg
 	oggReader *oggreader.OggReader
+
+	// for wav (PCMU/PCMA)
+	wavReader *wavReader
 }
 
 type ReaderSampleProviderOption func(*ReaderSampleProvider)
@@ -166,6 +172,15 @@ func NewLocalFileTrack(file string, options ...ReaderSampleProviderOption) (*Loc
 		mime = webrtc.MimeTypeH265
 	case ".ogg":
 		mime = webrtc.MimeTypeOpus
+	case ".wav":
+		// Parse WAV header to determine format (PCMU or PCMA)
+		var err error
+		mime, err = detectWavFormat(fp)
+		if err != nil {
+			_ = fp.Close()
+			return nil, fmt.Errorf("failed to detect WAV format: %w", err)
+		}
+		_, _ = fp.Seek(0, 0)
 	default:
 		_ = fp.Close()
 		return nil, ErrCannotDetermineMime
@@ -201,6 +216,8 @@ func NewLocalReaderTrack(in io.ReadCloser, mime string, options ...ReaderSampleP
 		clockRate = 90000
 	case webrtc.MimeTypeOpus:
 		clockRate = 48000
+	case webrtc.MimeTypePCMU, webrtc.MimeTypePCMA:
+		clockRate = 8000
 	default:
 		return nil, ErrUnsupportedFileType
 	}
@@ -221,7 +238,7 @@ func NewLocalReaderTrack(in io.ReadCloser, mime string, options ...ReaderSampleP
 
 func (p *ReaderSampleProvider) OnBind() error {
 	// If we are not closing on unbind, don't do anything on rebind
-	if p.ivfReader != nil || p.h264reader != nil || p.oggReader != nil || p.h265reader != nil {
+	if p.ivfReader != nil || p.h264reader != nil || p.oggReader != nil || p.h265reader != nil || p.wavReader != nil {
 		return nil
 	}
 
@@ -241,6 +258,19 @@ func (p *ReaderSampleProvider) OnBind() error {
 		}
 	case webrtc.MimeTypeOpus:
 		p.oggReader, _, err = oggreader.NewOggReader(p.reader)
+	case webrtc.MimeTypePCMU, webrtc.MimeTypePCMA:
+		// wavReader requires io.ReadSeeker, check if reader supports it
+		readSeeker, ok := p.reader.(io.ReadSeeker)
+		if !ok {
+			err = fmt.Errorf("PCMU/PCMA requires io.ReadSeeker, but reader only implements io.ReadCloser")
+		} else {
+			// Seek to beginning to parse WAV header
+			if _, seekErr := readSeeker.Seek(0, io.SeekStart); seekErr != nil {
+				err = fmt.Errorf("failed to seek to beginning: %w", seekErr)
+			} else {
+				p.wavReader, _, err = newWavReader(readSeeker)
+			}
+		}
 	default:
 		err = ErrUnsupportedFileType
 	}
@@ -369,6 +399,21 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 		if err != nil {
 			return sample, err
 		}
+	case webrtc.MimeTypePCMU, webrtc.MimeTypePCMA:
+		frame, err := p.wavReader.readFrame()
+		if err != nil {
+			return sample, err
+		}
+		sample.Data = frame
+		// Calculate duration based on actual frame size
+		// For G.711: 160 samples = 20ms, so each sample = 0.125ms
+		// Duration = (frame length in bytes) * (20ms / 160 samples)
+		if len(frame) == defaultG711SamplesPerFrame {
+			sample.Duration = defaultG711FrameDuration
+		} else {
+			// Partial frame: calculate duration proportionally
+			sample.Duration = time.Duration(len(frame)) * defaultG711FrameDuration / defaultG711SamplesPerFrame
+		}
 	}
 
 	if p.FrameDuration > 0 {
@@ -378,6 +423,189 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 }
 
 // --------------------------------------------------
+
+// wavReader reads WAV files containing PCMU (mulaw) or PCMA (alaw) audio
+type wavReader struct {
+	reader          io.ReadSeeker
+	dataOffset      int64
+	dataSize        int64
+	samplesPerFrame int
+	bytesRead       int64 // Track bytes read from data chunk
+}
+
+// WAV file format constants
+const (
+	wavFormatPCMU = 0x0007 // G.711 μ-law
+	wavFormatPCMA = 0x0006 // G.711 A-law
+)
+
+// newWavReader parses a WAV file header and returns a reader for PCMU/PCMA samples
+func newWavReader(r io.ReadSeeker) (*wavReader, string, error) {
+	// Read RIFF header
+	var riffHeader [12]byte
+	if _, err := io.ReadFull(r, riffHeader[:]); err != nil {
+		return nil, "", fmt.Errorf("failed to read RIFF header: %w", err)
+	}
+
+	// Check RIFF signature
+	if string(riffHeader[0:4]) != "RIFF" {
+		return nil, "", fmt.Errorf("not a RIFF file")
+	}
+
+	// Check WAVE signature
+	if string(riffHeader[8:12]) != "WAVE" {
+		return nil, "", fmt.Errorf("not a WAVE file")
+	}
+
+	// Read chunks until we find fmt and data chunks
+	var formatCode uint16
+	var sampleRate uint32
+	var channels uint16
+	var bitsPerSample uint16
+	var dataOffset int64
+	var dataSize int64
+
+	pos := int64(12)
+	for {
+		// Read chunk header
+		var chunkHeader [8]byte
+		if _, err := r.Seek(pos, io.SeekStart); err != nil {
+			return nil, "", fmt.Errorf("failed to seek to chunk: %w", err)
+		}
+		if _, err := io.ReadFull(r, chunkHeader[:]); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, "", fmt.Errorf("failed to read chunk header: %w", err)
+		}
+
+		chunkID := string(chunkHeader[0:4])
+		chunkSize := int64(binary.LittleEndian.Uint32(chunkHeader[4:8]))
+		chunkDataStart := pos + 8
+
+		if chunkID == "fmt " {
+			// Validate fmt chunk size (must be at least 16 bytes for basic format)
+			if chunkSize < 16 {
+				return nil, "", fmt.Errorf("fmt chunk too small: %d bytes (minimum 16)", chunkSize)
+			}
+
+			// Cap chunk size to prevent malicious/malformed files from causing huge allocations
+			// We only parse the first 16 bytes, so 64 bytes is more than enough
+			const maxFmtChunkSize = 64
+			readSize := chunkSize
+			if readSize > maxFmtChunkSize {
+				readSize = maxFmtChunkSize
+			}
+
+			// Safely convert int64 to int for make(), guarding against overflow
+			if readSize > int64(^uint(0)>>1) {
+				return nil, "", fmt.Errorf("fmt chunk size too large: %d bytes (max %d)", chunkSize, maxFmtChunkSize)
+			}
+
+			// Read format chunk (read up to maxFmtChunkSize bytes, but we only parse first 16)
+			fmtChunk := make([]byte, int(readSize))
+			if _, err := r.Seek(chunkDataStart, io.SeekStart); err != nil {
+				return nil, "", fmt.Errorf("failed to seek to fmt chunk: %w", err)
+			}
+			if _, err := io.ReadFull(r, fmtChunk); err != nil {
+				return nil, "", fmt.Errorf("failed to read fmt chunk: %w", err)
+			}
+
+			// Parse required fields (first 16 bytes)
+			formatCode = binary.LittleEndian.Uint16(fmtChunk[0:2])
+			channels = binary.LittleEndian.Uint16(fmtChunk[2:4])
+			sampleRate = binary.LittleEndian.Uint32(fmtChunk[4:8])
+			bitsPerSample = binary.LittleEndian.Uint16(fmtChunk[14:16])
+
+			// Validate format
+			if formatCode != wavFormatPCMU && formatCode != wavFormatPCMA {
+				return nil, "", fmt.Errorf("unsupported WAV format code: 0x%04x (expected PCMU 0x0007 or PCMA 0x0006)", formatCode)
+			}
+			if channels != 1 {
+				return nil, "", fmt.Errorf("only mono (1 channel) WAV files are supported, got %d channels", channels)
+			}
+			if bitsPerSample != 8 {
+				return nil, "", fmt.Errorf("expected 8 bits per sample for G.711, got %d", bitsPerSample)
+			}
+			if sampleRate != 8000 {
+				return nil, "", fmt.Errorf("expected 8000 Hz sample rate for G.711, got %d", sampleRate)
+			}
+		} else if chunkID == "data" {
+			dataOffset = chunkDataStart
+			dataSize = chunkSize
+		}
+
+		// Move to next chunk (chunk size is rounded up to even boundary)
+		pos = chunkDataStart + chunkSize
+		if chunkSize%2 != 0 {
+			pos++
+		}
+	}
+
+	// Validate that fmt chunk was found
+	if formatCode == 0 {
+		return nil, "", fmt.Errorf("fmt chunk not found or format code is zero")
+	}
+
+	if dataOffset == 0 {
+		return nil, "", fmt.Errorf("data chunk not found")
+	}
+
+	// Determine mime type from format code
+	var mime string
+	if formatCode == wavFormatPCMU {
+		mime = webrtc.MimeTypePCMU
+	} else if formatCode == wavFormatPCMA {
+		mime = webrtc.MimeTypePCMA
+	} else {
+		return nil, "", fmt.Errorf("unsupported WAV format code: 0x%04x (expected PCMU 0x0007 or PCMA 0x0006)", formatCode)
+	}
+
+	// Seek to start of data
+	if _, err := r.Seek(dataOffset, io.SeekStart); err != nil {
+		return nil, "", fmt.Errorf("failed to seek to data: %w", err)
+	}
+
+	return &wavReader{
+		reader:          r,
+		dataOffset:      dataOffset,
+		dataSize:        dataSize,
+		samplesPerFrame: defaultG711SamplesPerFrame,
+		bytesRead:       0,
+	}, mime, nil
+}
+
+// readFrame reads one frame of G.711 audio (160 samples = 20ms at 8kHz)
+// It respects dataSize and stops reading at the end of the audio data chunk
+func (w *wavReader) readFrame() ([]byte, error) {
+	// Check if we've read all available data
+	remaining := w.dataSize - w.bytesRead
+	if remaining <= 0 {
+		return nil, io.EOF
+	}
+
+	// Calculate how many bytes to read (up to one frame, but not more than remaining)
+	frameSize := w.samplesPerFrame
+	bytesToRead := frameSize
+	if remaining < int64(bytesToRead) {
+		bytesToRead = int(remaining)
+	}
+
+	buf := make([]byte, bytesToRead)
+	n, err := io.ReadFull(w.reader, buf)
+	if err == io.EOF && n == 0 {
+		return nil, io.EOF
+	}
+	if err != nil && err != io.ErrUnexpectedEOF {
+		return nil, err
+	}
+
+	// Update bytes read counter
+	w.bytesRead += int64(n)
+
+	// Return the frame (may be partial if at end of data)
+	return buf[:n], nil
+}
 
 // minimal length-prefixed NAL reeader
 func nextNALH264LengthPrefixed(r io.Reader) (h264reader.NalUnitType, []byte, error) {
@@ -397,4 +625,29 @@ func nextNALH264LengthPrefixed(r io.Reader) (h264reader.NalUnitType, []byte, err
 	}
 
 	return h264reader.NalUnitType(buf[0] & 0x1F), buf, nil
+}
+
+// detectWavFormat detects the format (PCMU or PCMA) of a WAV file
+// It reads the WAV header and returns the mime type, then seeks back to the beginning
+func detectWavFormat(r io.ReadSeeker) (string, error) {
+	// Save current position
+	currentPos, err := r.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return "", fmt.Errorf("failed to get current position: %w", err)
+	}
+
+	// Parse WAV header to get mime type
+	_, mime, err := newWavReader(r)
+	if err != nil {
+		// Try to restore position even on error
+		_, _ = r.Seek(currentPos, io.SeekStart)
+		return "", err
+	}
+
+	// Restore position to beginning for later use
+	if _, err := r.Seek(0, io.SeekStart); err != nil {
+		return "", fmt.Errorf("failed to seek to beginning: %w", err)
+	}
+
+	return mime, nil
 }
