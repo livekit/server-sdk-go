@@ -1,9 +1,16 @@
 package lksdk
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 )
+
+// userTimestampSEIUUID is the UUID of the user timestamp SEI NAL unit.
+var userTimestampSEIUUID = [16]byte{
+	0x3f, 0xa8, 0x5f, 0x64, 0x57, 0x17, 0x45, 0x62,
+	0xb3, 0xfc, 0x2c, 0x96, 0x3f, 0x66, 0xaf, 0xa6,
+}
 
 // parseH264SEIUserTimestamp parses H264 SEI NAL units (type 6) carrying
 // user_data_unregistered messages and returns a timestamp (microseconds) when detected.
@@ -12,7 +19,7 @@ import (
 //
 //	payloadType  = 5 (user_data_unregistered)
 //	payloadSize  = 24
-//	UUID         = 16 bytes
+//	UUID         = 16 bytes (3fa85f64-5717-4562-b3fc-2c963f66afa6)
 //	timestamp_us = 8 bytes, big-endian
 //	trailing     = 0x80 (stop bits + padding)
 func parseH264SEIUserTimestamp(nalData []byte) (int64, bool) {
@@ -70,6 +77,11 @@ func parseH264SEIUserTimestamp(nalData []byte) (int64, bool) {
 	userData := payload[i : i+payloadSize]
 	uuidBytes := userData[:16]
 	tsBytes := userData[16:24]
+
+	// Validate the UUID matches the exact user timestamp UUID we expect.
+	if !bytes.Equal(uuidBytes, userTimestampSEIUUID[:]) {
+		return 0, false
+	}
 
 	timestampUS := binary.BigEndian.Uint64(tsBytes)
 
