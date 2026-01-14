@@ -20,9 +20,7 @@ func appendUserTimestampTrailer(data []byte, userTimestampUs int64) []byte {
 
 	// Write timestamp (big-endian) just before the magic bytes.
 	tsOffset := len(data)
-	var tsBuf [8]byte
-	binary.BigEndian.PutUint64(tsBuf[:], uint64(userTimestampUs))
-	copy(out[tsOffset:tsOffset+8], tsBuf[:])
+	binary.BigEndian.PutUint64(out[tsOffset:tsOffset+8], uint64(userTimestampUs))
 
 	// Append magic bytes.
 	copy(out[tsOffset+8:], userTimestampMagic)
@@ -53,5 +51,3 @@ func parseUserTimestampTrailer(data []byte) (int64, bool) {
 	ts := int64(binary.BigEndian.Uint64(data[tsStart : tsStart+8]))
 	return ts, true
 }
-
-
