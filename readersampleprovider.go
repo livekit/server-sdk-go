@@ -144,6 +144,8 @@ func readerTrackWithWavReader(wr *wavReader) func(provider *ReaderSampleProvider
 // NewLocalFileTrack creates an *os.File reader for NewLocalReaderTrack
 func NewLocalFileTrack(file string, options ...ReaderSampleProviderOption) (*LocalTrack, error) {
 	// File health check
+	logger.Infow("NewLocalFileTrack", "file", file)
+	defer logger.Infow("NewLocalFileTrack", "file", file, "done")
 	var err error
 	if _, err = os.Stat(file); err != nil {
 		return nil, err
