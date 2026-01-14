@@ -145,7 +145,7 @@ func readerTrackWithWavReader(wr *wavReader) func(provider *ReaderSampleProvider
 func NewLocalFileTrack(file string, options ...ReaderSampleProviderOption) (*LocalTrack, error) {
 	// File health check
 	logger.Infow("NewLocalFileTrack", "file", file)
-	defer logger.Infow("NewLocalFileTrack", "file", file, "done")
+	defer logger.Infow("NewLocalFileTrack done", "file", file)
 	var err error
 	if _, err = os.Stat(file); err != nil {
 		return nil, err
@@ -524,6 +524,8 @@ func newWavReader(r io.Reader) (*wavReader, string, error) {
 				return nil, "", fmt.Errorf("unsupported WAV format code: 0x%04x (expected PCMU 0x0007 or PCMA 0x0006)", formatCode)
 			}
 
+			logger.Infow("wavReader fmt", "formatCode", formatCode, "channels", channels, "sampleRate", sampleRate, "bitsPerSample", bitsPerSample, "dataSize", chunkSize)
+
 			return &wavReader{
 				reader:          r,
 				dataSize:        chunkSize,
@@ -560,6 +562,7 @@ func (w *wavReader) readFrame() ([]byte, error) {
 	// Check if we've read all available data
 	remaining := w.dataSize - w.bytesRead
 	if remaining <= 0 {
+		logger.Infow("wavReader EOF", "dataSize", w.dataSize, "bytesRead", w.bytesRead)
 		return nil, io.EOF
 	}
 
@@ -573,6 +576,7 @@ func (w *wavReader) readFrame() ([]byte, error) {
 	buf := make([]byte, bytesToRead)
 	n, err := io.ReadFull(w.reader, buf)
 	if err == io.EOF && n == 0 {
+		logger.Infow("wavReader EOF", "dataSize", w.dataSize, "bytesRead", w.bytesRead)
 		return nil, io.EOF
 	}
 	if err != nil && err != io.ErrUnexpectedEOF {
