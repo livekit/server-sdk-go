@@ -133,6 +133,12 @@ func ReaderTrackWithH26xStreamingFormat(h26xStreamingFormat H26xStreamingFormat)
 	}
 }
 
+func readerTrackWithWavReader(wr *wavReader) func(provider *ReaderSampleProvider) {
+	return func(provider *ReaderSampleProvider) {
+		provider.wavReader = wr
+	}
+}
+
 // NewLocalFileTrack creates an *os.File reader for NewLocalReaderTrack
 func NewLocalFileTrack(file string, options ...ReaderSampleProviderOption) (*LocalTrack, error) {
 	// File health check
@@ -174,13 +180,13 @@ func NewLocalFileTrack(file string, options ...ReaderSampleProviderOption) (*Loc
 		mime = webrtc.MimeTypeOpus
 	case ".wav":
 		// Parse WAV header to determine format (PCMU or PCMA)
-		var err error
-		mime, err = detectWavFormat(fp)
+		var wavReader *wavReader
+		wavReader, mime, err = detectWavFormat(fp)
 		if err != nil {
 			_ = fp.Close()
-			return nil, fmt.Errorf("failed to detect WAV format: %w", err)
+			return nil, ErrCannotDetermineMime
 		}
-		_, _ = fp.Seek(0, 0)
+		options = append(options, readerTrackWithWavReader(wavReader))
 	default:
 		_ = fp.Close()
 		return nil, ErrCannotDetermineMime
@@ -259,17 +265,8 @@ func (p *ReaderSampleProvider) OnBind() error {
 	case webrtc.MimeTypeOpus:
 		p.oggReader, _, err = oggreader.NewOggReader(p.reader)
 	case webrtc.MimeTypePCMU, webrtc.MimeTypePCMA:
-		// wavReader requires io.ReadSeeker, check if reader supports it
-		readSeeker, ok := p.reader.(io.ReadSeeker)
-		if !ok {
-			err = fmt.Errorf("PCMU/PCMA requires io.ReadSeeker, but reader only implements io.ReadCloser")
-		} else {
-			// Seek to beginning to parse WAV header
-			if _, seekErr := readSeeker.Seek(0, io.SeekStart); seekErr != nil {
-				err = fmt.Errorf("failed to seek to beginning: %w", seekErr)
-			} else {
-				p.wavReader, _, err = newWavReader(readSeeker)
-			}
+		if p.wavReader == nil {
+			p.wavReader, _, err = newWavReader(p.reader)
 		}
 	default:
 		err = ErrUnsupportedFileType
@@ -426,8 +423,7 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 
 // wavReader reads WAV files containing PCMU (mulaw) or PCMA (alaw) audio
 type wavReader struct {
-	reader          io.ReadSeeker
-	dataOffset      int64
+	reader          io.Reader
 	dataSize        int64
 	samplesPerFrame int
 	bytesRead       int64 // Track bytes read from data chunk
@@ -440,40 +436,30 @@ const (
 )
 
 // newWavReader parses a WAV file header and returns a reader for PCMU/PCMA samples
-func newWavReader(r io.ReadSeeker) (*wavReader, string, error) {
-	// Read RIFF header
+func newWavReader(r io.Reader) (*wavReader, string, error) {
 	var riffHeader [12]byte
 	if _, err := io.ReadFull(r, riffHeader[:]); err != nil {
 		return nil, "", fmt.Errorf("failed to read RIFF header: %w", err)
 	}
 
-	// Check RIFF signature
 	if string(riffHeader[0:4]) != "RIFF" {
 		return nil, "", fmt.Errorf("not a RIFF file")
 	}
 
-	// Check WAVE signature
 	if string(riffHeader[8:12]) != "WAVE" {
 		return nil, "", fmt.Errorf("not a WAVE file")
 	}
 
-	// Read chunks until we find fmt and data chunks
 	var formatCode uint16
-	var sampleRate uint32
 	var channels uint16
+	var sampleRate uint32
 	var bitsPerSample uint16
-	var dataOffset int64
-	var dataSize int64
+	foundFmt := false
 
-	pos := int64(12)
 	for {
-		// Read chunk header
 		var chunkHeader [8]byte
-		if _, err := r.Seek(pos, io.SeekStart); err != nil {
-			return nil, "", fmt.Errorf("failed to seek to chunk: %w", err)
-		}
 		if _, err := io.ReadFull(r, chunkHeader[:]); err != nil {
-			if err == io.EOF {
+			if err == io.EOF || err == io.ErrUnexpectedEOF {
 				break
 			}
 			return nil, "", fmt.Errorf("failed to read chunk header: %w", err)
@@ -481,98 +467,86 @@ func newWavReader(r io.ReadSeeker) (*wavReader, string, error) {
 
 		chunkID := string(chunkHeader[0:4])
 		chunkSize := int64(binary.LittleEndian.Uint32(chunkHeader[4:8]))
-		chunkDataStart := pos + 8
 
-		if chunkID == "fmt " {
-			// Validate fmt chunk size (must be at least 16 bytes for basic format)
+		switch chunkID {
+		case "fmt ":
 			if chunkSize < 16 {
 				return nil, "", fmt.Errorf("fmt chunk too small: %d bytes (minimum 16)", chunkSize)
 			}
 
-			// Cap chunk size to prevent malicious/malformed files from causing huge allocations
-			// We only parse the first 16 bytes, so 64 bytes is more than enough
-			const maxFmtChunkSize = 64
-			readSize := chunkSize
-			if readSize > maxFmtChunkSize {
-				readSize = maxFmtChunkSize
-			}
-
-			// Safely convert int64 to int for make(), guarding against overflow
-			if readSize > int64(^uint(0)>>1) {
-				return nil, "", fmt.Errorf("fmt chunk size too large: %d bytes (max %d)", chunkSize, maxFmtChunkSize)
-			}
-
-			// Read format chunk (read up to maxFmtChunkSize bytes, but we only parse first 16)
-			fmtChunk := make([]byte, int(readSize))
-			if _, err := r.Seek(chunkDataStart, io.SeekStart); err != nil {
-				return nil, "", fmt.Errorf("failed to seek to fmt chunk: %w", err)
-			}
-			if _, err := io.ReadFull(r, fmtChunk); err != nil {
+			var fmtBase [16]byte
+			if _, err := io.ReadFull(r, fmtBase[:]); err != nil {
 				return nil, "", fmt.Errorf("failed to read fmt chunk: %w", err)
 			}
 
-			// Parse required fields (first 16 bytes)
-			formatCode = binary.LittleEndian.Uint16(fmtChunk[0:2])
-			channels = binary.LittleEndian.Uint16(fmtChunk[2:4])
-			sampleRate = binary.LittleEndian.Uint32(fmtChunk[4:8])
-			bitsPerSample = binary.LittleEndian.Uint16(fmtChunk[14:16])
+			formatCode = binary.LittleEndian.Uint16(fmtBase[0:2])
+			channels = binary.LittleEndian.Uint16(fmtBase[2:4])
+			sampleRate = binary.LittleEndian.Uint32(fmtBase[4:8])
+			bitsPerSample = binary.LittleEndian.Uint16(fmtBase[14:16])
 
-			// Validate format
 			if formatCode != wavFormatPCMU && formatCode != wavFormatPCMA {
 				return nil, "", fmt.Errorf("unsupported WAV format code: 0x%04x (expected PCMU 0x0007 or PCMA 0x0006)", formatCode)
 			}
 			if channels != 1 {
 				return nil, "", fmt.Errorf("only mono (1 channel) WAV files are supported, got %d channels", channels)
 			}
-			if bitsPerSample != 8 {
-				return nil, "", fmt.Errorf("expected 8 bits per sample for G.711, got %d", bitsPerSample)
-			}
 			if sampleRate != 8000 {
 				return nil, "", fmt.Errorf("expected 8000 Hz sample rate for G.711, got %d", sampleRate)
 			}
-		} else if chunkID == "data" {
-			dataOffset = chunkDataStart
-			dataSize = chunkSize
+			if bitsPerSample != 8 {
+				return nil, "", fmt.Errorf("expected 8 bits per sample for G.711, got %d", bitsPerSample)
+			}
+
+			if remaining := chunkSize - 16; remaining > 0 {
+				if _, err := io.CopyN(io.Discard, r, remaining); err != nil {
+					return nil, "", fmt.Errorf("failed to read fmt chunk extension: %w", err)
+				}
+			}
+			foundFmt = true
+
+		case "data":
+			if !foundFmt {
+				return nil, "", fmt.Errorf("fmt chunk not found before data")
+			}
+
+			var mime string
+			switch formatCode {
+			case wavFormatPCMU:
+				mime = webrtc.MimeTypePCMU
+			case wavFormatPCMA:
+				mime = webrtc.MimeTypePCMA
+			default:
+				return nil, "", fmt.Errorf("unsupported WAV format code: 0x%04x (expected PCMU 0x0007 or PCMA 0x0006)", formatCode)
+			}
+
+			return &wavReader{
+				reader:          r,
+				dataSize:        chunkSize,
+				samplesPerFrame: defaultG711SamplesPerFrame,
+				bytesRead:       0,
+			}, mime, nil
+
+		default:
+			if _, err := io.CopyN(io.Discard, r, chunkSize); err != nil {
+				return nil, "", fmt.Errorf("failed to skip %s chunk: %w", chunkID, err)
+			}
 		}
 
-		// Move to next chunk (chunk size is rounded up to even boundary)
-		pos = chunkDataStart + chunkSize
+		// WAV format requires chunks to be word-aligned (even size)
+		// If chunk size is odd, there's a padding byte that must be skipped
 		if chunkSize%2 != 0 {
-			pos++
+			var pad [1]byte
+			if _, err := io.ReadFull(r, pad[:]); err != nil {
+				return nil, "", fmt.Errorf("failed to read padding byte: %w", err)
+			}
 		}
 	}
 
-	// Validate that fmt chunk was found
-	if formatCode == 0 {
-		return nil, "", fmt.Errorf("fmt chunk not found or format code is zero")
+	if !foundFmt {
+		return nil, "", fmt.Errorf("fmt chunk not found")
 	}
 
-	if dataOffset == 0 {
-		return nil, "", fmt.Errorf("data chunk not found")
-	}
-
-	// Determine mime type from format code
-	var mime string
-	if formatCode == wavFormatPCMU {
-		mime = webrtc.MimeTypePCMU
-	} else if formatCode == wavFormatPCMA {
-		mime = webrtc.MimeTypePCMA
-	} else {
-		return nil, "", fmt.Errorf("unsupported WAV format code: 0x%04x (expected PCMU 0x0007 or PCMA 0x0006)", formatCode)
-	}
-
-	// Seek to start of data
-	if _, err := r.Seek(dataOffset, io.SeekStart); err != nil {
-		return nil, "", fmt.Errorf("failed to seek to data: %w", err)
-	}
-
-	return &wavReader{
-		reader:          r,
-		dataOffset:      dataOffset,
-		dataSize:        dataSize,
-		samplesPerFrame: defaultG711SamplesPerFrame,
-		bytesRead:       0,
-	}, mime, nil
+	return nil, "", fmt.Errorf("data chunk not found")
 }
 
 // readFrame reads one frame of G.711 audio (160 samples = 20ms at 8kHz)
@@ -627,27 +601,13 @@ func nextNALH264LengthPrefixed(r io.Reader) (h264reader.NalUnitType, []byte, err
 	return h264reader.NalUnitType(buf[0] & 0x1F), buf, nil
 }
 
-// detectWavFormat detects the format (PCMU or PCMA) of a WAV file
-// It reads the WAV header and returns the mime type, then seeks back to the beginning
-func detectWavFormat(r io.ReadSeeker) (string, error) {
-	// Save current position
-	currentPos, err := r.Seek(0, io.SeekCurrent)
+func detectWavFormat(r io.Reader) (*wavReader, string, error) {
+	// Parse WAV header to get mime type and create wavReader
+	// Stream ends at start of data chunk - no seeking needed
+	wavReader, mime, err := newWavReader(r)
 	if err != nil {
-		return "", fmt.Errorf("failed to get current position: %w", err)
+		return nil, "", err
 	}
 
-	// Parse WAV header to get mime type
-	_, mime, err := newWavReader(r)
-	if err != nil {
-		// Try to restore position even on error
-		_, _ = r.Seek(currentPos, io.SeekStart)
-		return "", err
-	}
-
-	// Restore position to beginning for later use
-	if _, err := r.Seek(0, io.SeekStart); err != nil {
-		return "", fmt.Errorf("failed to seek to beginning: %w", err)
-	}
-
-	return mime, nil
+	return wavReader, mime, nil
 }
