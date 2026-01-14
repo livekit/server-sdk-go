@@ -134,7 +134,9 @@ func ReaderTrackWithH26xStreamingFormat(h26xStreamingFormat H26xStreamingFormat)
 }
 
 func readerTrackWithWavReader(wr *wavReader) func(provider *ReaderSampleProvider) {
+	logger.Infow("readerTrackWithWavReader", "generating option")
 	return func(provider *ReaderSampleProvider) {
+		logger.Infow("readerTrackWithWavReader", "option applied")
 		provider.wavReader = wr
 	}
 }
@@ -266,6 +268,7 @@ func (p *ReaderSampleProvider) OnBind() error {
 		p.oggReader, _, err = oggreader.NewOggReader(p.reader)
 	case webrtc.MimeTypePCMU, webrtc.MimeTypePCMA:
 		if p.wavReader == nil {
+			logger.Infow("Creating new wavReader")
 			p.wavReader, _, err = newWavReader(p.reader)
 		}
 	default:
@@ -608,6 +611,8 @@ func detectWavFormat(r io.Reader) (*wavReader, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
+
+	logger.Infow("wavReader mimeType detected", "mime", mime)
 
 	return wavReader, mime, nil
 }
