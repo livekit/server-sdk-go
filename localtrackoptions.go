@@ -11,6 +11,8 @@ type LocalTrackPublishOptions struct {
 	backupCodecTrack TrackLocalWithCodec
 	// backup codec tracks for simulcast track
 	backupCodecTracks []*LocalTrack
+	restrictCodec     bool
+	codecPreference   webrtc.RTPCodecCapability
 }
 
 type LocalTrackPublishOption func(*LocalTrackPublishOptions)
@@ -24,5 +26,13 @@ func WithBackupCodec(backupCodecTrack TrackLocalWithCodec) LocalTrackPublishOpti
 func WithBackupCodecForSimulcastTrack(backupCodecTracks []*LocalTrack) LocalTrackPublishOption {
 	return func(opts *LocalTrackPublishOptions) {
 		opts.backupCodecTracks = backupCodecTracks
+	}
+}
+
+// WithCodec restricts the advertised codec list to the provided codec.
+func WithCodec(codec webrtc.RTPCodecCapability) LocalTrackPublishOption {
+	return func(opts *LocalTrackPublishOptions) {
+		opts.restrictCodec = true
+		opts.codecPreference = codec
 	}
 }

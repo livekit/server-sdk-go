@@ -115,17 +115,30 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 		}
 		pub.readRTCP(sender)
 	}
-	if primaryCodec.MimeType != "" {
+	if pubOptions.restrictCodec {
+		pub.restrictCodec = true
+		if pubOptions.codecPreference.MimeType != "" {
+			pub.codecPreference = pubOptions.codecPreference
+		} else {
+			pub.codecPreference = primaryCodec
+		}
+	}
+	codecPreference := primaryCodec
+	if pubOptions.restrictCodec && pubOptions.codecPreference.MimeType != "" {
+		codecPreference = pubOptions.codecPreference
+	}
+	if codecPreference.MimeType != "" {
 		for _, tr := range transport.PeerConnection().GetTransceivers() {
 			if tr.Sender() == sender {
-				codecs := append([]webrtc.RTPCodecParameters{}, sender.GetParameters().Codecs...)
-				for i, c := range codecs {
-					if strings.EqualFold(c.RTPCodecCapability.MimeType, primaryCodec.MimeType) {
-						codecs[0], codecs[i] = codecs[i], codecs[0]
-						break
-					}
+				codecs := sender.GetParameters().Codecs
+				if pubOptions.restrictCodec {
+					codecs = filterCodecPreferences(codecs, codecPreference)
+				} else {
+					codecs = reorderCodecPreferences(codecs, primaryCodec)
 				}
-				tr.SetCodecPreferences(codecs)
+				if len(codecs) > 0 {
+					tr.SetCodecPreferences(codecs)
+				}
 			}
 		}
 	}
@@ -241,6 +254,14 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *Tra
 
 	pub := NewLocalTrackPublication(KindFromRTPType(mainTrack.Kind()), nil, *opts, p.engine, p.log)
 	pub.onMuteChanged = p.onTrackMuted
+	if pubOptions.restrictCodec {
+		pub.restrictCodec = true
+		if pubOptions.codecPreference.MimeType != "" {
+			pub.codecPreference = pubOptions.codecPreference
+		} else {
+			pub.codecPreference = mainTrack.Codec()
+		}
+	}
 
 	transport := p.getPublishTransport()
 	if transport == nil {
@@ -280,6 +301,16 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *Tra
 		}
 		pub.addSimulcastTrack(st)
 		st.SetTransceiver(transceiver)
+	}
+	if pubOptions.restrictCodec && transceiver != nil {
+		codecPreference := mainTrack.Codec()
+		if pubOptions.codecPreference.MimeType != "" {
+			codecPreference = pubOptions.codecPreference
+		}
+		codecs := filterCodecPreferences(sender.GetParameters().Codecs, codecPreference)
+		if len(codecs) > 0 {
+			transceiver.SetCodecPreferences(codecs)
+		}
 	}
 
 	var layers []*livekit.VideoLayer
@@ -443,13 +474,7 @@ func (p *LocalParticipant) publishAdditionalCodecForTrack(trackPublication *Loca
 
 		for _, tr := range pc.GetTransceivers() {
 			if tr.Sender() == sender {
-				codecs := append([]webrtc.RTPCodecParameters{}, sender.GetParameters().Codecs...)
-				for i, c := range codecs {
-					if strings.EqualFold(c.RTPCodecCapability.MimeType, mainTrack.Codec().MimeType) {
-						codecs[0], codecs[i] = codecs[i], codecs[0]
-						break
-					}
-				}
+				codecs := reorderCodecPreferences(sender.GetParameters().Codecs, mainTrack.Codec())
 				tr.SetCodecPreferences(codecs)
 			}
 		}
@@ -509,6 +534,40 @@ func (p *LocalParticipant) publishAdditionalCodecForTrack(trackPublication *Loca
 	return nil
 }
 
+func filterCodecPreferences(
+	codecs []webrtc.RTPCodecParameters,
+	target webrtc.RTPCodecCapability,
+) []webrtc.RTPCodecParameters {
+	if target.MimeType == "" {
+		return append([]webrtc.RTPCodecParameters{}, codecs...)
+	}
+
+	preferred := make([]webrtc.RTPCodecParameters, 0, len(codecs))
+	for _, c := range codecs {
+		if strings.EqualFold(c.RTPCodecCapability.MimeType, target.MimeType) {
+			preferred = append(preferred, c)
+		}
+	}
+	return preferred
+}
+
+func reorderCodecPreferences(
+	codecs []webrtc.RTPCodecParameters,
+	target webrtc.RTPCodecCapability,
+) []webrtc.RTPCodecParameters {
+	preferred := append([]webrtc.RTPCodecParameters{}, codecs...)
+	if target.MimeType == "" {
+		return preferred
+	}
+	for i, c := range preferred {
+		if strings.EqualFold(c.RTPCodecCapability.MimeType, target.MimeType) {
+			preferred[0], preferred[i] = preferred[i], preferred[0]
+			break
+		}
+	}
+	return preferred
+}
+
 func (p *LocalParticipant) republishTracks() {
 	var localPubs []*LocalTrackPublication
 	p.tracks.Range(func(key, value interface{}) bool {
@@ -529,10 +588,20 @@ func (p *LocalParticipant) republishTracks() {
 	for _, pub := range localPubs {
 		opt := pub.PublicationOptions()
 		backupCodecTrack, backupCodecTracksForSimulcast := pub.getBackupCodecTrack()
+		var publishOptions []LocalTrackPublishOption
+		if pub.restrictCodec {
+			publishOptions = append(publishOptions, WithCodec(pub.codecPreference))
+		}
 		if tracks := pub.TrackLocalForSimulcast(); len(tracks) > 0 {
-			p.PublishSimulcastTrack(tracks, &opt, WithBackupCodecForSimulcastTrack(backupCodecTracksForSimulcast))
+			if len(backupCodecTracksForSimulcast) > 0 {
+				publishOptions = append(publishOptions, WithBackupCodecForSimulcastTrack(backupCodecTracksForSimulcast))
+			}
+			p.PublishSimulcastTrack(tracks, &opt, publishOptions...)
 		} else if track := pub.TrackLocal(); track != nil {
-			_, err := p.PublishTrack(track, &opt, WithBackupCodec(backupCodecTrack))
+			if backupCodecTrack != nil {
+				publishOptions = append(publishOptions, WithBackupCodec(backupCodecTrack))
+			}
+			_, err := p.PublishTrack(track, &opt, publishOptions...)
 			if err != nil {
 				p.engine.log.Warnw("could not republish track", err, "track", pub.SID())
 			}

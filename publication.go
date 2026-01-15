@@ -303,6 +303,9 @@ type LocalTrackPublication struct {
 	backupCodecTracksForSimulcast map[livekit.VideoQuality]*LocalTrack
 	backupCodecPublished          atomic.Bool
 
+	restrictCodec   bool
+	codecPreference webrtc.RTPCodecCapability
+
 	opts          TrackPublicationOptions
 	onMuteChanged func(*LocalTrackPublication, bool)
 
