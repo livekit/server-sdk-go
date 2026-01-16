@@ -140,18 +140,18 @@ func ReaderTrackWithH26xStreamingFormat(h26xStreamingFormat H26xStreamingFormat)
 	}
 }
 
-<<<<<<< HEAD
 func readerTrackWithWavReader(wr *wavReader) func(provider *ReaderSampleProvider) {
 	return func(provider *ReaderSampleProvider) {
 		provider.wavReader = wr
-=======
+	}
+}
+
 // ReaderTrackWithUserTimestamp enables attaching the custom LKTS trailer
 // (timestamp_us + magic) to outgoing encoded frame payloads.
 // This currently supports H264.
 func ReaderTrackWithUserTimestamp(enabled bool) func(provider *ReaderSampleProvider) {
 	return func(provider *ReaderSampleProvider) {
 		provider.appendUserTimestamp = enabled
->>>>>>> b775581 (adding user timestamp parser for h264 and timestamp helper)
 	}
 }
 
