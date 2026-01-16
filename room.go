@@ -177,7 +177,7 @@ func WithExtraAttributes(attrs map[string]string) ConnectOption {
 }
 
 // for internal use to test codecs
-func withCodecs(codecs []webrtc.RTPCodecParameters) ConnectOption {
+func WithCodecs(codecs []webrtc.RTPCodecParameters) ConnectOption {
 	return func(p *signalling.ConnectParams) {
 		p.Codecs = codecs
 	}

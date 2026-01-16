@@ -547,7 +547,7 @@ func TestSimulcastCodec(t *testing.T) {
 						require.Equal(t, c.backupCodec.MimeType, track.Codec().MimeType)
 					},
 				},
-			}, "backup_subscriber", withCodecs([]webrtc.RTPCodecParameters{
+			}, "backup_subscriber", WithCodecs([]webrtc.RTPCodecParameters{
 				{
 					RTPCodecCapability: c.backupCodec,
 					PayloadType:        96,
