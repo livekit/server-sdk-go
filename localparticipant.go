@@ -124,20 +124,27 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 		}
 	}
 	codecPreference := primaryCodec
-	if pubOptions.restrictCodec && pubOptions.codecPreference.MimeType != "" {
-		codecPreference = pubOptions.codecPreference
+	if pub.restrictCodec {
+		codecPreference = pub.codecPreference
 	}
 	if codecPreference.MimeType != "" {
 		for _, tr := range transport.PeerConnection().GetTransceivers() {
 			if tr.Sender() == sender {
 				codecs := sender.GetParameters().Codecs
-				if pubOptions.restrictCodec {
+				if pub.restrictCodec {
 					codecs = filterCodecPreferences(codecs, codecPreference)
 				} else {
 					codecs = reorderCodecPreferences(codecs, primaryCodec)
 				}
 				if len(codecs) > 0 {
 					tr.SetCodecPreferences(codecs)
+				} else if pub.restrictCodec {
+					p.log.Warnw(
+						"requested codec not available for sender",
+						nil,
+						"codec", codecPreference.MimeType,
+						"trackID", track.ID(),
+					)
 				}
 			}
 		}
@@ -302,14 +309,22 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *Tra
 		pub.addSimulcastTrack(st)
 		st.SetTransceiver(transceiver)
 	}
-	if pubOptions.restrictCodec && transceiver != nil {
-		codecPreference := mainTrack.Codec()
-		if pubOptions.codecPreference.MimeType != "" {
-			codecPreference = pubOptions.codecPreference
-		}
-		codecs := filterCodecPreferences(sender.GetParameters().Codecs, codecPreference)
-		if len(codecs) > 0 {
-			transceiver.SetCodecPreferences(codecs)
+	if transceiver != nil {
+		codecs := sender.GetParameters().Codecs
+		if pub.restrictCodec {
+			codecs = filterCodecPreferences(codecs, pub.codecPreference)
+			if len(codecs) > 0 {
+				transceiver.SetCodecPreferences(codecs)
+			} else {
+				p.log.Warnw(
+					"requested codec not available for simulcast sender",
+					nil,
+					"codec", pub.codecPreference.MimeType,
+					"trackID", mainTrack.ID(),
+				)
+			}
+		} else {
+			transceiver.SetCodecPreferences(reorderCodecPreferences(codecs, mainTrack.Codec()))
 		}
 	}
 
@@ -542,30 +557,30 @@ func filterCodecPreferences(
 		return append([]webrtc.RTPCodecParameters{}, codecs...)
 	}
 
-	preferred := make([]webrtc.RTPCodecParameters, 0, len(codecs))
+	filtered := make([]webrtc.RTPCodecParameters, 0, len(codecs))
 	for _, c := range codecs {
 		if strings.EqualFold(c.RTPCodecCapability.MimeType, target.MimeType) {
-			preferred = append(preferred, c)
+			filtered = append(filtered, c)
 		}
 	}
-	return preferred
+	return filtered
 }
 
 func reorderCodecPreferences(
 	codecs []webrtc.RTPCodecParameters,
 	target webrtc.RTPCodecCapability,
 ) []webrtc.RTPCodecParameters {
-	preferred := append([]webrtc.RTPCodecParameters{}, codecs...)
+	reordered := append([]webrtc.RTPCodecParameters{}, codecs...)
 	if target.MimeType == "" {
-		return preferred
+		return reordered
 	}
-	for i, c := range preferred {
+	for i, c := range reordered {
 		if strings.EqualFold(c.RTPCodecCapability.MimeType, target.MimeType) {
-			preferred[0], preferred[i] = preferred[i], preferred[0]
+			reordered[0], reordered[i] = reordered[i], reordered[0]
 			break
 		}
 	}
-	return preferred
+	return reordered
 }
 
 func (p *LocalParticipant) republishTracks() {

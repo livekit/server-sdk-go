@@ -30,8 +30,12 @@ func WithBackupCodecForSimulcastTrack(backupCodecTracks []*LocalTrack) LocalTrac
 }
 
 // WithCodec restricts the advertised codec list to the provided codec.
+// If codec.MimeType is empty, this is a no-op.
 func WithCodec(codec webrtc.RTPCodecCapability) LocalTrackPublishOption {
 	return func(opts *LocalTrackPublishOptions) {
+		if codec.MimeType == "" {
+			return
+		}
 		opts.restrictCodec = true
 		opts.codecPreference = codec
 	}
