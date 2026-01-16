@@ -134,9 +134,7 @@ func ReaderTrackWithH26xStreamingFormat(h26xStreamingFormat H26xStreamingFormat)
 }
 
 func readerTrackWithWavReader(wr *wavReader) func(provider *ReaderSampleProvider) {
-	logger.Infow("readerTrackWithWavReader", "generating option")
 	return func(provider *ReaderSampleProvider) {
-		logger.Infow("readerTrackWithWavReader", "option applied")
 		provider.wavReader = wr
 	}
 }
@@ -270,7 +268,6 @@ func (p *ReaderSampleProvider) OnBind() error {
 		p.oggReader, _, err = oggreader.NewOggReader(p.reader)
 	case webrtc.MimeTypePCMU, webrtc.MimeTypePCMA:
 		if p.wavReader == nil {
-			logger.Infow("Creating new wavReader")
 			p.wavReader, _, err = newWavReader(p.reader)
 		}
 	default:
@@ -524,8 +521,6 @@ func newWavReader(r io.Reader) (*wavReader, string, error) {
 				return nil, "", fmt.Errorf("unsupported WAV format code: 0x%04x (expected PCMU 0x0007 or PCMA 0x0006)", formatCode)
 			}
 
-			logger.Infow("wavReader fmt", "formatCode", formatCode, "channels", channels, "sampleRate", sampleRate, "bitsPerSample", bitsPerSample, "dataSize", chunkSize)
-
 			return &wavReader{
 				reader:          r,
 				dataSize:        chunkSize,
@@ -562,7 +557,6 @@ func (w *wavReader) readFrame() ([]byte, error) {
 	// Check if we've read all available data
 	remaining := w.dataSize - w.bytesRead
 	if remaining <= 0 {
-		logger.Infow("wavReader EOF", "dataSize", w.dataSize, "bytesRead", w.bytesRead)
 		return nil, io.EOF
 	}
 
@@ -576,7 +570,6 @@ func (w *wavReader) readFrame() ([]byte, error) {
 	buf := make([]byte, bytesToRead)
 	n, err := io.ReadFull(w.reader, buf)
 	if err == io.EOF && n == 0 {
-		logger.Infow("wavReader EOF", "dataSize", w.dataSize, "bytesRead", w.bytesRead)
 		return nil, io.EOF
 	}
 	if err != nil && err != io.ErrUnexpectedEOF {
@@ -617,8 +610,6 @@ func detectWavFormat(r io.Reader) (*wavReader, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-
-	logger.Infow("wavReader mimeType detected", "mime", mime)
 
 	return wavReader, mime, nil
 }
