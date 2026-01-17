@@ -271,7 +271,7 @@ func (p *ReaderSampleProvider) OnBind() error {
 			p.h264reader, err = h264reader.NewReaderWithOptions(p.reader, h264reader.WithIncludeSEI(true))
 		}
 	case webrtc.MimeTypeH265:
-		p.h265reader, err = h265reader.NewReader(p.reader)
+		p.h265reader, err = h265reader.NewReaderWithOptions(p.reader, h265reader.WithIncludeSEI(true))
 	case webrtc.MimeTypeVP8, webrtc.MimeTypeVP9:
 		var ivfHeader *ivfreader.IVFFileHeader
 		p.ivfReader, ivfHeader, err = ivfreader.NewWith(p.reader)
@@ -392,6 +392,27 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 				return sample, err
 			}
 
+			if nal.NalUnitType == 39 { // prefix SEI
+				if p.appendUserTimestamp {
+					if ts, ok := parseH265SEIUserTimestamp(nal.Data); ok {
+						p.pendingUserTimestampUs = ts
+						p.hasPendingUserTimestamp = true
+					}
+					continue
+				}
+				// If SEI, clear the data and do not return a frame (try next NAL)
+				sample.Data = nil
+				sample.Duration = 0
+				return sample, nil
+			}
+
+			if nal.NalUnitType == 40 { // suffix SEI
+				// Ignore suffix SEI entirely (do not parse or append).
+				sample.Data = nil
+				sample.Duration = 0
+				return sample, nil
+			}
+
 			// aggregate vps,sps,pps into a single AP packet (chrome requires this)
 			if nal.NalUnitType == 32 || nal.NalUnitType == 33 || nal.NalUnitType == 34 {
 				sample.Data = append(sample.Data, []byte{0, 0, 0, 1}...) // add NAL prefix
@@ -414,6 +435,19 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 			if !isFrame {
 				// return it without duration
 				return sample, nil
+			}
+
+			// Attach the LKTS trailer to the encoded frame payload when enabled.
+			// If we didn't see a preceding timestamp, we still append a trailer with
+			// a zero timestamp.
+			if p.appendUserTimestamp {
+				ts := int64(0)
+				if p.hasPendingUserTimestamp {
+					ts = p.pendingUserTimestampUs
+					p.hasPendingUserTimestamp = false
+					p.pendingUserTimestampUs = 0
+				}
+				sample.Data = appendUserTimestampTrailer(sample.Data, ts)
 			}
 
 			sample.Duration = defaultH265FrameDuration
