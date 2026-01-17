@@ -73,6 +73,13 @@ type ReaderSampleProvider struct {
 	AudioLevel          uint8
 	trackOpts           []LocalTrackOptions
 	h26xStreamingFormat H26xStreamingFormat
+	appendUserTimestamp bool
+
+	// When appendUserTimestamp is enabled, we will attempt to parse timestamps from
+	// H264 SEI user_data_unregistered NALs that precede frame NALs.
+	// We then stash the parsed timestamp and attach it to the next frame as an LKTS trailer.
+	pendingUserTimestampUs  int64
+	hasPendingUserTimestamp bool
 
 	// Allow various types of ingress
 	reader io.ReadCloser
@@ -136,6 +143,15 @@ func ReaderTrackWithH26xStreamingFormat(h26xStreamingFormat H26xStreamingFormat)
 func readerTrackWithWavReader(wr *wavReader) func(provider *ReaderSampleProvider) {
 	return func(provider *ReaderSampleProvider) {
 		provider.wavReader = wr
+	}
+}
+
+// ReaderTrackWithUserTimestamp enables attaching the custom LKTS trailer
+// (timestamp_us + magic) to outgoing encoded frame payloads.
+// This currently supports H264.
+func ReaderTrackWithUserTimestamp(enabled bool) func(provider *ReaderSampleProvider) {
+	return func(provider *ReaderSampleProvider) {
+		provider.appendUserTimestamp = enabled
 	}
 }
 
@@ -252,7 +268,7 @@ func (p *ReaderSampleProvider) OnBind() error {
 	switch p.Mime {
 	case webrtc.MimeTypeH264:
 		if p.h26xStreamingFormat == H26xStreamingFormatAnnexB {
-			p.h264reader, err = h264reader.NewReader(p.reader)
+			p.h264reader, err = h264reader.NewReaderWithOptions(p.reader, h264reader.WithIncludeSEI(true))
 		}
 	case webrtc.MimeTypeH265:
 		p.h265reader, err = h265reader.NewReader(p.reader)
@@ -319,6 +335,20 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 			nalUnitData = nal.Data
 		}
 
+		if nalUnitType == h264reader.NalUnitTypeSEI {
+			if p.appendUserTimestamp {
+				if ts, ok := parseH264SEIUserTimestamp(nalUnitData); ok {
+					p.pendingUserTimestampUs = ts
+					p.hasPendingUserTimestamp = true
+				}
+			} else {
+				// If SEI, clear the data and do not return a frame (try next NAL)
+				sample.Data = nil
+				sample.Duration = 0
+				return sample, nil
+			}
+		}
+
 		isFrame := false
 		switch nalUnitType {
 		case h264reader.NalUnitTypeCodedSliceDataPartitionA,
@@ -334,6 +364,20 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 			// return it without duration
 			return sample, nil
 		}
+
+		// Attach the LKTS trailer to the encoded frame payload when enabled.
+		// If we didn't see a preceding timestamp, we still append a trailer with
+		// a zero timestamp.
+		if p.appendUserTimestamp {
+			ts := int64(0)
+			if p.hasPendingUserTimestamp {
+				ts = p.pendingUserTimestampUs
+				p.hasPendingUserTimestamp = false
+				p.pendingUserTimestampUs = 0
+			}
+			sample.Data = appendUserTimestampTrailer(sample.Data, ts)
+		}
+
 		sample.Duration = defaultH264FrameDuration
 
 	case webrtc.MimeTypeH265:
