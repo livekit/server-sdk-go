@@ -36,6 +36,7 @@ import (
 
 	"github.com/livekit/mediatransportutil/pkg/pacer"
 	"github.com/livekit/protocol/auth"
+	protoCodecs "github.com/livekit/protocol/codecs"
 	"github.com/livekit/protocol/livekit"
 )
 
@@ -176,10 +177,13 @@ func WithExtraAttributes(attrs map[string]string) ConnectOption {
 	}
 }
 
-// for internal use to test codecs
-func WithCodecs(codecs []webrtc.RTPCodecParameters) ConnectOption {
+func WithCodecs(codecs []livekit.Codec) ConnectOption {
 	return func(p *signalling.ConnectParams) {
-		p.Codecs = codecs
+		pCodecs := make([]webrtc.RTPCodecParameters, 0, len(codecs))
+		for i := range codecs {
+			pCodecs = append(pCodecs, protoCodecs.ToWebrtcCodecParameters(&codecs[i]))
+		}
+		p.Codecs = pCodecs
 	}
 }
 
