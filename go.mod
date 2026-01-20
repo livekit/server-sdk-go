@@ -10,7 +10,7 @@ require (
 	github.com/livekit/mageutil v0.0.0-20250511045019-0f1ff63f7731
 	github.com/livekit/media-sdk v0.0.0-20251106223430-dd8f5e0de2cf
 	github.com/livekit/mediatransportutil v0.0.0-20251128105421-19c7a7b81c22
-	github.com/livekit/protocol v1.44.1-0.20260119194528-9950768a4cd3
+	github.com/livekit/protocol v1.44.1-0.20260120134243-0914cc74653e
 	github.com/magefile/mage v1.15.0
 	github.com/pion/dtls/v3 v3.0.10
 	github.com/pion/interceptor v0.1.43
