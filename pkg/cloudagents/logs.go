@@ -22,7 +22,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strings"
 )
 
 type APIError struct {
@@ -71,9 +70,6 @@ func (c *Client) StreamLogs(ctx context.Context, logType, agentID string, writer
 				return nil
 			}
 			line := scanner.Text()
-			if strings.HasPrefix(line, "ERROR:") {
-				return fmt.Errorf("%s", strings.TrimPrefix(line, "ERROR: "))
-			}
 			if _, err := fmt.Fprintln(writer, line); err != nil {
 				return fmt.Errorf("failed to write log line: %w", err)
 			}
