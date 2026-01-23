@@ -186,6 +186,6 @@ func TestStreamLogs_ServerClosesConnection(t *testing.T) {
 		t.Fatal("expected error when server closes connection mid-stream")
 	}
 	if !strings.Contains(err.Error(), "scanner error") && !strings.Contains(err.Error(), "unexpected EOF") {
-		t.Logf("got error: %v", err)
+		t.Fatalf("unexpected error when server disconnects: %v", err)
 	}
 }
