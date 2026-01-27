@@ -176,15 +176,15 @@ func NewLocalFileTrack(file string, options ...ReaderSampleProviderOption) (*Loc
 	case ".h264":
 		mime = webrtc.MimeTypeH264
 	case ".ivf":
-		buf := make([]byte, 3)
+		buf := make([]byte, 4)
 		_, err = fp.ReadAt(buf, 8)
 		if err != nil {
 			return nil, err
 		}
 		switch {
-		case strings.Contains(string(buf), "VP8"):
+		case string(buf[:3]) == "VP8":
 			mime = webrtc.MimeTypeVP8
-		case strings.Contains(string(buf), "VP9"):
+		case string(buf[:3]) == "VP9":
 			mime = webrtc.MimeTypeVP9
 		case string(buf) == "AV01":
 			mime = webrtc.MimeTypeAV1
