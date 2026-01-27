@@ -21,6 +21,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/pion/rtcp"
@@ -180,12 +181,12 @@ func NewLocalFileTrack(file string, options ...ReaderSampleProviderOption) (*Loc
 		if err != nil {
 			return nil, err
 		}
-		switch string(buf) {
-		case "VP8":
+		switch {
+		case strings.Contains(string(buf), "VP8"):
 			mime = webrtc.MimeTypeVP8
-		case "VP9":
+		case strings.Contains(string(buf), "VP9"):
 			mime = webrtc.MimeTypeVP9
-		case "AV0":
+		case string(buf) == "AV01":
 			mime = webrtc.MimeTypeAV1
 		default:
 			_ = fp.Close()
