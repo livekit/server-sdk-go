@@ -175,16 +175,18 @@ func NewLocalFileTrack(file string, options ...ReaderSampleProviderOption) (*Loc
 	case ".h264":
 		mime = webrtc.MimeTypeH264
 	case ".ivf":
-		buf := make([]byte, 3)
+		buf := make([]byte, 4)
 		_, err = fp.ReadAt(buf, 8)
 		if err != nil {
 			return nil, err
 		}
-		switch string(buf) {
-		case "VP8":
+		switch {
+		case string(buf[:3]) == "VP8":
 			mime = webrtc.MimeTypeVP8
-		case "VP9":
+		case string(buf[:3]) == "VP9":
 			mime = webrtc.MimeTypeVP9
+		case string(buf) == "AV01":
+			mime = webrtc.MimeTypeAV1
 		default:
 			_ = fp.Close()
 			return nil, ErrCannotDetermineMime
@@ -234,7 +236,7 @@ func NewLocalReaderTrack(in io.ReadCloser, mime string, options ...ReaderSampleP
 
 	// check if mime type is supported
 	switch provider.Mime {
-	case webrtc.MimeTypeH264, webrtc.MimeTypeH265, webrtc.MimeTypeVP8, webrtc.MimeTypeVP9:
+	case webrtc.MimeTypeH264, webrtc.MimeTypeH265, webrtc.MimeTypeVP8, webrtc.MimeTypeVP9, webrtc.MimeTypeAV1:
 		clockRate = 90000
 	case webrtc.MimeTypeOpus:
 		clockRate = 48000
@@ -272,7 +274,7 @@ func (p *ReaderSampleProvider) OnBind() error {
 		}
 	case webrtc.MimeTypeH265:
 		p.h265reader, err = h265reader.NewReaderWithOptions(p.reader, h265reader.WithIncludeSEI(true))
-	case webrtc.MimeTypeVP8, webrtc.MimeTypeVP9:
+	case webrtc.MimeTypeVP8, webrtc.MimeTypeVP9, webrtc.MimeTypeAV1:
 		var ivfHeader *ivfreader.IVFFileHeader
 		p.ivfReader, ivfHeader, err = ivfreader.NewWith(p.reader)
 		if err == nil {
@@ -453,7 +455,7 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 			break
 		}
 
-	case webrtc.MimeTypeVP8, webrtc.MimeTypeVP9:
+	case webrtc.MimeTypeVP8, webrtc.MimeTypeVP9, webrtc.MimeTypeAV1:
 		frame, header, err := p.ivfReader.ParseNextFrame()
 		if err != nil {
 			return sample, err
