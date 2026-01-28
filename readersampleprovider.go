@@ -398,7 +398,6 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 						p.pendingUserTimestampUs = ts
 						p.hasPendingUserTimestamp = true
 					}
-					continue
 				}
 				// If SEI, clear the data and do not return a frame (try next NAL)
 				sample.Data = nil
