@@ -379,7 +379,6 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 				p.pendingUserTimestampUs = 0
 			}
 			sample.Data = appendUserTimestampTrailer(sample.Data, ts)
-
 		}
 
 		sample.Duration = defaultH264FrameDuration
