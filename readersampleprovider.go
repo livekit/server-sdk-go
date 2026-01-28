@@ -343,12 +343,13 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 					p.pendingUserTimestampUs = ts
 					p.hasPendingUserTimestamp = true
 				}
-			} else {
-				// If SEI, clear the data and do not return a frame (try next NAL)
-				sample.Data = nil
-				sample.Duration = 0
-				return sample, nil
 			}
+			// If SEI, clear the data and do not return a frame.
+			// We only use SEI to source timestamps, and avoid sending SEI-only
+			// samples that can break some decoders.
+			sample.Data = nil
+			sample.Duration = 0
+			return sample, nil
 		}
 
 		isFrame := false
