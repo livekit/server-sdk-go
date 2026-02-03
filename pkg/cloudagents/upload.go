@@ -27,15 +27,19 @@ import (
 
 var (
 	defaultExcludePatterns = []string{
-		"Dockerfile",
-		".dockerignore",
-		".gitignore",
-		".git",
-		"node_modules",
-		".env",
-		".env.*",
-		".venv",
-		"venv",
+		"**/Dockerfile",
+		"**/.dockerignore",
+		"**/.gitignore",
+		"**/.git",
+		"**/.git/**",
+		"**/node_modules",
+		"**/node_modules/**",
+		"**/.env",
+		"**/.env.*",
+		"**/.venv",
+		"**/.venv/**",
+		"**/venv",
+		"**/venv/**",
 	}
 
 	ignoreFilePatterns = []string{
