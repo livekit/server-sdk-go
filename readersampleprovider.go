@@ -389,8 +389,8 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 		var (
 			// haveVCL tracks whether we've started a picture (any VCL NAL seen).
 			haveVCL    bool
-			// haveAnnexB tracks whether sample.Data is in AnnexB format yet.
-			haveAnnexB bool
+			// sampleIsAnnexB tracks whether sample.Data is in AnnexB format yet.
+			sampleIsAnnexB bool
 		)
 
 		for {
@@ -459,14 +459,14 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 
 			// Aggregate VPS/SPS/PPS before the next access unit.
 			if nal.NalUnitType == 32 || nal.NalUnitType == 33 || nal.NalUnitType == 34 {
-				haveAnnexB = true
+				sampleIsAnnexB = true
 				sample.Data = append(sample.Data, []byte{0, 0, 0, 1}...) // add NAL prefix
 				sample.Data = append(sample.Data, nal.Data...)
 				continue
 			}
 
 			// Append this NAL to the current access unit payload.
-			sample.Data = appendH265NAL(sample.Data, nal.Data, &haveAnnexB)
+			sample.Data = appendH265NAL(sample.Data, nal.Data, &sampleIsAnnexB)
 
 			if nal.NalUnitType < 32 {
 				haveVCL = true
@@ -749,16 +749,16 @@ func h265FirstSliceInPic(nalData []byte) (bool, bool) {
 	return (nalData[2] & 0x80) != 0, true
 }
 
-func appendH265NAL(dst []byte, nalData []byte, haveAnnexB *bool) []byte {
+func appendH265NAL(dst []byte, nalData []byte, sampleIsAnnexB *bool) []byte {
 	// Ensure AnnexB start codes and append in-place for AU aggregation.
-	if *haveAnnexB || len(dst) > 0 {
-		if !*haveAnnexB && len(dst) > 0 {
+	if *sampleIsAnnexB || len(dst) > 0 {
+		if !*sampleIsAnnexB && len(dst) > 0 {
 			dst = append([]byte{0, 0, 0, 1}, dst...)
-			*haveAnnexB = true
+			*sampleIsAnnexB = true
 		}
 		dst = append(dst, []byte{0, 0, 0, 1}...)
 		dst = append(dst, nalData...)
-		*haveAnnexB = true
+		*sampleIsAnnexB = true
 		return dst
 	}
 	return nalData
