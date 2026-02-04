@@ -94,7 +94,7 @@ type ReaderSampleProvider struct {
 
 	// for h265
 	h265reader *h265reader.H265Reader
-	// pending H265 NAL when we cross AU boundary
+	// pending H265 NAL when we detect a new access unit
 	h265PendingNAL *h265reader.NAL
 
 	// for ogg
@@ -387,7 +387,9 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 
 	case webrtc.MimeTypeH265:
 		var (
+			// haveVCL tracks whether we've started a picture (any VCL NAL seen).
 			haveVCL    bool
+			// haveAnnexB tracks whether sample.Data is in AnnexB format yet.
 			haveAnnexB bool
 		)
 
@@ -395,21 +397,26 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 			nal, err := p.nextH265NAL()
 			if err != nil {
 				if err == io.EOF && haveVCL && len(sample.Data) > 0 {
+					// Flush the last access unit at EOF.
 					break
 				}
 				return sample, err
 			}
 
 			if haveVCL {
+				// Once we've started a picture, detect the next access-unit boundary.
 				if nal.NalUnitType < 32 {
+					// VCL: split when first_slice_segment_in_pic_flag starts a new picture.
 					if isFirstSlice, ok := h265FirstSliceInPic(nal.Data); ok && isFirstSlice {
 						p.h265PendingNAL = nal
 						break
 					} else if !ok {
+						// If we can't parse the flag, err on the side of splitting.
 						p.h265PendingNAL = nal
 						break
 					}
 				} else {
+					// Non-VCL after VCL belongs to the next access unit.
 					switch nal.NalUnitType {
 					case 40: // suffix SEI, ignore
 						continue
@@ -431,8 +438,7 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 						p.hasPendingUserTimestamp = true
 					}
 				}
-				// If SEI and no frame yet, clear the data and do not return a frame.
-				// If we already have parameter sets buffered, keep them and continue.
+				// If SEI and no frame yet, skip it unless we're only holding param sets.
 				if !haveVCL && len(sample.Data) == 0 {
 					sample.Data = nil
 					sample.Duration = 0
@@ -442,7 +448,7 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 			}
 
 			if nal.NalUnitType == 40 { // suffix SEI
-				// Ignore suffix SEI entirely (do not parse or append).
+				// Ignore suffix SEI entirely.
 				if !haveVCL && len(sample.Data) == 0 {
 					sample.Data = nil
 					sample.Duration = 0
@@ -451,15 +457,16 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 				continue
 			}
 
-			// aggregate vps,sps,pps into a single AP packet (chrome requires this)
+			// Aggregate VPS/SPS/PPS before the next access unit.
 			if nal.NalUnitType == 32 || nal.NalUnitType == 33 || nal.NalUnitType == 34 {
 				haveAnnexB = true
 				sample.Data = append(sample.Data, []byte{0, 0, 0, 1}...) // add NAL prefix
-				sample.Data = append(sample.Data, h265NormalizeNalType19To20(nal.Data)...)
+				sample.Data = append(sample.Data, nal.Data...)
 				continue
 			}
 
-			sample.Data = appendH265NAL(sample.Data, h265NormalizeNalType19To20(nal.Data), &haveAnnexB)
+			// Append this NAL to the current access unit payload.
+			sample.Data = appendH265NAL(sample.Data, nal.Data, &haveAnnexB)
 
 			if nal.NalUnitType < 32 {
 				haveVCL = true
@@ -726,6 +733,7 @@ func detectWavFormat(r io.Reader) (*wavReader, string, error) {
 
 func (p *ReaderSampleProvider) nextH265NAL() (*h265reader.NAL, error) {
 	if p.h265PendingNAL != nil {
+		// Consume the buffered NAL that starts the next access unit.
 		nal := p.h265PendingNAL
 		p.h265PendingNAL = nil
 		return nal, nil
@@ -734,27 +742,15 @@ func (p *ReaderSampleProvider) nextH265NAL() (*h265reader.NAL, error) {
 }
 
 func h265FirstSliceInPic(nalData []byte) (bool, bool) {
+	// Parse first_slice_segment_in_pic_flag from the byte after the 2-byte header.
 	if len(nalData) < 3 {
 		return true, false
 	}
 	return (nalData[2] & 0x80) != 0, true
 }
 
-func h265NormalizeNalType19To20(nalData []byte) []byte {
-	if len(nalData) < 2 {
-		return nalData
-	}
-	nalType := (nalData[0] >> 1) & 0x3F
-	if nalType != 19 {
-		return nalData
-	}
-	updated := make([]byte, len(nalData))
-	copy(updated, nalData)
-	updated[0] = (updated[0] & 0x81) | (20 << 1)
-	return updated
-}
-
 func appendH265NAL(dst []byte, nalData []byte, haveAnnexB *bool) []byte {
+	// Ensure AnnexB start codes and append in-place for AU aggregation.
 	if *haveAnnexB || len(dst) > 0 {
 		if !*haveAnnexB && len(dst) > 0 {
 			dst = append([]byte{0, 0, 0, 1}, dst...)
