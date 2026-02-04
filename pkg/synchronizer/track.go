@@ -127,7 +127,7 @@ func newTrackSynchronizer(s *Synchronizer, track TrackRemote) *TrackSynchronizer
 		rtcpSenderReportRebaseEnabled:     s.config.RTCPSenderReportRebaseEnabled,
 		oldPacketThreshold:                s.config.OldPacketThreshold,
 		enableStartGate:                   s.config.EnableStartGate,
-		nextPTSAdjustmentAt:               mono.Now(),
+		nextPTSAdjustmentAt:               time.Now(),
 		propagationDelayEstimator:         latency.NewOWDEstimator(latency.OWDEstimatorParamsDefault),
 		maxMediaRunningTimeDelay:          s.config.MaxMediaRunningTimeDelay,
 		lastPTSAdjustedLogBucket:          math.MaxInt64,
@@ -249,15 +249,7 @@ func (t *TrackSynchronizer) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) 
 }
 
 func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Duration, error) {
-	t.Lock()
-	sync := t.sync
-	t.Unlock()
-
-	var deadline time.Duration
-	var hasDeadline bool
-	if sync != nil {
-		deadline, hasDeadline = sync.getExternalMediaDeadline()
-	}
+	deadline, hasDeadline := t.getSynchronizerDeadline()
 
 	t.Lock()
 	defer t.Unlock()
@@ -331,24 +323,7 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 		pts = estimatedPTS
 	}
 
-	if t.shouldAdjustPTS(pts) {
-		prevCurrentPTSOffset := t.currentPTSOffset
-		if t.currentPTSOffset > t.desiredPTSOffset {
-			t.currentPTSOffset = max(t.currentPTSOffset-t.maxDriftAdjustment, t.desiredPTSOffset)
-			t.totalPTSAdjustmentNegative += prevCurrentPTSOffset - t.currentPTSOffset
-		} else if t.currentPTSOffset < t.desiredPTSOffset {
-			t.currentPTSOffset = min(t.currentPTSOffset+t.maxDriftAdjustment, t.desiredPTSOffset)
-			t.totalPTSAdjustmentPositive += t.currentPTSOffset - prevCurrentPTSOffset
-		}
-
-		// throttle further adjustment till a window proportional to this adjustment elapses
-		throttle := time.Duration(0)
-		if t.driftAdjustmentWindowPercent > 0.0 {
-			throttle = time.Duration(math.Abs(float64(t.currentPTSOffset-prevCurrentPTSOffset)) * 100.0 / t.driftAdjustmentWindowPercent)
-		}
-		t.nextPTSAdjustmentAt = time.Now().Add(throttle)
-		t.logPTSAdjustmentSampled(ts, pts, estimatedPTS, prevCurrentPTSOffset, throttle)
-	}
+	t.maybeAdjustPTSOffset(ts, pts, estimatedPTS)
 
 	adjusted, pts := t.normalizePTSToMediaPipelineTimeline(pts, ts, now, deadline, hasDeadline)
 
@@ -387,17 +362,9 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 }
 
 func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duration, error) {
-	// Get sync reference and deadline BEFORE main lock to prevent deadlock
+	// Get deadline from synchronizer BEFORE main lock to prevent deadlock
 	// with Synchronizer.End() which holds Synchronizer lock while calling into tracks
-	t.Lock()
-	sync := t.sync
-	t.Unlock()
-
-	var deadline time.Duration
-	var hasDeadline bool
-	if sync != nil {
-		deadline, hasDeadline = sync.getExternalMediaDeadline()
-	}
+	deadline, hasDeadline := t.getSynchronizerDeadline()
 
 	t.Lock()
 	defer t.Unlock()
@@ -474,24 +441,7 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 		pts = estimatedPTS
 	}
 
-	if t.shouldAdjustPTS(pts) {
-		prevCurrentPTSOffset := t.currentPTSOffset
-		if t.currentPTSOffset > t.desiredPTSOffset {
-			t.currentPTSOffset = max(t.currentPTSOffset-t.maxDriftAdjustment, t.desiredPTSOffset)
-			t.totalPTSAdjustmentNegative += prevCurrentPTSOffset - t.currentPTSOffset
-		} else if t.currentPTSOffset < t.desiredPTSOffset {
-			t.currentPTSOffset = min(t.currentPTSOffset+t.maxDriftAdjustment, t.desiredPTSOffset)
-			t.totalPTSAdjustmentPositive += t.currentPTSOffset - prevCurrentPTSOffset
-		}
-
-		// throttle further adjustment till a window proportional to this adjustment elapses
-		throttle := time.Duration(0)
-		if t.driftAdjustmentWindowPercent > 0.0 {
-			throttle = time.Duration(math.Abs(float64(t.currentPTSOffset-prevCurrentPTSOffset)) * 100.0 / t.driftAdjustmentWindowPercent)
-		}
-		t.nextPTSAdjustmentAt = mono.Now().Add(throttle)
-		t.logPTSAdjustmentSampled(ts, pts, estimatedPTS, prevCurrentPTSOffset, throttle)
-	}
+	t.maybeAdjustPTSOffset(ts, pts, estimatedPTS)
 
 	adjusted, pts := t.normalizePTSToMediaPipelineTimeline(pts, ts, now, deadline, hasDeadline)
 
@@ -756,8 +706,8 @@ func (t *TrackSynchronizer) maybeAdjustStartTime(asr *augmentedSenderReport) int
 	adjustedStartTimeNano := now - samplesDuration.Nanoseconds()
 	requestedAdjustment := startTimeNano - adjustedStartTimeNano
 
-	getLoggingFields := func() []interface{} {
-		return []interface{}{
+	getLoggingFields := func() []any {
+		return []any{
 			"nowTime", time.Unix(0, now),
 			"before", time.Unix(0, startTimeNano),
 			"after", time.Unix(0, adjustedStartTimeNano),
@@ -837,7 +787,7 @@ func (t *TrackSynchronizer) acceptableSRDrift(drift time.Duration) bool {
 }
 
 func (t *TrackSynchronizer) shouldAdjustPTS(newPTS time.Duration) bool {
-	if mono.Now().Before(t.nextPTSAdjustmentAt) {
+	if time.Now().Before(t.nextPTSAdjustmentAt) {
 		return false
 	}
 
@@ -860,8 +810,31 @@ func (t *TrackSynchronizer) shouldAdjustPTS(newPTS time.Duration) bool {
 	return adjustmentEnabled && (t.currentPTSOffset != t.desiredPTSOffset)
 }
 
+func (t *TrackSynchronizer) maybeAdjustPTSOffset(ts uint32, pts, estimatedPTS time.Duration) {
+	if !t.shouldAdjustPTS(pts) {
+		return
+	}
+
+	prevCurrentPTSOffset := t.currentPTSOffset
+	if t.currentPTSOffset > t.desiredPTSOffset {
+		t.currentPTSOffset = max(t.currentPTSOffset-t.maxDriftAdjustment, t.desiredPTSOffset)
+		t.totalPTSAdjustmentNegative += prevCurrentPTSOffset - t.currentPTSOffset
+	} else if t.currentPTSOffset < t.desiredPTSOffset {
+		t.currentPTSOffset = min(t.currentPTSOffset+t.maxDriftAdjustment, t.desiredPTSOffset)
+		t.totalPTSAdjustmentPositive += t.currentPTSOffset - prevCurrentPTSOffset
+	}
+
+	// throttle further adjustment till a window proportional to this adjustment elapses
+	throttle := time.Duration(0)
+	if t.driftAdjustmentWindowPercent > 0.0 {
+		throttle = time.Duration(math.Abs(float64(t.currentPTSOffset-prevCurrentPTSOffset)) * 100.0 / t.driftAdjustmentWindowPercent)
+	}
+	t.nextPTSAdjustmentAt = time.Now().Add(throttle)
+	t.logPTSAdjustmentSampled(ts, pts, estimatedPTS, prevCurrentPTSOffset, throttle)
+}
+
 func (t *TrackSynchronizer) isPacketTooOld(packetTime time.Time) bool {
-	return t.oldPacketThreshold != 0 && mono.Now().Sub(packetTime) > t.oldPacketThreshold
+	return t.oldPacketThreshold != 0 && time.Since(packetTime) > t.oldPacketThreshold
 }
 
 // avoid applying small changes to start time as it will cause subsequent PTSes
@@ -884,6 +857,20 @@ func (t *TrackSynchronizer) applyQuantizedStartTimeAdvance(deltaTotal time.Durat
 
 	t.startTimeAdjustResidual = deltaTotal
 	return 0
+}
+
+func (t *TrackSynchronizer) getSynchronizer() *Synchronizer {
+	t.Lock()
+	defer t.Unlock()
+	return t.sync
+}
+
+func (t *TrackSynchronizer) getSynchronizerDeadline() (time.Duration, bool) {
+	sync := t.getSynchronizer()
+	if sync == nil {
+		return 0, false
+	}
+	return sync.getExternalMediaDeadline()
 }
 
 func (t *TrackSynchronizer) updateGapHistogram(gap uint16) {
