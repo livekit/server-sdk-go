@@ -18,7 +18,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/livekit/protocol/utils/mono"
 	"github.com/pion/rtcp"
 )
 
@@ -318,7 +317,7 @@ func (s *Synchronizer) getExternalMediaDeadline() (time.Duration, bool) {
 	maxDelay := s.config.MaxMediaRunningTimeDelay
 	s.RUnlock()
 
-	now := mono.Now()
+	now := time.Now()
 
 	if startTime.IsZero() && cb != nil {
 		if mediaRunningTime, ok := cb(); ok {
