@@ -250,6 +250,16 @@ func (t *TrackSynchronizer) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) 
 
 func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Duration, error) {
 	t.Lock()
+	sync := t.sync
+	t.Unlock()
+
+	var deadline time.Duration
+	var hasDeadline bool
+	if sync != nil {
+		deadline, hasDeadline = sync.getExternalMediaDeadline()
+	}
+
+	t.Lock()
 	defer t.Unlock()
 
 	now := time.Now()
@@ -340,7 +350,7 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 		t.logPTSAdjustmentSampled(ts, pts, estimatedPTS, prevCurrentPTSOffset, throttle)
 	}
 
-	adjusted, pts := t.normalizePTSToMediaPipelineTimeline(pts, ts, now)
+	adjusted, pts := t.normalizePTSToMediaPipelineTimeline(pts, ts, now, deadline, hasDeadline)
 
 	if adjusted < t.lastPTSAdjusted {
 		// always move it forward
@@ -377,6 +387,18 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 }
 
 func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duration, error) {
+	// Get sync reference and deadline BEFORE main lock to prevent deadlock
+	// with Synchronizer.End() which holds Synchronizer lock while calling into tracks
+	t.Lock()
+	sync := t.sync
+	t.Unlock()
+
+	var deadline time.Duration
+	var hasDeadline bool
+	if sync != nil {
+		deadline, hasDeadline = sync.getExternalMediaDeadline()
+	}
+
 	t.Lock()
 	defer t.Unlock()
 
@@ -471,7 +493,7 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 		t.logPTSAdjustmentSampled(ts, pts, estimatedPTS, prevCurrentPTSOffset, throttle)
 	}
 
-	adjusted, pts := t.normalizePTSToMediaPipelineTimeline(pts, ts, now)
+	adjusted, pts := t.normalizePTSToMediaPipelineTimeline(pts, ts, now, deadline, hasDeadline)
 
 	if adjusted < t.lastPTSAdjusted {
 		// always move it forward
@@ -765,17 +787,12 @@ func (t *TrackSynchronizer) maybeAdjustStartTime(asr *augmentedSenderReport) int
 	return requestedAdjustment
 }
 
-func (t *TrackSynchronizer) normalizePTSToMediaPipelineTimeline(ptsIn time.Duration, ts uint32, now time.Time) (adjusted, ptsOut time.Duration) {
+func (t *TrackSynchronizer) normalizePTSToMediaPipelineTimeline(ptsIn time.Duration, ts uint32, now time.Time, deadline time.Duration, hasDeadline bool) (adjusted, ptsOut time.Duration) {
 	adjustedIn := ptsIn + t.currentPTSOffset
 	adjusted = adjustedIn
 	ptsOut = ptsIn
 
-	if t.sync == nil {
-		return
-	}
-
-	deadline, ok := t.sync.getExternalMediaDeadline()
-	if ok && adjustedIn < deadline {
+	if hasDeadline && adjustedIn < deadline {
 		if t.lastTimelyPacket.IsZero() {
 			t.lastTimelyPacket = now
 		}
