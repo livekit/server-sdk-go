@@ -64,14 +64,13 @@ type TrackSynchronizer struct {
 	startGate startGate
 
 	// config
-	maxTsDiff                         time.Duration // maximum acceptable difference between RTP packets
-	maxDriftAdjustment                time.Duration // maximum drift adjustment at a time
-	driftAdjustmentWindowPercent      float64
-	audioPTSAdjustmentsDisabled       bool // disable audio packets PTS adjustments on SRs
-	preJitterBufferReceiveTimeEnabled bool
-	rtcpSenderReportRebaseEnabled     bool
-	oldPacketThreshold                time.Duration
-	enableStartGate                   bool
+	maxTsDiff                     time.Duration // maximum acceptable difference between RTP packets
+	maxDriftAdjustment            time.Duration // maximum drift adjustment at a time
+	driftAdjustmentWindowPercent  float64
+	audioPTSAdjustmentsDisabled   bool // disable audio packets PTS adjustments on SRs
+	rtcpSenderReportRebaseEnabled bool
+	oldPacketThreshold            time.Duration
+	enableStartGate               bool
 
 	// timing info
 	startTime        time.Time // time at initialization --> this should be when first packet is received
@@ -115,22 +114,21 @@ type TrackSynchronizer struct {
 
 func newTrackSynchronizer(s *Synchronizer, track TrackRemote) *TrackSynchronizer {
 	t := &TrackSynchronizer{
-		sync:                              s,
-		track:                             track,
-		logger:                            logger.GetLogger().WithValues("trackID", track.ID(), "codec", track.Codec().MimeType),
-		RTPConverter:                      rtputil.NewRTPConverter(int64(track.Codec().ClockRate)),
-		maxTsDiff:                         s.config.MaxTsDiff,
-		maxDriftAdjustment:                s.config.MaxDriftAdjustment,
-		driftAdjustmentWindowPercent:      s.config.DriftAdjustmentWindowPercent,
-		audioPTSAdjustmentsDisabled:       s.config.AudioPTSAdjustmentDisabled,
-		preJitterBufferReceiveTimeEnabled: s.config.PreJitterBufferReceiveTimeEnabled,
-		rtcpSenderReportRebaseEnabled:     s.config.RTCPSenderReportRebaseEnabled,
-		oldPacketThreshold:                s.config.OldPacketThreshold,
-		enableStartGate:                   s.config.EnableStartGate,
-		nextPTSAdjustmentAt:               time.Now(),
-		propagationDelayEstimator:         latency.NewOWDEstimator(latency.OWDEstimatorParamsDefault),
-		maxMediaRunningTimeDelay:          s.config.MaxMediaRunningTimeDelay,
-		lastPTSAdjustedLogBucket:          math.MaxInt64,
+		sync:                          s,
+		track:                         track,
+		logger:                        logger.GetLogger().WithValues("trackID", track.ID(), "codec", track.Codec().MimeType),
+		RTPConverter:                  rtputil.NewRTPConverter(int64(track.Codec().ClockRate)),
+		maxTsDiff:                     s.config.MaxTsDiff,
+		maxDriftAdjustment:            s.config.MaxDriftAdjustment,
+		driftAdjustmentWindowPercent:  s.config.DriftAdjustmentWindowPercent,
+		audioPTSAdjustmentsDisabled:   s.config.AudioPTSAdjustmentDisabled,
+		rtcpSenderReportRebaseEnabled: s.config.RTCPSenderReportRebaseEnabled,
+		oldPacketThreshold:            s.config.OldPacketThreshold,
+		enableStartGate:               s.config.EnableStartGate,
+		nextPTSAdjustmentAt:           time.Now(),
+		propagationDelayEstimator:     latency.NewOWDEstimator(latency.OWDEstimatorParamsDefault),
+		maxMediaRunningTimeDelay:      s.config.MaxMediaRunningTimeDelay,
+		lastPTSAdjustedLogBucket:      math.MaxInt64,
 	}
 
 	if s.config.EnableStartGate {
@@ -223,7 +221,6 @@ func (t *TrackSynchronizer) initialize(extPkt jitter.ExtPacket) {
 		"maxDriftAdjustment", t.maxDriftAdjustment,
 		"driftAdjustmentWindowPercent", t.driftAdjustmentWindowPercent,
 		"audioPTSAdjustmentDisabled", t.audioPTSAdjustmentsDisabled,
-		"preJitterBufferReceiveTimeEnabled", t.preJitterBufferReceiveTimeEnabled,
 		"rtcpSenderReportRebaseEnabled", t.rtcpSenderReportRebaseEnabled,
 		"oldPacketThreshold", t.oldPacketThreshold,
 		"enableStartGate", t.enableStartGate,
@@ -255,12 +252,7 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 	defer t.Unlock()
 
 	now := time.Now()
-	var pktReceiveTime time.Time
-	if t.preJitterBufferReceiveTimeEnabled {
-		pktReceiveTime = pkt.ReceivedAt
-	} else {
-		pktReceiveTime = now
-	}
+	pktReceiveTime := pkt.ReceivedAt
 	if t.firstTime.IsZero() {
 		t.firstTime = now
 		t.logger.Infow(
@@ -283,22 +275,20 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 		return t.lastPTSAdjusted, nil
 	}
 
-	if t.preJitterBufferReceiveTimeEnabled {
-		// if first packet a frame was too old and dropped,
-		// drop all packets of the frame irrespective of whether they are old or not
-		if ts == t.lastTSOldDropped || t.isPacketTooOld(pkt.ReceivedAt) {
-			t.lastTSOldDropped = ts
-			t.stats.numDroppedOld++
-			t.logger.Infow(
-				"dropping old packet",
-				"currentTS", ts,
-				"receivedAt", pkt.ReceivedAt,
-				"now", time.Now(),
-				"age", time.Since(pkt.ReceivedAt),
-				"state", t,
-			)
-			return 0, ErrPacketTooOld
-		}
+	// if first packet a frame was too old and dropped,
+	// drop all packets of the frame irrespective of whether they are old or not
+	if ts == t.lastTSOldDropped || t.isPacketTooOld(pkt.ReceivedAt) {
+		t.lastTSOldDropped = ts
+		t.stats.numDroppedOld++
+		t.logger.Infow(
+			"dropping old packet",
+			"currentTS", ts,
+			"receivedAt", pkt.ReceivedAt,
+			"now", time.Now(),
+			"age", time.Since(pkt.ReceivedAt),
+			"state", t,
+		)
+		return 0, ErrPacketTooOld
 	}
 
 	estimatedPTS := pktReceiveTime.Sub(t.startTime)
