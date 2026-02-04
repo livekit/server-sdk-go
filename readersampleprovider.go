@@ -94,6 +94,8 @@ type ReaderSampleProvider struct {
 
 	// for h265
 	h265reader *h265reader.H265Reader
+	// pending H265 NAL when we cross AU boundary
+	h265PendingNAL *h265reader.NAL
 
 	// for ogg
 	oggReader *oggreader.OggReader
@@ -385,14 +387,41 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 
 	case webrtc.MimeTypeH265:
 		var (
-			isFrame    bool
-			needPrefix bool
+			haveVCL    bool
+			haveAnnexB bool
 		)
 
 		for {
-			nal, err := p.h265reader.NextNAL()
+			nal, err := p.nextH265NAL()
 			if err != nil {
+				if err == io.EOF && haveVCL && len(sample.Data) > 0 {
+					break
+				}
 				return sample, err
+			}
+
+			if haveVCL {
+				if nal.NalUnitType < 32 {
+					if isFirstSlice, ok := h265FirstSliceInPic(nal.Data); ok && isFirstSlice {
+						p.h265PendingNAL = nal
+						break
+					} else if !ok {
+						p.h265PendingNAL = nal
+						break
+					}
+				} else {
+					switch nal.NalUnitType {
+					case 40: // suffix SEI, ignore
+						continue
+					case 39, 32, 33, 34:
+						p.h265PendingNAL = nal
+						break
+					default:
+						p.h265PendingNAL = nal
+						break
+					}
+					break
+				}
 			}
 
 			if nal.NalUnitType == 39 { // prefix SEI
@@ -402,59 +431,62 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 						p.hasPendingUserTimestamp = true
 					}
 				}
-				// If SEI, clear the data and do not return a frame (try next NAL)
-				sample.Data = nil
-				sample.Duration = 0
-				return sample, nil
+				// If SEI and no frame yet, clear the data and do not return a frame.
+				// If we already have parameter sets buffered, keep them and continue.
+				if !haveVCL && len(sample.Data) == 0 {
+					sample.Data = nil
+					sample.Duration = 0
+					return sample, nil
+				}
+				continue
 			}
 
 			if nal.NalUnitType == 40 { // suffix SEI
 				// Ignore suffix SEI entirely (do not parse or append).
-				sample.Data = nil
-				sample.Duration = 0
-				return sample, nil
+				if !haveVCL && len(sample.Data) == 0 {
+					sample.Data = nil
+					sample.Duration = 0
+					return sample, nil
+				}
+				continue
 			}
 
 			// aggregate vps,sps,pps into a single AP packet (chrome requires this)
 			if nal.NalUnitType == 32 || nal.NalUnitType == 33 || nal.NalUnitType == 34 {
+				haveAnnexB = true
 				sample.Data = append(sample.Data, []byte{0, 0, 0, 1}...) // add NAL prefix
-				sample.Data = append(sample.Data, nal.Data...)
-				needPrefix = true
+				sample.Data = append(sample.Data, h265NormalizeNalType19To20(nal.Data)...)
 				continue
 			}
 
-			if needPrefix {
-				sample.Data = append(sample.Data, []byte{0, 0, 0, 1}...) // add NAL prefix
-				sample.Data = append(sample.Data, nal.Data...)
-			} else {
-				sample.Data = nal.Data
-			}
+			sample.Data = appendH265NAL(sample.Data, h265NormalizeNalType19To20(nal.Data), &haveAnnexB)
 
-			if !isFrame {
-				isFrame = nal.NalUnitType < 32
-			}
-
-			if !isFrame {
+			if nal.NalUnitType < 32 {
+				haveVCL = true
+			} else if !haveVCL {
 				// return it without duration
 				return sample, nil
 			}
-
-			// Attach the LKTS trailer to the encoded frame payload when enabled.
-			// If we didn't see a preceding timestamp, we still append a trailer with
-			// a zero timestamp.
-			if p.appendUserTimestamp {
-				ts := int64(0)
-				if p.hasPendingUserTimestamp {
-					ts = p.pendingUserTimestampUs
-					p.hasPendingUserTimestamp = false
-					p.pendingUserTimestampUs = 0
-				}
-				sample.Data = appendUserTimestampTrailer(sample.Data, ts)
-			}
-
-			sample.Duration = defaultH265FrameDuration
-			break
 		}
+
+		if !haveVCL {
+			return sample, nil
+		}
+
+		// Attach the LKTS trailer to the encoded frame payload when enabled.
+		// If we didn't see a preceding timestamp, we still append a trailer with
+		// a zero timestamp.
+		if p.appendUserTimestamp {
+			ts := int64(0)
+			if p.hasPendingUserTimestamp {
+				ts = p.pendingUserTimestampUs
+				p.hasPendingUserTimestamp = false
+				p.pendingUserTimestampUs = 0
+			}
+			sample.Data = appendUserTimestampTrailer(sample.Data, ts)
+		}
+
+		sample.Duration = defaultH265FrameDuration
 
 	case webrtc.MimeTypeVP8, webrtc.MimeTypeVP9, webrtc.MimeTypeAV1:
 		frame, header, err := p.ivfReader.ParseNextFrame()
@@ -690,4 +722,48 @@ func detectWavFormat(r io.Reader) (*wavReader, string, error) {
 	}
 
 	return wavReader, mime, nil
+}
+
+func (p *ReaderSampleProvider) nextH265NAL() (*h265reader.NAL, error) {
+	if p.h265PendingNAL != nil {
+		nal := p.h265PendingNAL
+		p.h265PendingNAL = nil
+		return nal, nil
+	}
+	return p.h265reader.NextNAL()
+}
+
+func h265FirstSliceInPic(nalData []byte) (bool, bool) {
+	if len(nalData) < 3 {
+		return true, false
+	}
+	return (nalData[2] & 0x80) != 0, true
+}
+
+func h265NormalizeNalType19To20(nalData []byte) []byte {
+	if len(nalData) < 2 {
+		return nalData
+	}
+	nalType := (nalData[0] >> 1) & 0x3F
+	if nalType != 19 {
+		return nalData
+	}
+	updated := make([]byte, len(nalData))
+	copy(updated, nalData)
+	updated[0] = (updated[0] & 0x81) | (20 << 1)
+	return updated
+}
+
+func appendH265NAL(dst []byte, nalData []byte, haveAnnexB *bool) []byte {
+	if *haveAnnexB || len(dst) > 0 {
+		if !*haveAnnexB && len(dst) > 0 {
+			dst = append([]byte{0, 0, 0, 1}, dst...)
+			*haveAnnexB = true
+		}
+		dst = append(dst, []byte{0, 0, 0, 1}...)
+		dst = append(dst, nalData...)
+		*haveAnnexB = true
+		return dst
+	}
+	return nalData
 }
