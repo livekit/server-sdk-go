@@ -32,14 +32,13 @@ type SynchronizerOption func(*SynchronizerConfig)
 
 // SynchronizerConfig holds configuration for the Synchronizer
 type SynchronizerConfig struct {
-	MaxTsDiff                         time.Duration
-	MaxDriftAdjustment                time.Duration
-	DriftAdjustmentWindowPercent      float64
-	AudioPTSAdjustmentDisabled        bool
-	PreJitterBufferReceiveTimeEnabled bool
-	RTCPSenderReportRebaseEnabled     bool
-	OldPacketThreshold                time.Duration
-	EnableStartGate                   bool
+	MaxTsDiff                     time.Duration
+	MaxDriftAdjustment            time.Duration
+	DriftAdjustmentWindowPercent  float64
+	AudioPTSAdjustmentDisabled    bool
+	RTCPSenderReportRebaseEnabled bool
+	OldPacketThreshold            time.Duration
+	EnableStartGate               bool
 
 	OnStarted func()
 
@@ -87,14 +86,6 @@ func WithDriftAdjustmentWindowPercent(driftAdjustmentWindowPercent float64) Sync
 func WithAudioPTSAdjustmentDisabled() SynchronizerOption {
 	return func(config *SynchronizerConfig) {
 		config.AudioPTSAdjustmentDisabled = true
-	}
-}
-
-// WithPreJitterBufferReceiveTimeEnabled - enables use of packet arrival time before it is
-// added to the jitter buffer
-func WithPreJitterBufferReceiveTimeEnabled() SynchronizerOption {
-	return func(config *SynchronizerConfig) {
-		config.PreJitterBufferReceiveTimeEnabled = true
 	}
 }
 
