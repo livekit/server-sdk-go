@@ -120,3 +120,27 @@ func (c *AgentClient) GetClientSettings(ctx context.Context, req *livekit.Client
 	}
 	return c.agentClient.GetClientSettings(ctx, req)
 }
+
+func (c *AgentClient) CreatePrivateLink(ctx context.Context, req *livekit.CreatePrivateLinkRequest) (*livekit.CreatePrivateLinkResponse, error) {
+	ctx, err := c.withAuth(ctx, withAgentGrant{Admin: true})
+	if err != nil {
+		return nil, err
+	}
+	return c.agentClient.CreatePrivateLink(ctx, req)
+}
+
+func (c *AgentClient) DestroyPrivateLink(ctx context.Context, req *livekit.DestroyPrivateLinkRequest) (*livekit.DestroyPrivateLinkResponse, error) {
+	ctx, err := c.withAuth(ctx, withAgentGrant{Admin: true})
+	if err != nil {
+		return nil, err
+	}
+	return c.agentClient.DestroyPrivateLink(ctx, req)
+}
+
+func (c *AgentClient) ListPrivateLinks(ctx context.Context, req *livekit.ListPrivateLinksRequest) (*livekit.ListPrivateLinksResponse, error) {
+	ctx, err := c.withAuth(ctx, withAgentGrant{Admin: true})
+	if err != nil {
+		return nil, err
+	}
+	return c.agentClient.ListPrivateLinks(ctx, req)
+}
