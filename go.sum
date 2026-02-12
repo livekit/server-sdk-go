@@ -161,8 +161,6 @@ github.com/livekit/media-sdk v0.0.0-20251106223430-dd8f5e0de2cf h1:gvun6axx2Mrh8
 github.com/livekit/media-sdk v0.0.0-20251106223430-dd8f5e0de2cf/go.mod h1:7ssWiG+U4xnbvLih9WiZbhQP6zIKMjgXdUtIE1bm/E8=
 github.com/livekit/mediatransportutil v0.0.0-20251128105421-19c7a7b81c22 h1:dzCBxOGLLWVtQhL7OYK2EGN+5Q+23Mq/jfz4vQisirA=
 github.com/livekit/mediatransportutil v0.0.0-20251128105421-19c7a7b81c22/go.mod h1:mSNtYzSf6iY9xM3UX42VEI+STHvMgHmrYzEHPcdhB8A=
-github.com/livekit/protocol v1.44.1-0.20260120134243-0914cc74653e h1:ClpOUpIDcIT/fKh66kOlO4b7fj47ApsITOwCOlvFrGc=
-github.com/livekit/protocol v1.44.1-0.20260120134243-0914cc74653e/go.mod h1:BLJHYHErQTu3+fnmfGrzN6CbHxNYiooFIIYGYxXxotw=
 github.com/livekit/protocol v1.44.1-0.20260211210831-af21b2260770 h1:iOG7eeQDc83HEeOgJ1E9uBr8zmCWjmi61qsADNQrC3I=
 github.com/livekit/protocol v1.44.1-0.20260211210831-af21b2260770/go.mod h1:BLJHYHErQTu3+fnmfGrzN6CbHxNYiooFIIYGYxXxotw=
 github.com/livekit/psrpc v0.7.1 h1:ms37az0QTD3UXIWuUC5D/SkmKOlRMVRsI261eBWu/Vw=
@@ -217,8 +215,8 @@ github.com/pelletier/go-toml v1.9.5 h1:4yBQzkHv+7BHq2PQUZF3Mx0IYxG7LsP222s7Agd3v
 github.com/pelletier/go-toml v1.9.5/go.mod h1:u1nR/EPcESfeI/szUZKdtJ0xRNbUoANCkoOuaOx1Y+c=
 github.com/pion/datachannel v1.6.0 h1:XecBlj+cvsxhAMZWFfFcPyUaDZtd7IJvrXqlXD/53i0=
 github.com/pion/datachannel v1.6.0/go.mod h1:ur+wzYF8mWdC+Mkis5Thosk+u/VOL287apDNEbFpsIk=
-github.com/pion/dtls/v3 v3.0.10 h1:k9ekkq1kaZoxnNEbyLKI8DI37j/Nbk1HWmMuywpQJgg=
-github.com/pion/dtls/v3 v3.0.10/go.mod h1:YEmmBYIoBsY3jmG56dsziTv/Lca9y4Om83370CXfqJ8=
+github.com/pion/dtls/v3 v3.1.0 h1:bz3alDjKL1DDGe8GETGcq5rDKjXFQX9mniuUo36Up0E=
+github.com/pion/dtls/v3 v3.1.0/go.mod h1:YEmmBYIoBsY3jmG56dsziTv/Lca9y4Om83370CXfqJ8=
 github.com/pion/ice/v4 v4.2.0 h1:jJC8S+CvXCCvIQUgx+oNZnoUpt6zwc34FhjWwCU4nlw=
 github.com/pion/ice/v4 v4.2.0/go.mod h1:EgjBGxDgmd8xB0OkYEVFlzQuEI7kWSCFu+mULqaisy4=
 github.com/pion/interceptor v0.1.43 h1:6hmRfnmjogSs300xfkR0JxYFZ9k5blTEvCD7wxEDuNQ=
