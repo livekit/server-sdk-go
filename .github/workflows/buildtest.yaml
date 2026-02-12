@@ -27,7 +27,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: actions/cache@v5
         with:
           path: |
@@ -44,7 +44,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: 1.25.0
+          go-version: 1.26.0
 
       - name: Set up gotestfmt
         run: go install github.com/gotesttools/gotestfmt/v2/cmd/gotestfmt@latest
