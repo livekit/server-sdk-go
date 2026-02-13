@@ -407,26 +407,19 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 				// Once we've started a picture, detect the next access-unit boundary.
 				if nal.NalUnitType < 32 {
 					// VCL: split when first_slice_segment_in_pic_flag starts a new picture.
-					if isFirstSlice, ok := h265FirstSliceInPic(nal.Data); ok && isFirstSlice {
-						p.h265PendingNAL = nal
-						break
-					} else if !ok {
-						// If we can't parse the flag, err on the side of splitting.
+					// If we can't parse the flag, err on the side of splitting.
+					if isFirstSlice, ok := h265FirstSliceInPic(nal.Data); !ok || isFirstSlice {
 						p.h265PendingNAL = nal
 						break
 					}
 				} else {
 					// Non-VCL after VCL belongs to the next access unit.
-					switch nal.NalUnitType {
-					case 40: // suffix SEI, ignore
+					if nal.NalUnitType == 40 { // suffix SEI, ignore
 						continue
-					case 39, 32, 33, 34:
-						p.h265PendingNAL = nal
-						break
-					default:
-						p.h265PendingNAL = nal
-						break
 					}
+					// prefix SEI (39), VPS (32), SPS (33), PPS (34), or any other
+					// non-VCL NAL starts the next access unit.
+					p.h265PendingNAL = nal
 					break
 				}
 			}
