@@ -720,9 +720,11 @@ func detectWavFormat(r io.Reader) (*wavReader, string, error) {
 	return wavReader, mime, nil
 }
 
+// nextH265NAL returns the next NAL unit, draining any look-ahead NAL
+// that was buffered during access-unit boundary detection before reading
+// a fresh one from the stream.
 func (p *ReaderSampleProvider) nextH265NAL() (*h265reader.NAL, error) {
 	if p.h265PendingNAL != nil {
-		// Consume the buffered NAL that starts the next access unit.
 		nal := p.h265PendingNAL
 		p.h265PendingNAL = nil
 		return nal, nil
@@ -730,7 +732,8 @@ func (p *ReaderSampleProvider) nextH265NAL() (*h265reader.NAL, error) {
 	return p.h265reader.NextNAL()
 }
 
-func h265FirstSliceInPic(nalData []byte) (bool, bool) {
+// Determine if the NAL unit is the first slice in a IDR frame.
+func h265FirstSliceInPic(nalData []byte) (isFirstSlice bool, ok bool) {
 	// Parse first_slice_segment_in_pic_flag from the byte after the 2-byte header.
 	if len(nalData) < 3 {
 		return true, false
