@@ -388,7 +388,7 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 	case webrtc.MimeTypeH265:
 		var (
 			// haveVCL tracks whether we've started a picture (any VCL NAL seen).
-			haveVCL    bool
+			haveVCL bool
 			// sampleIsAnnexB tracks whether sample.Data is in AnnexB format yet.
 			sampleIsAnnexB bool
 		)
@@ -457,16 +457,12 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 				continue
 			}
 
-			// Aggregate VPS/SPS/PPS before the next access unit.
+			// Aggregate VPS/SPS/PPS and VCL NALs into the current access unit.
+			sample.Data = appendH265NAL(sample.Data, nal.Data, &sampleIsAnnexB)
+
 			if nal.NalUnitType == 32 || nal.NalUnitType == 33 || nal.NalUnitType == 34 {
-				sampleIsAnnexB = true
-				sample.Data = append(sample.Data, []byte{0, 0, 0, 1}...) // add NAL prefix
-				sample.Data = append(sample.Data, nal.Data...)
 				continue
 			}
-
-			// Append this NAL to the current access unit payload.
-			sample.Data = appendH265NAL(sample.Data, nal.Data, &sampleIsAnnexB)
 
 			if nal.NalUnitType < 32 {
 				haveVCL = true
@@ -752,9 +748,9 @@ func h265FirstSliceInPic(nalData []byte) (bool, bool) {
 func appendH265NAL(dst []byte, nalData []byte, sampleIsAnnexB *bool) []byte {
 	// Ensure AnnexB start codes and append in-place for AU aggregation.
 	if *sampleIsAnnexB || len(dst) > 0 {
-		if !*sampleIsAnnexB && len(dst) > 0 {
+		if !*sampleIsAnnexB {
+			// First NAL was appended raw; retroactively add its start code.
 			dst = append([]byte{0, 0, 0, 1}, dst...)
-			*sampleIsAnnexB = true
 		}
 		dst = append(dst, []byte{0, 0, 0, 1}...)
 		dst = append(dst, nalData...)
