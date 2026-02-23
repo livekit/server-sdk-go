@@ -144,19 +144,3 @@ func (c *AgentClient) ListPrivateLinks(ctx context.Context, req *livekit.ListPri
 	}
 	return c.agentClient.ListPrivateLinks(ctx, req)
 }
-
-func (c *AgentClient) GetPrivateLinkProvisioningStatus(ctx context.Context, req *livekit.GetPrivateLinkProvisioningStatusRequest) (*livekit.GetPrivateLinkProvisioningStatusResponse, error) {
-	ctx, err := c.withAuth(ctx, withAgentGrant{Admin: true})
-	if err != nil {
-		return nil, err
-	}
-	return c.agentClient.GetPrivateLinkProvisioningStatus(ctx, req)
-}
-
-func (c *AgentClient) GetPrivateLinkHealthStatus(ctx context.Context, req *livekit.GetPrivateLinkHealthStatusRequest) (*livekit.GetPrivateLinkHealthStatusResponse, error) {
-	ctx, err := c.withAuth(ctx, withAgentGrant{Admin: true})
-	if err != nil {
-		return nil, err
-	}
-	return c.agentClient.GetPrivateLinkHealthStatus(ctx, req)
-}
