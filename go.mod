@@ -15,7 +15,7 @@ require (
 	github.com/pion/dtls/v3 v3.1.2
 	github.com/pion/interceptor v0.1.44
 	github.com/pion/rtcp v1.2.16
-	github.com/pion/rtp v1.10.1
+	github.com/pion/rtp/v2 v2.0.0
 	github.com/pion/sdp/v3 v3.0.17
 	github.com/pion/webrtc/v4 v4.2.6
 	github.com/stretchr/testify v1.11.1
@@ -29,6 +29,7 @@ require (
 require (
 	github.com/moby/buildkit v0.26.2
 	github.com/moby/patternmatcher v0.6.0
+	github.com/pion/rtp v1.10.1
 	golang.org/x/mod v0.33.0
 )
 
