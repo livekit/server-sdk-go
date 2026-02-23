@@ -137,16 +137,6 @@ func (c *Client) ListPrivateLinks(ctx context.Context, req *lkproto.ListPrivateL
 	return c.AgentClient.ListPrivateLinks(ctx, req)
 }
 
-// GetPrivateLinkProvisioningStatus gets provisioning status for a private link.
-func (c *Client) GetPrivateLinkProvisioningStatus(ctx context.Context, req *lkproto.GetPrivateLinkProvisioningStatusRequest) (*lkproto.GetPrivateLinkProvisioningStatusResponse, error) {
-	return c.AgentClient.GetPrivateLinkProvisioningStatus(ctx, req)
-}
-
-// GetPrivateLinkHealthStatus gets health status for a private link.
-func (c *Client) GetPrivateLinkHealthStatus(ctx context.Context, req *lkproto.GetPrivateLinkHealthStatusRequest) (*lkproto.GetPrivateLinkHealthStatusResponse, error) {
-	return c.AgentClient.GetPrivateLinkHealthStatus(ctx, req)
-}
-
 // uploadAndBuild uploads the source and triggers remote build
 func (c *Client) uploadAndBuild(
 	ctx context.Context,
