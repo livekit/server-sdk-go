@@ -15,10 +15,12 @@
 package lksdk
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"maps"
 	"reflect"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -26,12 +28,12 @@ import (
 	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v4"
-	"golang.org/x/exp/maps"
 	"golang.org/x/mod/semver"
 	"google.golang.org/protobuf/proto"
 
 	protoLogger "github.com/livekit/protocol/logger"
 	protosignalling "github.com/livekit/protocol/signalling"
+
 	"github.com/livekit/server-sdk-go/v2/signalling"
 
 	"github.com/livekit/mediatransportutil/pkg/pacer"
@@ -978,10 +980,11 @@ func (r *Room) OnSpeakersChanged(speakerUpdates []*livekit.SpeakerInfo) {
 		}
 	}
 
-	activeSpeakers := maps.Values(speakerMap)
-	sort.Slice(activeSpeakers, func(i, j int) bool {
-		return activeSpeakers[i].AudioLevel() > activeSpeakers[j].AudioLevel()
+	activeSpeakersIter := maps.Values(speakerMap)
+	slices.SortedFunc(activeSpeakersIter, func(p1, p2 Participant) int {
+		return cmp.Compare(p1.AudioLevel(), p2.AudioLevel())
 	})
+	activeSpeakers := slices.Collect(activeSpeakersIter)
 	r.lock.Lock()
 	r.activeSpeakers = activeSpeakers
 	r.lock.Unlock()
