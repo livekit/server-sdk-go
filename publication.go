@@ -16,11 +16,11 @@ package lksdk
 
 import (
 	"errors"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"time"
-
-	"golang.org/x/exp/maps"
 
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v4"
@@ -339,7 +339,7 @@ func (p *LocalTrackPublication) TrackLocal() webrtc.TrackLocal {
 func (p *LocalTrackPublication) TrackLocalForSimulcast() []*LocalTrack {
 	p.lock.RLock()
 	defer p.lock.RUnlock()
-	return maps.Values(p.simulcastTracks)
+	return slices.Collect(maps.Values(p.simulcastTracks))
 }
 
 // GetSimulcastTrack returns the simulcast track for a specific quality level.
@@ -431,7 +431,7 @@ func (p *LocalTrackPublication) setBackupCodecTracksForSimulcast(st []*LocalTrac
 func (p *LocalTrackPublication) getBackupCodecTrack() (TrackLocalWithCodec, []*LocalTrack) {
 	p.lock.RLock()
 	defer p.lock.RUnlock()
-	return p.backupCodecTrack, maps.Values(p.backupCodecTracksForSimulcast)
+	return p.backupCodecTrack, slices.Collect(maps.Values(p.backupCodecTracksForSimulcast))
 }
 
 func (p *LocalTrackPublication) setBackupCodecPublished() {
@@ -509,7 +509,11 @@ func (p *LocalTrackPublication) setPublishingCodecsQuality(subscribedCodecs []*l
 
 		mainTrack := backupCodecTrack
 		if len(backupCodecTracksForSimulcast) > 0 {
-			mainTrack = maps.Values(backupCodecTracksForSimulcast)[0]
+			iter := maps.Values(backupCodecTracksForSimulcast)
+			iter(func(l *LocalTrack) bool {
+				mainTrack = l
+				return false
+			})
 		}
 		if mainTrack == nil || !strings.HasSuffix(strings.ToLower(mainTrack.Codec().MimeType), subscribedCodec.Codec) {
 			p.log.Warnw("subscriber requested backup codec but no track found", nil, "trackID", p.SID(), "codec", subscribedCodec.Codec)
