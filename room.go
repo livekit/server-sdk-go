@@ -981,7 +981,7 @@ func (r *Room) OnSpeakersChanged(speakerUpdates []*livekit.SpeakerInfo) {
 	}
 
 	activeSpeakers := slices.SortedFunc(maps.Values(speakerMap), func(p1, p2 Participant) int {
-		return cmp.Compare(p1.AudioLevel(), p2.AudioLevel())
+		return cmp.Compare(p2.AudioLevel(), p1.AudioLevel())
 	})
 	r.lock.Lock()
 	r.activeSpeakers = activeSpeakers
