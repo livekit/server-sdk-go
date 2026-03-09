@@ -32,6 +32,7 @@ import (
 	"github.com/pion/webrtc/v4/pkg/media"
 	"go.uber.org/atomic"
 
+	protoCodecs "github.com/livekit/protocol/codecs"
 	"github.com/livekit/protocol/livekit"
 	protoLogger "github.com/livekit/protocol/logger"
 	"github.com/livekit/protocol/utils/guid"
@@ -139,6 +140,14 @@ func NewLocalTrack(c webrtc.RTPCodecCapability, opts ...LocalTrackOptions) (*Loc
 
 func NewLocalSampleTrack(c webrtc.RTPCodecCapability, opts ...LocalTrackOptions) (*LocalTrack, error) {
 	return NewLocalTrack(c, opts...)
+}
+
+func NewLocalTrackWithCodec(c *livekit.Codec, opts ...LocalTrackOptions) (*LocalTrack, error) {
+	return NewLocalTrack(protoCodecs.ToWebrtcCodecParameters(c).RTPCodecCapability, opts...)
+}
+
+func NewLocalSampleTrackWithCodec(c *livekit.Codec, opts ...LocalTrackOptions) (*LocalTrack, error) {
+	return NewLocalTrack(protoCodecs.ToWebrtcCodecParameters(c).RTPCodecCapability, opts...)
 }
 
 // SetLogger overrides default logger for this track.

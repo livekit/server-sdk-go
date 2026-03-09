@@ -64,14 +64,13 @@ type TrackSynchronizer struct {
 	startGate startGate
 
 	// config
-	maxTsDiff                         time.Duration // maximum acceptable difference between RTP packets
-	maxDriftAdjustment                time.Duration // maximum drift adjustment at a time
-	driftAdjustmentWindowPercent      float64
-	audioPTSAdjustmentsDisabled       bool // disable audio packets PTS adjustments on SRs
-	preJitterBufferReceiveTimeEnabled bool
-	rtcpSenderReportRebaseEnabled     bool
-	oldPacketThreshold                time.Duration
-	enableStartGate                   bool
+	maxTsDiff                     time.Duration // maximum acceptable difference between RTP packets
+	maxDriftAdjustment            time.Duration // maximum drift adjustment at a time
+	driftAdjustmentWindowPercent  float64
+	audioPTSAdjustmentsDisabled   bool // disable audio packets PTS adjustments on SRs
+	rtcpSenderReportRebaseEnabled bool
+	oldPacketThreshold            time.Duration
+	enableStartGate               bool
 
 	// timing info
 	startTime        time.Time // time at initialization --> this should be when first packet is received
@@ -115,22 +114,21 @@ type TrackSynchronizer struct {
 
 func newTrackSynchronizer(s *Synchronizer, track TrackRemote) *TrackSynchronizer {
 	t := &TrackSynchronizer{
-		sync:                              s,
-		track:                             track,
-		logger:                            logger.GetLogger().WithValues("trackID", track.ID(), "codec", track.Codec().MimeType),
-		RTPConverter:                      rtputil.NewRTPConverter(int64(track.Codec().ClockRate)),
-		maxTsDiff:                         s.config.MaxTsDiff,
-		maxDriftAdjustment:                s.config.MaxDriftAdjustment,
-		driftAdjustmentWindowPercent:      s.config.DriftAdjustmentWindowPercent,
-		audioPTSAdjustmentsDisabled:       s.config.AudioPTSAdjustmentDisabled,
-		preJitterBufferReceiveTimeEnabled: s.config.PreJitterBufferReceiveTimeEnabled,
-		rtcpSenderReportRebaseEnabled:     s.config.RTCPSenderReportRebaseEnabled,
-		oldPacketThreshold:                s.config.OldPacketThreshold,
-		enableStartGate:                   s.config.EnableStartGate,
-		nextPTSAdjustmentAt:               mono.Now(),
-		propagationDelayEstimator:         latency.NewOWDEstimator(latency.OWDEstimatorParamsDefault),
-		maxMediaRunningTimeDelay:          s.config.MaxMediaRunningTimeDelay,
-		lastPTSAdjustedLogBucket:          math.MaxInt64,
+		sync:                          s,
+		track:                         track,
+		logger:                        logger.GetLogger().WithValues("trackID", track.ID(), "codec", track.Codec().MimeType),
+		RTPConverter:                  rtputil.NewRTPConverter(int64(track.Codec().ClockRate)),
+		maxTsDiff:                     s.config.MaxTsDiff,
+		maxDriftAdjustment:            s.config.MaxDriftAdjustment,
+		driftAdjustmentWindowPercent:  s.config.DriftAdjustmentWindowPercent,
+		audioPTSAdjustmentsDisabled:   s.config.AudioPTSAdjustmentDisabled,
+		rtcpSenderReportRebaseEnabled: s.config.RTCPSenderReportRebaseEnabled,
+		oldPacketThreshold:            s.config.OldPacketThreshold,
+		enableStartGate:               s.config.EnableStartGate,
+		nextPTSAdjustmentAt:           time.Now(),
+		propagationDelayEstimator:     latency.NewOWDEstimator(latency.OWDEstimatorParamsDefault),
+		maxMediaRunningTimeDelay:      s.config.MaxMediaRunningTimeDelay,
+		lastPTSAdjustedLogBucket:      math.MaxInt64,
 	}
 
 	if s.config.EnableStartGate {
@@ -223,7 +221,6 @@ func (t *TrackSynchronizer) initialize(extPkt jitter.ExtPacket) {
 		"maxDriftAdjustment", t.maxDriftAdjustment,
 		"driftAdjustmentWindowPercent", t.driftAdjustmentWindowPercent,
 		"audioPTSAdjustmentDisabled", t.audioPTSAdjustmentsDisabled,
-		"preJitterBufferReceiveTimeEnabled", t.preJitterBufferReceiveTimeEnabled,
 		"rtcpSenderReportRebaseEnabled", t.rtcpSenderReportRebaseEnabled,
 		"oldPacketThreshold", t.oldPacketThreshold,
 		"enableStartGate", t.enableStartGate,
@@ -249,16 +246,13 @@ func (t *TrackSynchronizer) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) 
 }
 
 func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Duration, error) {
+	deadline, hasDeadline := t.getSynchronizerDeadline()
+
 	t.Lock()
 	defer t.Unlock()
 
 	now := time.Now()
-	var pktReceiveTime time.Time
-	if t.preJitterBufferReceiveTimeEnabled {
-		pktReceiveTime = pkt.ReceivedAt
-	} else {
-		pktReceiveTime = now
-	}
+	pktReceiveTime := pkt.ReceivedAt
 	if t.firstTime.IsZero() {
 		t.firstTime = now
 		t.logger.Infow(
@@ -281,22 +275,20 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 		return t.lastPTSAdjusted, nil
 	}
 
-	if t.preJitterBufferReceiveTimeEnabled {
-		// if first packet a frame was too old and dropped,
-		// drop all packets of the frame irrespective of whether they are old or not
-		if ts == t.lastTSOldDropped || t.isPacketTooOld(pkt.ReceivedAt) {
-			t.lastTSOldDropped = ts
-			t.stats.numDroppedOld++
-			t.logger.Infow(
-				"dropping old packet",
-				"currentTS", ts,
-				"receivedAt", pkt.ReceivedAt,
-				"now", time.Now(),
-				"age", time.Since(pkt.ReceivedAt),
-				"state", t,
-			)
-			return 0, ErrPacketTooOld
-		}
+	// if first packet a frame was too old and dropped,
+	// drop all packets of the frame irrespective of whether they are old or not
+	if ts == t.lastTSOldDropped || t.isPacketTooOld(pkt.ReceivedAt) {
+		t.lastTSOldDropped = ts
+		t.stats.numDroppedOld++
+		t.logger.Infow(
+			"dropping old packet",
+			"currentTS", ts,
+			"receivedAt", pkt.ReceivedAt,
+			"now", time.Now(),
+			"age", time.Since(pkt.ReceivedAt),
+			"state", t,
+		)
+		return 0, ErrPacketTooOld
 	}
 
 	estimatedPTS := pktReceiveTime.Sub(t.startTime)
@@ -321,26 +313,9 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 		pts = estimatedPTS
 	}
 
-	if t.shouldAdjustPTS(pts) {
-		prevCurrentPTSOffset := t.currentPTSOffset
-		if t.currentPTSOffset > t.desiredPTSOffset {
-			t.currentPTSOffset = max(t.currentPTSOffset-t.maxDriftAdjustment, t.desiredPTSOffset)
-			t.totalPTSAdjustmentNegative += prevCurrentPTSOffset - t.currentPTSOffset
-		} else if t.currentPTSOffset < t.desiredPTSOffset {
-			t.currentPTSOffset = min(t.currentPTSOffset+t.maxDriftAdjustment, t.desiredPTSOffset)
-			t.totalPTSAdjustmentPositive += t.currentPTSOffset - prevCurrentPTSOffset
-		}
+	t.maybeAdjustPTSOffset(ts, pts, estimatedPTS)
 
-		// throttle further adjustment till a window proportional to this adjustment elapses
-		throttle := time.Duration(0)
-		if t.driftAdjustmentWindowPercent > 0.0 {
-			throttle = time.Duration(math.Abs(float64(t.currentPTSOffset-prevCurrentPTSOffset)) * 100.0 / t.driftAdjustmentWindowPercent)
-		}
-		t.nextPTSAdjustmentAt = time.Now().Add(throttle)
-		t.logPTSAdjustmentSampled(ts, pts, estimatedPTS, prevCurrentPTSOffset, throttle)
-	}
-
-	adjusted, pts := t.normalizePTSToMediaPipelineTimeline(pts, ts, now)
+	adjusted, pts := t.normalizePTSToMediaPipelineTimeline(pts, ts, now, deadline, hasDeadline)
 
 	if adjusted < t.lastPTSAdjusted {
 		// always move it forward
@@ -377,6 +352,10 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 }
 
 func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duration, error) {
+	// Get deadline from synchronizer BEFORE main lock to prevent deadlock
+	// with Synchronizer.End() which holds Synchronizer lock while calling into tracks
+	deadline, hasDeadline := t.getSynchronizerDeadline()
+
 	t.Lock()
 	defer t.Unlock()
 
@@ -452,26 +431,9 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 		pts = estimatedPTS
 	}
 
-	if t.shouldAdjustPTS(pts) {
-		prevCurrentPTSOffset := t.currentPTSOffset
-		if t.currentPTSOffset > t.desiredPTSOffset {
-			t.currentPTSOffset = max(t.currentPTSOffset-t.maxDriftAdjustment, t.desiredPTSOffset)
-			t.totalPTSAdjustmentNegative += prevCurrentPTSOffset - t.currentPTSOffset
-		} else if t.currentPTSOffset < t.desiredPTSOffset {
-			t.currentPTSOffset = min(t.currentPTSOffset+t.maxDriftAdjustment, t.desiredPTSOffset)
-			t.totalPTSAdjustmentPositive += t.currentPTSOffset - prevCurrentPTSOffset
-		}
+	t.maybeAdjustPTSOffset(ts, pts, estimatedPTS)
 
-		// throttle further adjustment till a window proportional to this adjustment elapses
-		throttle := time.Duration(0)
-		if t.driftAdjustmentWindowPercent > 0.0 {
-			throttle = time.Duration(math.Abs(float64(t.currentPTSOffset-prevCurrentPTSOffset)) * 100.0 / t.driftAdjustmentWindowPercent)
-		}
-		t.nextPTSAdjustmentAt = mono.Now().Add(throttle)
-		t.logPTSAdjustmentSampled(ts, pts, estimatedPTS, prevCurrentPTSOffset, throttle)
-	}
-
-	adjusted, pts := t.normalizePTSToMediaPipelineTimeline(pts, ts, now)
+	adjusted, pts := t.normalizePTSToMediaPipelineTimeline(pts, ts, now, deadline, hasDeadline)
 
 	if adjusted < t.lastPTSAdjusted {
 		// always move it forward
@@ -734,8 +696,8 @@ func (t *TrackSynchronizer) maybeAdjustStartTime(asr *augmentedSenderReport) int
 	adjustedStartTimeNano := now - samplesDuration.Nanoseconds()
 	requestedAdjustment := startTimeNano - adjustedStartTimeNano
 
-	getLoggingFields := func() []interface{} {
-		return []interface{}{
+	getLoggingFields := func() []any {
+		return []any{
 			"nowTime", time.Unix(0, now),
 			"before", time.Unix(0, startTimeNano),
 			"after", time.Unix(0, adjustedStartTimeNano),
@@ -765,17 +727,12 @@ func (t *TrackSynchronizer) maybeAdjustStartTime(asr *augmentedSenderReport) int
 	return requestedAdjustment
 }
 
-func (t *TrackSynchronizer) normalizePTSToMediaPipelineTimeline(ptsIn time.Duration, ts uint32, now time.Time) (adjusted, ptsOut time.Duration) {
+func (t *TrackSynchronizer) normalizePTSToMediaPipelineTimeline(ptsIn time.Duration, ts uint32, now time.Time, deadline time.Duration, hasDeadline bool) (adjusted, ptsOut time.Duration) {
 	adjustedIn := ptsIn + t.currentPTSOffset
 	adjusted = adjustedIn
 	ptsOut = ptsIn
 
-	if t.sync == nil {
-		return
-	}
-
-	deadline, ok := t.sync.getExternalMediaDeadline()
-	if ok && adjustedIn < deadline {
+	if hasDeadline && adjustedIn < deadline {
 		if t.lastTimelyPacket.IsZero() {
 			t.lastTimelyPacket = now
 		}
@@ -820,7 +777,7 @@ func (t *TrackSynchronizer) acceptableSRDrift(drift time.Duration) bool {
 }
 
 func (t *TrackSynchronizer) shouldAdjustPTS(newPTS time.Duration) bool {
-	if mono.Now().Before(t.nextPTSAdjustmentAt) {
+	if time.Now().Before(t.nextPTSAdjustmentAt) {
 		return false
 	}
 
@@ -843,8 +800,31 @@ func (t *TrackSynchronizer) shouldAdjustPTS(newPTS time.Duration) bool {
 	return adjustmentEnabled && (t.currentPTSOffset != t.desiredPTSOffset)
 }
 
+func (t *TrackSynchronizer) maybeAdjustPTSOffset(ts uint32, pts, estimatedPTS time.Duration) {
+	if !t.shouldAdjustPTS(pts) {
+		return
+	}
+
+	prevCurrentPTSOffset := t.currentPTSOffset
+	if t.currentPTSOffset > t.desiredPTSOffset {
+		t.currentPTSOffset = max(t.currentPTSOffset-t.maxDriftAdjustment, t.desiredPTSOffset)
+		t.totalPTSAdjustmentNegative += prevCurrentPTSOffset - t.currentPTSOffset
+	} else if t.currentPTSOffset < t.desiredPTSOffset {
+		t.currentPTSOffset = min(t.currentPTSOffset+t.maxDriftAdjustment, t.desiredPTSOffset)
+		t.totalPTSAdjustmentPositive += t.currentPTSOffset - prevCurrentPTSOffset
+	}
+
+	// throttle further adjustment till a window proportional to this adjustment elapses
+	throttle := time.Duration(0)
+	if t.driftAdjustmentWindowPercent > 0.0 {
+		throttle = time.Duration(math.Abs(float64(t.currentPTSOffset-prevCurrentPTSOffset)) * 100.0 / t.driftAdjustmentWindowPercent)
+	}
+	t.nextPTSAdjustmentAt = time.Now().Add(throttle)
+	t.logPTSAdjustmentSampled(ts, pts, estimatedPTS, prevCurrentPTSOffset, throttle)
+}
+
 func (t *TrackSynchronizer) isPacketTooOld(packetTime time.Time) bool {
-	return t.oldPacketThreshold != 0 && mono.Now().Sub(packetTime) > t.oldPacketThreshold
+	return t.oldPacketThreshold != 0 && time.Since(packetTime) > t.oldPacketThreshold
 }
 
 // avoid applying small changes to start time as it will cause subsequent PTSes
@@ -867,6 +847,20 @@ func (t *TrackSynchronizer) applyQuantizedStartTimeAdvance(deltaTotal time.Durat
 
 	t.startTimeAdjustResidual = deltaTotal
 	return 0
+}
+
+func (t *TrackSynchronizer) getSynchronizer() *Synchronizer {
+	t.Lock()
+	defer t.Unlock()
+	return t.sync
+}
+
+func (t *TrackSynchronizer) getSynchronizerDeadline() (time.Duration, bool) {
+	sync := t.getSynchronizer()
+	if sync == nil {
+		return 0, false
+	}
+	return sync.getExternalMediaDeadline()
 }
 
 func (t *TrackSynchronizer) updateGapHistogram(gap uint16) {
