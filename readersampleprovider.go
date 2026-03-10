@@ -15,6 +15,7 @@
 package lksdk
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -41,6 +42,8 @@ const (
 	defaultG711FrameDuration   = 20 * time.Millisecond
 	defaultG711SamplesPerFrame = 160
 )
+
+var annexBStartCode = [...]byte{0, 0, 0, 1}
 
 // ---------------------------------
 
@@ -94,6 +97,8 @@ type ReaderSampleProvider struct {
 
 	// for h265
 	h265reader *h265reader.H265Reader
+	// pending H265 NAL when we detect a new access unit
+	h265PendingNAL *h265reader.NAL
 
 	// for ogg
 	oggReader *oggreader.OggReader
@@ -385,14 +390,41 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 
 	case webrtc.MimeTypeH265:
 		var (
-			isFrame    bool
-			needPrefix bool
+			// haveVCL tracks whether we've started a picture (any VCL NAL seen).
+			haveVCL bool
+			builder h265AccessUnitBuilder
 		)
 
 		for {
-			nal, err := p.h265reader.NextNAL()
+			nal, err := p.nextH265NAL()
 			if err != nil {
+				if err == io.EOF && haveVCL && len(sample.Data) > 0 {
+					// Flush the last access unit at EOF.
+					break
+				}
 				return sample, err
+			}
+
+			if haveVCL {
+				// Once we've started a picture, detect the next access-unit boundary.
+				if nal.NalUnitType < 32 {
+					// VCL: split when first_slice_segment_in_pic_flag starts a new picture.
+					if isFirstSlice, ok := h265FirstSliceInPic(nal.Data); !ok || isFirstSlice {
+						// If we can't parse the flag, err on the side of splitting.
+						p.h265PendingNAL = nal
+						break
+					}
+				} else {
+					// Non-VCL after VCL belongs to the next access unit.
+					switch nal.NalUnitType {
+					case 40: // suffix SEI, ignore
+						continue
+					default:
+						// Prefix SEI / VPS / SPS / PPS and other non-VCL NALs begin the next access unit.
+						p.h265PendingNAL = nal
+					}
+					break
+				}
 			}
 
 			if nal.NalUnitType == 39 { // prefix SEI
@@ -402,59 +434,63 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 						p.hasPendingUserTimestamp = true
 					}
 				}
-				// If SEI, clear the data and do not return a frame (try next NAL)
-				sample.Data = nil
-				sample.Duration = 0
-				return sample, nil
-			}
-
-			if nal.NalUnitType == 40 { // suffix SEI
-				// Ignore suffix SEI entirely (do not parse or append).
-				sample.Data = nil
-				sample.Duration = 0
-				return sample, nil
-			}
-
-			// aggregate vps,sps,pps into a single AP packet (chrome requires this)
-			if nal.NalUnitType == 32 || nal.NalUnitType == 33 || nal.NalUnitType == 34 {
-				sample.Data = append(sample.Data, []byte{0, 0, 0, 1}...) // add NAL prefix
-				sample.Data = append(sample.Data, nal.Data...)
-				needPrefix = true
+				// If SEI and no frame yet, skip it unless we're only holding param sets.
+				if !haveVCL && len(sample.Data) == 0 {
+					sample.Data = nil
+					sample.Duration = 0
+					return sample, nil
+				}
 				continue
 			}
 
-			if needPrefix {
-				sample.Data = append(sample.Data, []byte{0, 0, 0, 1}...) // add NAL prefix
-				sample.Data = append(sample.Data, nal.Data...)
-			} else {
-				sample.Data = nal.Data
+			if nal.NalUnitType == 40 { // suffix SEI
+				// Ignore suffix SEI entirely.
+				if !haveVCL && len(sample.Data) == 0 {
+					sample.Data = nil
+					sample.Duration = 0
+					return sample, nil
+				}
+				continue
 			}
 
-			if !isFrame {
-				isFrame = nal.NalUnitType < 32
+			// Aggregate VPS/SPS/PPS before the next access unit.
+			// 32: VPS, 33: SPS, 34: PPS
+			if nal.NalUnitType == 32 || nal.NalUnitType == 33 || nal.NalUnitType == 34 {
+				builder.AppendAnnexB(nal.Data)
+				sample.Data = builder.Bytes()
+				continue
 			}
 
-			if !isFrame {
+			// Append this NAL to the current access unit payload.
+			builder.Append(nal.Data)
+			sample.Data = builder.Bytes()
+
+			if nal.NalUnitType < 32 {
+				haveVCL = true
+			} else if !haveVCL {
 				// return it without duration
 				return sample, nil
 			}
-
-			// Attach the LKTS trailer to the encoded frame payload when enabled.
-			// If we didn't see a preceding timestamp, we still append a trailer with
-			// a zero timestamp.
-			if p.appendUserTimestamp {
-				ts := int64(0)
-				if p.hasPendingUserTimestamp {
-					ts = p.pendingUserTimestampUs
-					p.hasPendingUserTimestamp = false
-					p.pendingUserTimestampUs = 0
-				}
-				sample.Data = appendUserTimestampTrailer(sample.Data, ts)
-			}
-
-			sample.Duration = defaultH265FrameDuration
-			break
 		}
+
+		if !haveVCL {
+			return sample, nil
+		}
+
+		// Attach the LKTS trailer to the encoded frame payload when enabled.
+		// If we didn't see a preceding timestamp, we still append a trailer with
+		// a zero timestamp.
+		if p.appendUserTimestamp {
+			ts := int64(0)
+			if p.hasPendingUserTimestamp {
+				ts = p.pendingUserTimestampUs
+				p.hasPendingUserTimestamp = false
+				p.pendingUserTimestampUs = 0
+			}
+			sample.Data = appendUserTimestampTrailer(sample.Data, ts)
+		}
+
+		sample.Duration = defaultH265FrameDuration
 
 	case webrtc.MimeTypeVP8, webrtc.MimeTypeVP9, webrtc.MimeTypeAV1:
 		frame, header, err := p.ivfReader.ParseNextFrame()
@@ -690,4 +726,94 @@ func detectWavFormat(r io.Reader) (*wavReader, string, error) {
 	}
 
 	return wavReader, mime, nil
+}
+
+func (p *ReaderSampleProvider) nextH265NAL() (*h265reader.NAL, error) {
+	if p.h265PendingNAL != nil {
+		// Consume the buffered NAL that starts the next access unit.
+		nal := p.h265PendingNAL
+		p.h265PendingNAL = nil
+		return nal, nil
+	}
+	return p.h265reader.NextNAL()
+}
+
+func h265FirstSliceInPic(nalData []byte) (bool, bool) {
+	// Parse first_slice_segment_in_pic_flag from the byte after the 2-byte header.
+	if len(nalData) < 3 {
+		return true, false
+	}
+	return (nalData[2] & 0x80) != 0, true
+}
+
+// h265AccessUnitBuilder keeps a lone NAL as a raw slice and only allocates an
+// owned Annex-B buffer once we need to join multiple NAL units together.
+type h265AccessUnitBuilder struct {
+	rawFirstNAL []byte
+	data        bytes.Buffer
+}
+
+func (b *h265AccessUnitBuilder) Append(nalData []byte) {
+	// Preserve the single-NAL fast path without copying until another NAL forces
+	// us to materialize Annex-B framing.
+	if b.rawFirstNAL == nil && b.data.Len() == 0 {
+		b.rawFirstNAL = nalData
+		return
+	}
+
+	b.materializeAnnexB(len(nalData) + len(annexBStartCode))
+	_, _ = b.data.Write(annexBStartCode[:])
+	_, _ = b.data.Write(nalData)
+}
+
+func (b *h265AccessUnitBuilder) AppendAnnexB(nalData []byte) {
+	b.materializeAnnexB(len(nalData) + len(annexBStartCode))
+	_, _ = b.data.Write(annexBStartCode[:])
+	_, _ = b.data.Write(nalData)
+}
+
+func (b *h265AccessUnitBuilder) Bytes() []byte {
+	if b.rawFirstNAL != nil {
+		return b.rawFirstNAL
+	}
+	return b.data.Bytes()
+}
+
+func (b *h265AccessUnitBuilder) Len() int {
+	if b.rawFirstNAL != nil {
+		return len(b.rawFirstNAL)
+	}
+	return b.data.Len()
+}
+
+func (b *h265AccessUnitBuilder) materializeAnnexB(extra int) {
+	if b.rawFirstNAL == nil && b.data.Len() != 0 {
+		if extra > 0 {
+			b.grow(extra)
+		}
+		return
+	}
+
+	needed := extra
+	if b.rawFirstNAL != nil {
+		// When the second NAL arrives, convert the saved raw NAL into
+		// Annex-B form exactly once before appending new data.
+		needed += len(annexBStartCode) + len(b.rawFirstNAL)
+	}
+
+	var data bytes.Buffer
+	data.Grow(needed)
+	if b.rawFirstNAL != nil {
+		_, _ = data.Write(annexBStartCode[:])
+		_, _ = data.Write(b.rawFirstNAL)
+		b.rawFirstNAL = nil
+	}
+	b.data = data
+}
+
+func (b *h265AccessUnitBuilder) grow(extra int) {
+	if b.data.Cap()-b.data.Len() >= extra {
+		return
+	}
+	b.data.Grow(extra)
 }
