@@ -15,6 +15,7 @@
 package lksdk
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -749,44 +750,44 @@ func h265FirstSliceInPic(nalData []byte) (bool, bool) {
 // owned Annex-B buffer once we need to join multiple NAL units together.
 type h265AccessUnitBuilder struct {
 	rawFirstNAL []byte
-	data        []byte
+	data        bytes.Buffer
 }
 
 func (b *h265AccessUnitBuilder) Append(nalData []byte) {
 	// Preserve the single-NAL fast path without copying until another NAL forces
 	// us to materialize Annex-B framing.
-	if b.rawFirstNAL == nil && len(b.data) == 0 {
+	if b.rawFirstNAL == nil && b.data.Len() == 0 {
 		b.rawFirstNAL = nalData
 		return
 	}
 
 	b.materializeAnnexB(len(nalData) + len(annexBStartCode))
-	b.data = append(b.data, annexBStartCode[:]...)
-	b.data = append(b.data, nalData...)
+	_, _ = b.data.Write(annexBStartCode[:])
+	_, _ = b.data.Write(nalData)
 }
 
 func (b *h265AccessUnitBuilder) AppendAnnexB(nalData []byte) {
 	b.materializeAnnexB(len(nalData) + len(annexBStartCode))
-	b.data = append(b.data, annexBStartCode[:]...)
-	b.data = append(b.data, nalData...)
+	_, _ = b.data.Write(annexBStartCode[:])
+	_, _ = b.data.Write(nalData)
 }
 
 func (b *h265AccessUnitBuilder) Bytes() []byte {
 	if b.rawFirstNAL != nil {
 		return b.rawFirstNAL
 	}
-	return b.data
+	return b.data.Bytes()
 }
 
 func (b *h265AccessUnitBuilder) Len() int {
 	if b.rawFirstNAL != nil {
 		return len(b.rawFirstNAL)
 	}
-	return len(b.data)
+	return b.data.Len()
 }
 
 func (b *h265AccessUnitBuilder) materializeAnnexB(extra int) {
-	if b.rawFirstNAL == nil && b.data != nil {
+	if b.rawFirstNAL == nil && b.data.Len() != 0 {
 		if extra > 0 {
 			b.grow(extra)
 		}
@@ -800,21 +801,19 @@ func (b *h265AccessUnitBuilder) materializeAnnexB(extra int) {
 		needed += len(annexBStartCode) + len(b.rawFirstNAL)
 	}
 
-	data := make([]byte, 0, needed)
+	var data bytes.Buffer
+	data.Grow(needed)
 	if b.rawFirstNAL != nil {
-		data = append(data, annexBStartCode[:]...)
-		data = append(data, b.rawFirstNAL...)
+		_, _ = data.Write(annexBStartCode[:])
+		_, _ = data.Write(b.rawFirstNAL)
 		b.rawFirstNAL = nil
 	}
 	b.data = data
 }
 
 func (b *h265AccessUnitBuilder) grow(extra int) {
-	if cap(b.data)-len(b.data) >= extra {
+	if b.data.Cap()-b.data.Len() >= extra {
 		return
 	}
-
-	data := make([]byte, len(b.data), len(b.data)+extra)
-	copy(data, b.data)
-	b.data = data
+	b.data.Grow(extra)
 }
