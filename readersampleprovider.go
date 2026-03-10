@@ -42,6 +42,8 @@ const (
 	defaultG711SamplesPerFrame = 160
 )
 
+var annexBStartCode = [...]byte{0, 0, 0, 1}
+
 // ---------------------------------
 
 type H26xStreamingFormat int
@@ -388,9 +390,8 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 	case webrtc.MimeTypeH265:
 		var (
 			// haveVCL tracks whether we've started a picture (any VCL NAL seen).
-			haveVCL    bool
-			// sampleIsAnnexB tracks whether sample.Data is in AnnexB format yet.
-			sampleIsAnnexB bool
+			haveVCL bool
+			builder h265AccessUnitBuilder
 		)
 
 		for {
@@ -459,14 +460,14 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 
 			// Aggregate VPS/SPS/PPS before the next access unit.
 			if nal.NalUnitType == 32 || nal.NalUnitType == 33 || nal.NalUnitType == 34 {
-				sampleIsAnnexB = true
-				sample.Data = append(sample.Data, []byte{0, 0, 0, 1}...) // add NAL prefix
-				sample.Data = append(sample.Data, nal.Data...)
+				builder.AppendAnnexB(nal.Data)
+				sample.Data = builder.Bytes()
 				continue
 			}
 
 			// Append this NAL to the current access unit payload.
-			sample.Data = appendH265NAL(sample.Data, nal.Data, &sampleIsAnnexB)
+			builder.Append(nal.Data)
+			sample.Data = builder.Bytes()
 
 			if nal.NalUnitType < 32 {
 				haveVCL = true
@@ -749,17 +750,76 @@ func h265FirstSliceInPic(nalData []byte) (bool, bool) {
 	return (nalData[2] & 0x80) != 0, true
 }
 
-func appendH265NAL(dst []byte, nalData []byte, sampleIsAnnexB *bool) []byte {
-	// Ensure AnnexB start codes and append in-place for AU aggregation.
-	if *sampleIsAnnexB || len(dst) > 0 {
-		if !*sampleIsAnnexB && len(dst) > 0 {
-			dst = append([]byte{0, 0, 0, 1}, dst...)
-			*sampleIsAnnexB = true
-		}
-		dst = append(dst, []byte{0, 0, 0, 1}...)
-		dst = append(dst, nalData...)
-		*sampleIsAnnexB = true
-		return dst
+// h265AccessUnitBuilder keeps a lone NAL as a raw slice and only allocates an
+// owned Annex-B buffer once we need to join multiple NAL units together.
+type h265AccessUnitBuilder struct {
+	rawFirstNAL []byte
+	data        []byte
+}
+
+func (b *h265AccessUnitBuilder) Append(nalData []byte) {
+	// Preserve the single-NAL fast path without copying until another NAL forces
+	// us to materialize Annex-B framing.
+	if b.rawFirstNAL == nil && len(b.data) == 0 {
+		b.rawFirstNAL = nalData
+		return
 	}
-	return nalData
+
+	b.materializeAnnexB(len(nalData) + len(annexBStartCode))
+	b.data = append(b.data, annexBStartCode[:]...)
+	b.data = append(b.data, nalData...)
+}
+
+func (b *h265AccessUnitBuilder) AppendAnnexB(nalData []byte) {
+	b.materializeAnnexB(len(nalData) + len(annexBStartCode))
+	b.data = append(b.data, annexBStartCode[:]...)
+	b.data = append(b.data, nalData...)
+}
+
+func (b *h265AccessUnitBuilder) Bytes() []byte {
+	if b.rawFirstNAL != nil {
+		return b.rawFirstNAL
+	}
+	return b.data
+}
+
+func (b *h265AccessUnitBuilder) Len() int {
+	if b.rawFirstNAL != nil {
+		return len(b.rawFirstNAL)
+	}
+	return len(b.data)
+}
+
+func (b *h265AccessUnitBuilder) materializeAnnexB(extra int) {
+	if b.rawFirstNAL == nil && b.data != nil {
+		if extra > 0 {
+			b.grow(extra)
+		}
+		return
+	}
+
+	needed := extra
+	if b.rawFirstNAL != nil {
+		// When the second NAL arrives, convert the saved raw NAL into
+		// Annex-B form exactly once before appending new data.
+		needed += len(annexBStartCode) + len(b.rawFirstNAL)
+	}
+
+	data := make([]byte, 0, needed)
+	if b.rawFirstNAL != nil {
+		data = append(data, annexBStartCode[:]...)
+		data = append(data, b.rawFirstNAL...)
+		b.rawFirstNAL = nil
+	}
+	b.data = data
+}
+
+func (b *h265AccessUnitBuilder) grow(extra int) {
+	if cap(b.data)-len(b.data) >= extra {
+		return
+	}
+
+	data := make([]byte, len(b.data), len(b.data)+extra)
+	copy(data, b.data)
+	b.data = data
 }
