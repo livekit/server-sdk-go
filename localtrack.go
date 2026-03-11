@@ -39,8 +39,10 @@ import (
 )
 
 const (
-	rtpOutboundMTU = 1200
-	rtpInboundMTU  = 1500
+	rtpOutboundMTU     = 1200
+	rtpInboundMTU      = 1500
+	absCaptureTimeURI  = "http://www.webrtc.org/experiments/rtp-hdrext/abs-capture-time"
+	absCaptureTimeSize = 8 // minimum size of ACT extension data (NTP timestamp)
 )
 
 var (
@@ -71,6 +73,7 @@ type LocalTrack struct {
 	audioLevelID     uint8
 	sdesMidID        uint8
 	sdesRtpStreamID  uint8
+	absCaptureTimeID uint8
 	lastTS           time.Time
 	lastRTPTimestamp uint32
 	simulcastID      string
@@ -216,6 +219,10 @@ func (s *LocalTrack) Bind(t webrtc.TrackLocalContext) (webrtc.RTPCodecParameters
 		if ext.URI == sdp.SDESRTPStreamIDURI {
 			s.sdesRtpStreamID = uint8(ext.ID)
 		}
+
+		if ext.URI == absCaptureTimeURI {
+			s.absCaptureTimeID = uint8(ext.ID)
+		}
 	}
 	s.sequencer = rtp.NewRandomSequencer()
 	s.packetizer = rtp.NewPacketizer(
@@ -334,6 +341,22 @@ func (s *LocalTrack) WriteRTP(p *rtp.Packet, opts *SampleWriteOptions) error {
 		}
 		if err := p.Header.SetExtension(audioLevelID, data); err != nil {
 			return err
+		}
+	}
+
+	if s.Kind() == webrtc.RTPCodecTypeAudio && s.absCaptureTimeID != 0 && p.Header.Extension {
+		if data := p.Header.GetExtension(s.absCaptureTimeID); len(data) >= absCaptureTimeSize {
+		} else {
+			for _, id := range p.Header.GetExtensionIDs() {
+				if id == s.absCaptureTimeID {
+					continue
+				}
+				if data := p.Header.GetExtension(id); len(data) == 8 || len(data) == 16 {
+					_ = p.Header.DelExtension(id)
+					_ = p.Header.SetExtension(s.absCaptureTimeID, data)
+					break
+				}
+			}
 		}
 	}
 
