@@ -43,21 +43,21 @@ func (p *participantSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 	}
 }
 
-func (p *participantSynchronizer) getMaxOffset() time.Duration {
+func (p *participantSynchronizer) getMaxPTSAdjusted() time.Duration {
 	p.Lock()
 	defer p.Unlock()
 
-	var maxOffset time.Duration
+	var maxPTS time.Duration
 	for _, t := range p.tracks {
 		t.Lock()
-		o := max(t.currentPTSOffset, t.desiredPTSOffset)
+		pts := t.lastPTSAdjusted
 		t.Unlock()
 
-		if o > maxOffset {
-			maxOffset = o
+		if pts > maxPTS {
+			maxPTS = pts
 		}
 	}
-	return maxOffset
+	return maxPTS
 }
 
 func (p *participantSynchronizer) drain(maxPTS time.Duration) {

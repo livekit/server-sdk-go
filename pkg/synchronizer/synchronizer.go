@@ -273,20 +273,20 @@ func (s *Synchronizer) OnRTCP(packet rtcp.Packet) {
 }
 
 func (s *Synchronizer) End() {
-	endTime := time.Now()
-
 	s.Lock()
 	defer s.Unlock()
 
-	// find the earliest time we can stop all tracks
-	var maxOffset time.Duration
+	// maxPTS is the drain ceiling: the maximum adjusted PTS after which tracks
+	// return EOF. Use the furthest adjusted PTS any track has actually reached
+	// so that all tracks can drain up to the same point in the output timeline.
+	var maxPTS time.Duration
 	for _, p := range s.psByIdentity {
-		if m := p.getMaxOffset(); m > maxOffset {
-			maxOffset = m
+		if m := p.getMaxPTSAdjusted(); m > maxPTS {
+			maxPTS = m
 		}
 	}
-	s.endedAt = endTime.Add(maxOffset).UnixNano()
-	maxPTS := time.Duration(s.endedAt - s.startedAt)
+
+	s.endedAt = s.startedAt + int64(maxPTS)
 
 	// drain all
 	for _, p := range s.psByIdentity {

@@ -65,6 +65,46 @@ func fakeVideo90k(ssrc uint32) *synchronizerfakes.FakeTrackRemote {
 
 // ---------- tests ----------
 
+// Regression: a late-subscribing track must not inflate the reported duration.
+func TestEnd_LateTrack_DoesNotInflateDuration(t *testing.T) {
+	s := synchronizer.NewSynchronizerWithOptions()
+
+	audio := fakeAudio48k(0xA001)
+	ts1 := s.AddTrack(audio, "p1")
+	ts1.Initialize(pkt(1000).Packet)
+	_, _ = ts1.GetPTS(pkt(1000))
+
+	// Push ~2s of audio (100 packets at 20ms)
+	step := uint32(48000 * 20 / 1000) // 960 ticks
+	cur := uint32(1000)
+	for i := 0; i < 100; i++ {
+		cur += step
+		_, _ = ts1.GetPTS(pkt(cur))
+	}
+
+	// Late track subscribes 3s after the first
+	time.Sleep(3 * time.Second)
+
+	late := fakeAudio48k(0xA002)
+	late.IDReturns("audio-late")
+	ts2 := s.AddTrack(late, "p2")
+	ts2.Initialize(pkt(5000).Packet)
+	_, _ = ts2.GetPTS(pkt(5000))
+
+	// Push a few packets on late track
+	cur2 := uint32(5000)
+	for i := 0; i < 10; i++ {
+		cur2 += step
+		_, _ = ts2.GetPTS(pkt(cur2))
+	}
+
+	s.End()
+
+	duration := time.Duration(s.GetEndedAt() - s.GetStartedAt())
+	require.Less(t, duration, 5*time.Second,
+		"duration must not be inflated by late track's base offset; got %v", duration)
+}
+
 // Initialize + same timestamp returns previous adjusted value (near zero right after init)
 func TestInitialize_AndSameTimestamp(t *testing.T) {
 	s := synchronizer.NewSynchronizerWithOptions(synchronizer.WithMaxTsDiff(50 * time.Millisecond))
