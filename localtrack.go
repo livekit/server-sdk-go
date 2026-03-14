@@ -39,8 +39,9 @@ import (
 )
 
 const (
-	rtpOutboundMTU = 1200
-	rtpInboundMTU  = 1500
+	rtpOutboundMTU    = 1200
+	rtpInboundMTU     = 1500
+	absCaptureTimeURI = "http://www.webrtc.org/experiments/rtp-hdrext/abs-capture-time"
 )
 
 var (
@@ -57,25 +58,27 @@ type SampleWriteOptions struct {
 // publishing tracks at the right frequency
 // This extends webrtc.TrackLocalStaticSample, and adds the ability to write RTP extensions
 type LocalTrack struct {
-	log              protoLogger.Logger
-	packetizer       rtp.Packetizer
-	sequencer        rtp.Sequencer
-	transceiver      *webrtc.RTPTransceiver
-	rtpTrack         *webrtc.TrackLocalStaticRTP
-	ssrc             webrtc.SSRC
-	ssrcAcked        bool
-	clockRate        float64
-	bound            atomic.Bool
-	lock             sync.RWMutex
-	writeStartupLock sync.Mutex
-	audioLevelID     uint8
-	sdesMidID        uint8
-	sdesRtpStreamID  uint8
-	lastTS           time.Time
-	lastRTPTimestamp uint32
-	simulcastID      string
-	videoLayer       *livekit.VideoLayer
-	onRTCP           func(rtcp.Packet)
+	log                      protoLogger.Logger
+	packetizer               rtp.Packetizer
+	sequencer                rtp.Sequencer
+	transceiver              *webrtc.RTPTransceiver
+	rtpTrack                 *webrtc.TrackLocalStaticRTP
+	ssrc                     webrtc.SSRC
+	ssrcAcked                bool
+	clockRate                float64
+	bound                    atomic.Bool
+	lock                     sync.RWMutex
+	writeStartupLock         sync.Mutex
+	audioLevelID             uint8
+	sdesMidID                uint8
+	sdesRtpStreamID          uint8
+	incomingAbsCaptureTimeID uint8
+	absCaptureTimeID         uint8
+	lastTS                   time.Time
+	lastRTPTimestamp         uint32
+	simulcastID              string
+	videoLayer               *livekit.VideoLayer
+	onRTCP                   func(rtcp.Packet)
 
 	muted        atomic.Bool
 	disconnected atomic.Bool
@@ -216,6 +219,10 @@ func (s *LocalTrack) Bind(t webrtc.TrackLocalContext) (webrtc.RTPCodecParameters
 		if ext.URI == sdp.SDESRTPStreamIDURI {
 			s.sdesRtpStreamID = uint8(ext.ID)
 		}
+
+		if ext.URI == absCaptureTimeURI {
+			s.absCaptureTimeID = uint8(ext.ID)
+		}
 	}
 	s.sequencer = rtp.NewRandomSequencer()
 	s.packetizer = rtp.NewPacketizer(
@@ -316,12 +323,23 @@ func (s *LocalTrack) OnUnbind(f func()) {
 	s.lock.Unlock()
 }
 
+// SetIncomingAbsCaptureTimeExtensionID sets the incoming Absolute Capture Time extension ID.
+// This is used when relaying RTP packets between PeerConnections where incoming and
+// outgoing negotiated extension IDs may differ.
+func (s *LocalTrack) SetIncomingAbsCaptureTimeExtensionID(id uint8) {
+	s.lock.Lock()
+	s.incomingAbsCaptureTimeID = id
+	s.lock.Unlock()
+}
+
 // WriteRTP writes an RTP packet to the track with optional sample write options.
 func (s *LocalTrack) WriteRTP(p *rtp.Packet, opts *SampleWriteOptions) error {
 	s.lock.RLock()
 	transceiver := s.transceiver
 	ssrcAcked := s.ssrcAcked
 	audioLevelID := s.audioLevelID
+	incomingAbsCaptureTimeID := s.incomingAbsCaptureTimeID
+	absCaptureTimeID := s.absCaptureTimeID
 	s.lock.RUnlock()
 
 	if audioLevelID != 0 && opts != nil && opts.AudioLevel != nil {
@@ -334,6 +352,13 @@ func (s *LocalTrack) WriteRTP(p *rtp.Packet, opts *SampleWriteOptions) error {
 		}
 		if err := p.Header.SetExtension(audioLevelID, data); err != nil {
 			return err
+		}
+	}
+
+	if incomingAbsCaptureTimeID != 0 && absCaptureTimeID != 0 && incomingAbsCaptureTimeID != absCaptureTimeID && p.Header.Extension {
+		if data := p.Header.GetExtension(incomingAbsCaptureTimeID); len(data) != 0 {
+			_ = p.Header.DelExtension(incomingAbsCaptureTimeID)
+			_ = p.Header.SetExtension(absCaptureTimeID, data)
 		}
 	}
 
