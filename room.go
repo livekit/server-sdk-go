@@ -432,7 +432,7 @@ func (r *Room) runParticipantDefers(sid livekit.ParticipantID, p *RemoteParticip
 		r.log.Infow(
 			"running deferred updates for participant",
 			"participant", p.Identity(),
-			"pID", sid,
+			"participantID", sid,
 			"numUpdates", len(fncs),
 		)
 		for _, fnc := range fncs {
@@ -457,7 +457,7 @@ func (r *Room) clearParticipantDefers(sid livekit.ParticipantID, pi *livekit.Par
 			r.log.Infow(
 				"deleting deferred update for participant",
 				"participant", pi.Identity,
-				"pID", sid,
+				"participantID", sid,
 				"trackID", trackID,
 			)
 			delete(r.sidDefers[sid], trackID)
@@ -784,7 +784,7 @@ func (r *Room) OnMediaTrack(track *webrtc.TrackRemote, receiver *webrtc.RTPRecei
 	if rp == nil {
 		r.log.Infow(
 			"could not find participant, deferring track update",
-			"pID", participantID,
+			"participantID", participantID,
 			"trackID", trackID,
 			"streamID", streamID,
 		)
@@ -1113,7 +1113,7 @@ func (r *Room) OnMediaSectionsRequirement(mediaSectionsRequirement *livekit.Medi
 					"room", r.name,
 					"roomID", r.sid,
 					"participant", r.LocalParticipant.Identity(),
-					"pID", r.LocalParticipant.SID(),
+					"participantID", r.LocalParticipant.SID(),
 					"kind", kind,
 				)
 			} else {
@@ -1122,7 +1122,7 @@ func (r *Room) OnMediaSectionsRequirement(mediaSectionsRequirement *livekit.Medi
 					"room", r.name,
 					"roomID", r.sid,
 					"participant", r.LocalParticipant.Identity(),
-					"pID", r.LocalParticipant.SID(),
+					"participantID", r.LocalParticipant.SID(),
 					"kind", kind,
 				)
 			}

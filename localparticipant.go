@@ -747,7 +747,7 @@ func (p *LocalParticipant) updateSubscriptionPermissionLocked() {
 		logger.Errorw(
 			"could not send subscription permission", err,
 			"participant", p.identity,
-			"pID", p.sid,
+			"participantID", p.sid,
 		)
 	}
 }
@@ -1063,6 +1063,7 @@ func (p *LocalParticipant) StreamBytes(options StreamBytesOptions) *ByteStreamWr
 	writer := newByteStreamWriter(info, header, p.engine, options.DestinationIdentities, options.OnProgress)
 
 	p.engine.OnClose(func() {
+		// XXX
 		writer.Close()
 	})
 
