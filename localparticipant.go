@@ -1063,7 +1063,6 @@ func (p *LocalParticipant) StreamBytes(options StreamBytesOptions) *ByteStreamWr
 	writer := newByteStreamWriter(info, header, p.engine, options.DestinationIdentities, options.OnProgress)
 
 	p.engine.OnClose(func() {
-		// XXX
 		writer.Close()
 	})
 
