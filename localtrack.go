@@ -323,9 +323,8 @@ func (s *LocalTrack) OnUnbind(f func()) {
 	s.lock.Unlock()
 }
 
-// SetIncomingAbsCaptureTimeExtensionID sets the incoming Absolute Capture Time extension ID.
-// This is used when relaying RTP packets between PeerConnections where incoming and
-// outgoing negotiated extension IDs may differ.
+// This is used to translate abs-capture-time extension before writing to a peer connection when source provided
+// extension ID does not match negotiated extension ID on the peer connection
 func (s *LocalTrack) SetIncomingAbsCaptureTimeExtensionID(id uint8) {
 	s.lock.Lock()
 	s.incomingAbsCaptureTimeID = id
