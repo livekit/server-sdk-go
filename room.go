@@ -103,6 +103,12 @@ type ConnectInfo struct {
 
 type ConnectOption func(*signalling.ConnectParams)
 
+func WithConnectTimeout(timeout time.Duration) ConnectOption {
+	return func(p *signalling.ConnectParams) {
+		p.ConnectTimeout = timeout
+	}
+}
+
 // WithAutoSubscribe sets whether the participant should automatically subscribe to tracks.
 // Default is true.
 func WithAutoSubscribe(val bool) ConnectOption {
@@ -337,7 +343,8 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 	ctx := context.TODO()
 
 	params := &signalling.ConnectParams{
-		AutoSubscribe: true,
+		AutoSubscribe:  true,
+		ConnectTimeout: 3 * time.Second,
 	}
 	for _, opt := range opts {
 		opt(params)
@@ -356,19 +363,13 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 					break
 				}
 
-				logger.Debugw("RTC engine joining room", "url", bestURL)
-				// Not exposing this timeout as an option for now so that callers don't
-				// set unrealistic values.  We may reconsider in the future though.
-				// 4 seconds chosen to balance the trade-offs:
-				// - Too long, users will given up.
-				// - Too short, risk frequently timing out on a request that would have
-				//   succeeded.
-				callCtx, cancelCallCtx := context.WithTimeout(ctx, 4*time.Second)
+				logger.Debugw("RTC engine joining room", "url", bestURL, "connectTimeout", params.ConnectTimeout)
+				callCtx, cancelCallCtx := context.WithTimeout(ctx, params.ConnectTimeout)
 				isSuccess, err = r.engine.JoinContext(callCtx, bestURL, token, params)
 				cancelCallCtx()
 				if err != nil {
 					// try the next URL with exponential backoff
-					d := time.Duration(1<<min(tries, 6)) * time.Second // max 64 seconds
+					d := time.Duration(1<<min(tries, 6)) * 100 * time.Millisecond // max 6.4 seconds
 					logger.Errorw(
 						"failed to join room", err,
 						"retrying in", d,

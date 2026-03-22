@@ -17,6 +17,7 @@ package signalling
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/livekit/mediatransportutil/pkg/pacer"
 	"github.com/livekit/protocol/livekit"
@@ -71,6 +72,8 @@ type ConnectParams struct {
 	AutoSubscribe          bool
 	Reconnect              bool
 	DisableRegionDiscovery bool
+	// timeout for each connection attempt, default is 3 seconds
+	ConnectTimeout time.Duration
 
 	RetransmitBufferSize uint16
 
