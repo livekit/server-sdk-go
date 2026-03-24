@@ -528,7 +528,7 @@ func (t *TrackSynchronizer) onSenderReportWithoutRebase(pkt *rtcp.SenderReport) 
 
 	drift := mediatransportutil.NtpTime(pkt.NTPTime).Time().Sub(t.startTime.Add(pts))
 	if drift > cHighDriftLoggingThreshold || drift < -cHighDriftLoggingThreshold {
-		t.logger.Infow(
+		t.logger.Debugw(
 			"high drift sender report",
 			"receivedSR", wrappedAugmentedSenderReportLogger{augmented},
 			"state", t,
@@ -615,7 +615,7 @@ func (t *TrackSynchronizer) onSenderReportWithRebase(pkt *rtcp.SenderReport) {
 	// drift is based on local clock
 	drift := time.Unix(0, augmented.receivedAtAdjusted).Sub(t.startTime.Add(ptsSR))
 	if drift > cHighDriftLoggingThreshold || drift < -cHighDriftLoggingThreshold {
-		t.logger.Infow(
+		t.logger.Debugw(
 			"high drift sender report",
 			"receivedSR", wrappedAugmentedSenderReportLogger{augmented},
 			"state", t,
