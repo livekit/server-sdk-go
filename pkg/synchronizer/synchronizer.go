@@ -30,15 +30,49 @@ const (
 
 type SynchronizerOption func(*SynchronizerConfig)
 
+type SenderReportSyncMode int
+
+const (
+	SenderReportSyncModeUnset SenderReportSyncMode = iota
+	// SenderReportSyncModeWithoutRebase uses the legacy sender report path without
+	// rebasing SR timestamps onto the local clock. This mode can still act on SR
+	// drift unless combined with WithAudioPTSAdjustmentDisabled for audio tracks.
+	SenderReportSyncModeWithoutRebase
+	// SenderReportSyncModeRebase rebases sender reports onto the local clock and
+	// applies drift using the gradual adjustment path.
+	SenderReportSyncModeRebase
+	// SenderReportSyncModeOneShot rebases sender reports onto the local clock but
+	// applies drift only as threshold-triggered one-shot corrections.
+	SenderReportSyncModeOneShot
+)
+
+func (m SenderReportSyncMode) String() string {
+	switch m {
+	case SenderReportSyncModeWithoutRebase:
+		return "without_rebase"
+	case SenderReportSyncModeRebase:
+		return "rebase"
+	case SenderReportSyncModeOneShot:
+		return "one_shot"
+	default:
+		return "unset"
+	}
+}
+
 // SynchronizerConfig holds configuration for the Synchronizer
 type SynchronizerConfig struct {
-	MaxTsDiff                     time.Duration
-	MaxDriftAdjustment            time.Duration
-	DriftAdjustmentWindowPercent  float64
-	AudioPTSAdjustmentDisabled    bool
+	MaxTsDiff                    time.Duration
+	MaxDriftAdjustment           time.Duration
+	DriftAdjustmentWindowPercent float64
+	SenderReportSyncMode         SenderReportSyncMode
+	// Legacy compatibility control for audio in SenderReportSyncModeWithoutRebase.
+	AudioPTSAdjustmentDisabled bool
+	// Deprecated: use SenderReportSyncMode instead.
 	RTCPSenderReportRebaseEnabled bool
 	OldPacketThreshold            time.Duration
 	EnableStartGate               bool
+
+	OneShotDriftCorrectionThreshold time.Duration
 
 	OnStarted func()
 
@@ -82,13 +116,27 @@ func WithDriftAdjustmentWindowPercent(driftAdjustmentWindowPercent float64) Sync
 // Use case: when media processing pipeline needs stable - monotonically increasing
 // PTS sequence - small adjustments coming from RTCP sender reports could cause gaps in the audio
 // Media processing pipeline could opt out of auto PTS adjustments and handle the gap
-// by e.g modifying tempo to compensate instead
+// by e.g modifying tempo to compensate instead.
+//
+// This option is still required if you want the legacy
+// SenderReportSyncModeWithoutRebase path but do not want audio SR drift to drive
+// gradual PTS offset changes.
 func WithAudioPTSAdjustmentDisabled() SynchronizerOption {
 	return func(config *SynchronizerConfig) {
 		config.AudioPTSAdjustmentDisabled = true
 	}
 }
 
+// WithSenderReportSyncMode explicitly selects how RTCP sender report drift is
+// measured and applied.
+func WithSenderReportSyncMode(mode SenderReportSyncMode) SynchronizerOption {
+	return func(config *SynchronizerConfig) {
+		config.SenderReportSyncMode = mode
+	}
+}
+
+// Deprecated: use WithSenderReportSyncMode(SenderReportSyncModeRebase) instead.
+//
 // WithRTCPSenderReportRebaseEnabled - enables rebasing RTCP Sender Report to local clock
 func WithRTCPSenderReportRebaseEnabled() SynchronizerOption {
 	return func(config *SynchronizerConfig) {
@@ -126,6 +174,46 @@ func WithMediaRunningTime(mediaRunningTime func() (time.Duration, bool), maxMedi
 	}
 }
 
+// WithOneShotDriftCorrectionThreshold sets the threshold for one-shot PTS
+// correction. It is used only when SenderReportSyncMode is
+// SenderReportSyncModeOneShot. In that mode, OWD-normalized drift from RTCP
+// Sender Reports is monitored, but gradual PTS adjustments are suppressed.
+// Instead, a one-shot PTS correction is applied when the drift reaches this
+// threshold.
+//
+// This is useful for pipelines with e.g live audio mixer where:
+//   - Gradual PTS adjustments cause audible gaps (so they must be disabled)
+//   - But the input stream may have unsignalled timing drift (e.g. SIP silence suppression)
+//     that needs correction before the track falls out of the mixer's live window
+//
+// The corrected PTS is sanity-checked against the media live window to reject
+// bogus SRs.
+func WithOneShotDriftCorrectionThreshold(threshold time.Duration) SynchronizerOption {
+	return func(config *SynchronizerConfig) {
+		config.OneShotDriftCorrectionThreshold = threshold
+	}
+}
+
+func (c *SynchronizerConfig) normalizeLegacySenderReportSyncMode() {
+	if c.SenderReportSyncMode == SenderReportSyncModeUnset {
+		switch {
+		case c.RTCPSenderReportRebaseEnabled:
+			c.SenderReportSyncMode = SenderReportSyncModeRebase
+		default:
+			c.SenderReportSyncMode = SenderReportSyncModeWithoutRebase
+		}
+	}
+
+	switch c.SenderReportSyncMode {
+	case SenderReportSyncModeOneShot:
+		c.RTCPSenderReportRebaseEnabled = true
+	case SenderReportSyncModeRebase:
+		c.RTCPSenderReportRebaseEnabled = true
+	case SenderReportSyncModeWithoutRebase:
+		c.RTCPSenderReportRebaseEnabled = false
+	}
+}
+
 // a single Synchronizer is shared between all audio and video writers
 type Synchronizer struct {
 	sync.RWMutex
@@ -152,6 +240,7 @@ func NewSynchronizer(onStarted func()) *Synchronizer {
 		OnStarted:                    onStarted,
 		MediaRunningTime:             nil,
 	}
+	config.normalizeLegacySenderReportSyncMode()
 
 	return &Synchronizer{
 		onStarted:    config.OnStarted,
@@ -175,6 +264,7 @@ func NewSynchronizerWithOptions(opts ...SynchronizerOption) *Synchronizer {
 	for _, opt := range opts {
 		opt(&config)
 	}
+	config.normalizeLegacySenderReportSyncMode()
 
 	return &Synchronizer{
 		onStarted:    config.OnStarted,
