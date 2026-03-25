@@ -16,6 +16,7 @@ import (
 )
 
 const timeTolerance = time.Millisecond * 10
+const fakeAudioTrackID = "audio-1"
 
 // ---------- helpers ----------
 
@@ -37,7 +38,7 @@ func pkt(ts uint32) jitter.ExtPacket {
 
 func fakeAudio48k(ssrc uint32) *synchronizerfakes.FakeTrackRemote {
 	f := &synchronizerfakes.FakeTrackRemote{}
-	f.IDReturns("audio-1")
+	f.IDReturns(fakeAudioTrackID)
 	f.KindReturns(webrtc.RTPCodecTypeAudio)
 	f.SSRCReturns(webrtc.SSRC(ssrc))
 	f.CodecReturns(webrtc.RTPCodecParameters{
@@ -299,4 +300,30 @@ func TestOnSenderReport_LateVideoStart_SmallSROffset_NoHugeNegativeDrift(t *test
 		// Stay within a small band around srOffset (no steady growth)
 		near(t, extra, srOffset, timeTolerance)
 	}
+}
+
+// Regression: tracks removed before End() must still contribute to endedAt.
+func TestEnd_RemovedTracks_StillContributeDuration(t *testing.T) {
+	s := synchronizer.NewSynchronizerWithOptions()
+
+	audio := fakeAudio48k(0xA001)
+	ts := s.AddTrack(audio, "p1")
+	ts.Initialize(pkt(1000).Packet)
+	_, _ = ts.GetPTS(pkt(1000))
+
+	// Push ~2s of audio (100 packets at 20ms)
+	step := uint32(48000 * 20 / 1000) // 960 ticks
+	cur := uint32(1000)
+	for range 100 {
+		cur += step
+		_, _ = ts.GetPTS(pkt(cur))
+	}
+
+	// Remove the track before calling End (reproduces the egress shutdown race)
+	s.RemoveTrack(fakeAudioTrackID)
+	s.End()
+
+	duration := time.Duration(s.GetEndedAt() - s.GetStartedAt())
+	require.Greater(t, duration, time.Second,
+		"duration must reflect removed track's PTS; got %v", duration)
 }

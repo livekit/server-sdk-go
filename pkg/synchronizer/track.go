@@ -229,6 +229,12 @@ func (t *TrackSynchronizer) initialize(extPkt jitter.ExtPacket) {
 	)
 }
 
+func (t *TrackSynchronizer) LastPTSAdjusted() time.Duration {
+	t.Lock()
+	defer t.Unlock()
+	return t.lastPTSAdjusted
+}
+
 func (t *TrackSynchronizer) Close() {
 	t.Lock()
 	defer t.Unlock()
