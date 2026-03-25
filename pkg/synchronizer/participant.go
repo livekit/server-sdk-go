@@ -49,11 +49,9 @@ func (p *participantSynchronizer) removeTrack(ssrc uint32) {
 	defer p.Unlock()
 
 	if t := p.tracks[ssrc]; t != nil {
-		t.Lock()
-		if t.lastPTSAdjusted > p.maxRemovedPTS {
-			p.maxRemovedPTS = t.lastPTSAdjusted
+		if pts := t.LastPTSAdjusted(); pts > p.maxRemovedPTS {
+			p.maxRemovedPTS = pts
 		}
-		t.Unlock()
 		t.Close()
 	}
 	delete(p.tracks, ssrc)
@@ -65,11 +63,7 @@ func (p *participantSynchronizer) getMaxPTSAdjusted() time.Duration {
 
 	maxPTS := p.maxRemovedPTS
 	for _, t := range p.tracks {
-		t.Lock()
-		pts := t.lastPTSAdjusted
-		t.Unlock()
-
-		if pts > maxPTS {
+		if pts := t.LastPTSAdjusted(); pts > maxPTS {
 			maxPTS = pts
 		}
 	}
