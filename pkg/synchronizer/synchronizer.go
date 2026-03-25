@@ -307,12 +307,7 @@ func (s *Synchronizer) RemoveTrack(trackID string) {
 		return
 	}
 
-	p.Lock()
-	if ts := p.tracks[ssrc]; ts != nil {
-		ts.Close()
-	}
-	delete(p.tracks, ssrc)
-	p.Unlock()
+	p.removeTrack(ssrc)
 }
 
 func (s *Synchronizer) GetStartedAt() int64 {

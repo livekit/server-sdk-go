@@ -25,7 +25,8 @@ import (
 type participantSynchronizer struct {
 	sync.Mutex
 
-	tracks map[uint32]*TrackSynchronizer
+	tracks        map[uint32]*TrackSynchronizer
+	maxRemovedPTS time.Duration // high-water mark from tracks that have been removed
 }
 
 func newParticipantSynchronizer() *participantSynchronizer {
@@ -43,11 +44,26 @@ func (p *participantSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 	}
 }
 
+func (p *participantSynchronizer) removeTrack(ssrc uint32) {
+	p.Lock()
+	defer p.Unlock()
+
+	if t := p.tracks[ssrc]; t != nil {
+		t.Lock()
+		if t.lastPTSAdjusted > p.maxRemovedPTS {
+			p.maxRemovedPTS = t.lastPTSAdjusted
+		}
+		t.Unlock()
+		t.Close()
+	}
+	delete(p.tracks, ssrc)
+}
+
 func (p *participantSynchronizer) getMaxPTSAdjusted() time.Duration {
 	p.Lock()
 	defer p.Unlock()
 
-	var maxPTS time.Duration
+	maxPTS := p.maxRemovedPTS
 	for _, t := range p.tracks {
 		t.Lock()
 		pts := t.lastPTSAdjusted
