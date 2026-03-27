@@ -40,6 +40,8 @@ import (
 	"github.com/livekit/protocol/auth"
 	protoCodecs "github.com/livekit/protocol/codecs"
 	"github.com/livekit/protocol/livekit"
+
+	dtlsElliptic "github.com/pion/dtls/v3/pkg/crypto/elliptic"
 )
 
 var (
@@ -192,6 +194,15 @@ func WithCodecs(codecs []livekit.Codec) ConnectOption {
 			pCodecs = append(pCodecs, protoCodecs.ToWebrtcCodecParameters(&codecs[i]))
 		}
 		p.Codecs = pCodecs
+	}
+}
+
+// WithDTLSEllipticCurves configures the DTLS elliptic curves used for key exchange.
+// Use this on FIPS 140-enabled systems to specify NIST-approved curves (e.g. P-256, P-384)
+// instead of the default X25519.
+func WithDTLSEllipticCurves(curves ...dtlsElliptic.Curve) ConnectOption {
+	return func(p *signalling.ConnectParams) {
+		p.DTLSEllipticCurves = curves
 	}
 }
 

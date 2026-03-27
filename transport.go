@@ -24,6 +24,7 @@ import (
 
 	"github.com/bep/debounce"
 	"github.com/pion/dtls/v3"
+	dtlsElliptic "github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/interceptor"
 	"github.com/pion/interceptor/pkg/nack"
 	"github.com/pion/interceptor/pkg/twcc"
@@ -79,6 +80,7 @@ type PCTransportParams struct {
 	IncludeDefaultInterceptors bool
 	OnRTTUpdate                func(rtt uint32)
 	IsSender                   bool
+	DTLSEllipticCurves         []dtlsElliptic.Curve
 }
 
 func (t *PCTransport) registerDefaultInterceptors(params PCTransportParams, i *interceptor.Registry) error {
@@ -208,6 +210,9 @@ func NewPCTransport(params PCTransportParams) (*PCTransport, error) {
 
 	se := webrtc.SettingEngine{}
 	se.SetSRTPProtectionProfiles(dtls.SRTP_AEAD_AES_128_GCM, dtls.SRTP_AES128_CM_HMAC_SHA1_80)
+	if len(params.DTLSEllipticCurves) > 0 {
+		se.SetDTLSEllipticCurves(params.DTLSEllipticCurves...)
+	}
 	se.SetDTLSRetransmissionInterval(dtlsRetransmissionInterval)
 	se.SetICETimeouts(iceDisconnectedTimeout, iceFailedTimeout, iceKeepaliveInterval)
 	lf := pionlogger.NewLoggerFactory(logger)
