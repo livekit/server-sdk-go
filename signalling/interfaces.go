@@ -22,6 +22,7 @@ import (
 	"github.com/livekit/mediatransportutil/pkg/pacer"
 	"github.com/livekit/protocol/livekit"
 	protoLogger "github.com/livekit/protocol/logger"
+	dtlsElliptic "github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/interceptor"
 	"github.com/pion/webrtc/v4"
 	"google.golang.org/protobuf/proto"
@@ -88,6 +89,8 @@ type ConnectParams struct {
 	IncludeDefaultInterceptors bool
 
 	ICETransportPolicy webrtc.ICETransportPolicy
+
+	DTLSEllipticCurves []dtlsElliptic.Curve // FIPS 140: override default DTLS curves
 
 	// internal use
 	Codecs []webrtc.RTPCodecParameters
