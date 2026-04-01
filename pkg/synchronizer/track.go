@@ -894,15 +894,15 @@ func (t *TrackSynchronizer) applyOneShotDriftCorrection(
 	// Sanity check: verify the corrected PTS would land within the configured media live window.
 	// This guards against erroneously large SR drift values slamming the PTS to an absurd position.
 	candidateAdjustedPTS := ptsSR + correctedPTSOffset
-	mediaRunningTime := deadline + t.maxMediaRunningTimeDelay
-	if candidateAdjustedPTS < deadline || candidateAdjustedPTS > mediaRunningTime {
+	maxMediaRunningTime := deadline + 2*t.maxMediaRunningTimeDelay
+	if candidateAdjustedPTS < deadline || candidateAdjustedPTS > maxMediaRunningTime {
 		t.logger.Warnw(
 			"one-shot drift correction rejected, corrected PTS outside media live window", nil,
 			"drift", drift,
 			"candidateAdjustedPTS", candidateAdjustedPTS,
 			"expectedAdjustedPTSSR", expectedAdjustedPTSSR,
 			"mediaDeadline", deadline,
-			"mediaRunningTime", mediaRunningTime,
+			"maxMediaRunningTime", maxMediaRunningTime,
 			"receivedSR", wrappedAugmentedSenderReportLogger{asr},
 			"state", t,
 		)
