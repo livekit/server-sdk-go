@@ -267,6 +267,56 @@ func TestApplyOneShotDriftCorrection_SkipsWithoutDeadline(t *testing.T) {
 	require.EqualValues(t, 0, ts.stats.numOneShotCorrections)
 }
 
+func TestApplyOneShotDriftCorrection_AcceptsCandidateSlightlyAboveOneDelay(t *testing.T) {
+	ts := newTSForTests(t, 48000, webrtc.RTPCodecTypeAudio)
+	ts.currentPTSOffset = 0
+	ts.desiredPTSOffset = 0
+	ts.maxMediaRunningTimeDelay = 100 * time.Millisecond
+
+	deadline := 500 * time.Millisecond
+	// candidateAdjustedPTS = ptsSR + (currentPTSOffset + drift) = 600 + (0 + 50) = 650ms
+	// Above deadline+1*delay (600ms) but within deadline+2*delay (700ms) — should be accepted.
+	ptsSR := 600 * time.Millisecond
+	drift := 50 * time.Millisecond
+
+	ts.applyOneShotDriftCorrection(
+		ptsSR,
+		drift,
+		ptsSR+ts.currentPTSOffset,
+		deadline,
+		true,
+		&augmentedSenderReport{},
+	)
+
+	require.Equal(t, drift, ts.currentPTSOffset, "correction should be applied")
+	require.EqualValues(t, 1, ts.stats.numOneShotCorrections)
+}
+
+func TestApplyOneShotDriftCorrection_RejectsAboveTwoDelays(t *testing.T) {
+	ts := newTSForTests(t, 48000, webrtc.RTPCodecTypeAudio)
+	ts.currentPTSOffset = 0
+	ts.desiredPTSOffset = 0
+	ts.maxMediaRunningTimeDelay = 100 * time.Millisecond
+
+	deadline := 500 * time.Millisecond
+	// candidateAdjustedPTS = 600 + (0 + 150) = 750ms
+	// Above deadline+2*delay (700ms) — should be rejected.
+	ptsSR := 600 * time.Millisecond
+	drift := 150 * time.Millisecond
+
+	ts.applyOneShotDriftCorrection(
+		ptsSR,
+		drift,
+		ptsSR+ts.currentPTSOffset,
+		deadline,
+		true,
+		&augmentedSenderReport{},
+	)
+
+	require.Equal(t, time.Duration(0), ts.currentPTSOffset, "correction should be rejected")
+	require.EqualValues(t, 0, ts.stats.numOneShotCorrections)
+}
+
 func TestShouldAdjustPTS_Deadband_Suppresses(t *testing.T) {
 	clock := uint32(48000)
 	ts := newTSForTests(t, clock, webrtc.RTPCodecTypeVideo) // video avoids audio gating path
