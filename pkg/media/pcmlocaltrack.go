@@ -31,7 +31,7 @@ func WithEncryptor(encryptor Encryptor) PCMLocalTrackOption {
 type PCMLocalTrack struct {
 	*webrtc.TrackLocalStaticSample
 
-	opusWriter         media.WriteCloser[opus.Sample]
+	opusWriter         media.WriteCloser[[]byte]
 	pcmWriter          media.WriteCloser[media.PCM16Sample]
 	resampledPCMWriter media.WriteCloser[media.PCM16Sample]
 
@@ -82,13 +82,13 @@ func NewPCMLocalTrack(
 		return nil, err
 	}
 
-	// opusWriter writes opus samples to the track
-	var opusWriter media.WriteCloser[opus.Sample]
+	// opusWriter writes opus payloads to the track
+	var opusWriter media.WriteCloser[[]byte]
 	if params.Encryptor != nil {
 		encryptionHandler := newEncryptionHandler(track, params.Encryptor, sourceSampleRate)
-		opusWriter = media.FromSampleWriter[opus.Sample](encryptionHandler, sourceSampleRate, defaultPCMFrameDuration)
+		opusWriter = media.FromSampleWriter[[]byte](encryptionHandler, sourceSampleRate, defaultPCMFrameDuration)
 	} else {
-		opusWriter = media.FromSampleWriter[opus.Sample](track, DefaultOpusSampleRate, defaultPCMFrameDuration)
+		opusWriter = media.FromSampleWriter[[]byte](track, DefaultOpusSampleRate, defaultPCMFrameDuration)
 	}
 	// pcmWriter encodes opus samples from PCM16 samples and writes them to opusWriter
 	pcmWriter, err := opus.Encode(opusWriter, sourceChannels, logger)
