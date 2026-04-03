@@ -75,3 +75,67 @@ func (c *AgentSimulationClient) CancelSimulationRun(ctx context.Context, req *li
 	}
 	return c.simulationClient.CancelSimulationRun(ctx, req)
 }
+
+func (c *AgentSimulationClient) CreateScenario(ctx context.Context, req *livekit.Scenario_Create_Request) (*livekit.Scenario_Create_Response, error) {
+	ctx, err := c.withAuth(ctx, withVideoGrant{})
+	if err != nil {
+		return nil, err
+	}
+	return c.simulationClient.CreateScenario(ctx, req)
+}
+
+func (c *AgentSimulationClient) CreateScenarioFromSession(ctx context.Context, req *livekit.Scenario_CreateFromSession_Request) (*livekit.Scenario_CreateFromSession_Response, error) {
+	ctx, err := c.withAuth(ctx, withVideoGrant{})
+	if err != nil {
+		return nil, err
+	}
+	return c.simulationClient.CreateScenarioFromSession(ctx, req)
+}
+
+func (c *AgentSimulationClient) DeleteScenario(ctx context.Context, req *livekit.Scenario_Delete_Request) (*livekit.Scenario_Delete_Response, error) {
+	ctx, err := c.withAuth(ctx, withVideoGrant{})
+	if err != nil {
+		return nil, err
+	}
+	return c.simulationClient.DeleteScenario(ctx, req)
+}
+
+func (c *AgentSimulationClient) UpdateScenario(ctx context.Context, req *livekit.Scenario_Update_Request) (*livekit.Scenario_Update_Response, error) {
+	ctx, err := c.withAuth(ctx, withVideoGrant{})
+	if err != nil {
+		return nil, err
+	}
+	return c.simulationClient.UpdateScenario(ctx, req)
+}
+
+func (c *AgentSimulationClient) CreateScenarioGroup(ctx context.Context, req *livekit.ScenarioGroup_Create_Request) (*livekit.ScenarioGroup_Create_Response, error) {
+	ctx, err := c.withAuth(ctx, withVideoGrant{})
+	if err != nil {
+		return nil, err
+	}
+	return c.simulationClient.CreateScenarioGroup(ctx, req)
+}
+
+func (c *AgentSimulationClient) DeleteScenarioGroup(ctx context.Context, req *livekit.ScenarioGroup_Delete_Request) (*livekit.ScenarioGroup_Delete_Response, error) {
+	ctx, err := c.withAuth(ctx, withVideoGrant{})
+	if err != nil {
+		return nil, err
+	}
+	return c.simulationClient.DeleteScenarioGroup(ctx, req)
+}
+
+func (c *AgentSimulationClient) ListScenarioGroups(ctx context.Context, req *livekit.ScenarioGroup_List_Request) (*livekit.ScenarioGroup_List_Response, error) {
+	ctx, err := c.withAuth(ctx, withVideoGrant{})
+	if err != nil {
+		return nil, err
+	}
+	return c.simulationClient.ListScenarioGroups(ctx, req)
+}
+
+func (c *AgentSimulationClient) ListScenarios(ctx context.Context, req *livekit.Scenario_List_Request) (*livekit.Scenario_List_Response, error) {
+	ctx, err := c.withAuth(ctx, withVideoGrant{})
+	if err != nil {
+		return nil, err
+	}
+	return c.simulationClient.ListScenarios(ctx, req)
+}
