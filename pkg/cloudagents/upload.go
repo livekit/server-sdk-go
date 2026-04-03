@@ -55,11 +55,11 @@ func uploadSource(
 	excludeFiles []string,
 ) error {
 	var buf bytes.Buffer
-	if err := createSourceTarball(directory, excludeFiles, &buf); err != nil {
+	if err := CreateSourceTarball(directory, excludeFiles, &buf); err != nil {
 		return fmt.Errorf("failed to sanitize source: %w", err)
 	}
 	if presignedPostRequest != nil {
-		if err := multipartUpload(presignedPostRequest.Url, presignedPostRequest.Values, &buf); err != nil {
+		if err := MultipartUpload(presignedPostRequest.Url, presignedPostRequest.Values, &buf); err != nil {
 			return fmt.Errorf("multipart upload failed: %w", err)
 		}
 	} else {
@@ -89,7 +89,7 @@ func upload(presignedUrl string, buf *bytes.Buffer) error {
 	return nil
 }
 
-func multipartUpload(presignedURL string, fields map[string]string, buf *bytes.Buffer) error {
+func MultipartUpload(presignedURL string, fields map[string]string, buf *bytes.Buffer) error {
 	var b bytes.Buffer
 	w := multipart.NewWriter(&b)
 	fileName, ok := fields["key"]
