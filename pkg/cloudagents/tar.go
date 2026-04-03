@@ -28,7 +28,7 @@ import (
 	"github.com/moby/patternmatcher"
 )
 
-func createSourceTarball(
+func CreateSourceTarball(
 	directory fs.FS,
 	excludeFiles []string,
 	w io.Writer,
