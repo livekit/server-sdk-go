@@ -81,7 +81,7 @@ type ReaderSampleProvider struct {
 	// When appendUserTimestamp is enabled, we will attempt to parse timestamps from
 	// H264 SEI user_data_unregistered NALs that precede frame NALs.
 	// We then stash the parsed timestamp and attach it to the next frame as an LKTS trailer.
-	pendingUserTimestampUs  int64
+	pendingUserTimestampUs  uint64
 	hasPendingUserTimestamp bool
 
 	// Allow various types of ingress
@@ -377,7 +377,7 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 		// If we didn't see a preceding timestamp, we still append a trailer with
 		// a zero timestamp.
 		if p.appendUserTimestamp {
-			ts := int64(0)
+			ts := uint64(0)
 			if p.hasPendingUserTimestamp {
 				ts = p.pendingUserTimestampUs
 				p.hasPendingUserTimestamp = false
@@ -481,7 +481,7 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 		// If we didn't see a preceding timestamp, we still append a trailer with
 		// a zero timestamp.
 		if p.appendUserTimestamp {
-			ts := int64(0)
+			ts := uint64(0)
 			if p.hasPendingUserTimestamp {
 				ts = p.pendingUserTimestampUs
 				p.hasPendingUserTimestamp = false
