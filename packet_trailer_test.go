@@ -70,17 +70,17 @@ func TestAppendParseRoundTrip_ZeroTimestamp(t *testing.T) {
 	}
 }
 
-func TestAppendParseRoundTrip_NegativeTimestamp(t *testing.T) {
+func TestAppendParseRoundTrip_MaxTimestamp(t *testing.T) {
 	payload := []byte{0xAA}
-	meta := FrameMetadata{UserTimestampUs: -999_999}
+	meta := FrameMetadata{UserTimestampUs: ^uint64(0)}
 
 	result := appendPacketTrailer(payload, meta)
 	got, ok := parsePacketTrailer(result)
 	if !ok {
 		t.Fatal("parsePacketTrailer returned false")
 	}
-	if got.UserTimestampUs != -999_999 {
-		t.Fatalf("timestamp mismatch: got %d, want -999999", got.UserTimestampUs)
+	if got.UserTimestampUs != ^uint64(0) {
+		t.Fatalf("timestamp mismatch: got %d, want %d", got.UserTimestampUs, ^uint64(0))
 	}
 }
 
@@ -172,7 +172,7 @@ func TestNoNALStartCodes(t *testing.T) {
 		{UserTimestampUs: 1, FrameId: 0},
 		{UserTimestampUs: 0x00000001, FrameId: 0x00000001},
 		{UserTimestampUs: 0x0000000100000001, FrameId: 0},
-		{UserTimestampUs: -1},
+		{UserTimestampUs: ^uint64(0)},
 	}
 
 	for _, meta := range testCases {
@@ -192,7 +192,7 @@ func TestNoNALStartCodes(t *testing.T) {
 
 func TestBackwardsCompatWrappers(t *testing.T) {
 	payload := []byte{0xCA, 0xFE}
-	ts := int64(9_876_543_210)
+	ts := uint64(9_876_543_210)
 
 	result := appendUserTimestampTrailer(payload, ts)
 	gotTS, ok := parseUserTimestampTrailer(result)
@@ -207,7 +207,7 @@ func TestBackwardsCompatWrappers(t *testing.T) {
 func TestCrossCompatWithRustAppendTrailer(t *testing.T) {
 	// Build a trailer byte-for-byte matching what the C++/Rust AppendTrailer
 	// produces, then verify our Go parser can decode it.
-	userTs := int64(1_700_000_000_000_000)
+	userTs := uint64(1_700_000_000_000_000)
 	frameId := uint32(42)
 
 	var trailer []byte
@@ -216,7 +216,7 @@ func TestCrossCompatWithRustAppendTrailer(t *testing.T) {
 	trailer = append(trailer, 0x01^0xFF)
 	trailer = append(trailer, 8^0xFF)
 	var tsBuf [8]byte
-	binary.BigEndian.PutUint64(tsBuf[:], uint64(userTs))
+	binary.BigEndian.PutUint64(tsBuf[:], userTs)
 	for _, b := range tsBuf {
 		trailer = append(trailer, b^0xFF)
 	}

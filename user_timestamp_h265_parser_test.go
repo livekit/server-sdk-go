@@ -6,10 +6,10 @@ import (
 )
 
 func TestParseH265SEIUserTimestamp_UUIDValidation(t *testing.T) {
-	const wantTS = int64(1234567890)
+	const wantTS = uint64(1234567890)
 
 	var tsBuf [8]byte
-	binary.BigEndian.PutUint64(tsBuf[:], uint64(wantTS))
+	binary.BigEndian.PutUint64(tsBuf[:], wantTS)
 
 	buildNAL := func(uuid [16]byte) []byte {
 		// 2-byte NAL header for prefix SEI (nal_unit_type = 39).

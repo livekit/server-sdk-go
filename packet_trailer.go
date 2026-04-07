@@ -8,7 +8,7 @@ const (
 	packetTrailerMagic = "LKTS"
 
 	// TLV tag IDs (XORed with 0xFF on the wire).
-	tagTimestampUs = 0x01 // value: 8 bytes big-endian int64
+	tagTimestampUs = 0x01 // value: 8 bytes big-endian uint64
 	tagFrameId     = 0x02 // value: 4 bytes big-endian uint32
 
 	// TLV element sizes: tag(1) + len(1) + value.
@@ -24,7 +24,7 @@ const (
 
 // FrameMetadata holds the metadata embedded in a packet trailer.
 type FrameMetadata struct {
-	UserTimestampUs int64
+	UserTimestampUs uint64
 	FrameId         uint32
 }
 
@@ -53,7 +53,7 @@ func appendPacketTrailer(data []byte, meta FrameMetadata) []byte {
 	out = append(out, byte(tagTimestampUs)^0xFF)
 	out = append(out, 8^0xFF)
 	var tsBuf [8]byte
-	binary.BigEndian.PutUint64(tsBuf[:], uint64(meta.UserTimestampUs))
+	binary.BigEndian.PutUint64(tsBuf[:], meta.UserTimestampUs)
 	for _, b := range tsBuf {
 		out = append(out, b^0xFF)
 	}
@@ -118,7 +118,7 @@ func parsePacketTrailer(data []byte) (FrameMetadata, bool) {
 			for i := 0; i < 8; i++ {
 				ts = (ts << 8) | uint64(data[valStart+i]^0xFF)
 			}
-			meta.UserTimestampUs = int64(ts)
+			meta.UserTimestampUs = ts
 			foundAny = true
 		case tag == tagFrameId && length == 4:
 			var fid uint32
@@ -160,13 +160,13 @@ func stripPacketTrailer(data []byte) []byte {
 
 // appendUserTimestampTrailer is a backwards-compatible wrapper that appends a
 // packet trailer containing only a user timestamp (no frame ID).
-func appendUserTimestampTrailer(data []byte, userTimestampUs int64) []byte {
+func appendUserTimestampTrailer(data []byte, userTimestampUs uint64) []byte {
 	return appendPacketTrailer(data, FrameMetadata{UserTimestampUs: userTimestampUs})
 }
 
 // parseUserTimestampTrailer is a backwards-compatible wrapper that extracts
 // the user timestamp from a packet trailer.
-func parseUserTimestampTrailer(data []byte) (int64, bool) {
+func parseUserTimestampTrailer(data []byte) (uint64, bool) {
 	meta, ok := parsePacketTrailer(data)
 	if !ok {
 		return 0, false

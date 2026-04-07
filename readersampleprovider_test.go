@@ -352,7 +352,7 @@ func TestH265NextSample_WithUserTimestamp(t *testing.T) {
 	// Prefix SEI with user timestamp, then VCL. Timestamp should be attached.
 	sc := []byte{0, 0, 0, 1}
 
-	const wantTS = int64(9876543210)
+	const wantTS = uint64(9876543210)
 	seiNAL := buildH265UserTimestampSEI(wantTS)
 	vcl := makeH265VCLData(1, true, []byte{0xAA})
 
@@ -435,7 +435,7 @@ func makeH265VCLData(nalType h265reader.NalUnitType, firstSlice bool, payload []
 
 // buildH265UserTimestampSEI builds a prefix SEI NAL (type 39) containing a
 // user_data_unregistered message with the LKTS UUID and the given timestamp.
-func buildH265UserTimestampSEI(ts int64) []byte {
+func buildH265UserTimestampSEI(ts uint64) []byte {
 	// 2-byte NAL header for prefix SEI (type 39)
 	b0 := byte(39) << 1
 	b1 := byte(0x01)
@@ -446,7 +446,7 @@ func buildH265UserTimestampSEI(ts int64) []byte {
 	nal = append(nal, userTimestampSEIUUID[:]...)
 
 	var tsBuf [8]byte
-	binary.BigEndian.PutUint64(tsBuf[:], uint64(ts))
+	binary.BigEndian.PutUint64(tsBuf[:], ts)
 	nal = append(nal, tsBuf[:]...)
 	return nal
 }

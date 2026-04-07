@@ -22,7 +22,7 @@ var userTimestampSEIUUID = [16]byte{
 //	UUID         = 16 bytes (3fa85f64-5717-4562-b3fc-2c963f66afa6)
 //	timestamp_us = 8 bytes, big-endian
 //	trailing     = 0x80 (stop bits + padding)
-func parseH264SEIUserTimestamp(nalData []byte) (int64, bool) {
+func parseH264SEIUserTimestamp(nalData []byte) (uint64, bool) {
 	if len(nalData) < 2 {
 		logger.Infow("H264 SEI user_data_unregistered: nal too short", "nal_len", len(nalData))
 		return 0, false
@@ -96,5 +96,5 @@ func parseH264SEIUserTimestamp(nalData []byte) (int64, bool) {
 
 	logger.Debugw("H264 SEI user_data_unregistered parsed", "uuid", uuid, "timestamp_us", timestampUS)
 
-	return int64(timestampUS), true
+	return timestampUS, true
 }
