@@ -1,6 +1,16 @@
 package lksdk
 
-import "encoding/binary"
+import (
+	"bytes"
+	"encoding/binary"
+)
+
+// packetTrailerSEIUUID is the UUID embedded in H.264/H.265 SEI
+// user_data_unregistered messages that carry an LKTS packet trailer.
+var packetTrailerSEIUUID = [16]byte{
+	0x3f, 0xa8, 0x5f, 0x64, 0x57, 0x17, 0x45, 0x62,
+	0xb3, 0xfc, 0x2c, 0x96, 0x3f, 0x66, 0xaf, 0xa6,
+}
 
 const (
 	// packetTrailerMagic must remain consistent with kPacketTrailerMagic
@@ -46,32 +56,27 @@ func appendPacketTrailer(data []byte, meta FrameMetadata) []byte {
 		trailerLen += frameIdTlvSize
 	}
 
-	out := make([]byte, 0, len(data)+trailerLen)
-	out = append(out, data...)
+	out := make([]byte, len(data)+trailerLen)
+	copy(out, data)
+	pos := len(data)
 
 	// TLV: timestamp_us
-	out = append(out, byte(tagTimestampUs)^0xFF)
-	out = append(out, 8^0xFF)
-	var tsBuf [8]byte
-	binary.BigEndian.PutUint64(tsBuf[:], meta.UserTimestampUs)
-	for _, b := range tsBuf {
-		out = append(out, b^0xFF)
-	}
+	out[pos] = byte(tagTimestampUs) ^ 0xFF
+	out[pos+1] = 8 ^ 0xFF
+	binary.BigEndian.PutUint64(out[pos+2:], ^meta.UserTimestampUs)
+	pos += timestampTlvSize
 
 	// TLV: frame_id (only when non-zero)
 	if hasFrameId {
-		out = append(out, byte(tagFrameId)^0xFF)
-		out = append(out, 4^0xFF)
-		var fidBuf [4]byte
-		binary.BigEndian.PutUint32(fidBuf[:], meta.FrameId)
-		for _, b := range fidBuf {
-			out = append(out, b^0xFF)
-		}
+		out[pos] = byte(tagFrameId) ^ 0xFF
+		out[pos+1] = 4 ^ 0xFF
+		binary.BigEndian.PutUint32(out[pos+2:], ^meta.FrameId)
+		pos += frameIdTlvSize
 	}
 
 	// Envelope: trailer_len (XORed) + magic (raw)
-	out = append(out, byte(trailerLen)^0xFF)
-	out = append(out, packetTrailerMagic...)
+	out[pos] = byte(trailerLen) ^ 0xFF
+	copy(out[pos+1:], packetTrailerMagic)
 
 	return out
 }
@@ -172,4 +177,17 @@ func parseUserTimestampTrailer(data []byte) (uint64, bool) {
 		return 0, false
 	}
 	return meta.UserTimestampUs, true
+}
+
+// parseSEIUserData validates the UUID prefix of an SEI user_data_unregistered
+// payload and parses the remaining bytes as an LKTS packet trailer.
+// userData must start at the UUID (i.e. the first 16 bytes are the UUID).
+func parseSEIUserData(userData []byte) (FrameMetadata, bool) {
+	if len(userData) < 16+packetTrailerMinSize {
+		return FrameMetadata{}, false
+	}
+	if !bytes.Equal(userData[:16], packetTrailerSEIUUID[:]) {
+		return FrameMetadata{}, false
+	}
+	return parsePacketTrailer(userData[16:])
 }

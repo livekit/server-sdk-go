@@ -636,6 +636,9 @@ type TrackPublicationOptions struct {
 	// encryption type
 	Encryption        livekit.Encryption_Type
 	BackupCodecPolicy livekit.BackupCodecPolicy
+	// Packet trailer features signaled to the server.
+	AttachUserTimestamp bool
+	AttachFrameId      bool
 }
 
 type MuteFunc func(muted bool) error

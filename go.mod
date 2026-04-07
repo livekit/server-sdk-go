@@ -10,7 +10,7 @@ require (
 	github.com/livekit/mageutil v0.0.0-20250511045019-0f1ff63f7731
 	github.com/livekit/media-sdk v0.0.0-20251106223430-dd8f5e0de2cf
 	github.com/livekit/mediatransportutil v0.0.0-20251128105421-19c7a7b81c22
-	github.com/livekit/protocol v1.45.1
+	github.com/livekit/protocol v1.45.2
 	github.com/magefile/mage v1.15.0
 	github.com/moby/buildkit v0.26.2
 	github.com/moby/patternmatcher v0.6.0
@@ -60,7 +60,7 @@ require (
 	github.com/frostbyte73/core v0.1.1
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/gammazero/deque v1.2.1
-	github.com/go-jose/go-jose/v3 v3.0.4 // indirect
+	github.com/go-jose/go-jose/v3 v3.0.5 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/gofrs/flock v0.13.0 // indirect

@@ -3,7 +3,6 @@ package lksdk
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	"io"
 	"testing"
 
@@ -349,11 +348,11 @@ func TestH265NextSample_PrefixSEIBeforeVCLSkipped(t *testing.T) {
 }
 
 func TestH265NextSample_WithUserTimestamp(t *testing.T) {
-	// Prefix SEI with user timestamp, then VCL. Timestamp should be attached.
+	// Prefix SEI with packet trailer metadata, then VCL. Metadata should be attached.
 	sc := []byte{0, 0, 0, 1}
 
-	const wantTS = uint64(9876543210)
-	seiNAL := buildH265UserTimestampSEI(wantTS)
+	wantMeta := FrameMetadata{UserTimestampUs: 9876543210, FrameId: 77}
+	seiNAL := buildH265PacketTrailerSEI(wantMeta)
 	vcl := makeH265VCLData(1, true, []byte{0xAA})
 
 	stream := concat(sc, seiNAL, sc, vcl)
@@ -377,7 +376,7 @@ func TestH265NextSample_WithUserTimestamp(t *testing.T) {
 		t.Fatalf("expected nil data for SEI sample, got %x", s1.Data)
 	}
 
-	// Second call returns the VCL frame with timestamp trailer
+	// Second call returns the VCL frame with packet trailer
 	s2, err := p.NextSample(context.Background())
 	if err != nil {
 		t.Fatalf("NextSample (VCL): %v", err)
@@ -389,12 +388,15 @@ func TestH265NextSample_WithUserTimestamp(t *testing.T) {
 		t.Fatalf("expected VCL prefix %x in sample data %x", vcl, s2.Data)
 	}
 
-	gotTS, ok := parseUserTimestampTrailer(s2.Data)
+	gotMeta, ok := parsePacketTrailer(s2.Data)
 	if !ok {
 		t.Fatal("expected LKTS trailer in sample data")
 	}
-	if gotTS != wantTS {
-		t.Fatalf("timestamp mismatch: got %d, want %d", gotTS, wantTS)
+	if gotMeta.UserTimestampUs != wantMeta.UserTimestampUs {
+		t.Fatalf("timestamp mismatch: got %d, want %d", gotMeta.UserTimestampUs, wantMeta.UserTimestampUs)
+	}
+	if gotMeta.FrameId != wantMeta.FrameId {
+		t.Fatalf("frame_id mismatch: got %d, want %d", gotMeta.FrameId, wantMeta.FrameId)
 	}
 }
 
@@ -433,20 +435,19 @@ func makeH265VCLData(nalType h265reader.NalUnitType, firstSlice bool, payload []
 	return append(data, payload...)
 }
 
-// buildH265UserTimestampSEI builds a prefix SEI NAL (type 39) containing a
-// user_data_unregistered message with the LKTS UUID and the given timestamp.
-func buildH265UserTimestampSEI(ts uint64) []byte {
+// buildH265PacketTrailerSEI builds a prefix SEI NAL (type 39) containing a
+// user_data_unregistered message with the LKTS UUID and an LKTS packet trailer.
+func buildH265PacketTrailerSEI(meta FrameMetadata) []byte {
 	// 2-byte NAL header for prefix SEI (type 39)
 	b0 := byte(39) << 1
 	b1 := byte(0x01)
 	nal := []byte{b0, b1}
 
-	// payloadType = 5 (user_data_unregistered), payloadSize = 24
-	nal = append(nal, 0x05, 0x18)
-	nal = append(nal, userTimestampSEIUUID[:]...)
+	trailer := appendPacketTrailer(nil, meta)
+	userData := append(packetTrailerSEIUUID[:], trailer...)
 
-	var tsBuf [8]byte
-	binary.BigEndian.PutUint64(tsBuf[:], ts)
-	nal = append(nal, tsBuf[:]...)
+	// payloadType = 5, payloadSize = len(userData)
+	nal = append(nal, 0x05, byte(len(userData)))
+	nal = append(nal, userData...)
 	return nal
 }
