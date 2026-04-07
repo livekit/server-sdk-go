@@ -150,3 +150,5 @@ require (
 )
 
 tool github.com/maxbrunsfeld/counterfeiter/v6
+
+replace github.com/livekit/protocol => /Users/syoon/src/protocol
