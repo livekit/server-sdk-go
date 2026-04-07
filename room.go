@@ -206,6 +206,12 @@ func WithDTLSEllipticCurves(curves ...dtlsElliptic.Curve) ConnectOption {
 	}
 }
 
+func WithLogger(l protoLogger.Logger) ConnectOption {
+	return func(p *signalling.ConnectParams) {
+		p.Logger = l
+	}
+}
+
 type PLIWriter func(webrtc.SSRC)
 
 type Room struct {
@@ -361,27 +367,31 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 		opt(params)
 	}
 
+	if params.Logger != nil {
+		r.SetLogger(params.Logger)
+	}
+
 	isSuccess := false
 	cloudHostname, _ := parseCloudURL(url)
 	if !params.DisableRegionDiscovery && cloudHostname != "" {
 		if err := r.regionURLProvider.RefreshRegionSettings(cloudHostname, token); err != nil {
-			logger.Errorw("failed to get best url", err)
+			r.log.Errorw("failed to get best url", err)
 		} else {
 			for tries := uint(0); !isSuccess; tries++ {
 				bestURL, err := r.regionURLProvider.PopBestURL(cloudHostname, token)
 				if err != nil {
-					logger.Errorw("failed to get best url", err)
+					r.log.Errorw("failed to get best url", err)
 					break
 				}
 
-				logger.Debugw("RTC engine joining room", "url", bestURL, "connectTimeout", params.ConnectTimeout)
+				r.log.Debugw("RTC engine joining room", "url", bestURL, "connectTimeout", params.ConnectTimeout)
 				callCtx, cancelCallCtx := context.WithTimeout(ctx, params.ConnectTimeout)
 				isSuccess, err = r.engine.JoinContext(callCtx, bestURL, token, params)
 				cancelCallCtx()
 				if err != nil {
 					// try the next URL with exponential backoff
 					d := time.Duration(1<<min(tries, 6)) * 100 * time.Millisecond // max 6.4 seconds
-					logger.Errorw(
+					r.log.Errorw(
 						"failed to join room", err,
 						"retrying in", d,
 						"url", bestURL,
