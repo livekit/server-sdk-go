@@ -10,6 +10,7 @@ import (
 	"github.com/livekit/media-sdk"
 	"github.com/livekit/media-sdk/opus"
 	protoLogger "github.com/livekit/protocol/logger"
+	"github.com/livekit/protocol/utils/hwstats"
 	"github.com/pion/webrtc/v4"
 	"go.uber.org/atomic"
 
@@ -17,7 +18,9 @@ import (
 )
 
 type PCMLocalTrackParams struct {
-	Encryptor Encryptor
+	Encryptor     Encryptor
+	EnableStats   bool
+	EnableHWStats bool
 }
 
 type PCMLocalTrackOption func(*PCMLocalTrackParams)
@@ -25,6 +28,18 @@ type PCMLocalTrackOption func(*PCMLocalTrackParams)
 func WithEncryptor(encryptor Encryptor) PCMLocalTrackOption {
 	return func(p *PCMLocalTrackParams) {
 		p.Encryptor = encryptor
+	}
+}
+
+func WithTrackStats() PCMLocalTrackOption {
+	return func(p *PCMLocalTrackParams) {
+		p.EnableStats = true
+	}
+}
+
+func WithHWStats() PCMLocalTrackOption {
+	return func(p *PCMLocalTrackParams) {
+		p.EnableHWStats = true
 	}
 }
 
@@ -53,6 +68,21 @@ type PCMLocalTrack struct {
 	closed atomic.Bool
 	muted  atomic.Bool
 	bound  atomic.Bool
+
+	logger         protoLogger.Logger
+	enableStats    bool
+	loggingEnabled bool
+	logState       pcmLocalTrackLogState
+	cpuStats       *hwstats.CPUStats
+	memStats       *hwstats.MemoryStats
+}
+
+type pcmLocalTrackLogState struct {
+	at             time.Time
+	totalWritten   uint64
+	totalProcessed uint64
+	prevWritten    uint64
+	prevProcessed  uint64
 }
 
 // NewPCMLocalTrack creates a wrapper around a webrtc.TrackLocalStaticSample that accepts PCM16 samples via the WriteSample method,
@@ -103,6 +133,13 @@ func NewPCMLocalTrack(
 		resampledPCMWriter = media.ResampleWriter(pcmWriter, sourceSampleRate)
 	}
 
+	var cpuStats *hwstats.CPUStats
+	var memStats *hwstats.MemoryStats
+	if params.EnableHWStats {
+		cpuStats, _ = hwstats.NewCPUStats(nil)
+		memStats, _ = hwstats.NewMemoryStats()
+	}
+
 	// the final chain of writers:
 	// WriteSample -> resamplesPCMWriter (resamples source to target sample rate as necessary)
 	// -> PCMWriter (encodes PCM -> Opus)
@@ -117,6 +154,14 @@ func NewPCMLocalTrack(
 		sourceChannels:         sourceChannels,
 		chunkBuffer:            new(deque.Deque[media.PCM16Sample]),
 		samplesPerFrame:        (sourceSampleRate * sourceChannels * int(defaultPCMFrameDuration/time.Nanosecond)) / 1e9,
+		logger:         logger,
+		enableStats:    params.EnableStats,
+		loggingEnabled: params.EnableStats || params.EnableHWStats,
+		cpuStats:       cpuStats,
+		memStats:       memStats,
+		logState: pcmLocalTrackLogState{
+			at: time.Now(),
+		},
 	}
 
 	t.cond = sync.NewCond(&t.mu)
@@ -184,7 +229,15 @@ func (t *PCMLocalTrack) WriteSample(chunk media.PCM16Sample) error {
 	t.mu.Lock()
 	t.chunkBuffer.PushBack(chunkCopy)
 	t.cond.Broadcast()
+	var snapshot *pcmLocalTrackLogSnapshot
+	if t.loggingEnabled {
+		t.logState.totalWritten += uint64(len(chunk))
+		snapshot = t.collectLogSnapshotLocked(time.Now())
+	}
 	t.mu.Unlock()
+	if snapshot != nil {
+		t.emitLogSnapshot(snapshot)
+	}
 	return nil
 }
 
@@ -197,12 +250,23 @@ func (t *PCMLocalTrack) processSamples() {
 			break
 		}
 
+		var frame media.PCM16Sample
+		var snapshot *pcmLocalTrackLogSnapshot
+
 		t.mu.Lock()
-		frame := t.getFrameFromChunkBuffer()
-		if frame != nil {
-			t.resampledPCMWriter.WriteSample(frame)
+		frame = t.getFrameFromChunkBuffer()
+		if frame != nil && t.loggingEnabled {
+			t.logState.totalProcessed += uint64(len(frame))
+			snapshot = t.collectLogSnapshotLocked(time.Now())
 		}
 		t.mu.Unlock()
+
+		if frame != nil {
+			t.resampledPCMWriter.WriteSample(frame)
+			if snapshot != nil {
+				t.emitLogSnapshot(snapshot)
+			}
+		}
 
 		<-ticker.C
 	}
@@ -256,6 +320,9 @@ func (t *PCMLocalTrack) Close() error {
 		t.mu.Lock()
 		t.cond.Broadcast()
 		t.mu.Unlock()
+		if t.cpuStats != nil {
+			t.cpuStats.Stop()
+		}
 	}
 	return nil
 }
@@ -266,4 +333,101 @@ func (t *PCMLocalTrack) SampleRate() int {
 
 func (t *PCMLocalTrack) String() string {
 	return "PCMLocalTrack"
+}
+
+type pcmLocalTrackLogSnapshot struct {
+	interval       time.Duration
+	queueSamples   int
+	totalWritten   uint64
+	totalProcessed uint64
+	deltaWritten   uint64
+	deltaProcessed uint64
+}
+
+func (t *PCMLocalTrack) collectLogSnapshotLocked(now time.Time) *pcmLocalTrackLogSnapshot {
+	if t.logState.at.IsZero() {
+		t.logState.at = now
+		return nil
+	}
+
+	const logInterval = 5 * time.Second
+	if now.Sub(t.logState.at) < logInterval {
+		return nil
+	}
+
+	interval := now.Sub(t.logState.at)
+	snapshot := &pcmLocalTrackLogSnapshot{
+		interval:       interval,
+		queueSamples:   t.getNumSamplesInChunkBuffer(),
+		totalWritten:   t.logState.totalWritten,
+		totalProcessed: t.logState.totalProcessed,
+		deltaWritten:   t.logState.totalWritten - t.logState.prevWritten,
+		deltaProcessed: t.logState.totalProcessed - t.logState.prevProcessed,
+	}
+
+	t.logState.at = now
+	t.logState.prevWritten = t.logState.totalWritten
+	t.logState.prevProcessed = t.logState.totalProcessed
+
+	return snapshot
+}
+
+func (t *PCMLocalTrack) emitLogSnapshot(snapshot *pcmLocalTrackLogSnapshot) {
+	if snapshot == nil || snapshot.interval <= 0 {
+		return
+	}
+
+	elapsed := snapshot.interval.Seconds()
+	if elapsed == 0 {
+		return
+	}
+
+	fields := make([]interface{}, 0, 20)
+
+	if t.enableStats {
+		chanCount := float64(t.sourceChannels)
+		if chanCount == 0 {
+			chanCount = 1
+		}
+
+		ingressHz := float64(snapshot.deltaWritten) / chanCount / elapsed
+
+		processedSamples := float64(snapshot.deltaProcessed)
+		if t.sourceSampleRate != 0 && t.sourceSampleRate != DefaultOpusSampleRate {
+			processedSamples *= float64(DefaultOpusSampleRate) / float64(t.sourceSampleRate)
+		}
+		egressHz := processedSamples / chanCount / elapsed
+
+		queueSeconds := 0.0
+		if t.sourceSampleRate != 0 {
+			queueSeconds = float64(snapshot.queueSamples) / (chanCount * float64(t.sourceSampleRate))
+		}
+
+		fields = append(fields,
+			"interval_s", elapsed,
+			"ingress_hz", ingressHz,
+			"egress_hz", egressHz,
+			"queue_samples", snapshot.queueSamples,
+			"queue_s", queueSeconds,
+			"total_written", snapshot.totalWritten,
+			"total_processed", snapshot.totalProcessed,
+			"source_sample_rate", t.sourceSampleRate,
+		)
+	}
+
+	if t.cpuStats != nil {
+		fields = append(fields,
+			"cpu_load", t.cpuStats.GetCPULoad(),
+			"num_cpu", t.cpuStats.NumCPU(),
+		)
+	}
+
+	if t.memStats != nil {
+		used, total, err := t.memStats.GetMemory()
+		if err == nil {
+			fields = append(fields, "mem_used", used, "mem_total", total)
+		}
+	}
+
+	t.logger.Infow("pcm local track stats", fields...)
 }
