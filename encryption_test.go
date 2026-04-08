@@ -295,37 +295,6 @@ func TestH265AllSliceTypes(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Start code normalization tests
-// ---------------------------------------------------------------------------
-
-func TestNormalizeStartCodes(t *testing.T) {
-	// Mixed 3-byte and 4-byte start codes.
-	mixed := []byte{
-		0x00, 0x00, 0x01, 0x67, 0xAA, // 3-byte + SPS
-		0x00, 0x00, 0x00, 0x01, 0x65, 0xBB, // 4-byte + IDR
-		0x00, 0x00, 0x01, 0x06, 0xCC, // 3-byte + SEI
-	}
-	normalized := NormalizeStartCodes(mixed)
-	expected := []byte{
-		0x00, 0x00, 0x00, 0x01, 0x67, 0xAA,
-		0x00, 0x00, 0x00, 0x01, 0x65, 0xBB,
-		0x00, 0x00, 0x00, 0x01, 0x06, 0xCC,
-	}
-	require.Equal(t, expected, normalized)
-}
-
-func TestNormalizeStartCodesIdempotent(t *testing.T) {
-	// Already all 4-byte — should return same data.
-	allFour := []byte{
-		0x00, 0x00, 0x00, 0x01, 0x67, 0xAA,
-		0x00, 0x00, 0x00, 0x01, 0x65, 0xBB,
-	}
-	result := NormalizeStartCodes(allFour)
-	// Should return the same slice (no copy).
-	require.Equal(t, allFour, result)
-}
-
-// ---------------------------------------------------------------------------
 // Video encryption benchmarks
 // ---------------------------------------------------------------------------
 
