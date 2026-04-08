@@ -212,6 +212,17 @@ func WithLogger(l protoLogger.Logger) ConnectOption {
 	}
 }
 
+// WithDataEncryption enables end-to-end encryption for data channel messages.
+// When set, outgoing data packets are encrypted and incoming EncryptedPacket
+// messages are decrypted automatically using the provided KeyProvider.
+func WithDataEncryption(opts *EncryptionOptions) ConnectOption {
+	return func(p *signalling.ConnectParams) {
+		if opts != nil {
+			p.DataEncryptionKeyProvider = opts.KeyProvider
+		}
+	}
+}
+
 type PLIWriter func(webrtc.SSRC)
 
 type Room struct {
@@ -369,6 +380,11 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 
 	if params.Logger != nil {
 		r.SetLogger(params.Logger)
+	}
+
+	// Enable data channel E2EE if a key provider was supplied.
+	if kp, ok := params.DataEncryptionKeyProvider.(KeyProvider); ok && kp != nil {
+		r.engine.dataCryptor = NewDataCryptor(kp)
 	}
 
 	isSuccess := false
