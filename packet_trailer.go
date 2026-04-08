@@ -163,22 +163,6 @@ func stripPacketTrailer(data []byte) []byte {
 	return data[:len(data)-trailerLen]
 }
 
-// appendUserTimestampTrailer is a backwards-compatible wrapper that appends a
-// packet trailer containing only a user timestamp (no frame ID).
-func appendUserTimestampTrailer(data []byte, userTimestampUs uint64) []byte {
-	return appendPacketTrailer(data, FrameMetadata{UserTimestampUs: userTimestampUs})
-}
-
-// parseUserTimestampTrailer is a backwards-compatible wrapper that extracts
-// the user timestamp from a packet trailer.
-func parseUserTimestampTrailer(data []byte) (uint64, bool) {
-	meta, ok := parsePacketTrailer(data)
-	if !ok {
-		return 0, false
-	}
-	return meta.UserTimestampUs, true
-}
-
 // parseSEIUserData validates the UUID prefix of an SEI user_data_unregistered
 // payload and parses the remaining bytes as an LKTS packet trailer.
 // userData must start at the UUID (i.e. the first 16 bytes are the UUID).

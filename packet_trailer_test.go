@@ -111,6 +111,140 @@ func TestAppendParseRoundTrip_EmptyPayload(t *testing.T) {
 	}
 }
 
+func TestAppendPacketTrailer_WireFormat_TimestampOnly(t *testing.T) {
+	payload := []byte{0xDE, 0xAD}
+	meta := FrameMetadata{UserTimestampUs: 0x0102030405060708}
+
+	result := appendPacketTrailer(payload, meta)
+
+	// Expected: payload(2) + timestamp TLV(10) + envelope(5) = 17 bytes
+	if len(result) != 17 {
+		t.Fatalf("expected len 17, got %d", len(result))
+	}
+
+	// Original payload preserved
+	if result[0] != 0xDE || result[1] != 0xAD {
+		t.Fatalf("payload corrupted: %x", result[:2])
+	}
+
+	off := 2 // start of trailer
+
+	// Timestamp TLV: tag
+	if result[off] != byte(tagTimestampUs)^0xFF {
+		t.Fatalf("timestamp tag: got %02x, want %02x", result[off], byte(tagTimestampUs)^0xFF)
+	}
+	// Timestamp TLV: length
+	if result[off+1] != 8^0xFF {
+		t.Fatalf("timestamp len: got %02x, want %02x", result[off+1], byte(8^0xFF))
+	}
+	// Timestamp TLV: value (each byte XORed with 0xFF)
+	var tsBuf [8]byte
+	binary.BigEndian.PutUint64(tsBuf[:], meta.UserTimestampUs)
+	for i := 0; i < 8; i++ {
+		want := tsBuf[i] ^ 0xFF
+		if result[off+2+i] != want {
+			t.Fatalf("timestamp byte %d: got %02x, want %02x", i, result[off+2+i], want)
+		}
+	}
+	off += timestampTlvSize
+
+	// Envelope: trailer_len XORed
+	wantTrailerLen := byte(timestampTlvSize + trailerEnvelopeSize)
+	if result[off] != wantTrailerLen^0xFF {
+		t.Fatalf("trailer_len: got %02x, want %02x", result[off], wantTrailerLen^0xFF)
+	}
+
+	// Envelope: magic raw
+	if string(result[off+1:]) != packetTrailerMagic {
+		t.Fatalf("magic: got %q, want %q", result[off+1:], packetTrailerMagic)
+	}
+}
+
+func TestAppendPacketTrailer_WireFormat_WithFrameId(t *testing.T) {
+	payload := []byte{0xCA, 0xFE, 0xBA, 0xBE}
+	meta := FrameMetadata{UserTimestampUs: 1000, FrameId: 0xAABBCCDD}
+
+	result := appendPacketTrailer(payload, meta)
+
+	// Expected: payload(4) + timestamp TLV(10) + frame_id TLV(6) + envelope(5) = 25
+	if len(result) != 25 {
+		t.Fatalf("expected len 25, got %d", len(result))
+	}
+
+	off := len(payload)
+
+	// Timestamp TLV
+	if result[off] != byte(tagTimestampUs)^0xFF {
+		t.Fatalf("timestamp tag: got %02x", result[off])
+	}
+	off += timestampTlvSize
+
+	// Frame ID TLV: tag
+	if result[off] != byte(tagFrameId)^0xFF {
+		t.Fatalf("frame_id tag: got %02x, want %02x", result[off], byte(tagFrameId)^0xFF)
+	}
+	// Frame ID TLV: length
+	if result[off+1] != 4^0xFF {
+		t.Fatalf("frame_id len: got %02x, want %02x", result[off+1], byte(4^0xFF))
+	}
+	// Frame ID TLV: value
+	var fidBuf [4]byte
+	binary.BigEndian.PutUint32(fidBuf[:], meta.FrameId)
+	for i := 0; i < 4; i++ {
+		want := fidBuf[i] ^ 0xFF
+		if result[off+2+i] != want {
+			t.Fatalf("frame_id byte %d: got %02x, want %02x", i, result[off+2+i], want)
+		}
+	}
+	off += frameIdTlvSize
+
+	// Envelope: trailer_len
+	wantTrailerLen := byte(timestampTlvSize + frameIdTlvSize + trailerEnvelopeSize)
+	if result[off] != wantTrailerLen^0xFF {
+		t.Fatalf("trailer_len: got %02x, want %02x", result[off], wantTrailerLen^0xFF)
+	}
+	if string(result[off+1:]) != packetTrailerMagic {
+		t.Fatalf("magic: got %q", result[off+1:])
+	}
+}
+
+func TestAppendPacketTrailer_FrameIdZero_Omitted(t *testing.T) {
+	meta := FrameMetadata{UserTimestampUs: 1, FrameId: 0}
+	result := appendPacketTrailer(nil, meta)
+
+	// With FrameId==0 the frame_id TLV must be absent.
+	if len(result) != packetTrailerMinSize {
+		t.Fatalf("expected len %d (no frame_id TLV), got %d", packetTrailerMinSize, len(result))
+	}
+
+	// The only tag present should be tagTimestampUs.
+	if result[0]^0xFF != tagTimestampUs {
+		t.Fatalf("first tag: got %02x, want timestamp tag", result[0]^0xFF)
+	}
+}
+
+func TestAppendPacketTrailer_DoesNotMutateInput(t *testing.T) {
+	original := []byte{0x01, 0x02, 0x03, 0x04}
+	frozen := make([]byte, len(original))
+	copy(frozen, original)
+
+	_ = appendPacketTrailer(original, FrameMetadata{UserTimestampUs: 42, FrameId: 7})
+
+	if !bytes.Equal(original, frozen) {
+		t.Fatalf("input slice was mutated: got %x, want %x", original, frozen)
+	}
+}
+
+func TestAppendPacketTrailer_NilPayload(t *testing.T) {
+	result := appendPacketTrailer(nil, FrameMetadata{UserTimestampUs: 99})
+	if len(result) != packetTrailerMinSize {
+		t.Fatalf("expected len %d, got %d", packetTrailerMinSize, len(result))
+	}
+	if string(result[len(result)-4:]) != packetTrailerMagic {
+		t.Fatal("magic missing")
+	}
+}
+
 func TestStripPacketTrailer(t *testing.T) {
 	payload := []byte{0x10, 0x20, 0x30, 0x40}
 	meta := FrameMetadata{UserTimestampUs: 100, FrameId: 200}
@@ -187,20 +321,6 @@ func TestNoNALStartCodes(t *testing.T) {
 				}
 			}
 		}
-	}
-}
-
-func TestBackwardsCompatWrappers(t *testing.T) {
-	payload := []byte{0xCA, 0xFE}
-	ts := uint64(9_876_543_210)
-
-	result := appendUserTimestampTrailer(payload, ts)
-	gotTS, ok := parseUserTimestampTrailer(result)
-	if !ok {
-		t.Fatal("parseUserTimestampTrailer returned false")
-	}
-	if gotTS != ts {
-		t.Fatalf("timestamp mismatch: got %d, want %d", gotTS, ts)
 	}
 }
 
