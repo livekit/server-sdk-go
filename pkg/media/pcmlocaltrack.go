@@ -69,11 +69,12 @@ type PCMLocalTrack struct {
 	muted  atomic.Bool
 	bound  atomic.Bool
 
-	logger      protoLogger.Logger
-	enableStats bool
-	logState    pcmLocalTrackLogState
-	cpuStats    *hwstats.CPUStats
-	memStats    *hwstats.MemoryStats
+	logger         protoLogger.Logger
+	enableStats    bool
+	loggingEnabled bool
+	logState       pcmLocalTrackLogState
+	cpuStats       *hwstats.CPUStats
+	memStats       *hwstats.MemoryStats
 }
 
 type pcmLocalTrackLogState struct {
@@ -153,10 +154,11 @@ func NewPCMLocalTrack(
 		sourceChannels:         sourceChannels,
 		chunkBuffer:            new(deque.Deque[media.PCM16Sample]),
 		samplesPerFrame:        (sourceSampleRate * sourceChannels * int(defaultPCMFrameDuration/time.Nanosecond)) / 1e9,
-		logger:                 logger,
-		enableStats:            params.EnableStats,
-		cpuStats:               cpuStats,
-		memStats:               memStats,
+		logger:         logger,
+		enableStats:    params.EnableStats,
+		loggingEnabled: params.EnableStats || params.EnableHWStats,
+		cpuStats:       cpuStats,
+		memStats:       memStats,
 		logState: pcmLocalTrackLogState{
 			at: time.Now(),
 		},
@@ -227,8 +229,11 @@ func (t *PCMLocalTrack) WriteSample(chunk media.PCM16Sample) error {
 	t.mu.Lock()
 	t.chunkBuffer.PushBack(chunkCopy)
 	t.cond.Broadcast()
-	t.logState.totalWritten += uint64(len(chunk))
-	snapshot := t.collectLogSnapshotLocked(time.Now())
+	var snapshot *pcmLocalTrackLogSnapshot
+	if t.loggingEnabled {
+		t.logState.totalWritten += uint64(len(chunk))
+		snapshot = t.collectLogSnapshotLocked(time.Now())
+	}
 	t.mu.Unlock()
 	if snapshot != nil {
 		t.emitLogSnapshot(snapshot)
@@ -250,7 +255,7 @@ func (t *PCMLocalTrack) processSamples() {
 
 		t.mu.Lock()
 		frame = t.getFrameFromChunkBuffer()
-		if frame != nil {
+		if frame != nil && t.loggingEnabled {
 			t.logState.totalProcessed += uint64(len(frame))
 			snapshot = t.collectLogSnapshotLocked(time.Now())
 		}
@@ -340,10 +345,6 @@ type pcmLocalTrackLogSnapshot struct {
 }
 
 func (t *PCMLocalTrack) collectLogSnapshotLocked(now time.Time) *pcmLocalTrackLogSnapshot {
-	if !t.enableStats && t.cpuStats == nil && t.memStats == nil {
-		return nil
-	}
-
 	if t.logState.at.IsZero() {
 		t.logState.at = now
 		return nil
