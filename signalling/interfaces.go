@@ -92,6 +92,10 @@ type ConnectParams struct {
 
 	DTLSEllipticCurves []dtlsElliptic.Curve // FIPS 140: override default DTLS curves
 
+	// DataEncryptionKeyProvider enables data channel E2EE when set.
+	// Must implement lksdk.KeyProvider; type-asserted at join time.
+	DataEncryptionKeyProvider any
+
 	// internal use
 	Codecs []webrtc.RTPCodecParameters
 }

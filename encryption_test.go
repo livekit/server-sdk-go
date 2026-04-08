@@ -4,6 +4,7 @@ import (
 	"crypto/aes"
 	"testing"
 
+	"github.com/livekit/protocol/livekit"
 	"github.com/stretchr/testify/require"
 )
 
@@ -141,4 +142,289 @@ func BenchmarkEncryptAudioNewCipher(b *testing.B) {
 
 	}
 
+}
+
+// ---------------------------------------------------------------------------
+// H.264 video encryption tests
+// ---------------------------------------------------------------------------
+
+// makeH264Frame builds a minimal H.264 Annex-B frame with the given NALU types.
+func makeH264Frame(naluTypes ...byte) []byte {
+	var frame []byte
+	for _, t := range naluTypes {
+		frame = append(frame, 0x00, 0x00, 0x00, 0x01) // 4-byte start code
+		frame = append(frame, t)                        // NALU header (1 byte)
+		frame = append(frame, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22)
+	}
+	return frame
+}
+
+func TestEncryptH264Sample(t *testing.T) {
+	key, err := DeriveKeyFromString(testPassphrase)
+	require.NoError(t, err)
+
+	// Frame with SPS (7) + PPS (8) + IDR slice (5).
+	frame := makeH264Frame(7, 8, 5)
+
+	encrypted, err := EncryptGCMH264Sample(frame, key, 0)
+	require.NoError(t, err)
+	require.NotEqual(t, frame, encrypted)
+
+	// Round-trip decrypt.
+	decrypted, err := DecryptGCMH264Sample(encrypted, key, nil)
+	require.NoError(t, err)
+	require.Equal(t, frame, decrypted)
+}
+
+func TestH264SpsOnlyPassthrough(t *testing.T) {
+	key, err := DeriveKeyFromString(testPassphrase)
+	require.NoError(t, err)
+
+	// Frame with only SPS (7) + PPS (8) — no slice.
+	frame := makeH264Frame(7, 8)
+
+	encrypted, err := EncryptGCMH264Sample(frame, key, 0)
+	require.NoError(t, err)
+	// Should pass through unmodified.
+	require.Equal(t, frame, encrypted)
+}
+
+func TestEncryptH264CustomCipher(t *testing.T) {
+	key, err := DeriveKeyFromString(testPassphrase)
+	require.NoError(t, err)
+	block, err := aes.NewCipher(key)
+	require.NoError(t, err)
+
+	frame := makeH264Frame(7, 1) // SPS + non-IDR slice
+
+	encrypted, err := EncryptGCMH264SampleCustomCipher(frame, 0, block)
+	require.NoError(t, err)
+
+	decrypted, err := DecryptGCMH264SampleCustomCipher(encrypted, nil, block)
+	require.NoError(t, err)
+	require.Equal(t, frame, decrypted)
+}
+
+// ---------------------------------------------------------------------------
+// H.265 video encryption tests
+// ---------------------------------------------------------------------------
+
+// makeH265Frame builds a minimal H.265 Annex-B frame with the given NALU types.
+// H.265 NALU header is 2 bytes: type in byte[0] bits [6:1], LayerID+TID in byte[1].
+func makeH265Frame(naluTypes ...uint8) []byte {
+	var frame []byte
+	for _, t := range naluTypes {
+		frame = append(frame, 0x00, 0x00, 0x00, 0x01) // 4-byte start code
+		frame = append(frame, (t<<1)&0x7E, 0x01)       // NALU header (2 bytes): type in bits [6:1], TID=1
+		frame = append(frame, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22)
+	}
+	return frame
+}
+
+func TestEncryptH265Sample(t *testing.T) {
+	key, err := DeriveKeyFromString(testPassphrase)
+	require.NoError(t, err)
+
+	// Frame with VPS (32) + SPS (33) + PPS (34) + IDR_W_RADL (19).
+	frame := makeH265Frame(32, 33, 34, 19)
+
+	encrypted, err := EncryptGCMH265Sample(frame, key, 0)
+	require.NoError(t, err)
+	require.NotEqual(t, frame, encrypted)
+
+	decrypted, err := DecryptGCMH265Sample(encrypted, key, nil)
+	require.NoError(t, err)
+	require.Equal(t, frame, decrypted)
+}
+
+func TestH265VpsOnlyPassthrough(t *testing.T) {
+	key, err := DeriveKeyFromString(testPassphrase)
+	require.NoError(t, err)
+
+	// Frame with only VPS (32) + SPS (33) + PPS (34) — no slice.
+	frame := makeH265Frame(32, 33, 34)
+
+	encrypted, err := EncryptGCMH265Sample(frame, key, 0)
+	require.NoError(t, err)
+	require.Equal(t, frame, encrypted)
+}
+
+func TestEncryptH265CustomCipher(t *testing.T) {
+	key, err := DeriveKeyFromString(testPassphrase)
+	require.NoError(t, err)
+	block, err := aes.NewCipher(key)
+	require.NoError(t, err)
+
+	frame := makeH265Frame(33, 0) // SPS + TRAIL_N slice
+
+	encrypted, err := EncryptGCMH265SampleCustomCipher(frame, 0, block)
+	require.NoError(t, err)
+
+	decrypted, err := DecryptGCMH265SampleCustomCipher(encrypted, nil, block)
+	require.NoError(t, err)
+	require.Equal(t, frame, decrypted)
+}
+
+func TestH265AllSliceTypes(t *testing.T) {
+	key, err := DeriveKeyFromString(testPassphrase)
+	require.NoError(t, err)
+	block, err := aes.NewCipher(key)
+	require.NoError(t, err)
+
+	// Test all valid VCL types from JS SDK isH265SliceNALU.
+	sliceTypes := []uint8{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 16, 17, 18, 19, 20, 21}
+	for _, st := range sliceTypes {
+		frame := makeH265Frame(32, st) // VPS + slice
+		encrypted, err := EncryptGCMH265SampleCustomCipher(frame, 0, block)
+		require.NoError(t, err, "type %d", st)
+		require.NotEqual(t, frame, encrypted, "type %d should encrypt", st)
+
+		decrypted, err := DecryptGCMH265SampleCustomCipher(encrypted, nil, block)
+		require.NoError(t, err, "type %d", st)
+		require.Equal(t, frame, decrypted, "type %d round-trip", st)
+	}
+
+	// Test reserved types (10-15, 22-31) — should NOT be treated as slices.
+	reservedTypes := []uint8{10, 11, 12, 13, 14, 15, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31}
+	for _, rt := range reservedTypes {
+		frame := makeH265Frame(rt) // Only this NALU, no other slices
+		encrypted, err := EncryptGCMH265SampleCustomCipher(frame, 0, block)
+		require.NoError(t, err, "reserved type %d", rt)
+		require.Equal(t, frame, encrypted, "reserved type %d should passthrough", rt)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Start code normalization tests
+// ---------------------------------------------------------------------------
+
+func TestNormalizeStartCodes(t *testing.T) {
+	// Mixed 3-byte and 4-byte start codes.
+	mixed := []byte{
+		0x00, 0x00, 0x01, 0x67, 0xAA, // 3-byte + SPS
+		0x00, 0x00, 0x00, 0x01, 0x65, 0xBB, // 4-byte + IDR
+		0x00, 0x00, 0x01, 0x06, 0xCC, // 3-byte + SEI
+	}
+	normalized := NormalizeStartCodes(mixed)
+	expected := []byte{
+		0x00, 0x00, 0x00, 0x01, 0x67, 0xAA,
+		0x00, 0x00, 0x00, 0x01, 0x65, 0xBB,
+		0x00, 0x00, 0x00, 0x01, 0x06, 0xCC,
+	}
+	require.Equal(t, expected, normalized)
+}
+
+func TestNormalizeStartCodesIdempotent(t *testing.T) {
+	// Already all 4-byte — should return same data.
+	allFour := []byte{
+		0x00, 0x00, 0x00, 0x01, 0x67, 0xAA,
+		0x00, 0x00, 0x00, 0x01, 0x65, 0xBB,
+	}
+	result := NormalizeStartCodes(allFour)
+	// Should return the same slice (no copy).
+	require.Equal(t, allFour, result)
+}
+
+// ---------------------------------------------------------------------------
+// Video encryption benchmarks
+// ---------------------------------------------------------------------------
+
+func BenchmarkEncryptH264CachedCipher(b *testing.B) {
+	key, _ := DeriveKeyFromString(testPassphrase)
+	block, _ := aes.NewCipher(key)
+	frame := makeH264Frame(7, 8, 5)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		EncryptGCMH264SampleCustomCipher(frame, 0, block)
+	}
+}
+
+func TestDataCryptorRoundTrip(t *testing.T) {
+	kp := NewExternalKeyProvider()
+	require.NoError(t, kp.SetKeyFromPassphrase(testPassphrase, 0))
+
+	dc := NewDataCryptor(kp)
+
+	// Create a DataPacket with user data.
+	original := &livekit.DataPacket{
+		Value: &livekit.DataPacket_User{
+			User: &livekit.UserPacket{Payload: []byte("hello encrypted world")},
+		},
+	}
+
+	encrypted, err := dc.Encrypt(original)
+	require.NoError(t, err)
+
+	// Should be wrapped in EncryptedPacket.
+	ep, ok := encrypted.Value.(*livekit.DataPacket_EncryptedPacket)
+	require.True(t, ok, "should be encrypted packet")
+	require.NotEmpty(t, ep.EncryptedPacket.EncryptedValue)
+	require.NotEmpty(t, ep.EncryptedPacket.Iv)
+
+	// Decrypt.
+	payload, err := dc.Decrypt(ep.EncryptedPacket)
+	require.NoError(t, err)
+
+	userPayload, ok := payload.Value.(*livekit.EncryptedPacketPayload_User)
+	require.True(t, ok)
+	require.Equal(t, []byte("hello encrypted world"), userPayload.User.Payload)
+}
+
+// ---------------------------------------------------------------------------
+// Edge case / error path tests
+// ---------------------------------------------------------------------------
+
+func TestEncryptVideoNilCipher(t *testing.T) {
+	_, err := EncryptGCMH264SampleCustomCipher(makeH264Frame(7, 5), 0, nil)
+	require.ErrorIs(t, err, ErrBlockCipherRequired)
+
+	_, err = EncryptGCMH265SampleCustomCipher(makeH265Frame(32, 19), 0, nil)
+	require.ErrorIs(t, err, ErrBlockCipherRequired)
+}
+
+func TestDecryptVideoNilCipher(t *testing.T) {
+	_, err := DecryptGCMH264SampleCustomCipher(makeH264Frame(7, 5), nil, nil)
+	require.ErrorIs(t, err, ErrBlockCipherRequired)
+
+	_, err = DecryptGCMH265SampleCustomCipher(makeH265Frame(32, 19), nil, nil)
+	require.ErrorIs(t, err, ErrBlockCipherRequired)
+}
+
+func TestDecryptVideoTooShort(t *testing.T) {
+	key, _ := DeriveKeyFromString(testPassphrase)
+	block, _ := aes.NewCipher(key)
+
+	// Samples shorter than 4 bytes pass through.
+	short := []byte{0x01, 0x02}
+	result, err := DecryptGCMH264SampleCustomCipher(short, nil, block)
+	require.NoError(t, err)
+	require.Equal(t, short, result)
+}
+
+func TestSetRawKeyValidation(t *testing.T) {
+	kp := NewExternalKeyProvider()
+
+	// Wrong length.
+	err := kp.SetRawKey([]byte{1, 2, 3}, 0)
+	require.ErrorIs(t, err, ErrIncorrectKeyLength)
+
+	// Correct length (16 bytes).
+	validKey := make([]byte, 16)
+	err = kp.SetRawKey(validKey, 0)
+	require.NoError(t, err)
+}
+
+func TestDeriveKeyFromStringEmpty(t *testing.T) {
+	_, err := DeriveKeyFromString("")
+	require.ErrorIs(t, err, ErrIncorrectSecretLength)
+}
+
+func BenchmarkEncryptH265CachedCipher(b *testing.B) {
+	key, _ := DeriveKeyFromString(testPassphrase)
+	block, _ := aes.NewCipher(key)
+	frame := makeH265Frame(32, 33, 34, 19)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		EncryptGCMH265SampleCustomCipher(frame, 0, block)
+	}
 }

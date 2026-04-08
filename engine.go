@@ -17,6 +17,7 @@ package lksdk
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"sync"
@@ -132,6 +133,8 @@ type RTCEngine struct {
 	connParams *signalling.ConnectParams
 
 	joinTimeout time.Duration
+
+	dataCryptor *DataCryptor // E2EE data channel encryption (nil = disabled)
 
 	onClose     []func()
 	onCloseLock sync.Mutex
@@ -628,6 +631,17 @@ func (e *RTCEngine) handleDataPacket(msg webrtc.DataChannelMessage) {
 	if err != nil {
 		return
 	}
+
+	// Decrypt if data channel E2EE is enabled and this is an encrypted packet.
+	if ep, ok := packet.Value.(*livekit.DataPacket_EncryptedPacket); ok && e.dataCryptor != nil {
+		payload, err := e.dataCryptor.Decrypt(ep.EncryptedPacket)
+		if err != nil {
+			e.log.Warnw("data decryption failed, dropping packet", err)
+			return
+		}
+		decryptedPayloadToDataPacketValue(packet, payload)
+	}
+
 	identity := packet.ParticipantIdentity
 	switch msg := packet.Value.(type) {
 	case *livekit.DataPacket_User:
@@ -847,6 +861,15 @@ func (e *RTCEngine) publishDataPacket(pck *livekit.DataPacket, kind livekit.Data
 	if dc == nil {
 		e.log.Errorw("could not get data channel", nil, "kind", kind)
 		return errors.New("datachannel not found")
+	}
+
+	// Encrypt if data channel E2EE is enabled.
+	if e.dataCryptor != nil {
+		pck, err = e.dataCryptor.Encrypt(pck)
+		if err != nil {
+			e.log.Warnw("data encryption failed, dropping packet", err)
+			return fmt.Errorf("data encryption: %w", err)
+		}
 	}
 
 	if kind == livekit.DataPacket_RELIABLE {
