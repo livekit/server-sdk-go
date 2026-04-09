@@ -598,7 +598,9 @@ func (p *LocalTrackPublication) unpublish(transport *PCTransport) error {
 		tracks = append(tracks, st)
 	}
 
-	tracks = append(tracks, p.backupCodecTrack)
+	if p.backupCodecTrack != nil {
+		tracks = append(tracks, p.backupCodecTrack)
+	}
 
 	for _, st := range p.backupCodecTracksForSimulcast {
 		tracks = append(tracks, st)
@@ -611,6 +613,7 @@ func (p *LocalTrackPublication) unpublish(transport *PCTransport) error {
 				if err := transport.pc.RemoveTrack(sender); err != nil {
 					return err
 				}
+				break
 			}
 		}
 	}
