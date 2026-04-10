@@ -123,6 +123,19 @@ func (c *Client) DeployAgent(
 	return c.uploadAndBuild(ctx, agentID, resp.PresignedUrl, resp.PresignedPostRequest, source, excludeFiles, buildLogStreamWriter)
 }
 
+// RegisterAgent creates an agent record without uploading source or triggering a build.
+// Use this when you intend to push a prebuilt image immediately after via GetPushTarget.
+func (c *Client) RegisterAgent(ctx context.Context, secrets []*lkproto.AgentSecret, regions []string) (string, error) {
+	resp, err := c.AgentClient.CreateAgent(ctx, &lkproto.CreateAgentRequest{
+		Secrets: secrets,
+		Regions: regions,
+	})
+	if err != nil {
+		return "", err
+	}
+	return resp.AgentId, nil
+}
+
 // CreatePrivateLink creates a new private link for cloud agents.
 func (c *Client) CreatePrivateLink(ctx context.Context, req *lkproto.CreatePrivateLinkRequest) (*lkproto.CreatePrivateLinkResponse, error) {
 	return c.AgentClient.CreatePrivateLink(ctx, req)
