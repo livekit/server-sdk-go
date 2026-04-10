@@ -107,12 +107,14 @@ func (c *Client) DeployAgent(
 	agentID string,
 	source fs.FS,
 	secrets []*lkproto.AgentSecret,
+	environment string,
 	excludeFiles []string,
 	buildLogStreamWriter io.Writer,
 ) error {
 	resp, err := c.AgentClient.DeployAgent(ctx, &lkproto.DeployAgentRequest{
-		AgentId: agentID,
-		Secrets: secrets,
+		AgentId:     agentID,
+		Secrets:     secrets,
+		Environment: environment,
 	})
 	if err != nil {
 		return err
