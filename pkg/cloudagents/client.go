@@ -78,14 +78,12 @@ func (c *Client) CreateAgent(
 	source fs.FS,
 	secrets []*lkproto.AgentSecret,
 	regions []string,
-	environment string,
 	excludeFiles []string,
 	buildLogStreamWriter io.Writer,
 ) (*lkproto.CreateAgentResponse, error) {
 	resp, err := c.AgentClient.CreateAgent(ctx, &lkproto.CreateAgentRequest{
-		Secrets:     secrets,
-		Regions:     regions,
-		Environment: environment,
+		Secrets: secrets,
+		Regions: regions,
 	})
 	if err != nil {
 		return nil, err
