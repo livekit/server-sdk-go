@@ -211,7 +211,7 @@ func (t *TrackSynchronizer) initialize(extPkt jitter.ExtPacket) {
 	t.basePTSOffset = t.desiredPTSOffset
 
 	t.startTime = receivedAt
-	t.startRTP = extPkt.Packet.Timestamp
+	t.startRTP = extPkt.Timestamp
 	t.lastPTS = 0
 	t.lastPTSAdjusted = t.currentPTSOffset
 	t.initialized = true

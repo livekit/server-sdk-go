@@ -124,9 +124,10 @@ func (p *trackPublicationBase) updateInfo(info *livekit.TrackInfo) {
 	p.name.Store(info.Name)
 	p.sid.Store(info.Sid)
 	p.isMuted.Store(info.Muted)
-	if info.Type == livekit.TrackType_AUDIO {
+	switch info.Type {
+	case livekit.TrackType_AUDIO:
 		p.kind.Store(string(TrackKindAudio))
-	} else if info.Type == livekit.TrackType_VIDEO {
+	case livekit.TrackType_VIDEO:
 		p.kind.Store(string(TrackKindVideo))
 	}
 	p.info.Store(info)

@@ -154,11 +154,11 @@ func NewPCMLocalTrack(
 		sourceChannels:         sourceChannels,
 		chunkBuffer:            new(deque.Deque[media.PCM16Sample]),
 		samplesPerFrame:        (sourceSampleRate * sourceChannels * int(defaultPCMFrameDuration/time.Nanosecond)) / 1e9,
-		logger:         logger,
-		enableStats:    params.EnableStats,
-		loggingEnabled: params.EnableStats || params.EnableHWStats,
-		cpuStats:       cpuStats,
-		memStats:       memStats,
+		logger:                 logger,
+		enableStats:            params.EnableStats,
+		loggingEnabled:         params.EnableStats || params.EnableHWStats,
+		cpuStats:               cpuStats,
+		memStats:               memStats,
 		logState: pcmLocalTrackLogState{
 			at: time.Now(),
 		},
@@ -245,11 +245,7 @@ func (t *PCMLocalTrack) processSamples() {
 	ticker := time.NewTicker(t.frameDuration)
 	defer ticker.Stop()
 
-	for {
-		if t.closed.Load() && t.getNumSamplesInChunkBuffer() == 0 {
-			break
-		}
-
+	for !t.closed.Load() || t.getNumSamplesInChunkBuffer() != 0 {
 		var frame media.PCM16Sample
 		var snapshot *pcmLocalTrackLogSnapshot
 

@@ -1183,10 +1183,7 @@ func (e *RTCEngine) OnTransportClose() {
 
 // signalling.SignalProcessor implementation
 func (e *RTCEngine) OnJoinResponse(res *livekit.JoinResponse) error {
-	isRestarting := false
-	if e.reconnecting.Load() && e.requiresFullReconnect.Load() {
-		isRestarting = true
-	}
+	isRestarting := e.reconnecting.Load() && e.requiresFullReconnect.Load()
 
 	err := e.configure(res.IceServers, res.ClientConfiguration, proto.Bool(res.SubscriberPrimary))
 	if err != nil {
@@ -1292,9 +1289,10 @@ func (e *RTCEngine) OnTrickle(init webrtc.ICECandidateInit, target livekit.Signa
 		"target", target,
 		"candidate", init.Candidate,
 	)
-	if target == livekit.SignalTarget_PUBLISHER {
+	switch target {
+	case livekit.SignalTarget_PUBLISHER:
 		err = e.publisher.AddICECandidate(init)
-	} else if target == livekit.SignalTarget_SUBSCRIBER {
+	case livekit.SignalTarget_SUBSCRIBER:
 		err = e.subscriber.AddICECandidate(init)
 	}
 	if err != nil {

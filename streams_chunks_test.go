@@ -73,9 +73,10 @@ func TestChunkUtf8String(t *testing.T) {
 		for i, chunk := range chunks {
 			require.True(t, utf8.Valid(chunk))
 
-			if i == 0 {
+			switch i {
+			case 0:
 				require.Equal(t, len(multiBytePrefix+padding), len(chunk))
-			} else if i == 1 {
+			case 1:
 				require.Equal(t, len(multiByteSuffix), len(chunk))
 			}
 		}
