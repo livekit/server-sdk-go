@@ -233,7 +233,7 @@ func (s *LocalTrack) Bind(t webrtc.TrackLocalContext) (webrtc.RTPCodecParameters
 		s.sequencer,
 		codec.ClockRate,
 	)
-	s.clockRate = float64(codec.RTPCodecCapability.ClockRate)
+	s.clockRate = float64(codec.ClockRate)
 	onBind := s.onBind
 	provider := s.provider
 	onWriteComplete := s.onWriteComplete
@@ -349,15 +349,15 @@ func (s *LocalTrack) WriteRTP(p *rtp.Packet, opts *SampleWriteOptions) error {
 		if err != nil {
 			return err
 		}
-		if err := p.Header.SetExtension(audioLevelID, data); err != nil {
+		if err := p.SetExtension(audioLevelID, data); err != nil {
 			return err
 		}
 	}
 
-	if incomingAbsCaptureTimeID != 0 && absCaptureTimeID != 0 && incomingAbsCaptureTimeID != absCaptureTimeID && p.Header.Extension {
-		if data := p.Header.GetExtension(incomingAbsCaptureTimeID); len(data) != 0 {
-			_ = p.Header.DelExtension(incomingAbsCaptureTimeID)
-			_ = p.Header.SetExtension(absCaptureTimeID, data)
+	if incomingAbsCaptureTimeID != 0 && absCaptureTimeID != 0 && incomingAbsCaptureTimeID != absCaptureTimeID && p.Extension {
+		if data := p.GetExtension(incomingAbsCaptureTimeID); len(data) != 0 {
+			_ = p.DelExtension(incomingAbsCaptureTimeID)
+			_ = p.SetExtension(absCaptureTimeID, data)
 		}
 	}
 
@@ -369,14 +369,14 @@ func (s *LocalTrack) WriteRTP(p *rtp.Packet, opts *SampleWriteOptions) error {
 
 		if sdesMidID != 0 {
 			midValue := transceiver.Mid()
-			if err := p.Header.SetExtension(sdesMidID, []byte(midValue)); err != nil {
+			if err := p.SetExtension(sdesMidID, []byte(midValue)); err != nil {
 				return err
 			}
 		}
 
 		if sdesRtpStreamID != 0 {
 			ridValue := s.RID()
-			if err := p.Header.SetExtension(sdesRtpStreamID, []byte(ridValue)); err != nil {
+			if err := p.SetExtension(sdesRtpStreamID, []byte(ridValue)); err != nil {
 				return err
 			}
 		}

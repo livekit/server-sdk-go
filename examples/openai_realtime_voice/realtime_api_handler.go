@@ -99,6 +99,6 @@ func (h *RealtimeAPIHandler) handleMessage(message string) {
 	}
 }
 
-func (m *RealtimeAPIHandler) Close() error {
-	return m.conn.Close()
+func (h *RealtimeAPIHandler) Close() error {
+	return h.conn.Close()
 }

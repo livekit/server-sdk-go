@@ -192,11 +192,7 @@ func (t *PCMLocalTrack) processSamples() {
 	ticker := time.NewTicker(t.frameDuration)
 	defer ticker.Stop()
 
-	for {
-		if t.closed.Load() && t.getNumSamplesInChunkBuffer() == 0 {
-			break
-		}
-
+	for !t.closed.Load() || t.getNumSamplesInChunkBuffer() != 0 {
 		t.mu.Lock()
 		frame := t.getFrameFromChunkBuffer()
 		if frame != nil {

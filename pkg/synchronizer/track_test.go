@@ -158,7 +158,7 @@ func TestGetPTSWithoutRebase_NegativeAdjustedPTS(t *testing.T) {
 	stepTS := ts.ToRTP(10 * time.Millisecond)
 	secondPacket := jitter.ExtPacket{
 		Packet: &rtp.Packet{
-			Header:  rtp.Header{Timestamp: firstPacket.Packet.Timestamp + stepTS, SequenceNumber: 2},
+			Header:  rtp.Header{Timestamp: firstPacket.Timestamp + stepTS, SequenceNumber: 2},
 			Payload: []byte{0x02},
 		},
 		ReceivedAt: firstReceivedAt.Add(10 * time.Millisecond),

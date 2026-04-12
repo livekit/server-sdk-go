@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
-      - uses: actions/cache@v5
+      - uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
         with:
           path: |
             ~/go/pkg/mod
@@ -42,7 +42,7 @@ jobs:
           sudo apt-get install -y libsoxr-dev libopus-dev libopusfile-dev opus-tools
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version: 1.25.0
 
@@ -60,19 +60,18 @@ jobs:
           go mod tidy
 
       - name: Mage Build
-        uses: magefile/mage-action@v4
+        uses: magefile/mage-action@a662bd8c29d8106879588cfff83b2faf6e6f59db # v4
         with:
           version: latest
           args: build
 
-      - name: Static Check
-        uses: dominikh/staticcheck-action@master
+      - name: Lint
+        uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9
         with:
-          checks: '["all", "-ST1000", "-ST1003", "-ST1020", "-ST1021", "-ST1022", "-SA1019"]'
-          install-go: false
+          version: v2.11.4
 
       - name: Mage Test
-        uses: magefile/mage-action@v4
+        uses: magefile/mage-action@a662bd8c29d8106879588cfff83b2faf6e6f59db # v4
         with:
           version: latest
           args: test
