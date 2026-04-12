@@ -21,14 +21,15 @@ import (
 
 	"github.com/livekit/mediatransportutil/pkg/pacer"
 	"github.com/livekit/protocol/livekit"
-	protoLogger "github.com/livekit/protocol/logger"
+	"github.com/livekit/protocol/logger"
+	dtlsElliptic "github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/interceptor"
 	"github.com/pion/webrtc/v4"
 	"google.golang.org/protobuf/proto"
 )
 
 type Signalling interface {
-	SetLogger(l protoLogger.Logger)
+	SetLogger(l logger.Logger)
 
 	Path() string
 	ValidatePath() string
@@ -89,12 +90,16 @@ type ConnectParams struct {
 
 	ICETransportPolicy webrtc.ICETransportPolicy
 
+	DTLSEllipticCurves []dtlsElliptic.Curve // FIPS 140: override default DTLS curves
+
 	// internal use
 	Codecs []webrtc.RTPCodecParameters
+
+	Logger logger.Logger
 }
 
 type SignalTransport interface {
-	SetLogger(l protoLogger.Logger)
+	SetLogger(l logger.Logger)
 
 	Start()
 	IsStarted() bool
@@ -121,7 +126,7 @@ type SignalTransportHandler interface {
 }
 
 type SignalHandler interface {
-	SetLogger(l protoLogger.Logger)
+	SetLogger(l logger.Logger)
 
 	HandleMessage(msg proto.Message) error
 }

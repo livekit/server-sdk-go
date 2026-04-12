@@ -8,9 +8,9 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/livekit/mageutil v0.0.0-20250511045019-0f1ff63f7731
-	github.com/livekit/media-sdk v0.0.0-20251106223430-dd8f5e0de2cf
+	github.com/livekit/media-sdk v0.0.0-20260401192012-ea94ab340a57
 	github.com/livekit/mediatransportutil v0.0.0-20251128105421-19c7a7b81c22
-	github.com/livekit/protocol v1.45.1
+	github.com/livekit/protocol v1.45.2-0.20260403151849-8a360e8d0221
 	github.com/magefile/mage v1.15.0
 	github.com/moby/buildkit v0.26.2
 	github.com/moby/patternmatcher v0.6.0
@@ -27,6 +27,8 @@ require (
 	golang.org/x/mod v0.33.0
 	google.golang.org/protobuf v1.36.11
 )
+
+require github.com/mackerelio/go-osstat v0.2.7 // indirect
 
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260209202127-80ab13bee0bf.1 // indirect
@@ -60,7 +62,7 @@ require (
 	github.com/frostbyte73/core v0.1.1
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/gammazero/deque v1.2.1
-	github.com/go-jose/go-jose/v3 v3.0.4 // indirect
+	github.com/go-jose/go-jose/v3 v3.0.5 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/gofrs/flock v0.13.0 // indirect
@@ -136,7 +138,7 @@ require (
 	golang.org/x/exp v0.0.0-20260212183809-81e46e3db34a // indirect
 	golang.org/x/net v0.50.0 // indirect
 	golang.org/x/sync v0.19.0
-	golang.org/x/sys v0.41.0 // indirect
+	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/text v0.34.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 	golang.org/x/tools v0.42.0 // indirect
