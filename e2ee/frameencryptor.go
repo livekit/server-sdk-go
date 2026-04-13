@@ -1,0 +1,160 @@
+package e2ee
+
+import (
+	"bytes"
+	"crypto/aes"
+	"crypto/cipher"
+	"fmt"
+	"sync"
+	"sync/atomic"
+
+	"github.com/livekit/server-sdk-go/v2/e2ee/types"
+)
+
+// EncryptFunc matches the signature of lksdk.EncryptGCM*SampleCustomCipher functions.
+// Used to inject codec-specific encryption without importing lksdk (avoids circular dep).
+type EncryptFunc func(payload []byte, kid uint8, cipherBlock cipher.Block) ([]byte, error)
+
+// DecryptFunc matches the signature of lksdk.DecryptGCM*SampleCustomCipher functions.
+type DecryptFunc func(payload, sifTrailer []byte, cipherBlock cipher.Block) ([]byte, error)
+
+// cipherState holds a cached cipher block and the key index it was derived from.
+// Stored via atomic.Pointer for lock-free reads on the hot path.
+type cipherState struct {
+	block    cipher.Block
+	keyIndex uint32
+}
+
+// GCMFrameEncryptor encrypts media frames using AES-128-GCM.
+// It wraps a KeyProvider and a codec-specific EncryptFunc, caching the
+// cipher block via atomic.Pointer for zero-contention on the hot path.
+// A mutex is only taken on the rare key rotation path.
+type GCMFrameEncryptor struct {
+	keyProvider types.KeyProvider
+	encryptFn   EncryptFunc
+	state       atomic.Pointer[cipherState]
+	rotateMu    sync.Mutex // only held during key rotation
+}
+
+// NewGCMFrameEncryptor creates a frame encryptor for the given key provider and
+// codec-specific encrypt function.
+func NewGCMFrameEncryptor(keyProvider types.KeyProvider, encryptFn EncryptFunc) (*GCMFrameEncryptor, error) {
+	idx := keyProvider.CurrentKeyIndex()
+	key, err := keyProvider.GetKey(idx)
+	if err != nil {
+		return nil, fmt.Errorf("get initial key: %w", err)
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, fmt.Errorf("create cipher: %w", err)
+	}
+
+	e := &GCMFrameEncryptor{
+		keyProvider: keyProvider,
+		encryptFn:   encryptFn,
+	}
+	e.state.Store(&cipherState{block: block, keyIndex: idx})
+	return e, nil
+}
+
+// EncryptFrame encrypts a complete media frame. Called from the hot path
+// (LocalTrack.WriteSample) at hundreds of frames/sec.
+func (e *GCMFrameEncryptor) EncryptFrame(payload []byte) ([]byte, error) {
+	idx := e.keyProvider.CurrentKeyIndex()
+	st := e.state.Load()
+
+	// Fast path: key index unchanged, use cached cipher block (no lock).
+	if st.keyIndex == idx {
+		return e.encryptFn(payload, uint8(idx), st.block)
+	}
+
+	// Slow path: key rotated, re-derive cipher block under mutex.
+	return e.rotateAndEncrypt(payload, idx)
+}
+
+func (e *GCMFrameEncryptor) rotateAndEncrypt(payload []byte, idx uint32) ([]byte, error) {
+	e.rotateMu.Lock()
+	defer e.rotateMu.Unlock()
+
+	// Double-check: another goroutine may have already rotated.
+	st := e.state.Load()
+	if st.keyIndex == idx {
+		return e.encryptFn(payload, uint8(idx), st.block)
+	}
+
+	key, err := e.keyProvider.GetKey(idx)
+	if err != nil {
+		return nil, fmt.Errorf("get key for index %d: %w", idx, err)
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, fmt.Errorf("create cipher: %w", err)
+	}
+	e.state.Store(&cipherState{block: block, keyIndex: idx})
+	return e.encryptFn(payload, uint8(idx), block)
+}
+
+// GCMFrameDecryptor decrypts media frames using AES-128-GCM.
+// It reads the KID (key index) from each frame's trailer to support
+// multi-key scenarios and key rotation.
+type GCMFrameDecryptor struct {
+	keyProvider types.KeyProvider
+	decryptFn   DecryptFunc
+	sifTrailer  []byte
+	cache       sync.Map // map[uint32]*cipherState
+}
+
+// NewGCMFrameDecryptor creates a frame decryptor for the given key provider,
+// codec-specific decrypt function, and SIF trailer bytes.
+func NewGCMFrameDecryptor(keyProvider types.KeyProvider, decryptFn DecryptFunc, sifTrailer []byte) *GCMFrameDecryptor {
+	return &GCMFrameDecryptor{
+		keyProvider: keyProvider,
+		decryptFn:   decryptFn,
+		sifTrailer:  sifTrailer,
+	}
+}
+
+// DecryptFrame decrypts a complete media frame. Returns (nil, nil) for
+// server-injected frames (SIF) that should be dropped.
+func (d *GCMFrameDecryptor) DecryptFrame(payload []byte) ([]byte, error) {
+	if len(payload) < 2 {
+		return nil, fmt.Errorf("frame too short to decrypt")
+	}
+
+	// Check for a SIF (server-injected frame) trailer before resolving a
+	// cipher block: SIFs are unencrypted, and their last byte is part of the
+	// sentinel trailer — not a key index. Trying to look up a key for that
+	// byte would fail with "no key at index N".
+	if len(d.sifTrailer) > 0 && len(payload) >= len(d.sifTrailer) {
+		if bytes.Equal(payload[len(payload)-len(d.sifTrailer):], d.sifTrailer) {
+			return nil, nil
+		}
+	}
+
+	// Read KID from the last byte of the frame trailer.
+	kid := uint32(payload[len(payload)-1])
+
+	block, err := d.getCachedBlock(kid)
+	if err != nil {
+		return nil, err
+	}
+
+	return d.decryptFn(payload, d.sifTrailer, block)
+}
+
+func (d *GCMFrameDecryptor) getCachedBlock(kid uint32) (cipher.Block, error) {
+	if v, ok := d.cache.Load(kid); ok {
+		return v.(*cipherState).block, nil
+	}
+
+	key, err := d.keyProvider.GetKey(kid)
+	if err != nil {
+		return nil, fmt.Errorf("get key for index %d: %w", kid, err)
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	d.cache.Store(kid, &cipherState{block: block, keyIndex: kid})
+	return block, nil
+}

@@ -22,6 +22,7 @@ import (
 	"github.com/livekit/mediatransportutil/pkg/pacer"
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
+	e2eetypes "github.com/livekit/server-sdk-go/v2/e2ee/types"
 	dtlsElliptic "github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/interceptor"
 	"github.com/pion/webrtc/v4"
@@ -93,8 +94,7 @@ type ConnectParams struct {
 	DTLSEllipticCurves []dtlsElliptic.Curve // FIPS 140: override default DTLS curves
 
 	// DataEncryptionKeyProvider enables data channel E2EE when set.
-	// Must implement lksdk.KeyProvider; type-asserted at join time.
-	DataEncryptionKeyProvider any
+	DataEncryptionKeyProvider e2eetypes.KeyProvider
 
 	// internal use
 	Codecs []webrtc.RTPCodecParameters

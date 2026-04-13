@@ -32,6 +32,7 @@ import (
 	protoLogger "github.com/livekit/protocol/logger"
 	protosignalling "github.com/livekit/protocol/signalling"
 
+	"github.com/livekit/server-sdk-go/v2/e2ee"
 	"github.com/livekit/server-sdk-go/v2/signalling"
 )
 
@@ -134,7 +135,7 @@ type RTCEngine struct {
 
 	joinTimeout time.Duration
 
-	dataCryptor *DataCryptor // E2EE data channel encryption (nil = disabled)
+	dataCryptor *e2ee.DataCryptor // E2EE data channel encryption (nil = disabled)
 
 	onClose     []func()
 	onCloseLock sync.Mutex

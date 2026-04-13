@@ -34,6 +34,7 @@ import (
 	protoLogger "github.com/livekit/protocol/logger"
 	protosignalling "github.com/livekit/protocol/signalling"
 
+	"github.com/livekit/server-sdk-go/v2/e2ee"
 	"github.com/livekit/server-sdk-go/v2/signalling"
 
 	"github.com/livekit/mediatransportutil/pkg/pacer"
@@ -383,8 +384,8 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 	}
 
 	// Enable data channel E2EE if a key provider was supplied.
-	if kp, ok := params.DataEncryptionKeyProvider.(KeyProvider); ok && kp != nil {
-		r.engine.dataCryptor = NewDataCryptor(kp)
+	if params.DataEncryptionKeyProvider != nil {
+		r.engine.dataCryptor = e2ee.NewDataCryptor(params.DataEncryptionKeyProvider)
 	}
 
 	isSuccess := false

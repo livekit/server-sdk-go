@@ -4,7 +4,6 @@ import (
 	"crypto/aes"
 	"testing"
 
-	"github.com/livekit/protocol/livekit"
 	"github.com/stretchr/testify/require"
 )
 
@@ -308,40 +307,13 @@ func BenchmarkEncryptH264CachedCipher(b *testing.B) {
 	}
 }
 
-func TestDataCryptorRoundTrip(t *testing.T) {
-	kp := NewExternalKeyProvider()
-	require.NoError(t, kp.SetKeyFromPassphrase(testPassphrase, 0))
-
-	dc := NewDataCryptor(kp)
-
-	// Create a DataPacket with user data.
-	original := &livekit.DataPacket{
-		Value: &livekit.DataPacket_User{
-			User: &livekit.UserPacket{Payload: []byte("hello encrypted world")},
-		},
-	}
-
-	encrypted, err := dc.Encrypt(original)
-	require.NoError(t, err)
-
-	// Should be wrapped in EncryptedPacket.
-	ep, ok := encrypted.Value.(*livekit.DataPacket_EncryptedPacket)
-	require.True(t, ok, "should be encrypted packet")
-	require.NotEmpty(t, ep.EncryptedPacket.EncryptedValue)
-	require.NotEmpty(t, ep.EncryptedPacket.Iv)
-
-	// Decrypt.
-	payload, err := dc.Decrypt(ep.EncryptedPacket)
-	require.NoError(t, err)
-
-	userPayload, ok := payload.Value.(*livekit.EncryptedPacketPayload_User)
-	require.True(t, ok)
-	require.Equal(t, []byte("hello encrypted world"), userPayload.User.Payload)
-}
-
 // ---------------------------------------------------------------------------
 // Edge case / error path tests
 // ---------------------------------------------------------------------------
+
+// DataCryptor and ExternalKeyProvider have dedicated tests in the e2ee package
+// (e2ee/datacryptor_test.go, e2ee/keyprovider_test.go). The tests below cover
+// the lksdk-root EncryptGCM*/DecryptGCM* video helpers and DeriveKey* funcs.
 
 func TestEncryptVideoNilCipher(t *testing.T) {
 	_, err := EncryptGCMH264SampleCustomCipher(makeH264Frame(7, 5), 0, nil)
@@ -370,22 +342,65 @@ func TestDecryptVideoTooShort(t *testing.T) {
 	require.Equal(t, short, result)
 }
 
-func TestSetRawKeyValidation(t *testing.T) {
-	kp := NewExternalKeyProvider()
-
-	// Wrong length.
-	err := kp.SetRawKey([]byte{1, 2, 3}, 0)
-	require.ErrorIs(t, err, ErrIncorrectKeyLength)
-
-	// Correct length (16 bytes).
-	validKey := make([]byte, 16)
-	err = kp.SetRawKey(validKey, 0)
-	require.NoError(t, err)
-}
-
 func TestDeriveKeyFromStringEmpty(t *testing.T) {
 	_, err := DeriveKeyFromString("")
 	require.ErrorIs(t, err, ErrIncorrectSecretLength)
+}
+
+// TestH264MixedStartCodes verifies that frames containing a mix of 3-byte
+// (00 00 01) and 4-byte (00 00 00 01) Annex-B start codes encrypt and
+// decrypt correctly. FFmpeg on Linux is known to emit mixed start codes;
+// this test codifies that the NormalizeStartCodes helper removed in commit
+// e8d409e is not needed because findNALUIndices tolerates both forms.
+func TestH264MixedStartCodes(t *testing.T) {
+	key, err := DeriveKeyFromString(testPassphrase)
+	require.NoError(t, err)
+
+	// Frame: SPS with 3-byte start code, PPS with 4-byte, IDR slice with 3-byte.
+	frame := []byte{
+		0x00, 0x00, 0x01, 7, 0xAA, 0xBB, 0xCC, // 3-byte + SPS
+		0x00, 0x00, 0x00, 0x01, 8, 0xDD, 0xEE, // 4-byte + PPS
+		0x00, 0x00, 0x01, 5, 0x11, 0x22, 0x33, 0x44, 0x55, // 3-byte + IDR slice
+	}
+
+	encrypted, err := EncryptGCMH264Sample(frame, key, 0)
+	require.NoError(t, err)
+	require.NotEqual(t, frame, encrypted)
+
+	decrypted, err := DecryptGCMH264Sample(encrypted, key, nil)
+	require.NoError(t, err)
+	require.Equal(t, frame, decrypted, "mixed start codes must round-trip byte-exact")
+}
+
+// TestH265MixedStartCodes is the H.265 variant of TestH264MixedStartCodes.
+func TestH265MixedStartCodes(t *testing.T) {
+	key, err := DeriveKeyFromString(testPassphrase)
+	require.NoError(t, err)
+
+	// H.265 NALU header is 2 bytes; type in bits [6:1] of byte 0.
+	// Type 32 = VPS_NUT, 33 = SPS_NUT, 19 = IDR_W_RADL (a VCL slice).
+	vpsHeader := []byte{32 << 1, 0x01}
+	spsHeader := []byte{33 << 1, 0x01}
+	idrHeader := []byte{19 << 1, 0x01}
+
+	frame := []byte{}
+	frame = append(frame, 0x00, 0x00, 0x01) // 3-byte
+	frame = append(frame, vpsHeader...)
+	frame = append(frame, 0xAA, 0xBB)
+	frame = append(frame, 0x00, 0x00, 0x00, 0x01) // 4-byte
+	frame = append(frame, spsHeader...)
+	frame = append(frame, 0xCC, 0xDD)
+	frame = append(frame, 0x00, 0x00, 0x01) // 3-byte
+	frame = append(frame, idrHeader...)
+	frame = append(frame, 0x11, 0x22, 0x33, 0x44, 0x55)
+
+	encrypted, err := EncryptGCMH265Sample(frame, key, 0)
+	require.NoError(t, err)
+	require.NotEqual(t, frame, encrypted)
+
+	decrypted, err := DecryptGCMH265Sample(encrypted, key, nil)
+	require.NoError(t, err)
+	require.Equal(t, frame, decrypted, "mixed start codes must round-trip byte-exact")
 }
 
 func BenchmarkEncryptH265CachedCipher(b *testing.B) {
