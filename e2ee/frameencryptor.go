@@ -18,17 +18,18 @@ type EncryptFunc func(payload []byte, kid uint8, cipherBlock cipher.Block) ([]by
 // DecryptFunc matches the signature of lksdk.DecryptGCM*SampleCustomCipher functions.
 type DecryptFunc func(payload, sifTrailer []byte, cipherBlock cipher.Block) ([]byte, error)
 
-// cipherState holds a cached cipher block and the key index it was derived from.
-// Stored via atomic.Pointer for lock-free reads on the hot path.
+// cipherState holds a cached cipher block and the key material it was derived from.
+// keyBytes is used by GCMFrameDecryptor to detect when the keyProvider has refreshed
+// a key at a given index and the cached block needs to be rebuilt.
 type cipherState struct {
 	block    cipher.Block
 	keyIndex uint32
+	keyBytes []byte
 }
 
 // GCMFrameEncryptor encrypts media frames using AES-128-GCM.
 // It wraps a KeyProvider and a codec-specific EncryptFunc, caching the
-// cipher block via atomic.Pointer for zero-contention on the hot path.
-// A mutex is only taken on the rare key rotation path.
+// cipher block via atomic.Pointer and only taking a mutex during key rotation.
 type GCMFrameEncryptor struct {
 	keyProvider types.KeyProvider
 	encryptFn   EncryptFunc
@@ -57,8 +58,7 @@ func NewGCMFrameEncryptor(keyProvider types.KeyProvider, encryptFn EncryptFunc) 
 	return e, nil
 }
 
-// EncryptFrame encrypts a complete media frame. Called from the hot path
-// (LocalTrack.WriteSample) at hundreds of frames/sec.
+// EncryptFrame encrypts a complete media frame.
 func (e *GCMFrameEncryptor) EncryptFrame(payload []byte) ([]byte, error) {
 	idx := e.keyProvider.CurrentKeyIndex()
 	st := e.state.Load()
@@ -143,18 +143,23 @@ func (d *GCMFrameDecryptor) DecryptFrame(payload []byte) ([]byte, error) {
 }
 
 func (d *GCMFrameDecryptor) getCachedBlock(kid uint32) (cipher.Block, error) {
-	if v, ok := d.cache.Load(kid); ok {
-		return v.(*cipherState).block, nil
-	}
-
-	key, err := d.keyProvider.GetKey(kid)
+	currentKey, err := d.keyProvider.GetKey(kid)
 	if err != nil {
 		return nil, fmt.Errorf("get key for index %d: %w", kid, err)
 	}
-	block, err := aes.NewCipher(key)
+	if v, ok := d.cache.Load(kid); ok {
+		if s := v.(*cipherState); bytes.Equal(s.keyBytes, currentKey) {
+			return s.block, nil
+		}
+	}
+	block, err := aes.NewCipher(currentKey)
 	if err != nil {
 		return nil, err
 	}
-	d.cache.Store(kid, &cipherState{block: block, keyIndex: kid})
+	d.cache.Store(kid, &cipherState{
+		block:    block,
+		keyIndex: kid,
+		keyBytes: append([]byte(nil), currentKey...),
+	})
 	return block, nil
 }

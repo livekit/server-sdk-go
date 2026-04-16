@@ -65,9 +65,9 @@ func NewFrameDecryptor(kp e2eetypes.KeyProvider, codec Codec, sifTrailer []byte)
 func encryptFuncForCodec(codec Codec) (e2ee.EncryptFunc, error) {
 	switch codec {
 	case CodecH264:
-		return EncryptGCMH264SampleCustomCipher, nil
+		return e2ee.EncryptGCMH264SampleCustomCipher, nil
 	case CodecH265:
-		return EncryptGCMH265SampleCustomCipher, nil
+		return e2ee.EncryptGCMH265SampleCustomCipher, nil
 	case CodecOpus:
 		return EncryptGCMAudioSampleCustomCipher, nil
 	}
@@ -77,9 +77,9 @@ func encryptFuncForCodec(codec Codec) (e2ee.EncryptFunc, error) {
 func decryptFuncForCodec(codec Codec) (e2ee.DecryptFunc, error) {
 	switch codec {
 	case CodecH264:
-		return DecryptGCMH264SampleCustomCipher, nil
+		return e2ee.DecryptGCMH264SampleCustomCipher, nil
 	case CodecH265:
-		return DecryptGCMH265SampleCustomCipher, nil
+		return e2ee.DecryptGCMH265SampleCustomCipher, nil
 	case CodecOpus:
 		return DecryptGCMAudioSampleCustomCipher, nil
 	}

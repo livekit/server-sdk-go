@@ -131,6 +131,45 @@ func TestDataCryptorMultiKeyCache(t *testing.T) {
 	require.Equal(t, []byte("p0"), p0.Value.(*livekit.EncryptedPacketPayload_User).User.Payload)
 }
 
+// TestDataCryptorRebuildsOnKeyRotation ensures that after the keyProvider
+// refreshes the key at an already-cached index, a DataCryptor with a warm
+// stale cache rebuilds the cipher block from current key material rather than
+// serving the stale block.
+//
+// The scenario exercises asymmetric cache state: a "warm" cryptor has already
+// cached a block for index 0 under the old key, while a "fresh" cryptor has
+// an empty cache. After rotation, the fresh cryptor encrypts using the new
+// key; the warm cryptor must not try to decrypt using its stale cached block.
+func TestDataCryptorRebuildsOnKeyRotation(t *testing.T) {
+	kp := e2ee.NewExternalKeyProvider()
+	require.NoError(t, kp.SetRawKey(bytes16(0xAA), 0))
+
+	warm := e2ee.NewDataCryptor(kp)
+	fresh := e2ee.NewDataCryptor(kp)
+
+	// Prime the warm cryptor's cache for index 0 with a block derived from 0xAA.
+	pkt := &livekit.DataPacket{Value: &livekit.DataPacket_User{User: &livekit.UserPacket{Payload: []byte("before")}}}
+	_, err := warm.Encrypt(pkt)
+	require.NoError(t, err)
+
+	// Rotate the key at index 0 on the shared provider.
+	require.NoError(t, kp.SetRawKey(bytes16(0xBB), 0))
+
+	// Fresh cryptor has an empty cache, so it derives a block from the
+	// current key (0xBB) and produces ciphertext under the new key.
+	pkt2 := &livekit.DataPacket{Value: &livekit.DataPacket_User{User: &livekit.UserPacket{Payload: []byte("after")}}}
+	enc2, err := fresh.Encrypt(pkt2)
+	require.NoError(t, err)
+
+	// The warm cryptor still has a block for 0xAA cached at index 0. Without
+	// the keyBytes comparison in getCipherBlock, it would serve the stale
+	// block and fail to decrypt. With the fix, it observes the key bytes have
+	// changed and rebuilds from 0xBB.
+	pl2, err := warm.Decrypt(enc2.Value.(*livekit.DataPacket_EncryptedPacket).EncryptedPacket)
+	require.NoError(t, err, "warm cryptor must rebuild its cached block after key rotation")
+	require.Equal(t, []byte("after"), pl2.Value.(*livekit.EncryptedPacketPayload_User).User.Payload)
+}
+
 func newTestDataCryptor(t *testing.T) *e2ee.DataCryptor {
 	t.Helper()
 	kp := e2ee.NewExternalKeyProvider()

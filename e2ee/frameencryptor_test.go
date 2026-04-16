@@ -101,6 +101,43 @@ func TestGCMFrameDecryptorCachesPerKID(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestGCMFrameDecryptorRebuildsOnKeyRotation ensures the decryptor does not
+// serve a stale cached cipher block after the keyProvider replaces the key at
+// an already-cached index. Without the keyBytes check in getCachedBlock this
+// test fails: the second and third decrypts reuse the block derived from 0xAA.
+func TestGCMFrameDecryptorRebuildsOnKeyRotation(t *testing.T) {
+	kp := e2ee.NewExternalKeyProvider()
+	require.NoError(t, kp.SetRawKey(bytes16(0xAA), 0))
+
+	var capturedBlocks []cipher.Block
+	capturingDecrypt := func(payload, _ []byte, block cipher.Block) ([]byte, error) {
+		capturedBlocks = append(capturedBlocks, block)
+		if len(payload) < 1 {
+			return nil, nil
+		}
+		return payload[1:], nil
+	}
+
+	dec := e2ee.NewGCMFrameDecryptor(kp, capturingDecrypt, nil)
+
+	frame := []byte{0x00, 'p', 0x00}
+	_, err := dec.DecryptFrame(frame)
+	require.NoError(t, err)
+	_, err = dec.DecryptFrame(frame)
+	require.NoError(t, err)
+	require.Same(t, capturedBlocks[0], capturedBlocks[1],
+		"repeated decrypts with the same key should reuse the cached block")
+
+	// Replace the key at index 0 with different bytes. The cached block for
+	// kid=0 is now stale and must be rebuilt.
+	require.NoError(t, kp.SetRawKey(bytes16(0xBB), 0))
+
+	_, err = dec.DecryptFrame(frame)
+	require.NoError(t, err)
+	require.NotSame(t, capturedBlocks[0], capturedBlocks[2],
+		"decryptor must rebuild the cipher block after key rotation at the same index")
+}
+
 func TestGCMFrameDecryptorUnknownKID(t *testing.T) {
 	kp := e2ee.NewExternalKeyProvider()
 	require.NoError(t, kp.SetRawKey(bytes16(0xAA), 0))

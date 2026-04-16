@@ -11,5 +11,8 @@ const (
 )
 
 var (
-	ErrIncorrectKeyLength = errors.New("incorrect key length for encryption/decryption")
+	ErrIncorrectKeyLength  = errors.New("incorrect key length for encryption/decryption")
+	ErrUnableGenerateIV    = errors.New("unable to generate iv for encryption")
+	ErrIncorrectIVLength   = errors.New("incorrect iv length")
+	ErrBlockCipherRequired = errors.New("input block cipher cannot be nil")
 )

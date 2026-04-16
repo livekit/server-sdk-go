@@ -23,8 +23,7 @@ const (
 )
 
 // TrackDecryptor reassembles RTP packets from a remote track into complete
-// media frames, then decrypts each frame. Incomplete frames (from packet
-// loss) are silently dropped rather than being fed to the GCM decryptor.
+// media frames, then decrypts each frame.
 type TrackDecryptor struct {
 	track     *webrtc.TrackRemote
 	decryptor types.FrameDecryptor
@@ -65,9 +64,7 @@ func (td *TrackDecryptor) ReadSample() (*media.Sample, error) {
 		if sample != nil {
 			decrypted, err := td.decryptor.DecryptFrame(sample.Data)
 			if err != nil {
-				// GCM auth failed — likely a partial/corrupt frame.
-				// Drop it and continue reading.
-				continue
+				return nil, fmt.Errorf("decrypt frame: %w", err)
 			}
 			if decrypted == nil {
 				// Server-injected frame, skip it.

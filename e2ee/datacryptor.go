@@ -1,6 +1,7 @@
 package e2ee
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -18,11 +19,19 @@ const (
 	ivLength = types.IVLength
 )
 
+// dataCipherState holds a cached cipher block along with the key material it
+// was derived from, so the cache can detect when the keyProvider has refreshed
+// a key at a given index and rebuild the block.
+type dataCipherState struct {
+	block    cipher.Block
+	keyBytes []byte
+}
+
 // DataCryptor handles encryption and decryption of data channel messages.
 // It mirrors the JS SDK's DataCryptor class, using AES-128-GCM with no AAD.
 type DataCryptor struct {
 	keyProvider types.KeyProvider
-	cipherCache map[uint32]cipher.Block
+	cipherCache map[uint32]*dataCipherState
 	mu          sync.RWMutex
 }
 
@@ -30,7 +39,7 @@ type DataCryptor struct {
 func NewDataCryptor(keyProvider types.KeyProvider) *DataCryptor {
 	return &DataCryptor{
 		keyProvider: keyProvider,
-		cipherCache: make(map[uint32]cipher.Block),
+		cipherCache: make(map[uint32]*dataCipherState),
 	}
 }
 
@@ -109,26 +118,32 @@ func (dc *DataCryptor) Decrypt(ep *livekit.EncryptedPacket) (*livekit.EncryptedP
 	return payload, nil
 }
 
-// getCipherBlock returns a cached or new AES cipher block for the given key index.
+// getCipherBlock returns an AES cipher block for the given key index. If the
+// keyProvider has refreshed the key since we last cached it, the cached block
+// is rebuilt from the current key material.
 func (dc *DataCryptor) getCipherBlock(keyIndex uint32) (cipher.Block, error) {
-	dc.mu.RLock()
-	if block, ok := dc.cipherCache[keyIndex]; ok {
-		dc.mu.RUnlock()
-		return block, nil
-	}
-	dc.mu.RUnlock()
-
-	key, err := dc.keyProvider.GetKey(keyIndex)
+	currentKey, err := dc.keyProvider.GetKey(keyIndex)
 	if err != nil {
 		return nil, err
 	}
-	block, err := aes.NewCipher(key)
+
+	dc.mu.RLock()
+	if s, ok := dc.cipherCache[keyIndex]; ok && bytes.Equal(s.keyBytes, currentKey) {
+		dc.mu.RUnlock()
+		return s.block, nil
+	}
+	dc.mu.RUnlock()
+
+	block, err := aes.NewCipher(currentKey)
 	if err != nil {
 		return nil, err
 	}
 
 	dc.mu.Lock()
-	dc.cipherCache[keyIndex] = block
+	dc.cipherCache[keyIndex] = &dataCipherState{
+		block:    block,
+		keyBytes: append([]byte(nil), currentKey...),
+	}
 	dc.mu.Unlock()
 	return block, nil
 }
