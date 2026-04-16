@@ -565,13 +565,14 @@ func TestSimulcastCodec(t *testing.T) {
 
 }
 
-// TestE2EE_AudioRoundTrip verifies that publishing an encrypted audio track
-// flows through the SFU: the track is received by the subscriber, the
-// encryption metadata survives signaling, and the e2ee API (key provider,
-// frame decryptor, SIF trailer) composes without error. It also exercises
-// key rotation via SetRawKey at the same key index, which guards against the
-// stale-cache bug fixed in GCMFrameDecryptor/DataCryptor.
-func TestE2EE_AudioRoundTrip(t *testing.T) {
+// TestE2EE_H264RoundTrip verifies that publishing an H.264 video track flagged
+// for GCM e2ee flows through the SFU end-to-end: the track is received by the
+// subscriber, Encryption_GCM metadata survives signaling, and the e2ee API
+// (key provider, frame decryptor, SIF trailer) composes without error for the
+// H.264 codec path added in this branch. It also exercises key rotation via
+// SetKeyFromPassphrase at the same key index, guarding against the stale-cache
+// bug in GCMFrameDecryptor/DataCryptor.
+func TestE2EE_H264RoundTrip(t *testing.T) {
 	const passphrase = "e2ee-integration-test"
 	const keyIndex uint32 = 0
 
@@ -584,25 +585,26 @@ func TestE2EE_AudioRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	defer pub.Disconnect()
 
-	audioTrackName := "audio_e2ee"
+	videoTrackName := "video_e2ee_h264"
 	var (
-		trackReceived   atomic.Bool
-		encryptionSeen  atomic.Value // holds livekit.Encryption_Type
-		decryptorBuilt  atomic.Bool
+		trackReceived  atomic.Bool
+		encryptionSeen atomic.Value // holds livekit.Encryption_Type
+		decryptorBuilt atomic.Bool
 	)
 
 	subCB := &RoomCallback{
 		ParticipantCallback: ParticipantCallback{
 			OnTrackSubscribed: func(track *webrtc.TrackRemote, publication *RemoteTrackPublication, rp *RemoteParticipant) {
-				if publication.Name() != audioTrackName {
+				if publication.Name() != videoTrackName {
 					return
 				}
 				encryptionSeen.Store(publication.TrackInfo().GetEncryption())
 
 				// Exercise the public e2ee decryptor API against the shared
-				// key provider. We don't read samples from the track here —
-				// the goal is to prove the API composes with a live track.
-				dec, err := NewFrameDecryptor(kpSub, CodecOpus, nil)
+				// key provider using the H.264 codec path. We don't read
+				// samples here — the goal is to prove the API composes with
+				// a live H.264 track.
+				dec, err := NewFrameDecryptor(kpSub, CodecH264, nil)
 				require.NoError(t, err)
 				require.NotNil(t, dec)
 				decryptorBuilt.Store(true)
@@ -615,28 +617,29 @@ func TestE2EE_AudioRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	defer sub.Disconnect()
 
-	// Publish an Opus track flagged as GCM-encrypted.
-	track, err := NewLocalTrack(webrtc.RTPCodecCapability{
-		MimeType:  webrtc.MimeTypeOpus,
-		ClockRate: 48000,
-		Channels:  2,
-	})
+	// Publish an H.264 track flagged as GCM-encrypted. The SampleTestProvider
+	// feeds minimal H.264 Annex-B key frames (H264KeyFrame2x2), same shape as
+	// the existing simulcast/video tests.
+	h264Codec := webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264, ClockRate: 90000}
+	track, err := NewLocalTrack(h264Codec)
 	require.NoError(t, err)
-	provider := NewSampleTestProvider(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus})
+	provider := NewSampleTestProvider(h264Codec)
 	track.OnBind(func() {
 		if err := track.StartWrite(provider, func() {}); err != nil {
 			track.log.Errorw("e2ee test: write failed", err)
 		}
 	})
 	_, err = pub.LocalParticipant.PublishTrack(track, &TrackPublicationOptions{
-		Name:       audioTrackName,
-		Encryption: livekit.Encryption_GCM,
+		Name:        videoTrackName,
+		Encryption:  livekit.Encryption_GCM,
+		VideoWidth:  2,
+		VideoHeight: 2,
 	})
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool { return trackReceived.Load() }, 10*time.Second, 100*time.Millisecond,
-		"subscriber should receive the encrypted track")
-	require.True(t, decryptorBuilt.Load(), "frame decryptor must construct against the shared key provider")
+		"subscriber should receive the encrypted H.264 track")
+	require.True(t, decryptorBuilt.Load(), "H.264 frame decryptor must construct against the shared key provider")
 
 	gotEncryption, _ := encryptionSeen.Load().(livekit.Encryption_Type)
 	require.Equal(t, livekit.Encryption_GCM, gotEncryption,
@@ -647,10 +650,10 @@ func TestE2EE_AudioRoundTrip(t *testing.T) {
 	require.NoError(t, kpPub.SetKeyFromPassphrase(passphrase+"-rotated", keyIndex))
 	require.NoError(t, kpSub.SetKeyFromPassphrase(passphrase+"-rotated", keyIndex))
 
-	// After rotation, constructing a fresh decryptor must still succeed and
-	// resolve the current key. This confirms the rotated key is live in the
+	// After rotation, constructing a fresh H.264 decryptor must still succeed
+	// and resolve the current key. Confirms the rotated key is live in the
 	// provider and downstream consumers can pick it up.
-	dec, err := NewFrameDecryptor(kpSub, CodecOpus, nil)
+	dec, err := NewFrameDecryptor(kpSub, CodecH264, nil)
 	require.NoError(t, err)
 	require.NotNil(t, dec)
 }
