@@ -1,3 +1,17 @@
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package e2ee
 
 import (
@@ -13,10 +27,6 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/livekit/server-sdk-go/v2/e2ee/types"
-)
-
-const (
-	ivLength = types.IVLength
 )
 
 // dataCipherState holds a cached cipher block along with the key material it
@@ -63,12 +73,12 @@ func (dc *DataCryptor) Encrypt(pck *livekit.DataPacket) (*livekit.DataPacket, er
 		return nil, fmt.Errorf("get cipher: %w", err)
 	}
 
-	aesGCM, err := cipher.NewGCMWithNonceSize(block, ivLength)
+	aesGCM, err := cipher.NewGCMWithNonceSize(block, types.IVLength)
 	if err != nil {
 		return nil, err
 	}
 
-	iv := make([]byte, ivLength)
+	iv := make([]byte, types.IVLength)
 	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
 		return nil, fmt.Errorf("generate IV: %w", err)
 	}

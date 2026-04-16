@@ -569,9 +569,8 @@ func TestSimulcastCodec(t *testing.T) {
 // for GCM e2ee flows through the SFU end-to-end: the track is received by the
 // subscriber, Encryption_GCM metadata survives signaling, and the e2ee API
 // (key provider, frame decryptor, SIF trailer) composes without error for the
-// H.264 codec path added in this branch. It also exercises key rotation via
-// SetKeyFromPassphrase at the same key index, guarding against the stale-cache
-// bug in GCMFrameDecryptor/DataCryptor.
+// H.264 codec path. It also exercises key rotation via SetKeyFromPassphrase at
+// the same key index.
 func TestE2EE_H264RoundTrip(t *testing.T) {
 	const passphrase = "e2ee-integration-test"
 	const keyIndex uint32 = 0

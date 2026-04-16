@@ -634,7 +634,11 @@ func (e *RTCEngine) handleDataPacket(msg webrtc.DataChannelMessage) {
 	}
 
 	// Decrypt if data channel E2EE is enabled and this is an encrypted packet.
-	if ep, ok := packet.Value.(*livekit.DataPacket_EncryptedPacket); ok && e.dataCryptor != nil {
+	if ep, ok := packet.Value.(*livekit.DataPacket_EncryptedPacket); ok {
+		if e.dataCryptor == nil {
+			e.log.Errorw("received encrypted data packet but no data cryptor is configured, dropping packet", nil)
+			return
+		}
 		payload, err := e.dataCryptor.Decrypt(ep.EncryptedPacket)
 		if err != nil {
 			e.log.Warnw("data decryption failed, dropping packet", err)

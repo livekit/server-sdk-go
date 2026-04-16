@@ -111,6 +111,13 @@ func TestH264MixedStartCodes(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, frame, encrypted)
 
+	// SPS/PPS and the first 2 bytes of the IDR NALU (1-byte header + 1 byte)
+	// must pass through unmodified so an SFU can still parse the stream.
+	// Layout: 3 (start) + 1 (SPS) + 3 + 4 (start) + 1 (PPS) + 2 + 3 (start) + 2 (IDR hdr+1) = 19.
+	const unencryptedEnd = 19
+	require.Equal(t, frame[:unencryptedEnd], encrypted[:unencryptedEnd],
+		"SPS/PPS and IDR NALU prefix must remain cleartext")
+
 	decrypted, err := e2ee.DecryptGCMH264Sample(encrypted, key, nil)
 	require.NoError(t, err)
 	require.Equal(t, frame, decrypted, "mixed start codes must round-trip byte-exact")
