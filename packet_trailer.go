@@ -45,13 +45,24 @@ type FrameMetadata struct {
 // Wire layout:
 //
 //	[original data]
-//	[TLV: tag=0x01 ^ 0xFF, len=8 ^ 0xFF, 8-byte BE timestamp ^ 0xFF]
-//	[TLV: tag=0x02 ^ 0xFF, len=4 ^ 0xFF, 4-byte BE frame_id ^ 0xFF]  (omitted when frameId == 0)
+//	[TLV: tag=0x01 ^ 0xFF, len=8 ^ 0xFF, 8-byte BE timestamp ^ 0xFF]  (omitted when UserTimestampUs == 0)
+//	[TLV: tag=0x02 ^ 0xFF, len=4 ^ 0xFF, 4-byte BE frame_id ^ 0xFF]   (omitted when FrameId == 0)
 //	[trailer_len ^ 0xFF]
 //	[magic "LKTS" raw]
+//
+// When both UserTimestampUs and FrameId are zero, no trailer is appended and
+// the original data is returned unchanged.
 func appendPacketTrailer(data []byte, meta FrameMetadata) []byte {
+	hasTimestamp := meta.UserTimestampUs != 0
 	hasFrameId := meta.FrameId != 0
-	trailerLen := timestampTlvSize + trailerEnvelopeSize
+	if !hasTimestamp && !hasFrameId {
+		return data
+	}
+
+	trailerLen := trailerEnvelopeSize
+	if hasTimestamp {
+		trailerLen += timestampTlvSize
+	}
 	if hasFrameId {
 		trailerLen += frameIdTlvSize
 	}
@@ -60,11 +71,13 @@ func appendPacketTrailer(data []byte, meta FrameMetadata) []byte {
 	copy(out, data)
 	pos := len(data)
 
-	// TLV: timestamp_us
-	out[pos] = byte(tagTimestampUs) ^ 0xFF
-	out[pos+1] = 8 ^ 0xFF
-	binary.BigEndian.PutUint64(out[pos+2:], ^meta.UserTimestampUs)
-	pos += timestampTlvSize
+	// TLV: timestamp_us (only when non-zero)
+	if hasTimestamp {
+		out[pos] = byte(tagTimestampUs) ^ 0xFF
+		out[pos+1] = 8 ^ 0xFF
+		binary.BigEndian.PutUint64(out[pos+2:], ^meta.UserTimestampUs)
+		pos += timestampTlvSize
+	}
 
 	// TLV: frame_id (only when non-zero)
 	if hasFrameId {

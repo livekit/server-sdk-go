@@ -56,17 +56,36 @@ func TestAppendParseRoundTrip_WithFrameId(t *testing.T) {
 	}
 }
 
-func TestAppendParseRoundTrip_ZeroTimestamp(t *testing.T) {
+func TestAppendParseRoundTrip_ZeroTimestampWithFrameId(t *testing.T) {
+	// With UserTimestampUs==0 the timestamp TLV is omitted, but a non-zero
+	// FrameId still produces a valid trailer.
 	payload := []byte{0xFF, 0xFF}
-	meta := FrameMetadata{UserTimestampUs: 0}
+	meta := FrameMetadata{UserTimestampUs: 0, FrameId: 99}
 
 	result := appendPacketTrailer(payload, meta)
 	got, ok := parsePacketTrailer(result)
 	if !ok {
-		t.Fatal("parsePacketTrailer returned false for zero timestamp")
+		t.Fatal("parsePacketTrailer returned false for zero timestamp with frame_id")
 	}
 	if got.UserTimestampUs != 0 {
-		t.Fatalf("expected 0, got %d", got.UserTimestampUs)
+		t.Fatalf("expected timestamp 0, got %d", got.UserTimestampUs)
+	}
+	if got.FrameId != 99 {
+		t.Fatalf("expected frame_id 99, got %d", got.FrameId)
+	}
+}
+
+func TestAppendPacketTrailer_AllZero_NoTrailer(t *testing.T) {
+	// With both UserTimestampUs==0 and FrameId==0 the input must be
+	// returned unchanged (no trailer appended).
+	payload := []byte{0x11, 0x22, 0x33}
+	result := appendPacketTrailer(payload, FrameMetadata{})
+
+	if !bytes.Equal(result, payload) {
+		t.Fatalf("expected unchanged payload, got %x", result)
+	}
+	if _, ok := parsePacketTrailer(result); ok {
+		t.Fatal("parsePacketTrailer should fail on untrailered data")
 	}
 }
 

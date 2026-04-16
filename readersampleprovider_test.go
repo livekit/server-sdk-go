@@ -362,6 +362,7 @@ func TestH265NextSample_WithUserTimestamp(t *testing.T) {
 		Mime:                webrtc.MimeTypeH265,
 		reader:              r,
 		appendUserTimestamp: true,
+		appendFrameId:       true,
 	}
 	if err := p.OnBind(); err != nil {
 		t.Fatalf("OnBind: %v", err)
