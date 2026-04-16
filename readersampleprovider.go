@@ -354,6 +354,12 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 		if nalUnitType == h264reader.NalUnitTypeSEI {
 			if p.appendUserTimestamp || p.appendFrameId {
 				if meta, ok := parseH264SEIPacketTrailer(nalUnitData); ok {
+					if !p.appendUserTimestamp {
+						meta.UserTimestampUs = 0
+					}
+					if !p.appendFrameId {
+						meta.FrameId = 0
+					}
 					p.pendingFrameMetadata = meta
 					p.hasPendingFrameMeta = true
 				}
@@ -432,6 +438,12 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 			if nal.NalUnitType == 39 { // prefix SEI
 				if p.appendUserTimestamp || p.appendFrameId {
 					if meta, ok := parseH265SEIPacketTrailer(nal.Data); ok {
+						if !p.appendUserTimestamp {
+							meta.UserTimestampUs = 0
+						}
+						if !p.appendFrameId {
+							meta.FrameId = 0
+						}
 						p.pendingFrameMetadata = meta
 						p.hasPendingFrameMeta = true
 					}
