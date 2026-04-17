@@ -75,9 +75,10 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 	kind := KindFromRTPType(track.Kind())
 	// default sources, since clients generally look for camera/mic
 	if opts.Source == livekit.TrackSource_UNKNOWN {
-		if kind == TrackKindVideo {
+		switch kind {
+		case TrackKindVideo:
 			opts.Source = livekit.TrackSource_CAMERA
-		} else if kind == TrackKindAudio {
+		case TrackKindAudio:
 			opts.Source = livekit.TrackSource_MICROPHONE
 		}
 	}
@@ -120,7 +121,7 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 			if tr.Sender() == sender {
 				codecs := append([]webrtc.RTPCodecParameters{}, sender.GetParameters().Codecs...)
 				for i, c := range codecs {
-					if strings.EqualFold(c.RTPCodecCapability.MimeType, primaryCodec.MimeType) {
+					if strings.EqualFold(c.MimeType, primaryCodec.MimeType) {
 						codecs[0], codecs[i] = codecs[i], codecs[0]
 						break
 					}
@@ -447,7 +448,7 @@ func (p *LocalParticipant) publishAdditionalCodecForTrack(trackPublication *Loca
 			if tr.Sender() == sender {
 				codecs := append([]webrtc.RTPCodecParameters{}, sender.GetParameters().Codecs...)
 				for i, c := range codecs {
-					if strings.EqualFold(c.RTPCodecCapability.MimeType, mainTrack.Codec().MimeType) {
+					if strings.EqualFold(c.MimeType, mainTrack.Codec().MimeType) {
 						codecs[0], codecs[i] = codecs[i], codecs[0]
 						break
 					}

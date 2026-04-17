@@ -40,6 +40,8 @@ import (
 	"github.com/livekit/protocol/auth"
 	protoCodecs "github.com/livekit/protocol/codecs"
 	"github.com/livekit/protocol/livekit"
+
+	dtlsElliptic "github.com/pion/dtls/v3/pkg/crypto/elliptic"
 )
 
 var (
@@ -192,6 +194,21 @@ func WithCodecs(codecs []livekit.Codec) ConnectOption {
 			pCodecs = append(pCodecs, protoCodecs.ToWebrtcCodecParameters(&codecs[i]))
 		}
 		p.Codecs = pCodecs
+	}
+}
+
+// WithDTLSEllipticCurves configures the DTLS elliptic curves used for key exchange.
+// Use this on FIPS 140-enabled systems to specify NIST-approved curves (e.g. P-256, P-384)
+// instead of the default X25519.
+func WithDTLSEllipticCurves(curves ...dtlsElliptic.Curve) ConnectOption {
+	return func(p *signalling.ConnectParams) {
+		p.DTLSEllipticCurves = curves
+	}
+}
+
+func WithLogger(l protoLogger.Logger) ConnectOption {
+	return func(p *signalling.ConnectParams) {
+		p.Logger = l
 	}
 }
 
@@ -350,27 +367,31 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 		opt(params)
 	}
 
+	if params.Logger != nil {
+		r.SetLogger(params.Logger)
+	}
+
 	isSuccess := false
 	cloudHostname, _ := parseCloudURL(url)
 	if !params.DisableRegionDiscovery && cloudHostname != "" {
 		if err := r.regionURLProvider.RefreshRegionSettings(cloudHostname, token); err != nil {
-			logger.Errorw("failed to get best url", err)
+			r.log.Errorw("failed to get best url", err)
 		} else {
 			for tries := uint(0); !isSuccess; tries++ {
 				bestURL, err := r.regionURLProvider.PopBestURL(cloudHostname, token)
 				if err != nil {
-					logger.Errorw("failed to get best url", err)
+					r.log.Errorw("failed to get best url", err)
 					break
 				}
 
-				logger.Debugw("RTC engine joining room", "url", bestURL, "connectTimeout", params.ConnectTimeout)
+				r.log.Debugw("RTC engine joining room", "url", bestURL, "connectTimeout", params.ConnectTimeout)
 				callCtx, cancelCallCtx := context.WithTimeout(ctx, params.ConnectTimeout)
 				isSuccess, err = r.engine.JoinContext(callCtx, bestURL, token, params)
 				cancelCallCtx()
 				if err != nil {
 					// try the next URL with exponential backoff
 					d := time.Duration(1<<min(tries, 6)) * 100 * time.Millisecond // max 6.4 seconds
-					logger.Errorw(
+					r.log.Errorw(
 						"failed to join room", err,
 						"retrying in", d,
 						"url", bestURL,

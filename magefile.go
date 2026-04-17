@@ -19,6 +19,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -93,6 +94,14 @@ func getLocalIPAddresses() ([]string, error) {
 		return loopBacks, nil
 	}
 	return nil, fmt.Errorf("could not find local IP address")
+}
+
+// runs golangci-lint
+func Lint() error {
+	if _, err := exec.LookPath("golangci-lint"); err != nil {
+		return errors.New("golangci-lint is not installed, install instructions: https://golangci-lint.run/docs/welcome/install/")
+	}
+	return mageutil.Run(context.Background(), "golangci-lint run ./...")
 }
 
 func Test() error {

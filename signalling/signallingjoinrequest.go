@@ -42,7 +42,7 @@ type signallingJoinRequest struct {
 
 func NewSignallingJoinRequest(params SignallingJoinRequestParams) Signalling {
 	return &signallingJoinRequest{
-		signallingBase: newSignallingBase(signallingBaseParams{Logger: params.Logger}),
+		signallingBase: newSignallingBase(signallingBaseParams(params)),
 	}
 }
 

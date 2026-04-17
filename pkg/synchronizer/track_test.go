@@ -18,11 +18,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 	"github.com/stretchr/testify/require"
 
 	"github.com/livekit/media-sdk/jitter"
+	"github.com/livekit/mediatransportutil"
+	"github.com/livekit/mediatransportutil/pkg/latency"
 	"github.com/livekit/protocol/logger"
 	"github.com/livekit/protocol/utils/mono"
 	"github.com/livekit/protocol/utils/rtputil"
@@ -45,12 +48,16 @@ func (f fakeTrack) SSRC() webrtc.SSRC         { return 1234 }
 
 func newTSForTests(tc *testing.T, clockRate uint32, kind webrtc.RTPCodecType) *TrackSynchronizer {
 	t := &TrackSynchronizer{
-		sync:               nil, // construct directly to avoid depending on Synchronizer
-		track:              fakeTrack{id: "t", rate: clockRate, kind: kind},
-		logger:             logger.NewTestLogger(tc),
-		RTPConverter:       rtputil.NewRTPConverter(int64(clockRate)),
-		maxTsDiff:          200 * time.Millisecond,
-		maxDriftAdjustment: 5 * time.Millisecond,
+		sync:                 nil, // construct directly to avoid depending on Synchronizer
+		track:                fakeTrack{id: "t", rate: clockRate, kind: kind},
+		logger:               logger.NewTestLogger(tc),
+		RTPConverter:         rtputil.NewRTPConverter(int64(clockRate)),
+		maxTsDiff:            200 * time.Millisecond,
+		maxDriftAdjustment:   5 * time.Millisecond,
+		senderReportSyncMode: SenderReportSyncModeWithoutRebase,
+		propagationDelayEstimator: latency.NewOWDEstimator(
+			latency.OWDEstimatorParamsDefault,
+		),
 	}
 	// set a stable startTime well in the past to make time.Since(startTime) > 0
 	t.startTime = time.Now().Add(-150 * time.Millisecond)
@@ -158,7 +165,7 @@ func TestGetPTSWithoutRebase_NegativeAdjustedPTS(t *testing.T) {
 	stepTS := ts.ToRTP(10 * time.Millisecond)
 	secondPacket := jitter.ExtPacket{
 		Packet: &rtp.Packet{
-			Header:  rtp.Header{Timestamp: firstPacket.Packet.Timestamp + stepTS, SequenceNumber: 2},
+			Header:  rtp.Header{Timestamp: firstPacket.Timestamp + stepTS, SequenceNumber: 2},
 			Payload: []byte{0x02},
 		},
 		ReceivedAt: firstReceivedAt.Add(10 * time.Millisecond),
@@ -193,7 +200,7 @@ func TestInitializeUsesBufferedPacketTiming(t *testing.T) {
 func TestGetPTSWithRebase_PropelsForward(t *testing.T) {
 	clock := uint32(48000)
 	ts := newTSForTests(t, clock, webrtc.RTPCodecTypeAudio)
-	ts.rtcpSenderReportRebaseEnabled = true
+	ts.senderReportSyncMode = SenderReportSyncModeRebase
 
 	ts.maxTsDiff = 30 * time.Millisecond
 
@@ -230,6 +237,84 @@ func TestGetPTSWithRebase_PropelsForward(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, want, adj2)
+}
+
+func TestExpectedAdjustedPTSAtSenderReport_UsesBaseOffset(t *testing.T) {
+	ts := newTSForTests(t, 48000, webrtc.RTPCodecTypeAudio)
+	ts.startTime = time.Unix(0, 1_000_000_000)
+	ts.basePTSOffset = 100 * time.Millisecond
+
+	got := ts.expectedAdjustedPTSAtSenderReport(ts.startTime.Add(600 * time.Millisecond).UnixNano())
+	require.Equal(t, 700*time.Millisecond, got)
+}
+
+func TestApplyOneShotDriftCorrection_SkipsWithoutDeadline(t *testing.T) {
+	ts := newTSForTests(t, 48000, webrtc.RTPCodecTypeAudio)
+	ts.currentPTSOffset = 25 * time.Millisecond
+	ts.desiredPTSOffset = 25 * time.Millisecond
+
+	ts.applyOneShotDriftCorrection(
+		600*time.Millisecond,
+		50*time.Millisecond,
+		650*time.Millisecond,
+		0,
+		false,
+		&augmentedSenderReport{},
+	)
+
+	require.Equal(t, 25*time.Millisecond, ts.currentPTSOffset)
+	require.Equal(t, 25*time.Millisecond, ts.desiredPTSOffset)
+	require.EqualValues(t, 0, ts.stats.numOneShotCorrections)
+}
+
+func TestApplyOneShotDriftCorrection_AcceptsCandidateSlightlyAboveOneDelay(t *testing.T) {
+	ts := newTSForTests(t, 48000, webrtc.RTPCodecTypeAudio)
+	ts.currentPTSOffset = 0
+	ts.desiredPTSOffset = 0
+	ts.maxMediaRunningTimeDelay = 100 * time.Millisecond
+
+	deadline := 500 * time.Millisecond
+	// candidateAdjustedPTS = ptsSR + (currentPTSOffset + drift) = 600 + (0 + 50) = 650ms
+	// Above deadline+1*delay (600ms) but within deadline+2*delay (700ms) — should be accepted.
+	ptsSR := 600 * time.Millisecond
+	drift := 50 * time.Millisecond
+
+	ts.applyOneShotDriftCorrection(
+		ptsSR,
+		drift,
+		ptsSR+ts.currentPTSOffset,
+		deadline,
+		true,
+		&augmentedSenderReport{},
+	)
+
+	require.Equal(t, drift, ts.currentPTSOffset, "correction should be applied")
+	require.EqualValues(t, 1, ts.stats.numOneShotCorrections)
+}
+
+func TestApplyOneShotDriftCorrection_RejectsAboveTwoDelays(t *testing.T) {
+	ts := newTSForTests(t, 48000, webrtc.RTPCodecTypeAudio)
+	ts.currentPTSOffset = 0
+	ts.desiredPTSOffset = 0
+	ts.maxMediaRunningTimeDelay = 100 * time.Millisecond
+
+	deadline := 500 * time.Millisecond
+	// candidateAdjustedPTS = 600 + (0 + 150) = 750ms
+	// Above deadline+2*delay (700ms) — should be rejected.
+	ptsSR := 600 * time.Millisecond
+	drift := 150 * time.Millisecond
+
+	ts.applyOneShotDriftCorrection(
+		ptsSR,
+		drift,
+		ptsSR+ts.currentPTSOffset,
+		deadline,
+		true,
+		&augmentedSenderReport{},
+	)
+
+	require.Equal(t, time.Duration(0), ts.currentPTSOffset, "correction should be rejected")
+	require.EqualValues(t, 0, ts.stats.numOneShotCorrections)
 }
 
 func TestShouldAdjustPTS_Deadband_Suppresses(t *testing.T) {
@@ -356,7 +441,7 @@ func TestShouldAdjustPTS_AudioGating_DisabledBlocks(t *testing.T) {
 	ts := newTSForTests(t, clock, webrtc.RTPCodecTypeAudio)
 
 	// Force the path where audio gating can block adjustments:
-	ts.rtcpSenderReportRebaseEnabled = false
+	ts.senderReportSyncMode = SenderReportSyncModeWithoutRebase
 	ts.audioPTSAdjustmentsDisabled = true
 
 	ts.maxDriftAdjustment = 5 * time.Millisecond
@@ -455,4 +540,61 @@ func TestAcceptableSRDrift_FallsBackToDefault(t *testing.T) {
 
 	require.True(t, ts.acceptableSRDrift(time.Second))
 	require.False(t, ts.acceptableSRDrift(3*time.Second))
+}
+
+func TestOnSenderReportWithRebase_OneShotSkipsStartTimeAdjustmentScenario(t *testing.T) {
+	newConfiguredTS := func(mode SenderReportSyncMode) *TrackSynchronizer {
+		ts := newTSForTests(t, 48000, webrtc.RTPCodecTypeAudio)
+		ts.senderReportSyncMode = mode
+		ts.oneShotDriftCorrectionThreshold = time.Second
+		// Make RTP progression (~120ms) run far ahead of wall time since start (~20ms), which makes rebase mode pull startTime earlier.
+		ts.startTime = time.Now().Add(-20 * time.Millisecond)
+		ts.basePTSOffset = 0
+		ts.currentPTSOffset = 0
+		ts.desiredPTSOffset = 0
+		ts.startRTP = 1000
+		ts.lastPTS = 120 * time.Millisecond
+		ts.lastTS = ts.startRTP + ts.ToRTP(ts.lastPTS)
+		return ts
+	}
+
+	rebase := newConfiguredTS(SenderReportSyncModeRebase)
+	rebaseBase := rebase.startTime
+	rebase.onSenderReportWithRebase(&rtcp.SenderReport{
+		SSRC:    uint32(rebase.track.SSRC()),
+		NTPTime: uint64(mediatransportutil.ToNtpTime(time.Now())),
+		RTPTime: rebase.lastTS,
+	})
+	require.True(t, rebase.startTime.Before(rebaseBase), "expected rebase mode to advance startTime earlier in this scenario")
+
+	oneShot := newConfiguredTS(SenderReportSyncModeOneShot)
+	oneShotBase := oneShot.startTime
+	oneShot.onSenderReportWithRebase(&rtcp.SenderReport{
+		SSRC:    uint32(oneShot.track.SSRC()),
+		NTPTime: uint64(mediatransportutil.ToNtpTime(time.Now())),
+		RTPTime: oneShot.lastTS,
+	})
+	require.Equal(t, oneShotBase, oneShot.startTime)
+}
+
+func TestNewSynchronizerWithOptions_NormalizesLegacySenderReportModes(t *testing.T) {
+	syncLegacy := NewSynchronizerWithOptions(WithRTCPSenderReportRebaseEnabled())
+	tsLegacy := newTrackSynchronizer(syncLegacy, fakeTrack{id: "legacy", rate: 48000, kind: webrtc.RTPCodecTypeAudio})
+	require.Equal(t, SenderReportSyncModeRebase, tsLegacy.senderReportSyncMode)
+
+	syncDefault := NewSynchronizerWithOptions()
+	tsDefault := newTrackSynchronizer(syncDefault, fakeTrack{id: "default", rate: 48000, kind: webrtc.RTPCodecTypeAudio})
+	require.Equal(t, SenderReportSyncModeWithoutRebase, tsDefault.senderReportSyncMode)
+}
+
+func TestNewSynchronizerWithOptions_ExplicitOneShotModeUsesThreshold(t *testing.T) {
+	sync := NewSynchronizerWithOptions(
+		WithSenderReportSyncMode(SenderReportSyncModeOneShot),
+		WithOneShotDriftCorrectionThreshold(100*time.Millisecond),
+	)
+	ts := newTrackSynchronizer(sync, fakeTrack{id: "explicit-one-shot", rate: 48000, kind: webrtc.RTPCodecTypeAudio})
+	require.Equal(t, SenderReportSyncModeOneShot, ts.senderReportSyncMode)
+	require.True(t, ts.usesRebasedSenderReports())
+	require.True(t, ts.usesOneShotSenderReportSync())
+	require.Equal(t, 100*time.Millisecond, ts.oneShotDriftCorrectionThreshold)
 }

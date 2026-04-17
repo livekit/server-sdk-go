@@ -64,13 +64,14 @@ type TrackSynchronizer struct {
 	startGate startGate
 
 	// config
-	maxTsDiff                     time.Duration // maximum acceptable difference between RTP packets
-	maxDriftAdjustment            time.Duration // maximum drift adjustment at a time
-	driftAdjustmentWindowPercent  float64
-	audioPTSAdjustmentsDisabled   bool // disable audio packets PTS adjustments on SRs
-	rtcpSenderReportRebaseEnabled bool
-	oldPacketThreshold            time.Duration
-	enableStartGate               bool
+	maxTsDiff                       time.Duration // maximum acceptable difference between RTP packets
+	maxDriftAdjustment              time.Duration // maximum drift adjustment at a time
+	driftAdjustmentWindowPercent    float64
+	senderReportSyncMode            SenderReportSyncMode
+	audioPTSAdjustmentsDisabled     bool          // disable audio packets PTS adjustments on SRs
+	oneShotDriftCorrectionThreshold time.Duration // used when senderReportSyncMode == SenderReportSyncModeOneShot
+	oldPacketThreshold              time.Duration
+	enableStartGate                 bool
 
 	// timing info
 	startTime        time.Time // time at initialization --> this should be when first packet is received
@@ -114,21 +115,22 @@ type TrackSynchronizer struct {
 
 func newTrackSynchronizer(s *Synchronizer, track TrackRemote) *TrackSynchronizer {
 	t := &TrackSynchronizer{
-		sync:                          s,
-		track:                         track,
-		logger:                        logger.GetLogger().WithValues("trackID", track.ID(), "codec", track.Codec().MimeType),
-		RTPConverter:                  rtputil.NewRTPConverter(int64(track.Codec().ClockRate)),
-		maxTsDiff:                     s.config.MaxTsDiff,
-		maxDriftAdjustment:            s.config.MaxDriftAdjustment,
-		driftAdjustmentWindowPercent:  s.config.DriftAdjustmentWindowPercent,
-		audioPTSAdjustmentsDisabled:   s.config.AudioPTSAdjustmentDisabled,
-		rtcpSenderReportRebaseEnabled: s.config.RTCPSenderReportRebaseEnabled,
-		oldPacketThreshold:            s.config.OldPacketThreshold,
-		enableStartGate:               s.config.EnableStartGate,
-		nextPTSAdjustmentAt:           time.Now(),
-		propagationDelayEstimator:     latency.NewOWDEstimator(latency.OWDEstimatorParamsDefault),
-		maxMediaRunningTimeDelay:      s.config.MaxMediaRunningTimeDelay,
-		lastPTSAdjustedLogBucket:      math.MaxInt64,
+		sync:                            s,
+		track:                           track,
+		logger:                          logger.GetLogger().WithValues("trackID", track.ID(), "codec", track.Codec().MimeType),
+		RTPConverter:                    rtputil.NewRTPConverter(int64(track.Codec().ClockRate)),
+		maxTsDiff:                       s.config.MaxTsDiff,
+		maxDriftAdjustment:              s.config.MaxDriftAdjustment,
+		driftAdjustmentWindowPercent:    s.config.DriftAdjustmentWindowPercent,
+		senderReportSyncMode:            s.config.SenderReportSyncMode,
+		audioPTSAdjustmentsDisabled:     s.config.AudioPTSAdjustmentDisabled,
+		oneShotDriftCorrectionThreshold: s.config.OneShotDriftCorrectionThreshold,
+		oldPacketThreshold:              s.config.OldPacketThreshold,
+		enableStartGate:                 s.config.EnableStartGate,
+		nextPTSAdjustmentAt:             time.Now(),
+		propagationDelayEstimator:       latency.NewOWDEstimator(latency.OWDEstimatorParamsDefault),
+		maxMediaRunningTimeDelay:        s.config.MaxMediaRunningTimeDelay,
+		lastPTSAdjustedLogBucket:        math.MaxInt64,
 	}
 
 	if s.config.EnableStartGate {
@@ -209,7 +211,7 @@ func (t *TrackSynchronizer) initialize(extPkt jitter.ExtPacket) {
 	t.basePTSOffset = t.desiredPTSOffset
 
 	t.startTime = receivedAt
-	t.startRTP = extPkt.Packet.Timestamp
+	t.startRTP = extPkt.Timestamp
 	t.lastPTS = 0
 	t.lastPTSAdjusted = t.currentPTSOffset
 	t.initialized = true
@@ -220,11 +222,17 @@ func (t *TrackSynchronizer) initialize(extPkt jitter.ExtPacket) {
 		"maxTsDiff", t.maxTsDiff,
 		"maxDriftAdjustment", t.maxDriftAdjustment,
 		"driftAdjustmentWindowPercent", t.driftAdjustmentWindowPercent,
+		"senderReportSyncMode", t.senderReportSyncMode.String(),
 		"audioPTSAdjustmentDisabled", t.audioPTSAdjustmentsDisabled,
-		"rtcpSenderReportRebaseEnabled", t.rtcpSenderReportRebaseEnabled,
 		"oldPacketThreshold", t.oldPacketThreshold,
 		"enableStartGate", t.enableStartGate,
 	)
+}
+
+func (t *TrackSynchronizer) LastPTSAdjusted() time.Duration {
+	t.Lock()
+	defer t.Unlock()
+	return t.lastPTSAdjusted
 }
 
 func (t *TrackSynchronizer) Close() {
@@ -238,7 +246,7 @@ func (t *TrackSynchronizer) Close() {
 // GetPTS will adjust PTS offsets if necessary
 // Packets are expected to be in order
 func (t *TrackSynchronizer) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
-	if t.rtcpSenderReportRebaseEnabled {
+	if t.usesRebasedSenderReports() {
 		return t.getPTSWithRebase(pkt)
 	} else {
 		return t.getPTSWithoutRebase(pkt)
@@ -475,7 +483,7 @@ func (t *TrackSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 		return
 	}
 
-	if t.rtcpSenderReportRebaseEnabled {
+	if t.usesRebasedSenderReports() {
 		t.onSenderReportWithRebase(pkt)
 	} else {
 		t.onSenderReportWithoutRebase(pkt)
@@ -555,6 +563,8 @@ func (t *TrackSynchronizer) onSenderReportWithoutRebase(pkt *rtcp.SenderReport) 
 }
 
 func (t *TrackSynchronizer) onSenderReportWithRebase(pkt *rtcp.SenderReport) {
+	deadline, hasDeadline := t.getSynchronizerDeadline()
+
 	t.Lock()
 	defer t.Unlock()
 
@@ -603,27 +613,36 @@ func (t *TrackSynchronizer) onSenderReportWithRebase(pkt *rtcp.SenderReport) {
 		return
 	}
 
-	// adjust the start time based on estimated propagation delay
-	// to make subsequent PTS calculations more accurate
-	adjustmentStartTimeNano := t.maybeAdjustStartTime(augmented)
-
-	// it is possible that first sender report is late, adjust down propagation delay if that is the case
-	estimatedPropagationDelay = time.Duration(t.propagationDelayEstimator.InitialAdjustment(adjustmentStartTimeNano))
-	// rebase the sender report NTP time to local clock once again after initial adjustment if any
-	augmented.receivedAtAdjusted = mediatransportutil.NtpTime(pkt.NTPTime).Time().Add(estimatedPropagationDelay).UnixNano()
-
-	// drift is based on local clock
-	drift := time.Unix(0, augmented.receivedAtAdjusted).Sub(t.startTime.Add(ptsSR))
+	var drift time.Duration
+	var expectedAdjustedPTSSR time.Duration
+	if t.usesOneShotSenderReportSync() {
+		expectedAdjustedPTSSR = t.expectedAdjustedPTSAtSenderReport(augmented.receivedAtAdjusted)
+		drift = expectedAdjustedPTSSR - (ptsSR + t.currentPTSOffset)
+	} else {
+		adjustmentStartTimeNano := t.maybeAdjustStartTime(augmented)
+		// it is possible that first sender report is late, adjust down propagation delay if that is the case
+		estimatedPropagationDelay = time.Duration(t.propagationDelayEstimator.InitialAdjustment(adjustmentStartTimeNano))
+		augmented.receivedAtAdjusted = mediatransportutil.NtpTime(pkt.NTPTime).Time().Add(estimatedPropagationDelay).UnixNano()
+		drift = time.Unix(0, augmented.receivedAtAdjusted).Sub(t.startTime.Add(ptsSR))
+	}
 	if drift > cHighDriftLoggingThreshold || drift < -cHighDriftLoggingThreshold {
-		t.logger.Debugw(
-			"high drift sender report",
+		fields := []any{
 			"receivedSR", wrappedAugmentedSenderReportLogger{augmented},
 			"state", t,
 			"PTS_SR", ptsSR,
 			"drift", drift,
-			"ptsSRTime", t.startTime.Add(ptsSR),
 			"estimatedPropagationDelay", estimatedPropagationDelay,
-		)
+		}
+		if t.usesOneShotSenderReportSync() {
+			fields = append(
+				fields,
+				"expectedAdjustedPTSSR", expectedAdjustedPTSSR,
+				"adjustedPTSSR", ptsSR+t.currentPTSOffset,
+			)
+		} else {
+			fields = append(fields, "ptsSRTime", t.startTime.Add(ptsSR))
+		}
+		t.logger.Debugw("high drift sender report", fields...)
 	}
 
 	if !t.acceptableSRDrift(drift) {
@@ -640,7 +659,16 @@ func (t *TrackSynchronizer) onSenderReportWithRebase(pkt *rtcp.SenderReport) {
 		t.onSR(drift)
 	}
 
-	t.desiredPTSOffset = t.basePTSOffset + drift
+	if t.usesOneShotSenderReportSync() {
+		// One-shot mode: keep packet PTS generation anchored to the original startTime and
+		// measure drift in adjusted-PTS space instead. This avoids hidden PTS motion through
+		// estimatedPTS while still allowing a bounded jump when the track falls behind.
+		if drift.Abs() >= t.oneShotDriftCorrectionThreshold {
+			t.applyOneShotDriftCorrection(ptsSR, drift, expectedAdjustedPTSSR, deadline, hasDeadline, augmented)
+		}
+	} else {
+		t.desiredPTSOffset = t.basePTSOffset + drift
+	}
 	t.lastSR = augmented
 }
 
@@ -776,13 +804,26 @@ func (t *TrackSynchronizer) acceptableSRDrift(drift time.Duration) bool {
 
 }
 
+func (t *TrackSynchronizer) usesRebasedSenderReports() bool {
+	switch t.senderReportSyncMode {
+	case SenderReportSyncModeRebase, SenderReportSyncModeOneShot:
+		return true
+	default:
+		return false
+	}
+}
+
+func (t *TrackSynchronizer) usesOneShotSenderReportSync() bool {
+	return t.senderReportSyncMode == SenderReportSyncModeOneShot
+}
+
 func (t *TrackSynchronizer) shouldAdjustPTS(newPTS time.Duration) bool {
 	if time.Now().Before(t.nextPTSAdjustmentAt) {
 		return false
 	}
 
 	adjustmentEnabled := true
-	if t.track.Kind() == webrtc.RTPCodecTypeAudio && !t.rtcpSenderReportRebaseEnabled {
+	if t.track.Kind() == webrtc.RTPCodecTypeAudio && t.senderReportSyncMode == SenderReportSyncModeWithoutRebase {
 		adjustmentEnabled = !t.audioPTSAdjustmentsDisabled
 	}
 
@@ -821,6 +862,74 @@ func (t *TrackSynchronizer) maybeAdjustPTSOffset(ts uint32, pts, estimatedPTS ti
 	}
 	t.nextPTSAdjustmentAt = time.Now().Add(throttle)
 	t.logPTSAdjustmentSampled(ts, pts, estimatedPTS, prevCurrentPTSOffset, throttle)
+}
+
+func (t *TrackSynchronizer) expectedAdjustedPTSAtSenderReport(receivedAtAdjusted int64) time.Duration {
+	return time.Unix(0, receivedAtAdjusted).Sub(t.startTime) + t.basePTSOffset
+}
+
+// applyOneShotDriftCorrection applies a one-shot offset jump when adjusted SR PTS
+// has fallen outside the allowed drift threshold. caller must hold the lock.
+func (t *TrackSynchronizer) applyOneShotDriftCorrection(
+	ptsSR time.Duration,
+	drift time.Duration,
+	expectedAdjustedPTSSR time.Duration,
+	deadline time.Duration,
+	hasDeadline bool,
+	asr *augmentedSenderReport,
+) {
+	if !hasDeadline {
+		t.logger.Debugw(
+			"skipping one-shot drift correction without media deadline",
+			"drift", drift,
+			"expectedAdjustedPTSSR", expectedAdjustedPTSSR,
+			"receivedSR", wrappedAugmentedSenderReportLogger{asr},
+			"state", t,
+		)
+		return
+	}
+
+	correctedPTSOffset := t.currentPTSOffset + drift
+
+	// Sanity check: verify the corrected PTS would land within the configured media live window.
+	// This guards against erroneously large SR drift values slamming the PTS to an absurd position.
+	candidateAdjustedPTS := ptsSR + correctedPTSOffset
+	maxMediaRunningTime := deadline + 2*t.maxMediaRunningTimeDelay
+	if candidateAdjustedPTS < deadline || candidateAdjustedPTS > maxMediaRunningTime {
+		t.logger.Warnw(
+			"one-shot drift correction rejected, corrected PTS outside media live window", nil,
+			"drift", drift,
+			"candidateAdjustedPTS", candidateAdjustedPTS,
+			"expectedAdjustedPTSSR", expectedAdjustedPTSSR,
+			"mediaDeadline", deadline,
+			"maxMediaRunningTime", maxMediaRunningTime,
+			"receivedSR", wrappedAugmentedSenderReportLogger{asr},
+			"state", t,
+		)
+		return
+	}
+
+	prevOffset := t.currentPTSOffset
+	t.desiredPTSOffset = correctedPTSOffset
+	t.currentPTSOffset = correctedPTSOffset
+
+	if correctedPTSOffset > prevOffset {
+		t.totalPTSAdjustmentPositive += correctedPTSOffset - prevOffset
+	} else {
+		t.totalPTSAdjustmentNegative += prevOffset - correctedPTSOffset
+	}
+
+	t.stats.numOneShotCorrections++
+	t.logger.Infow(
+		"applied one-shot drift correction",
+		"drift", drift,
+		"prevPTSOffset", prevOffset,
+		"newPTSOffset", correctedPTSOffset,
+		"candidateAdjustedPTS", candidateAdjustedPTS,
+		"expectedAdjustedPTSSR", expectedAdjustedPTSSR,
+		"receivedSR", wrappedAugmentedSenderReportLogger{asr},
+		"state", t,
+	)
 }
 
 func (t *TrackSynchronizer) isPacketTooOld(packetTime time.Time) bool {
@@ -921,6 +1030,7 @@ func (t *TrackSynchronizer) MarshalLogObject(e zapcore.ObjectEncoder) error {
 	e.AddDuration("currentPTSOffset", t.currentPTSOffset)
 	e.AddDuration("desiredPTSOffset", t.desiredPTSOffset)
 	e.AddDuration("basePTSOffset", t.basePTSOffset)
+	e.AddString("senderReportSyncMode", t.senderReportSyncMode.String())
 	e.AddDuration("totalPTSAdjustmentPositive", t.totalPTSAdjustmentPositive)
 	e.AddDuration("totalPTSAdjustmentNegative", t.totalPTSAdjustmentNegative)
 	e.AddUint16("lastSN", t.lastSN)
@@ -983,6 +1093,7 @@ type stats struct {
 	numSenderReports                  uint32
 	numSenderReportsDroppedOutOfOrder uint32
 	numSenderReportsDroppedDuplicate  uint32
+	numOneShotCorrections             uint32
 }
 
 func (s stats) MarshalLogObject(e zapcore.ObjectEncoder) error {
@@ -1019,5 +1130,6 @@ func (s stats) MarshalLogObject(e zapcore.ObjectEncoder) error {
 	e.AddUint32("numSenderReports", s.numSenderReports)
 	e.AddUint32("numSenderReportsDroppedOutOfOrder", s.numSenderReportsDroppedOutOfOrder)
 	e.AddUint32("numSenderReportsDroppedDuplicate", s.numSenderReportsDroppedDuplicate)
+	e.AddUint32("numOneShotCorrections", s.numOneShotCorrections)
 	return nil
 }

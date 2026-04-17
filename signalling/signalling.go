@@ -39,7 +39,7 @@ type signalling struct {
 
 func NewSignalling(params SignallingParams) Signalling {
 	return &signalling{
-		signallingBase: newSignallingBase(signallingBaseParams{Logger: params.Logger}),
+		signallingBase: newSignallingBase(signallingBaseParams(params)),
 	}
 }
 

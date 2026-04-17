@@ -20,6 +20,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -122,6 +123,19 @@ func (c *Client) DeployAgent(
 	return c.uploadAndBuild(ctx, agentID, resp.PresignedUrl, resp.PresignedPostRequest, source, excludeFiles, buildLogStreamWriter)
 }
 
+// RegisterAgent creates an agent record without uploading source or triggering a build.
+// Use this when you intend to push a prebuilt image immediately after via GetPushTarget.
+func (c *Client) RegisterAgent(ctx context.Context, secrets []*lkproto.AgentSecret, regions []string) (string, error) {
+	resp, err := c.AgentClient.CreateAgent(ctx, &lkproto.CreateAgentRequest{
+		Secrets: secrets,
+		Regions: regions,
+	})
+	if err != nil {
+		return "", err
+	}
+	return resp.AgentId, nil
+}
+
 // CreatePrivateLink creates a new private link for cloud agents.
 func (c *Client) CreatePrivateLink(ctx context.Context, req *lkproto.CreatePrivateLinkRequest) (*lkproto.CreatePrivateLinkResponse, error) {
 	return c.AgentClient.CreatePrivateLink(ctx, req)
@@ -161,6 +175,17 @@ func (c *Client) uploadAndBuild(
 	return nil
 }
 
+// getAgentsURL derives the cloud-agents service URL from the project URL.
+// It replaces the project subdomain with "agents" (and optionally a region prefix)
+// so that build/log requests are routed to the cloud-agents service.
+//
+// Examples:
+//
+//	getAgentsURL("")            -> https://agents.livekit.cloud
+//	getAgentsURL("osbxash1a")  -> https://osbxash1a.agents.livekit.cloud
+//
+// When serverRegion is set, the request is pinned to a specific cloud-agents
+// cluster rather than relying on GeoDNS resolution.
 func (c *Client) getAgentsURL(serverRegion string) string {
 	agentsURL := c.projectURL
 	if os.Getenv("LK_AGENTS_URL") != "" {
@@ -169,13 +194,25 @@ func (c *Client) getAgentsURL(serverRegion string) string {
 	if strings.HasPrefix(agentsURL, "ws") {
 		agentsURL = strings.Replace(agentsURL, "ws", "http", 1)
 	}
-	if !strings.Contains(agentsURL, "localhost") && !strings.Contains(agentsURL, "127.0.0.1") {
-		pattern := `^https://[a-zA-Z0-9\-]+\.`
-		re := regexp.MustCompile(pattern)
-		if serverRegion != "" {
-			serverRegion = fmt.Sprintf("%s.", serverRegion)
-		}
-		agentsURL = re.ReplaceAllString(agentsURL, fmt.Sprintf("https://%sagents.", serverRegion))
+
+	// skip rewrite for local development
+	if isLocalURL(agentsURL) {
+		return agentsURL
 	}
-	return agentsURL
+
+	pattern := `^https://[a-zA-Z0-9\-]+\.`
+	re := regexp.MustCompile(pattern)
+	if serverRegion != "" {
+		serverRegion = fmt.Sprintf("%s.", serverRegion)
+	}
+	return re.ReplaceAllString(agentsURL, fmt.Sprintf("https://%sagents.", serverRegion))
+}
+
+func isLocalURL(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	host := u.Hostname()
+	return host == "localhost" || host == "127.0.0.1"
 }

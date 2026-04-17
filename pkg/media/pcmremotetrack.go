@@ -69,7 +69,7 @@ type PCMRemoteTrack struct {
 	sampleRate  int
 	isResampled bool
 
-	opusWriter         media.WriteCloser[opus.Sample]
+	opusWriter         media.WriteCloser[[]byte]
 	pcmMWriter         media.WriteCloser[media.PCM16Sample]
 	resampledPCMWriter media.WriteCloser[media.PCM16Sample]
 	logger             protoLogger.Logger
@@ -148,7 +148,7 @@ func NewPCMRemoteTrack(track *webrtc.TrackRemote, writer PCMRemoteTrackWriter, o
 
 func (t *PCMRemoteTrack) processSamples(handleJitter bool) {
 	// Handler takes RTP packets and writes the payload to opusWriter
-	var h rtp.Handler = rtp.NewMediaStreamIn[opus.Sample](t.opusWriter)
+	var h rtp.Handler = rtp.NewMediaStreamIn(t.opusWriter)
 
 	if t.decryptor != nil {
 		// Ideally, we should check if the track is encrypted with the
