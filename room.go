@@ -111,6 +111,15 @@ func WithConnectTimeout(timeout time.Duration) ConnectOption {
 	}
 }
 
+// WithContext sets a context for the JoinWithToken call.
+// When provided, the region discovery retry loop and backoff sleeps will
+// respect context cancellation/deadline.
+func WithContext(ctx context.Context) ConnectOption {
+	return func(p *signalling.ConnectParams) {
+		p.Context = ctx
+	}
+}
+
 // WithAutoSubscribe sets whether the participant should automatically subscribe to tracks.
 // Default is true.
 func WithAutoSubscribe(val bool) ConnectOption {
@@ -367,6 +376,10 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 		opt(params)
 	}
 
+	if params.Context != nil {
+		ctx = params.Context
+	}
+
 	if params.Logger != nil {
 		r.SetLogger(params.Logger)
 	}
@@ -378,6 +391,9 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 			r.log.Errorw("failed to get best url", err)
 		} else {
 			for tries := uint(0); !isSuccess; tries++ {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
 				bestURL, err := r.regionURLProvider.PopBestURL(cloudHostname, token)
 				if err != nil {
 					r.log.Errorw("failed to get best url", err)
@@ -396,7 +412,11 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 						"retrying in", d,
 						"url", bestURL,
 					)
-					time.Sleep(d)
+					select {
+					case <-time.After(d):
+					case <-ctx.Done():
+						return ctx.Err()
+					}
 					continue
 				}
 			}
