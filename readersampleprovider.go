@@ -355,7 +355,7 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 			if p.appendUserTimestamp || p.appendFrameId {
 				if meta, ok := parseH264SEIPacketTrailer(nalUnitData); ok {
 					if !p.appendUserTimestamp {
-						meta.UserTimestampUs = 0
+						meta.UserTimestamp = 0
 					}
 					if !p.appendFrameId {
 						meta.FrameId = 0
@@ -439,7 +439,7 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 				if p.appendUserTimestamp || p.appendFrameId {
 					if meta, ok := parseH265SEIPacketTrailer(nal.Data); ok {
 						if !p.appendUserTimestamp {
-							meta.UserTimestampUs = 0
+							meta.UserTimestamp = 0
 						}
 						if !p.appendFrameId {
 							meta.FrameId = 0

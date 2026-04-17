@@ -5,7 +5,7 @@ import (
 )
 
 func TestParseH264SEIPacketTrailer(t *testing.T) {
-	wantMeta := FrameMetadata{UserTimestampUs: 1234567890}
+	wantMeta := FrameMetadata{UserTimestamp: 1234567890}
 
 	buildNAL := func(uuid [16]byte, meta FrameMetadata) []byte {
 		// NAL header for SEI (nal_unit_type = 6).
@@ -26,8 +26,8 @@ func TestParseH264SEIPacketTrailer(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected ok=true")
 		}
-		if got.UserTimestampUs != wantMeta.UserTimestampUs {
-			t.Fatalf("timestamp mismatch: got %d want %d", got.UserTimestampUs, wantMeta.UserTimestampUs)
+		if got.UserTimestamp != wantMeta.UserTimestamp {
+			t.Fatalf("timestamp mismatch: got %d want %d", got.UserTimestamp, wantMeta.UserTimestamp)
 		}
 		if got.FrameId != 0 {
 			t.Fatalf("expected frame_id 0, got %d", got.FrameId)
@@ -35,13 +35,13 @@ func TestParseH264SEIPacketTrailer(t *testing.T) {
 	})
 
 	t.Run("accepts matching UUID with timestamp and frame_id", func(t *testing.T) {
-		meta := FrameMetadata{UserTimestampUs: 42, FrameId: 12345}
+		meta := FrameMetadata{UserTimestamp: 42, FrameId: 12345}
 		got, ok := parseH264SEIPacketTrailer(buildNAL(packetTrailerSEIUUID, meta))
 		if !ok {
 			t.Fatalf("expected ok=true")
 		}
-		if got.UserTimestampUs != 42 {
-			t.Fatalf("timestamp mismatch: got %d want 42", got.UserTimestampUs)
+		if got.UserTimestamp != 42 {
+			t.Fatalf("timestamp mismatch: got %d want 42", got.UserTimestamp)
 		}
 		if got.FrameId != 12345 {
 			t.Fatalf("frame_id mismatch: got %d want 12345", got.FrameId)

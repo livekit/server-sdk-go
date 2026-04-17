@@ -351,7 +351,7 @@ func TestH265NextSample_WithUserTimestamp(t *testing.T) {
 	// Prefix SEI with packet trailer metadata, then VCL. Metadata should be attached.
 	sc := []byte{0, 0, 0, 1}
 
-	wantMeta := FrameMetadata{UserTimestampUs: 9876543210, FrameId: 77}
+	wantMeta := FrameMetadata{UserTimestamp: 9876543210, FrameId: 77}
 	seiNAL := buildH265PacketTrailerSEI(wantMeta)
 	vcl := makeH265VCLData(1, true, []byte{0xAA})
 
@@ -393,8 +393,8 @@ func TestH265NextSample_WithUserTimestamp(t *testing.T) {
 	if !ok {
 		t.Fatal("expected LKTS trailer in sample data")
 	}
-	if gotMeta.UserTimestampUs != wantMeta.UserTimestampUs {
-		t.Fatalf("timestamp mismatch: got %d, want %d", gotMeta.UserTimestampUs, wantMeta.UserTimestampUs)
+	if gotMeta.UserTimestamp != wantMeta.UserTimestamp {
+		t.Fatalf("timestamp mismatch: got %d, want %d", gotMeta.UserTimestamp, wantMeta.UserTimestamp)
 	}
 	if gotMeta.FrameId != wantMeta.FrameId {
 		t.Fatalf("frame_id mismatch: got %d, want %d", gotMeta.FrameId, wantMeta.FrameId)

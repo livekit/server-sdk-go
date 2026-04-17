@@ -18,7 +18,7 @@ const (
 	packetTrailerMagic = "LKTS"
 
 	// TLV tag IDs (XORed with 0xFF on the wire).
-	tagTimestampUs = 0x01 // value: 8 bytes big-endian uint64
+	tagUserTimestamp = 0x01 // value: 8 bytes big-endian uint64
 	tagFrameId     = 0x02 // value: 4 bytes big-endian uint32
 
 	// TLV element sizes: tag(1) + len(1) + value.
@@ -34,7 +34,7 @@ const (
 
 // FrameMetadata holds the metadata embedded in a packet trailer.
 type FrameMetadata struct {
-	UserTimestampUs uint64
+	UserTimestamp uint64
 	FrameId         uint32
 }
 
@@ -45,15 +45,15 @@ type FrameMetadata struct {
 // Wire layout:
 //
 //	[original data]
-//	[TLV: tag=0x01 ^ 0xFF, len=8 ^ 0xFF, 8-byte BE timestamp ^ 0xFF]  (omitted when UserTimestampUs == 0)
+//	[TLV: tag=0x01 ^ 0xFF, len=8 ^ 0xFF, 8-byte BE timestamp ^ 0xFF]  (omitted when UserTimestamp == 0)
 //	[TLV: tag=0x02 ^ 0xFF, len=4 ^ 0xFF, 4-byte BE frame_id ^ 0xFF]   (omitted when FrameId == 0)
 //	[trailer_len ^ 0xFF]
 //	[magic "LKTS" raw]
 //
-// When both UserTimestampUs and FrameId are zero, no trailer is appended and
+// When both UserTimestamp and FrameId are zero, no trailer is appended and
 // the original data is returned unchanged.
 func appendPacketTrailer(data []byte, meta FrameMetadata) []byte {
-	hasTimestamp := meta.UserTimestampUs != 0
+	hasTimestamp := meta.UserTimestamp != 0
 	hasFrameId := meta.FrameId != 0
 	if !hasTimestamp && !hasFrameId {
 		return data
@@ -73,9 +73,9 @@ func appendPacketTrailer(data []byte, meta FrameMetadata) []byte {
 
 	// TLV: timestamp_us (only when non-zero)
 	if hasTimestamp {
-		out[pos] = byte(tagTimestampUs) ^ 0xFF
+		out[pos] = byte(tagUserTimestamp) ^ 0xFF
 		out[pos+1] = 8 ^ 0xFF
-		binary.BigEndian.PutUint64(out[pos+2:], ^meta.UserTimestampUs)
+		binary.BigEndian.PutUint64(out[pos+2:], ^meta.UserTimestamp)
 		pos += timestampTlvSize
 	}
 
@@ -131,12 +131,12 @@ func parsePacketTrailer(data []byte) (FrameMetadata, bool) {
 		valStart := tlvStart + pos
 
 		switch {
-		case tag == tagTimestampUs && length == 8:
+		case tag == tagUserTimestamp && length == 8:
 			var ts uint64
 			for i := 0; i < 8; i++ {
 				ts = (ts << 8) | uint64(data[valStart+i]^0xFF)
 			}
-			meta.UserTimestampUs = ts
+			meta.UserTimestamp = ts
 			foundAny = true
 		case tag == tagFrameId && length == 4:
 			var fid uint32

@@ -8,7 +8,7 @@ import (
 
 func TestAppendParseRoundTrip_TimestampOnly(t *testing.T) {
 	payload := []byte{0xDE, 0xAD, 0xBE, 0xEF}
-	meta := FrameMetadata{UserTimestampUs: 1_700_000_000_000_000}
+	meta := FrameMetadata{UserTimestamp: 1_700_000_000_000_000}
 
 	result := appendPacketTrailer(payload, meta)
 
@@ -26,8 +26,8 @@ func TestAppendParseRoundTrip_TimestampOnly(t *testing.T) {
 	if !ok {
 		t.Fatal("parsePacketTrailer returned false")
 	}
-	if got.UserTimestampUs != meta.UserTimestampUs {
-		t.Fatalf("timestamp mismatch: got %d, want %d", got.UserTimestampUs, meta.UserTimestampUs)
+	if got.UserTimestamp != meta.UserTimestamp {
+		t.Fatalf("timestamp mismatch: got %d, want %d", got.UserTimestamp, meta.UserTimestamp)
 	}
 	if got.FrameId != 0 {
 		t.Fatalf("expected frame_id 0, got %d", got.FrameId)
@@ -36,7 +36,7 @@ func TestAppendParseRoundTrip_TimestampOnly(t *testing.T) {
 
 func TestAppendParseRoundTrip_WithFrameId(t *testing.T) {
 	payload := []byte{0x01, 0x02, 0x03}
-	meta := FrameMetadata{UserTimestampUs: 42, FrameId: 12345}
+	meta := FrameMetadata{UserTimestamp: 42, FrameId: 12345}
 
 	result := appendPacketTrailer(payload, meta)
 
@@ -48,8 +48,8 @@ func TestAppendParseRoundTrip_WithFrameId(t *testing.T) {
 	if !ok {
 		t.Fatal("parsePacketTrailer returned false")
 	}
-	if got.UserTimestampUs != 42 {
-		t.Fatalf("timestamp mismatch: got %d, want 42", got.UserTimestampUs)
+	if got.UserTimestamp != 42 {
+		t.Fatalf("timestamp mismatch: got %d, want 42", got.UserTimestamp)
 	}
 	if got.FrameId != 12345 {
 		t.Fatalf("frame_id mismatch: got %d, want 12345", got.FrameId)
@@ -57,18 +57,18 @@ func TestAppendParseRoundTrip_WithFrameId(t *testing.T) {
 }
 
 func TestAppendParseRoundTrip_ZeroTimestampWithFrameId(t *testing.T) {
-	// With UserTimestampUs==0 the timestamp TLV is omitted, but a non-zero
+	// With UserTimestamp==0 the timestamp TLV is omitted, but a non-zero
 	// FrameId still produces a valid trailer.
 	payload := []byte{0xFF, 0xFF}
-	meta := FrameMetadata{UserTimestampUs: 0, FrameId: 99}
+	meta := FrameMetadata{UserTimestamp: 0, FrameId: 99}
 
 	result := appendPacketTrailer(payload, meta)
 	got, ok := parsePacketTrailer(result)
 	if !ok {
 		t.Fatal("parsePacketTrailer returned false for zero timestamp with frame_id")
 	}
-	if got.UserTimestampUs != 0 {
-		t.Fatalf("expected timestamp 0, got %d", got.UserTimestampUs)
+	if got.UserTimestamp != 0 {
+		t.Fatalf("expected timestamp 0, got %d", got.UserTimestamp)
 	}
 	if got.FrameId != 99 {
 		t.Fatalf("expected frame_id 99, got %d", got.FrameId)
@@ -76,7 +76,7 @@ func TestAppendParseRoundTrip_ZeroTimestampWithFrameId(t *testing.T) {
 }
 
 func TestAppendPacketTrailer_AllZero_NoTrailer(t *testing.T) {
-	// With both UserTimestampUs==0 and FrameId==0 the input must be
+	// With both UserTimestamp==0 and FrameId==0 the input must be
 	// returned unchanged (no trailer appended).
 	payload := []byte{0x11, 0x22, 0x33}
 	result := appendPacketTrailer(payload, FrameMetadata{})
@@ -91,21 +91,21 @@ func TestAppendPacketTrailer_AllZero_NoTrailer(t *testing.T) {
 
 func TestAppendParseRoundTrip_MaxTimestamp(t *testing.T) {
 	payload := []byte{0xAA}
-	meta := FrameMetadata{UserTimestampUs: ^uint64(0)}
+	meta := FrameMetadata{UserTimestamp: ^uint64(0)}
 
 	result := appendPacketTrailer(payload, meta)
 	got, ok := parsePacketTrailer(result)
 	if !ok {
 		t.Fatal("parsePacketTrailer returned false")
 	}
-	if got.UserTimestampUs != ^uint64(0) {
-		t.Fatalf("timestamp mismatch: got %d, want %d", got.UserTimestampUs, ^uint64(0))
+	if got.UserTimestamp != ^uint64(0) {
+		t.Fatalf("timestamp mismatch: got %d, want %d", got.UserTimestamp, ^uint64(0))
 	}
 }
 
 func TestAppendParseRoundTrip_MaxFrameId(t *testing.T) {
 	payload := []byte{0x00}
-	meta := FrameMetadata{UserTimestampUs: 1, FrameId: 0xFFFFFFFF}
+	meta := FrameMetadata{UserTimestamp: 1, FrameId: 0xFFFFFFFF}
 
 	result := appendPacketTrailer(payload, meta)
 	got, ok := parsePacketTrailer(result)
@@ -118,21 +118,21 @@ func TestAppendParseRoundTrip_MaxFrameId(t *testing.T) {
 }
 
 func TestAppendParseRoundTrip_EmptyPayload(t *testing.T) {
-	meta := FrameMetadata{UserTimestampUs: 7, FrameId: 3}
+	meta := FrameMetadata{UserTimestamp: 7, FrameId: 3}
 
 	result := appendPacketTrailer(nil, meta)
 	got, ok := parsePacketTrailer(result)
 	if !ok {
 		t.Fatal("parsePacketTrailer returned false on empty payload")
 	}
-	if got.UserTimestampUs != 7 || got.FrameId != 3 {
+	if got.UserTimestamp != 7 || got.FrameId != 3 {
 		t.Fatalf("metadata mismatch: got %+v", got)
 	}
 }
 
 func TestAppendPacketTrailer_WireFormat_TimestampOnly(t *testing.T) {
 	payload := []byte{0xDE, 0xAD}
-	meta := FrameMetadata{UserTimestampUs: 0x0102030405060708}
+	meta := FrameMetadata{UserTimestamp: 0x0102030405060708}
 
 	result := appendPacketTrailer(payload, meta)
 
@@ -149,8 +149,8 @@ func TestAppendPacketTrailer_WireFormat_TimestampOnly(t *testing.T) {
 	off := 2 // start of trailer
 
 	// Timestamp TLV: tag
-	if result[off] != byte(tagTimestampUs)^0xFF {
-		t.Fatalf("timestamp tag: got %02x, want %02x", result[off], byte(tagTimestampUs)^0xFF)
+	if result[off] != byte(tagUserTimestamp)^0xFF {
+		t.Fatalf("timestamp tag: got %02x, want %02x", result[off], byte(tagUserTimestamp)^0xFF)
 	}
 	// Timestamp TLV: length
 	if result[off+1] != 8^0xFF {
@@ -158,7 +158,7 @@ func TestAppendPacketTrailer_WireFormat_TimestampOnly(t *testing.T) {
 	}
 	// Timestamp TLV: value (each byte XORed with 0xFF)
 	var tsBuf [8]byte
-	binary.BigEndian.PutUint64(tsBuf[:], meta.UserTimestampUs)
+	binary.BigEndian.PutUint64(tsBuf[:], meta.UserTimestamp)
 	for i := 0; i < 8; i++ {
 		want := tsBuf[i] ^ 0xFF
 		if result[off+2+i] != want {
@@ -181,7 +181,7 @@ func TestAppendPacketTrailer_WireFormat_TimestampOnly(t *testing.T) {
 
 func TestAppendPacketTrailer_WireFormat_WithFrameId(t *testing.T) {
 	payload := []byte{0xCA, 0xFE, 0xBA, 0xBE}
-	meta := FrameMetadata{UserTimestampUs: 1000, FrameId: 0xAABBCCDD}
+	meta := FrameMetadata{UserTimestamp: 1000, FrameId: 0xAABBCCDD}
 
 	result := appendPacketTrailer(payload, meta)
 
@@ -193,7 +193,7 @@ func TestAppendPacketTrailer_WireFormat_WithFrameId(t *testing.T) {
 	off := len(payload)
 
 	// Timestamp TLV
-	if result[off] != byte(tagTimestampUs)^0xFF {
+	if result[off] != byte(tagUserTimestamp)^0xFF {
 		t.Fatalf("timestamp tag: got %02x", result[off])
 	}
 	off += timestampTlvSize
@@ -228,7 +228,7 @@ func TestAppendPacketTrailer_WireFormat_WithFrameId(t *testing.T) {
 }
 
 func TestAppendPacketTrailer_FrameIdZero_Omitted(t *testing.T) {
-	meta := FrameMetadata{UserTimestampUs: 1, FrameId: 0}
+	meta := FrameMetadata{UserTimestamp: 1, FrameId: 0}
 	result := appendPacketTrailer(nil, meta)
 
 	// With FrameId==0 the frame_id TLV must be absent.
@@ -236,8 +236,8 @@ func TestAppendPacketTrailer_FrameIdZero_Omitted(t *testing.T) {
 		t.Fatalf("expected len %d (no frame_id TLV), got %d", packetTrailerMinSize, len(result))
 	}
 
-	// The only tag present should be tagTimestampUs.
-	if result[0]^0xFF != tagTimestampUs {
+	// The only tag present should be tagUserTimestamp.
+	if result[0]^0xFF != tagUserTimestamp {
 		t.Fatalf("first tag: got %02x, want timestamp tag", result[0]^0xFF)
 	}
 }
@@ -247,7 +247,7 @@ func TestAppendPacketTrailer_DoesNotMutateInput(t *testing.T) {
 	frozen := make([]byte, len(original))
 	copy(frozen, original)
 
-	_ = appendPacketTrailer(original, FrameMetadata{UserTimestampUs: 42, FrameId: 7})
+	_ = appendPacketTrailer(original, FrameMetadata{UserTimestamp: 42, FrameId: 7})
 
 	if !bytes.Equal(original, frozen) {
 		t.Fatalf("input slice was mutated: got %x, want %x", original, frozen)
@@ -255,7 +255,7 @@ func TestAppendPacketTrailer_DoesNotMutateInput(t *testing.T) {
 }
 
 func TestAppendPacketTrailer_NilPayload(t *testing.T) {
-	result := appendPacketTrailer(nil, FrameMetadata{UserTimestampUs: 99})
+	result := appendPacketTrailer(nil, FrameMetadata{UserTimestamp: 99})
 	if len(result) != packetTrailerMinSize {
 		t.Fatalf("expected len %d, got %d", packetTrailerMinSize, len(result))
 	}
@@ -266,7 +266,7 @@ func TestAppendPacketTrailer_NilPayload(t *testing.T) {
 
 func TestStripPacketTrailer(t *testing.T) {
 	payload := []byte{0x10, 0x20, 0x30, 0x40}
-	meta := FrameMetadata{UserTimestampUs: 100, FrameId: 200}
+	meta := FrameMetadata{UserTimestamp: 100, FrameId: 200}
 
 	result := appendPacketTrailer(payload, meta)
 	stripped := stripPacketTrailer(result)
@@ -320,12 +320,12 @@ func TestNoNALStartCodes(t *testing.T) {
 	// Verify the trailer never contains 0x000001 or 0x00000001 sequences,
 	// which would confuse H.264/H.265 parsers.
 	testCases := []FrameMetadata{
-		{UserTimestampUs: 0, FrameId: 0},
-		{UserTimestampUs: 0, FrameId: 1},
-		{UserTimestampUs: 1, FrameId: 0},
-		{UserTimestampUs: 0x00000001, FrameId: 0x00000001},
-		{UserTimestampUs: 0x0000000100000001, FrameId: 0},
-		{UserTimestampUs: ^uint64(0)},
+		{UserTimestamp: 0, FrameId: 0},
+		{UserTimestamp: 0, FrameId: 1},
+		{UserTimestamp: 1, FrameId: 0},
+		{UserTimestamp: 0x00000001, FrameId: 0x00000001},
+		{UserTimestamp: 0x0000000100000001, FrameId: 0},
+		{UserTimestamp: ^uint64(0)},
 	}
 
 	for _, meta := range testCases {
@@ -381,8 +381,8 @@ func TestCrossCompatWithRustAppendTrailer(t *testing.T) {
 	if !ok {
 		t.Fatal("parsePacketTrailer failed on hand-crafted Rust-compatible trailer")
 	}
-	if got.UserTimestampUs != userTs {
-		t.Fatalf("timestamp mismatch: got %d, want %d", got.UserTimestampUs, userTs)
+	if got.UserTimestamp != userTs {
+		t.Fatalf("timestamp mismatch: got %d, want %d", got.UserTimestamp, userTs)
 	}
 	if got.FrameId != frameId {
 		t.Fatalf("frame_id mismatch: got %d, want %d", got.FrameId, frameId)
@@ -428,8 +428,8 @@ func TestParseSkipsUnknownTags(t *testing.T) {
 	if !ok {
 		t.Fatal("parsePacketTrailer should succeed with unknown tags")
 	}
-	if got.UserTimestampUs != 777 {
-		t.Fatalf("timestamp mismatch: got %d, want 777", got.UserTimestampUs)
+	if got.UserTimestamp != 777 {
+		t.Fatalf("timestamp mismatch: got %d, want 777", got.UserTimestamp)
 	}
 	if got.FrameId != 55 {
 		t.Fatalf("frame_id mismatch: got %d, want 55", got.FrameId)
