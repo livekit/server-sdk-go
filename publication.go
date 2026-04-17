@@ -642,7 +642,7 @@ type TrackPublicationOptions struct {
 	BackupCodecPolicy livekit.BackupCodecPolicy
 	// Packet trailer features signaled to the server.
 	AttachUserTimestamp bool
-	AttachFrameId      bool
+	AttachFrameId       bool
 }
 
 type MuteFunc func(muted bool) error

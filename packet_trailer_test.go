@@ -307,7 +307,7 @@ func TestParsePacketTrailer_TooShort(t *testing.T) {
 func TestParsePacketTrailer_BadTrailerLen(t *testing.T) {
 	// Craft a buffer that has magic but an invalid trailer_len (too large).
 	buf := []byte{0x00, 0x00, 0x00} // padding
-	buf = append(buf, 0xFF^0xFF)     // trailer_len = 0 (below minimum)
+	buf = append(buf, 0xFF^0xFF)    // trailer_len = 0 (below minimum)
 	buf = append(buf, packetTrailerMagic...)
 
 	_, ok := parsePacketTrailer(buf)

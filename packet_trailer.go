@@ -19,7 +19,7 @@ const (
 
 	// TLV tag IDs (XORed with 0xFF on the wire).
 	tagUserTimestamp = 0x01 // value: 8 bytes big-endian uint64
-	tagFrameId     = 0x02 // value: 4 bytes big-endian uint32
+	tagFrameId       = 0x02 // value: 4 bytes big-endian uint32
 
 	// TLV element sizes: tag(1) + len(1) + value.
 	timestampTlvSize = 10 // 1 + 1 + 8
@@ -35,7 +35,7 @@ const (
 // FrameMetadata holds the metadata embedded in a packet trailer.
 type FrameMetadata struct {
 	UserTimestamp uint64
-	FrameId         uint32
+	FrameId       uint32
 }
 
 // appendPacketTrailer returns a new slice containing data followed by a

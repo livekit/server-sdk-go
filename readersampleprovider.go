@@ -77,13 +77,13 @@ type ReaderSampleProvider struct {
 	trackOpts           []LocalTrackOptions
 	h26xStreamingFormat H26xStreamingFormat
 	appendUserTimestamp bool
-	appendFrameId      bool
+	appendFrameId       bool
 
 	// When appendUserTimestamp is enabled, we parse LKTS packet trailers from
 	// H264/H265 SEI user_data_unregistered NALs that precede frame NALs.
 	// The parsed metadata is stashed and re-attached to the next frame.
-	pendingFrameMetadata  FrameMetadata
-	hasPendingFrameMeta   bool
+	pendingFrameMetadata FrameMetadata
+	hasPendingFrameMeta  bool
 
 	// Allow various types of ingress
 	reader io.ReadCloser
