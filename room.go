@@ -111,15 +111,6 @@ func WithConnectTimeout(timeout time.Duration) ConnectOption {
 	}
 }
 
-// WithContext sets a context for the JoinWithToken call.
-// When provided, the region discovery retry loop and backoff sleeps will
-// respect context cancellation/deadline.
-func WithContext(ctx context.Context) ConnectOption {
-	return func(p *signalling.ConnectParams) {
-		p.Context = ctx
-	}
-}
-
 // WithAutoSubscribe sets whether the participant should automatically subscribe to tracks.
 // Default is true.
 func WithAutoSubscribe(val bool) ConnectOption {
@@ -336,8 +327,13 @@ func (r *Room) PrepareConnection(url, token string) error {
 	return r.regionURLProvider.RefreshRegionSettings(cloudHostname, token)
 }
 
-// Join - joins the room as with default permissions
+// Join - joins the room with default permissions
 func (r *Room) Join(url string, info ConnectInfo, opts ...ConnectOption) error {
+	return r.JoinWithContext(context.Background(), url, info, opts...)
+}
+
+// JoinWithContext - like Join, but accepts a context for cancellation/deadline.
+func (r *Room) JoinWithContext(ctx context.Context, url string, info ConnectInfo, opts ...ConnectOption) error {
 	var params signalling.ConnectParams
 	for _, opt := range opts {
 		opt(&params)
@@ -361,23 +357,22 @@ func (r *Room) Join(url string, info ConnectInfo, opts ...ConnectOption) error {
 		return err
 	}
 
-	return r.JoinWithToken(url, token, opts...)
+	return r.JoinWithContextAndToken(ctx, url, token, opts...)
 }
 
 // JoinWithToken - customize participant options by generating your own token
 func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
-	ctx := context.TODO()
+	return r.JoinWithContextAndToken(context.Background(), url, token, opts...)
+}
 
+// JoinWithContextAndToken - like JoinWithToken, but accepts a context for cancellation/deadline.
+func (r *Room) JoinWithContextAndToken(ctx context.Context, url, token string, opts ...ConnectOption) error {
 	params := &signalling.ConnectParams{
 		AutoSubscribe:  true,
 		ConnectTimeout: 3 * time.Second,
 	}
 	for _, opt := range opts {
 		opt(params)
-	}
-
-	if params.Context != nil {
-		ctx = params.Context
 	}
 
 	if params.Logger != nil {

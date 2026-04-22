@@ -92,11 +92,6 @@ type ConnectParams struct {
 
 	DTLSEllipticCurves []dtlsElliptic.Curve // FIPS 140: override default DTLS curves
 
-	// Context optionally provides a context for the JoinWithToken call.
-	// When set, the region discovery retry loop and backoff sleeps will
-	// respect context cancellation/deadline. Default is context.TODO().
-	Context context.Context
-
 	// internal use
 	Codecs []webrtc.RTPCodecParameters
 
