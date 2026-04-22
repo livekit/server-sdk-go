@@ -327,8 +327,13 @@ func (r *Room) PrepareConnection(url, token string) error {
 	return r.regionURLProvider.RefreshRegionSettings(cloudHostname, token)
 }
 
-// Join - joins the room as with default permissions
+// Join - joins the room with default permissions
 func (r *Room) Join(url string, info ConnectInfo, opts ...ConnectOption) error {
+	return r.JoinWithContext(context.Background(), url, info, opts...)
+}
+
+// JoinWithContext - like Join, but accepts a context for cancellation/deadline.
+func (r *Room) JoinWithContext(ctx context.Context, url string, info ConnectInfo, opts ...ConnectOption) error {
 	var params signalling.ConnectParams
 	for _, opt := range opts {
 		opt(&params)
@@ -352,13 +357,16 @@ func (r *Room) Join(url string, info ConnectInfo, opts ...ConnectOption) error {
 		return err
 	}
 
-	return r.JoinWithToken(url, token, opts...)
+	return r.JoinWithContextAndToken(ctx, url, token, opts...)
 }
 
 // JoinWithToken - customize participant options by generating your own token
 func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
-	ctx := context.TODO()
+	return r.JoinWithContextAndToken(context.Background(), url, token, opts...)
+}
 
+// JoinWithContextAndToken - like JoinWithToken, but accepts a context for cancellation/deadline.
+func (r *Room) JoinWithContextAndToken(ctx context.Context, url, token string, opts ...ConnectOption) error {
 	params := &signalling.ConnectParams{
 		AutoSubscribe:  true,
 		ConnectTimeout: 3 * time.Second,
@@ -378,6 +386,9 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 			r.log.Errorw("failed to get best url", err)
 		} else {
 			for tries := uint(0); !isSuccess; tries++ {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
 				bestURL, err := r.regionURLProvider.PopBestURL(cloudHostname, token)
 				if err != nil {
 					r.log.Errorw("failed to get best url", err)
@@ -396,7 +407,11 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 						"retrying in", d,
 						"url", bestURL,
 					)
-					time.Sleep(d)
+					select {
+					case <-time.After(d):
+					case <-ctx.Done():
+						return ctx.Err()
+					}
 					continue
 				}
 			}
