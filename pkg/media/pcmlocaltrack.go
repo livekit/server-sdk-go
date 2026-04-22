@@ -58,6 +58,7 @@ type PCMLocalTrack struct {
 	// int16 to support a LE/BE PCM16 chunk that has a high byte and low byte
 	// TODO(anunaym14): switch out deque for a ring buffer
 	chunkBuffer *deque.Deque[media.PCM16Sample]
+	numSamples  atomic.Int64
 
 	mu   sync.Mutex
 	cond *sync.Cond
@@ -179,7 +180,7 @@ func (t *PCMLocalTrack) Bind(trackLocal webrtc.TrackLocalContext) (webrtc.RTPCod
 }
 
 func (t *PCMLocalTrack) getFrameFromChunkBuffer() media.PCM16Sample {
-	if t.closed.Load() && t.getNumSamplesInChunkBuffer() == 0 {
+	if t.closed.Load() && t.numSamples.Load() == 0 {
 		return nil
 	}
 
@@ -191,6 +192,7 @@ func (t *PCMLocalTrack) getFrameFromChunkBuffer() media.PCM16Sample {
 		if remaining < len(chunk) {
 			t.chunkBuffer.PushFront(chunk[remaining:])
 		}
+		t.numSamples.Sub(int64(remaining))
 	}
 
 	if len(frame) < t.samplesPerFrame {
@@ -204,14 +206,6 @@ func (t *PCMLocalTrack) getFrameFromChunkBuffer() media.PCM16Sample {
 	}
 
 	return frame
-}
-
-func (t *PCMLocalTrack) getNumSamplesInChunkBuffer() int {
-	numSamples := 0
-	for i := 0; i < t.chunkBuffer.Len(); i++ {
-		numSamples += len(t.chunkBuffer.At(i))
-	}
-	return numSamples
 }
 
 func (t *PCMLocalTrack) WriteSample(chunk media.PCM16Sample) error {
@@ -228,6 +222,7 @@ func (t *PCMLocalTrack) WriteSample(chunk media.PCM16Sample) error {
 
 	t.mu.Lock()
 	t.chunkBuffer.PushBack(chunkCopy)
+	t.numSamples.Add(int64(len(chunkCopy)))
 	t.cond.Broadcast()
 	var snapshot *pcmLocalTrackLogSnapshot
 	if t.loggingEnabled {
@@ -245,7 +240,7 @@ func (t *PCMLocalTrack) processSamples() {
 	ticker := time.NewTicker(t.frameDuration)
 	defer ticker.Stop()
 
-	for !t.closed.Load() || t.getNumSamplesInChunkBuffer() != 0 {
+	for !t.closed.Load() || t.numSamples.Load() != 0 {
 		var frame media.PCM16Sample
 		var snapshot *pcmLocalTrackLogSnapshot
 
@@ -296,7 +291,7 @@ func (t *PCMLocalTrack) WaitForPlayout() {
 	t.emptyBufMu.Lock()
 	defer t.emptyBufMu.Unlock()
 
-	for t.getNumSamplesInChunkBuffer() > 0 {
+	for t.numSamples.Load() > 0 {
 		t.emptyBufCond.Wait()
 	}
 }
@@ -305,6 +300,7 @@ func (t *PCMLocalTrack) ClearQueue() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.chunkBuffer.Clear()
+	t.numSamples.Store(0)
 
 	t.emptyBufMu.Lock()
 	t.emptyBufCond.Broadcast()
@@ -333,7 +329,7 @@ func (t *PCMLocalTrack) String() string {
 
 type pcmLocalTrackLogSnapshot struct {
 	interval       time.Duration
-	queueSamples   int
+	queueSamples   int64
 	totalWritten   uint64
 	totalProcessed uint64
 	deltaWritten   uint64
@@ -354,7 +350,7 @@ func (t *PCMLocalTrack) collectLogSnapshotLocked(now time.Time) *pcmLocalTrackLo
 	interval := now.Sub(t.logState.at)
 	snapshot := &pcmLocalTrackLogSnapshot{
 		interval:       interval,
-		queueSamples:   t.getNumSamplesInChunkBuffer(),
+		queueSamples:   t.numSamples.Load(),
 		totalWritten:   t.logState.totalWritten,
 		totalProcessed: t.logState.totalProcessed,
 		deltaWritten:   t.logState.totalWritten - t.logState.prevWritten,
