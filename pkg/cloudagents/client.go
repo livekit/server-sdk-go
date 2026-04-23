@@ -104,36 +104,14 @@ func (c *Client) CreateAgent(
 
 func (c *Client) CreateAgentV2(
 	ctx context.Context,
-	source fs.FS,
 	secrets []*lkproto.AgentSecret,
 	regions []string,
-	excludeFiles []string,
-	buildLogStreamWriter io.Writer,
 ) (*lkproto.CreateAgentV2Response, error) {
 	resp, err := c.AgentClient.CreateAgentV2(ctx, &lkproto.CreateAgentV2Request{
 		Secrets: secrets,
 		Regions: regions,
 	})
 	if err != nil {
-		return nil, err
-	}
-	deployResp, err := c.AgentClient.DeployAgentV2(ctx, &lkproto.DeployAgentV2Request{
-		AgentId:     resp.AgentId,
-		Secrets:     secrets,
-		Environment: "production",
-	})
-	if err != nil {
-		return nil, err
-	}
-	if err := c.uploadAndBuild(ctx,
-		resp.AgentId,
-		"",
-		deployResp.PresignedReq,
-		source,
-		"", // production (create always targets production)
-		excludeFiles,
-		buildLogStreamWriter,
-	); err != nil {
 		return nil, err
 	}
 	return resp, nil
