@@ -1106,7 +1106,7 @@ func (p *LocalParticipant) SendFile(filePath string, options StreamBytesOptions)
 }
 
 func packetTrailerFeaturesFromOpts(opts *TrackPublicationOptions) []livekit.PacketTrailerFeature {
-	if opts == nil || (!opts.AttachUserTimestamp && !opts.AttachFrameId) {
+	if opts == nil {
 		return nil
 	}
 	var features []livekit.PacketTrailerFeature
@@ -1115,6 +1115,9 @@ func packetTrailerFeaturesFromOpts(opts *TrackPublicationOptions) []livekit.Pack
 	}
 	if opts.AttachFrameId {
 		features = append(features, livekit.PacketTrailerFeature_PTF_FRAME_ID)
+	}
+	if len(features) == 0 {
+		return nil
 	}
 	return features
 }

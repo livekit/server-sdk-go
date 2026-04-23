@@ -152,9 +152,8 @@ func readerTrackWithWavReader(wr *wavReader) func(provider *ReaderSampleProvider
 	}
 }
 
-// ReaderTrackWithUserTimestamp enables attaching the custom LKTS trailer
-// (timestamp_us + magic) to outgoing encoded frame payloads.
-// This currently supports H264.
+// ReaderTrackWithUserTimestamp enables parsing & attaching the frame timestamps.
+// This currently supports parsing H264/H265 SEI NALs.
 func ReaderTrackWithUserTimestamp(enabled bool) func(provider *ReaderSampleProvider) {
 	return func(provider *ReaderSampleProvider) {
 		provider.appendUserTimestamp = enabled
