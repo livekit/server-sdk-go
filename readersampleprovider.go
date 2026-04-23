@@ -76,10 +76,9 @@ type ReaderSampleProvider struct {
 	AudioLevel          uint8
 	trackOpts           []LocalTrackOptions
 	h26xStreamingFormat H26xStreamingFormat
-	appendUserTimestamp bool
-	appendFrameId       bool
+	appendPacketTrailer bool
 
-	// When appendUserTimestamp is enabled, we parse LKTS packet trailers from
+	// When appendPacketTrailer is enabled, we parse LKTS packet trailers from
 	// H264/H265 SEI user_data_unregistered NALs that precede frame NALs.
 	// The parsed metadata is stashed and re-attached to the next frame.
 	pendingFrameMetadata *FrameMetadata
@@ -151,19 +150,11 @@ func readerTrackWithWavReader(wr *wavReader) func(provider *ReaderSampleProvider
 	}
 }
 
-// ReaderTrackWithUserTimestamp enables parsing & attaching the frame timestamps.
-// This currently supports parsing H264/H265 SEI NALs.
-func ReaderTrackWithUserTimestamp(enabled bool) func(provider *ReaderSampleProvider) {
+// ReaderTrackWithPacketTrailer enables parsing and re-attaching LKTS packet
+// trailers embedded in H264/H265 SEI NALs.
+func ReaderTrackWithPacketTrailer(enabled bool) func(provider *ReaderSampleProvider) {
 	return func(provider *ReaderSampleProvider) {
-		provider.appendUserTimestamp = enabled
-	}
-}
-
-// ReaderTrackWithFrameId enables parsing and re-attaching frame IDs from
-// LKTS packet trailers embedded in H264/H265 SEI NALs.
-func ReaderTrackWithFrameId(enabled bool) func(provider *ReaderSampleProvider) {
-	return func(provider *ReaderSampleProvider) {
-		provider.appendFrameId = enabled
+		provider.appendPacketTrailer = enabled
 	}
 }
 
@@ -350,14 +341,8 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 		}
 
 		if nalUnitType == h264reader.NalUnitTypeSEI {
-			if p.appendUserTimestamp || p.appendFrameId {
+			if p.appendPacketTrailer {
 				if meta, ok := parseH264SEIPacketTrailer(nalUnitData); ok {
-					if !p.appendUserTimestamp {
-						meta.UserTimestamp = 0
-					}
-					if !p.appendFrameId {
-						meta.FrameId = 0
-					}
 					p.pendingFrameMetadata = &meta
 				}
 			}
@@ -432,14 +417,8 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 			}
 
 			if nal.NalUnitType == 39 { // prefix SEI
-				if p.appendUserTimestamp || p.appendFrameId {
+				if p.appendPacketTrailer {
 					if meta, ok := parseH265SEIPacketTrailer(nal.Data); ok {
-						if !p.appendUserTimestamp {
-							meta.UserTimestamp = 0
-						}
-						if !p.appendFrameId {
-							meta.FrameId = 0
-						}
 						p.pendingFrameMetadata = &meta
 					}
 				}

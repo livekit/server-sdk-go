@@ -284,8 +284,7 @@ func TestH265NextSample_WithUserTimestamp(t *testing.T) {
 	p := &ReaderSampleProvider{
 		Mime:                webrtc.MimeTypeH265,
 		reader:              r,
-		appendUserTimestamp: true,
-		appendFrameId:       true,
+		appendPacketTrailer: true,
 	}
 	require.NoError(t, p.OnBind())
 
