@@ -2,6 +2,8 @@ package lksdk
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseH265SEIPacketTrailer(t *testing.T) {
@@ -23,29 +25,17 @@ func TestParseH265SEIPacketTrailer(t *testing.T) {
 
 	t.Run("accepts matching UUID with timestamp only", func(t *testing.T) {
 		got, ok := parseH265SEIPacketTrailer(buildNAL(packetTrailerSEIUUID, wantMeta))
-		if !ok {
-			t.Fatalf("expected ok=true")
-		}
-		if got.UserTimestamp != wantMeta.UserTimestamp {
-			t.Fatalf("timestamp mismatch: got %d want %d", got.UserTimestamp, wantMeta.UserTimestamp)
-		}
-		if got.FrameId != 0 {
-			t.Fatalf("expected frame_id 0, got %d", got.FrameId)
-		}
+		require.True(t, ok)
+		require.Equal(t, wantMeta.UserTimestamp, got.UserTimestamp)
+		require.Equal(t, uint32(0), got.FrameId)
 	})
 
 	t.Run("accepts matching UUID with timestamp and frame_id", func(t *testing.T) {
 		meta := FrameMetadata{UserTimestamp: 42, FrameId: 12345}
 		got, ok := parseH265SEIPacketTrailer(buildNAL(packetTrailerSEIUUID, meta))
-		if !ok {
-			t.Fatalf("expected ok=true")
-		}
-		if got.UserTimestamp != 42 {
-			t.Fatalf("timestamp mismatch: got %d want 42", got.UserTimestamp)
-		}
-		if got.FrameId != 12345 {
-			t.Fatalf("frame_id mismatch: got %d want 12345", got.FrameId)
-		}
+		require.True(t, ok)
+		require.Equal(t, uint64(42), got.UserTimestamp)
+		require.Equal(t, uint32(12345), got.FrameId)
 	})
 
 	t.Run("rejects non-matching UUID", func(t *testing.T) {
@@ -53,33 +43,25 @@ func TestParseH265SEIPacketTrailer(t *testing.T) {
 		badUUID[0] ^= 0xFF
 
 		_, ok := parseH265SEIPacketTrailer(buildNAL(badUUID, wantMeta))
-		if ok {
-			t.Fatalf("expected ok=false for non-matching UUID")
-		}
+		require.False(t, ok)
 	})
 
 	t.Run("rejects truncated trailer", func(t *testing.T) {
 		nal := buildNAL(packetTrailerSEIUUID, wantMeta)
 		nal = nal[:len(nal)-3]
 		_, ok := parseH265SEIPacketTrailer(nal)
-		if ok {
-			t.Fatalf("expected ok=false for truncated trailer")
-		}
+		require.False(t, ok)
 	})
 
 	t.Run("rejects wrong payloadType", func(t *testing.T) {
 		nal := []byte{0x4e, 0x01, 0x04, 0x18} // payloadType=4, payloadSize=24
 		nal = append(nal, make([]byte, 24)...)
 		_, ok := parseH265SEIPacketTrailer(nal)
-		if ok {
-			t.Fatalf("expected ok=false for wrong payloadType")
-		}
+		require.False(t, ok)
 	})
 
 	t.Run("rejects nal too short", func(t *testing.T) {
 		_, ok := parseH265SEIPacketTrailer([]byte{0x4e, 0x01})
-		if ok {
-			t.Fatalf("expected ok=false for short NAL")
-		}
+		require.False(t, ok)
 	})
 }
