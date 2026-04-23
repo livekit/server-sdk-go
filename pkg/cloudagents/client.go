@@ -93,9 +93,25 @@ func (c *Client) CreateAgent(
 		resp.PresignedUrl,
 		resp.PresignedPostRequest,
 		source,
+		"", // production (create always targets production)
 		excludeFiles,
 		buildLogStreamWriter,
 	); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *Client) CreateAgentV2(
+	ctx context.Context,
+	secrets []*lkproto.AgentSecret,
+	regions []string,
+) (*lkproto.CreateAgentV2Response, error) {
+	resp, err := c.AgentClient.CreateAgentV2(ctx, &lkproto.CreateAgentV2Request{
+		Secrets: secrets,
+		Regions: regions,
+	})
+	if err != nil {
 		return nil, err
 	}
 	return resp, nil
@@ -120,7 +136,30 @@ func (c *Client) DeployAgent(
 	if !resp.Success {
 		return fmt.Errorf("failed to deploy agent: %s", resp.Message)
 	}
-	return c.uploadAndBuild(ctx, agentID, resp.PresignedUrl, resp.PresignedPostRequest, source, excludeFiles, buildLogStreamWriter)
+	return c.uploadAndBuild(ctx, agentID, resp.PresignedUrl, resp.PresignedPostRequest, source, "", excludeFiles, buildLogStreamWriter)
+}
+
+func (c *Client) DeployAgentV2(
+	ctx context.Context,
+	agentID string,
+	source fs.FS,
+	secrets []*lkproto.AgentSecret,
+	environment string,
+	excludeFiles []string,
+	buildLogStreamWriter io.Writer,
+) error {
+	resp, err := c.AgentClient.DeployAgentV2(ctx, &lkproto.DeployAgentV2Request{
+		AgentId:     agentID,
+		Secrets:     secrets,
+		Environment: environment,
+	})
+	if err != nil {
+		return err
+	}
+	if !resp.Success {
+		return fmt.Errorf("failed to deploy agent: %s", resp.Message)
+	}
+	return c.uploadAndBuild(ctx, agentID, "", resp.PresignedReq, source, environment, excludeFiles, buildLogStreamWriter)
 }
 
 // RegisterAgent creates an agent record without uploading source or triggering a build.
@@ -158,6 +197,7 @@ func (c *Client) uploadAndBuild(
 	presignedUrl string,
 	presignedPostRequest *lkproto.PresignedPostRequest,
 	source fs.FS,
+	environment string,
 	excludeFiles []string,
 	buildLogStreamWriter io.Writer,
 ) error {
@@ -169,7 +209,7 @@ func (c *Client) uploadAndBuild(
 	); err != nil {
 		return err
 	}
-	if err := c.build(ctx, agentID, buildLogStreamWriter); err != nil {
+	if err := c.build(ctx, agentID, environment, buildLogStreamWriter); err != nil {
 		return err
 	}
 	return nil

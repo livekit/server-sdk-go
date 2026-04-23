@@ -41,6 +41,14 @@ func (c *AgentClient) CreateAgent(ctx context.Context, req *livekit.CreateAgentR
 	return c.agentClient.CreateAgent(ctx, req)
 }
 
+func (c *AgentClient) CreateAgentV2(ctx context.Context, req *livekit.CreateAgentV2Request) (*livekit.CreateAgentV2Response, error) {
+	ctx, err := c.withAuth(ctx, withAgentGrant{Admin: true})
+	if err != nil {
+		return nil, err
+	}
+	return c.agentClient.CreateAgentV2(ctx, req)
+}
+
 func (c *AgentClient) ListAgents(ctx context.Context, req *livekit.ListAgentsRequest) (*livekit.ListAgentsResponse, error) {
 	ctx, err := c.withAuth(ctx, withAgentGrant{Admin: true})
 	if err != nil {
@@ -111,6 +119,14 @@ func (c *AgentClient) DeployAgent(ctx context.Context, req *livekit.DeployAgentR
 		return nil, err
 	}
 	return c.agentClient.DeployAgent(ctx, req)
+}
+
+func (c *AgentClient) DeployAgentV2(ctx context.Context, req *livekit.DeployAgentV2Request) (*livekit.DeployAgentV2Response, error) {
+	ctx, err := c.withAuth(ctx, withAgentGrant{Admin: true})
+	if err != nil {
+		return nil, err
+	}
+	return c.agentClient.DeployAgentV2(ctx, req)
 }
 
 func (c *AgentClient) GetClientSettings(ctx context.Context, req *livekit.ClientSettingsRequest) (*livekit.ClientSettingsResponse, error) {

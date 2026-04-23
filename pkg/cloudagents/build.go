@@ -30,9 +30,12 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func (c *Client) build(ctx context.Context, id string, writer io.Writer) error {
+func (c *Client) build(ctx context.Context, id string, environment string, writer io.Writer) error {
 	params := url.Values{}
 	params.Add("agent_id", id)
+	if environment != "" {
+		params.Add("environment", environment)
+	}
 	fullUrl := fmt.Sprintf("%s/build?%s", c.agentsURL, params.Encode())
 	req, err := c.newRequestWithContext(ctx, "POST", fullUrl, nil)
 	if err != nil {

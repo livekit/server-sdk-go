@@ -95,7 +95,6 @@ func CreateSourceTarball(
 		}
 
 		if !checkFilesToInclude(matcher, path) {
-			logger.Debugw("excluding file from tarball", "path", path)
 			return nil
 		}
 

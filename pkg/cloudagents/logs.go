@@ -30,7 +30,7 @@ type APIError struct {
 }
 
 // StreamLogs streams the logs for the given agent.
-func (c *Client) StreamLogs(ctx context.Context, logType, agentID string, writer io.Writer, serverRegion string) error {
+func (c *Client) StreamLogs(ctx context.Context, logType, agentID, environment string, writer io.Writer, serverRegion string) error {
 	logger := c.logger.WithName("StreamLogs")
 	if logType == "" {
 		logType = "deploy"
@@ -38,6 +38,9 @@ func (c *Client) StreamLogs(ctx context.Context, logType, agentID string, writer
 	params := url.Values{}
 	params.Add("agent_id", agentID)
 	params.Add("log_type", logType)
+	if environment != "" {
+		params.Add("env", environment)
+	}
 	fullUrl := fmt.Sprintf("%s/logs?%s", c.getAgentsURL(serverRegion), params.Encode())
 	req, err := c.newRequestWithContext(ctx, "GET", fullUrl, nil)
 	if err != nil {

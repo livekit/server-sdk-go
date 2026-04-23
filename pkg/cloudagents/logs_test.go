@@ -43,7 +43,7 @@ func TestStreamLogs_WriterClosesEarly(t *testing.T) {
 		pw.Close()
 	}()
 
-	err := client.StreamLogs(context.Background(), "deploy", "test-agent", pw, "us-west")
+	err := client.StreamLogs(context.Background(), "deploy", "test-agent", "", pw, "us-west")
 
 	if err == nil {
 		t.Fatal("expected error when writer closes, got nil")
@@ -81,7 +81,7 @@ func TestStreamLogs_ContextCanceledDuringWrite(t *testing.T) {
 		cancel()
 	}()
 
-	err := client.StreamLogs(ctx, "deploy", "test-agent", &buf, "us-west")
+	err := client.StreamLogs(ctx, "deploy", "test-agent", "", &buf, "us-west")
 
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("expected context.Canceled error, got: %v", err)
@@ -119,7 +119,7 @@ func TestStreamLogs_WriterReturnsError(t *testing.T) {
 	}
 
 	writer := &failingWriter{failAfter: 2}
-	err := client.StreamLogs(context.Background(), "deploy", "test-agent", writer, "us-west")
+	err := client.StreamLogs(context.Background(), "deploy", "test-agent", "", writer, "us-west")
 
 	if err == nil {
 		t.Fatal("expected error from failing writer, got nil")
@@ -147,7 +147,7 @@ func TestStreamLogs_NonOKResponse(t *testing.T) {
 		projectURL: server.URL,
 	}
 
-	err := client.StreamLogs(context.Background(), "deploy", "test-agent", &bytes.Buffer{}, "us-west")
+	err := client.StreamLogs(context.Background(), "deploy", "test-agent", "", &bytes.Buffer{}, "us-west")
 	if err == nil {
 		t.Fatal("expected error when server responds with non-200 status")
 	}
@@ -181,7 +181,7 @@ func TestStreamLogs_ServerClosesConnection(t *testing.T) {
 		projectURL: server.URL,
 	}
 
-	err := client.StreamLogs(context.Background(), "deploy", "test-agent", &bytes.Buffer{}, "us-west")
+	err := client.StreamLogs(context.Background(), "deploy", "test-agent", "", &bytes.Buffer{}, "us-west")
 	if err == nil {
 		t.Fatal("expected error when server closes connection mid-stream")
 	}
