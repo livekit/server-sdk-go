@@ -82,8 +82,7 @@ type ReaderSampleProvider struct {
 	// When appendUserTimestamp is enabled, we parse LKTS packet trailers from
 	// H264/H265 SEI user_data_unregistered NALs that precede frame NALs.
 	// The parsed metadata is stashed and re-attached to the next frame.
-	pendingFrameMetadata FrameMetadata
-	hasPendingFrameMeta  bool
+	pendingFrameMetadata *FrameMetadata
 
 	// Allow various types of ingress
 	reader io.ReadCloser
@@ -359,8 +358,7 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 					if !p.appendFrameId {
 						meta.FrameId = 0
 					}
-					p.pendingFrameMetadata = meta
-					p.hasPendingFrameMeta = true
+					p.pendingFrameMetadata = &meta
 				}
 			}
 			// If SEI, clear the data and do not return a frame.
@@ -387,10 +385,9 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 			return sample, nil
 		}
 
-		if (p.appendUserTimestamp || p.appendFrameId) && p.hasPendingFrameMeta {
-			sample.Data = appendPacketTrailer(sample.Data, p.pendingFrameMetadata)
-			p.hasPendingFrameMeta = false
-			p.pendingFrameMetadata = FrameMetadata{}
+		if p.pendingFrameMetadata != nil {
+			sample.Data = appendPacketTrailer(sample.Data, *p.pendingFrameMetadata)
+			p.pendingFrameMetadata = nil
 		}
 
 		sample.Duration = defaultH264FrameDuration
@@ -443,8 +440,7 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 						if !p.appendFrameId {
 							meta.FrameId = 0
 						}
-						p.pendingFrameMetadata = meta
-						p.hasPendingFrameMeta = true
+						p.pendingFrameMetadata = &meta
 					}
 				}
 				// If SEI and no frame yet, skip it unless we're only holding param sets.
@@ -490,10 +486,9 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 			return sample, nil
 		}
 
-		if (p.appendUserTimestamp || p.appendFrameId) && p.hasPendingFrameMeta {
-			sample.Data = appendPacketTrailer(sample.Data, p.pendingFrameMetadata)
-			p.hasPendingFrameMeta = false
-			p.pendingFrameMetadata = FrameMetadata{}
+		if p.pendingFrameMetadata != nil {
+			sample.Data = appendPacketTrailer(sample.Data, *p.pendingFrameMetadata)
+			p.pendingFrameMetadata = nil
 		}
 
 		sample.Duration = defaultH265FrameDuration
