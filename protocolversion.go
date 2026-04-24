@@ -14,4 +14,4 @@
 
 package lksdk
 
-const PROTOCOL = 16
+const PROTOCOL = 17

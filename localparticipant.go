@@ -132,17 +132,18 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 	}
 
 	req := &livekit.AddTrackRequest{
-		Cid:               track.ID(),
-		Name:              opts.Name,
-		Source:            opts.Source,
-		Type:              kind.ProtoType(),
-		Width:             uint32(opts.VideoWidth),
-		Height:            uint32(opts.VideoHeight),
-		DisableDtx:        opts.DisableDTX,
-		Stereo:            opts.Stereo,
-		Stream:            opts.Stream,
-		Encryption:        opts.Encryption,
-		BackupCodecPolicy: opts.BackupCodecPolicy,
+		Cid:                   track.ID(),
+		Name:                  opts.Name,
+		Source:                opts.Source,
+		Type:                  kind.ProtoType(),
+		Width:                 uint32(opts.VideoWidth),
+		Height:                uint32(opts.VideoHeight),
+		DisableDtx:            opts.DisableDTX,
+		Stereo:                opts.Stereo,
+		Stream:                opts.Stream,
+		Encryption:            opts.Encryption,
+		BackupCodecPolicy:     opts.BackupCodecPolicy,
+		PacketTrailerFeatures: packetTrailerFeaturesFromOpts(opts),
 	}
 	if kind == TrackKindVideo {
 		// single layer
@@ -288,13 +289,14 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *Tra
 		layers = append(layers, st.videoLayer)
 	}
 	req := &livekit.AddTrackRequest{
-		Cid:    mainTrack.ID(),
-		Name:   opts.Name,
-		Source: opts.Source,
-		Type:   pub.Kind().ProtoType(),
-		Width:  mainTrack.videoLayer.Width,
-		Height: mainTrack.videoLayer.Height,
-		Layers: layers,
+		Cid:                   mainTrack.ID(),
+		Name:                  opts.Name,
+		Source:                opts.Source,
+		Type:                  pub.Kind().ProtoType(),
+		Width:                 mainTrack.videoLayer.Width,
+		Height:                mainTrack.videoLayer.Height,
+		Layers:                layers,
+		PacketTrailerFeatures: packetTrailerFeaturesFromOpts(opts),
 		SimulcastCodecs: []*livekit.SimulcastCodec{
 			{
 				Codec:          mainTrack.Codec().MimeType,
@@ -1101,6 +1103,23 @@ func (p *LocalParticipant) SendFile(filePath string, options StreamBytesOptions)
 	writer.Write(fileBytes, &onDone)
 
 	return &writer.Info, nil
+}
+
+func packetTrailerFeaturesFromOpts(opts *TrackPublicationOptions) []livekit.PacketTrailerFeature {
+	if opts == nil {
+		return nil
+	}
+	var features []livekit.PacketTrailerFeature
+	if opts.AttachUserTimestamp {
+		features = append(features, livekit.PacketTrailerFeature_PTF_USER_TIMESTAMP)
+	}
+	if opts.AttachFrameId {
+		features = append(features, livekit.PacketTrailerFeature_PTF_FRAME_ID)
+	}
+	if len(features) == 0 {
+		return nil
+	}
+	return features
 }
 
 func (p *LocalParticipant) getPublishTransport() *PCTransport {

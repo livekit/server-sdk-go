@@ -76,13 +76,12 @@ type ReaderSampleProvider struct {
 	AudioLevel          uint8
 	trackOpts           []LocalTrackOptions
 	h26xStreamingFormat H26xStreamingFormat
-	appendUserTimestamp bool
+	appendPacketTrailer bool
 
-	// When appendUserTimestamp is enabled, we will attempt to parse timestamps from
-	// H264 SEI user_data_unregistered NALs that precede frame NALs.
-	// We then stash the parsed timestamp and attach it to the next frame as an LKTS trailer.
-	pendingUserTimestampUs  int64
-	hasPendingUserTimestamp bool
+	// When appendPacketTrailer is enabled, we parse LKTS packet trailers from
+	// H264/H265 SEI user_data_unregistered NALs that precede frame NALs.
+	// The parsed metadata is stashed and re-attached to the next frame.
+	pendingFrameMetadata *FrameMetadata
 
 	// Allow various types of ingress
 	reader io.ReadCloser
@@ -151,12 +150,11 @@ func readerTrackWithWavReader(wr *wavReader) func(provider *ReaderSampleProvider
 	}
 }
 
-// ReaderTrackWithUserTimestamp enables attaching the custom LKTS trailer
-// (timestamp_us + magic) to outgoing encoded frame payloads.
-// This currently supports H264.
-func ReaderTrackWithUserTimestamp(enabled bool) func(provider *ReaderSampleProvider) {
+// ReaderTrackWithPacketTrailer enables parsing and re-attaching LKTS packet
+// trailers embedded in H264/H265 SEI NALs.
+func ReaderTrackWithPacketTrailer(enabled bool) func(provider *ReaderSampleProvider) {
 	return func(provider *ReaderSampleProvider) {
-		provider.appendUserTimestamp = enabled
+		provider.appendPacketTrailer = enabled
 	}
 }
 
@@ -343,10 +341,9 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 		}
 
 		if nalUnitType == h264reader.NalUnitTypeSEI {
-			if p.appendUserTimestamp {
-				if ts, ok := parseH264SEIUserTimestamp(nalUnitData); ok {
-					p.pendingUserTimestampUs = ts
-					p.hasPendingUserTimestamp = true
+			if p.appendPacketTrailer {
+				if meta, ok := parseH264SEIPacketTrailer(nalUnitData); ok {
+					p.pendingFrameMetadata = &meta
 				}
 			}
 			// If SEI, clear the data and do not return a frame.
@@ -373,17 +370,9 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 			return sample, nil
 		}
 
-		// Attach the LKTS trailer to the encoded frame payload when enabled.
-		// If we didn't see a preceding timestamp, we still append a trailer with
-		// a zero timestamp.
-		if p.appendUserTimestamp {
-			ts := int64(0)
-			if p.hasPendingUserTimestamp {
-				ts = p.pendingUserTimestampUs
-				p.hasPendingUserTimestamp = false
-				p.pendingUserTimestampUs = 0
-			}
-			sample.Data = appendUserTimestampTrailer(sample.Data, ts)
+		if p.pendingFrameMetadata != nil {
+			sample.Data = appendPacketTrailer(sample.Data, *p.pendingFrameMetadata)
+			p.pendingFrameMetadata = nil
 		}
 
 		sample.Duration = defaultH264FrameDuration
@@ -428,10 +417,9 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 			}
 
 			if nal.NalUnitType == 39 { // prefix SEI
-				if p.appendUserTimestamp {
-					if ts, ok := parseH265SEIUserTimestamp(nal.Data); ok {
-						p.pendingUserTimestampUs = ts
-						p.hasPendingUserTimestamp = true
+				if p.appendPacketTrailer {
+					if meta, ok := parseH265SEIPacketTrailer(nal.Data); ok {
+						p.pendingFrameMetadata = &meta
 					}
 				}
 				// If SEI and no frame yet, skip it unless we're only holding param sets.
@@ -477,17 +465,9 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 			return sample, nil
 		}
 
-		// Attach the LKTS trailer to the encoded frame payload when enabled.
-		// If we didn't see a preceding timestamp, we still append a trailer with
-		// a zero timestamp.
-		if p.appendUserTimestamp {
-			ts := int64(0)
-			if p.hasPendingUserTimestamp {
-				ts = p.pendingUserTimestampUs
-				p.hasPendingUserTimestamp = false
-				p.pendingUserTimestampUs = 0
-			}
-			sample.Data = appendUserTimestampTrailer(sample.Data, ts)
+		if p.pendingFrameMetadata != nil {
+			sample.Data = appendPacketTrailer(sample.Data, *p.pendingFrameMetadata)
+			p.pendingFrameMetadata = nil
 		}
 
 		sample.Duration = defaultH265FrameDuration

@@ -3,12 +3,12 @@ package lksdk
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	"io"
 	"testing"
 
 	"github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media/h265reader"
+	"github.com/stretchr/testify/require"
 )
 
 // ---------------------------------------------------------------------------
@@ -62,10 +62,8 @@ func TestH265FirstSliceInPic(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			gotFirst, gotOK := h265FirstSliceInPic(tt.nalData)
-			if gotFirst != tt.wantFirst || gotOK != tt.wantOK {
-				t.Fatalf("h265FirstSliceInPic(%x) = (%v, %v), want (%v, %v)",
-					tt.nalData, gotFirst, gotOK, tt.wantFirst, tt.wantOK)
-			}
+			require.Equal(t, tt.wantFirst, gotFirst)
+			require.Equal(t, tt.wantOK, gotOK)
 		})
 	}
 }
@@ -81,12 +79,8 @@ func TestH265AccessUnitBuilder(t *testing.T) {
 		var builder h265AccessUnitBuilder
 		builder.Append([]byte{0xAA, 0xBB})
 		got := builder.Bytes()
-		if !bytes.Equal(got, []byte{0xAA, 0xBB}) {
-			t.Fatalf("expected raw NAL, got %x", got)
-		}
-		if builder.Len() != 2 {
-			t.Fatalf("expected len 2, got %d", builder.Len())
-		}
+		require.Equal(t, []byte{0xAA, 0xBB}, got)
+		require.Equal(t, 2, builder.Len())
 	})
 
 	t.Run("second NAL materializes annex B once", func(t *testing.T) {
@@ -95,12 +89,8 @@ func TestH265AccessUnitBuilder(t *testing.T) {
 		builder.Append([]byte{0xCC, 0xDD})
 		got := builder.Bytes()
 		want := concat(sc, []byte{0xAA, 0xBB}, sc, []byte{0xCC, 0xDD})
-		if !bytes.Equal(got, want) {
-			t.Fatalf("got %x, want %x", got, want)
-		}
-		if builder.Len() != len(want) {
-			t.Fatalf("expected len %d, got %d", len(want), builder.Len())
-		}
+		require.Equal(t, want, got)
+		require.Equal(t, len(want), builder.Len())
 	})
 
 	t.Run("subsequent NALs append in annex B", func(t *testing.T) {
@@ -111,12 +101,8 @@ func TestH265AccessUnitBuilder(t *testing.T) {
 		got := builder.Bytes()
 		want := concat(sc, []byte{0xAA}, sc, []byte{0xBB})
 		want = concat(want, sc, []byte{0xCC, 0xDD})
-		if !bytes.Equal(got, want) {
-			t.Fatalf("got %x, want %x", got, want)
-		}
-		if builder.Len() != len(want) {
-			t.Fatalf("expected len %d, got %d", len(want), builder.Len())
-		}
+		require.Equal(t, want, got)
+		require.Equal(t, len(want), builder.Len())
 	})
 
 	t.Run("annex b input stays annex b", func(t *testing.T) {
@@ -125,12 +111,8 @@ func TestH265AccessUnitBuilder(t *testing.T) {
 		builder.Append([]byte{0xCC})
 		got := builder.Bytes()
 		want := concat(sc, []byte{0xAA, 0xBB}, sc, []byte{0xCC})
-		if !bytes.Equal(got, want) {
-			t.Fatalf("got %x, want %x", got, want)
-		}
-		if builder.Len() != len(want) {
-			t.Fatalf("expected len %d, got %d", len(want), builder.Len())
-		}
+		require.Equal(t, want, got)
+		require.Equal(t, len(want), builder.Len())
 	})
 }
 
@@ -153,24 +135,14 @@ func TestH265NextSample_SingleAccessUnit(t *testing.T) {
 		Mime:   webrtc.MimeTypeH265,
 		reader: r,
 	}
-	if err := p.OnBind(); err != nil {
-		t.Fatalf("OnBind: %v", err)
-	}
+	require.NoError(t, p.OnBind())
 
 	sample, err := p.NextSample(context.Background())
-	if err != nil {
-		t.Fatalf("NextSample: %v", err)
-	}
-	if sample.Duration != defaultH265FrameDuration {
-		t.Fatalf("expected duration %v, got %v", defaultH265FrameDuration, sample.Duration)
-	}
-	if len(sample.Data) == 0 {
-		t.Fatal("expected non-empty sample data")
-	}
+	require.NoError(t, err)
+	require.Equal(t, defaultH265FrameDuration, sample.Duration)
+	require.NotEmpty(t, sample.Data)
 	want := concat(sc, vps, sc, sps, sc, pps, sc, vcl)
-	if !bytes.Equal(sample.Data, want) {
-		t.Fatalf("sample data mismatch: got %x, want %x", sample.Data, want)
-	}
+	require.Equal(t, want, sample.Data)
 }
 
 func TestH265NextSample_MultipleAccessUnits(t *testing.T) {
@@ -186,33 +158,19 @@ func TestH265NextSample_MultipleAccessUnits(t *testing.T) {
 		Mime:   webrtc.MimeTypeH265,
 		reader: r,
 	}
-	if err := p.OnBind(); err != nil {
-		t.Fatalf("OnBind: %v", err)
-	}
+	require.NoError(t, p.OnBind())
 
 	// First access unit
 	s1, err := p.NextSample(context.Background())
-	if err != nil {
-		t.Fatalf("NextSample 1: %v", err)
-	}
-	if s1.Duration != defaultH265FrameDuration {
-		t.Fatalf("s1: expected duration %v, got %v", defaultH265FrameDuration, s1.Duration)
-	}
-	if !bytes.Equal(s1.Data, vcl1) {
-		t.Fatalf("s1 data mismatch: got %x, want %x", s1.Data, vcl1)
-	}
+	require.NoError(t, err)
+	require.Equal(t, defaultH265FrameDuration, s1.Duration)
+	require.Equal(t, vcl1, s1.Data)
 
 	// Second access unit (flushed at EOF)
 	s2, err := p.NextSample(context.Background())
-	if err != nil {
-		t.Fatalf("NextSample 2: %v", err)
-	}
-	if s2.Duration != defaultH265FrameDuration {
-		t.Fatalf("s2: expected duration %v, got %v", defaultH265FrameDuration, s2.Duration)
-	}
-	if !bytes.Equal(s2.Data, vcl2) {
-		t.Fatalf("s2 data mismatch: got %x, want %x", s2.Data, vcl2)
-	}
+	require.NoError(t, err)
+	require.Equal(t, defaultH265FrameDuration, s2.Duration)
+	require.Equal(t, vcl2, s2.Data)
 }
 
 func TestH265NextSample_MultiSliceAccessUnit(t *testing.T) {
@@ -228,18 +186,12 @@ func TestH265NextSample_MultiSliceAccessUnit(t *testing.T) {
 		Mime:   webrtc.MimeTypeH265,
 		reader: r,
 	}
-	if err := p.OnBind(); err != nil {
-		t.Fatalf("OnBind: %v", err)
-	}
+	require.NoError(t, p.OnBind())
 
 	sample, err := p.NextSample(context.Background())
-	if err != nil {
-		t.Fatalf("NextSample: %v", err)
-	}
+	require.NoError(t, err)
 	want := concat(sc, vclFirst, sc, vclCont)
-	if !bytes.Equal(sample.Data, want) {
-		t.Fatalf("sample data mismatch: got %x, want %x", sample.Data, want)
-	}
+	require.Equal(t, want, sample.Data)
 }
 
 func TestH265NextSample_NonVCLAfterVCLSplits(t *testing.T) {
@@ -256,28 +208,18 @@ func TestH265NextSample_NonVCLAfterVCLSplits(t *testing.T) {
 		Mime:   webrtc.MimeTypeH265,
 		reader: r,
 	}
-	if err := p.OnBind(); err != nil {
-		t.Fatalf("OnBind: %v", err)
-	}
+	require.NoError(t, p.OnBind())
 
 	// First AU: just the VCL
 	s1, err := p.NextSample(context.Background())
-	if err != nil {
-		t.Fatalf("NextSample 1: %v", err)
-	}
-	if !bytes.Equal(s1.Data, vcl) {
-		t.Fatalf("s1 data mismatch: got %x, want %x", s1.Data, vcl)
-	}
+	require.NoError(t, err)
+	require.Equal(t, vcl, s1.Data)
 
 	// Second AU: VPS + VCL2
 	s2, err := p.NextSample(context.Background())
-	if err != nil {
-		t.Fatalf("NextSample 2: %v", err)
-	}
+	require.NoError(t, err)
 	want := concat(sc, vps, sc, vcl2)
-	if !bytes.Equal(s2.Data, want) {
-		t.Fatalf("s2 data mismatch: got %x, want %x", s2.Data, want)
-	}
+	require.Equal(t, want, s2.Data)
 }
 
 func TestH265NextSample_SuffixSEIIgnored(t *testing.T) {
@@ -294,30 +236,18 @@ func TestH265NextSample_SuffixSEIIgnored(t *testing.T) {
 		Mime:   webrtc.MimeTypeH265,
 		reader: r,
 	}
-	if err := p.OnBind(); err != nil {
-		t.Fatalf("OnBind: %v", err)
-	}
+	require.NoError(t, p.OnBind())
 
 	// First AU: vcl1 (suffix SEI ignored, vcl2 starts new AU)
 	s1, err := p.NextSample(context.Background())
-	if err != nil {
-		t.Fatalf("NextSample 1: %v", err)
-	}
-	if !bytes.Equal(s1.Data, vcl1) {
-		t.Fatalf("s1 data mismatch: got %x, want %x", s1.Data, vcl1)
-	}
+	require.NoError(t, err)
+	require.Equal(t, vcl1, s1.Data)
 	// suffix SEI should not appear in the data
-	if bytes.Contains(s1.Data, suffixSEI) {
-		t.Fatal("s1 should not contain suffix SEI data")
-	}
+	require.False(t, bytes.Contains(s1.Data, suffixSEI), "s1 should not contain suffix SEI data")
 
 	s2, err := p.NextSample(context.Background())
-	if err != nil {
-		t.Fatalf("NextSample 2: %v", err)
-	}
-	if !bytes.Equal(s2.Data, vcl2) {
-		t.Fatalf("s2 data mismatch: got %x, want %x", s2.Data, vcl2)
-	}
+	require.NoError(t, err)
+	require.Equal(t, vcl2, s2.Data)
 }
 
 func TestH265NextSample_PrefixSEIBeforeVCLSkipped(t *testing.T) {
@@ -332,28 +262,20 @@ func TestH265NextSample_PrefixSEIBeforeVCLSkipped(t *testing.T) {
 		Mime:   webrtc.MimeTypeH265,
 		reader: r,
 	}
-	if err := p.OnBind(); err != nil {
-		t.Fatalf("OnBind: %v", err)
-	}
+	require.NoError(t, p.OnBind())
 
 	sample, err := p.NextSample(context.Background())
-	if err != nil {
-		t.Fatalf("NextSample: %v", err)
-	}
-	if sample.Data != nil {
-		t.Fatalf("expected nil data for SEI-only sample, got %x", sample.Data)
-	}
-	if sample.Duration != 0 {
-		t.Fatalf("expected zero duration, got %v", sample.Duration)
-	}
+	require.NoError(t, err)
+	require.Nil(t, sample.Data)
+	require.Zero(t, sample.Duration)
 }
 
 func TestH265NextSample_WithUserTimestamp(t *testing.T) {
-	// Prefix SEI with user timestamp, then VCL. Timestamp should be attached.
+	// Prefix SEI with packet trailer metadata, then VCL. Metadata should be attached.
 	sc := []byte{0, 0, 0, 1}
 
-	const wantTS = int64(9876543210)
-	seiNAL := buildH265UserTimestampSEI(wantTS)
+	wantMeta := FrameMetadata{UserTimestamp: 9876543210, FrameId: 77}
+	seiNAL := buildH265PacketTrailerSEI(wantMeta)
 	vcl := makeH265VCLData(1, true, []byte{0xAA})
 
 	stream := concat(sc, seiNAL, sc, vcl)
@@ -362,40 +284,25 @@ func TestH265NextSample_WithUserTimestamp(t *testing.T) {
 	p := &ReaderSampleProvider{
 		Mime:                webrtc.MimeTypeH265,
 		reader:              r,
-		appendUserTimestamp: true,
+		appendPacketTrailer: true,
 	}
-	if err := p.OnBind(); err != nil {
-		t.Fatalf("OnBind: %v", err)
-	}
+	require.NoError(t, p.OnBind())
 
 	// First call returns the SEI-only empty sample
 	s1, err := p.NextSample(context.Background())
-	if err != nil {
-		t.Fatalf("NextSample (SEI): %v", err)
-	}
-	if s1.Data != nil {
-		t.Fatalf("expected nil data for SEI sample, got %x", s1.Data)
-	}
+	require.NoError(t, err)
+	require.Nil(t, s1.Data)
 
-	// Second call returns the VCL frame with timestamp trailer
+	// Second call returns the VCL frame with packet trailer
 	s2, err := p.NextSample(context.Background())
-	if err != nil {
-		t.Fatalf("NextSample (VCL): %v", err)
-	}
-	if s2.Duration != defaultH265FrameDuration {
-		t.Fatalf("expected duration %v, got %v", defaultH265FrameDuration, s2.Duration)
-	}
-	if !bytes.HasPrefix(s2.Data, vcl) {
-		t.Fatalf("expected VCL prefix %x in sample data %x", vcl, s2.Data)
-	}
+	require.NoError(t, err)
+	require.Equal(t, defaultH265FrameDuration, s2.Duration)
+	require.True(t, bytes.HasPrefix(s2.Data, vcl), "expected VCL prefix %x in sample data %x", vcl, s2.Data)
 
-	gotTS, ok := parseUserTimestampTrailer(s2.Data)
-	if !ok {
-		t.Fatal("expected LKTS trailer in sample data")
-	}
-	if gotTS != wantTS {
-		t.Fatalf("timestamp mismatch: got %d, want %d", gotTS, wantTS)
-	}
+	gotMeta, ok := parsePacketTrailer(s2.Data)
+	require.True(t, ok, "expected LKTS trailer in sample data")
+	require.Equal(t, wantMeta.UserTimestamp, gotMeta.UserTimestamp)
+	require.Equal(t, wantMeta.FrameId, gotMeta.FrameId)
 }
 
 // ---------------------------------------------------------------------------
@@ -433,20 +340,19 @@ func makeH265VCLData(nalType h265reader.NalUnitType, firstSlice bool, payload []
 	return append(data, payload...)
 }
 
-// buildH265UserTimestampSEI builds a prefix SEI NAL (type 39) containing a
-// user_data_unregistered message with the LKTS UUID and the given timestamp.
-func buildH265UserTimestampSEI(ts int64) []byte {
+// buildH265PacketTrailerSEI builds a prefix SEI NAL (type 39) containing a
+// user_data_unregistered message with the LKTS UUID and an LKTS packet trailer.
+func buildH265PacketTrailerSEI(meta FrameMetadata) []byte {
 	// 2-byte NAL header for prefix SEI (type 39)
 	b0 := byte(39) << 1
 	b1 := byte(0x01)
 	nal := []byte{b0, b1}
 
-	// payloadType = 5 (user_data_unregistered), payloadSize = 24
-	nal = append(nal, 0x05, 0x18)
-	nal = append(nal, userTimestampSEIUUID[:]...)
+	trailer := appendPacketTrailer(nil, meta)
+	userData := append(packetTrailerSEIUUID[:], trailer...)
 
-	var tsBuf [8]byte
-	binary.BigEndian.PutUint64(tsBuf[:], uint64(ts))
-	nal = append(nal, tsBuf[:]...)
+	// payloadType = 5, payloadSize = len(userData)
+	nal = append(nal, 0x05, byte(len(userData)))
+	nal = append(nal, userData...)
 	return nal
 }
