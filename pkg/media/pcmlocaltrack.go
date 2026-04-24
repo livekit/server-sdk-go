@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/frostbyte73/core"
 	"github.com/gammazero/deque"
 	"github.com/google/uuid"
 	"github.com/livekit/media-sdk"
@@ -66,9 +67,11 @@ type PCMLocalTrack struct {
 	emptyBufMu   sync.Mutex
 	emptyBufCond *sync.Cond
 
-	closed atomic.Bool
-	muted  atomic.Bool
-	bound  atomic.Bool
+	started core.Fuse
+	closed  core.Fuse
+
+	muted atomic.Bool
+	bound atomic.Bool
 
 	logger         protoLogger.Logger
 	enableStats    bool
@@ -167,7 +170,6 @@ func NewPCMLocalTrack(
 
 	t.cond = sync.NewCond(&t.mu)
 	t.emptyBufCond = sync.NewCond(&t.emptyBufMu)
-	go t.processSamples()
 	return t, nil
 }
 
@@ -175,12 +177,13 @@ func (t *PCMLocalTrack) Bind(trackLocal webrtc.TrackLocalContext) (webrtc.RTPCod
 	parameters, err := t.TrackLocalStaticSample.Bind(trackLocal)
 	if err == nil {
 		t.bound.Store(true)
+		t.started.Once(func() { go t.processSamples() })
 	}
 	return parameters, err
 }
 
 func (t *PCMLocalTrack) getFrameFromChunkBuffer() media.PCM16Sample {
-	if t.closed.Load() && t.numSamples.Load() == 0 {
+	if t.closed.IsBroken() && t.numSamples.Load() == 0 {
 		return nil
 	}
 
@@ -209,7 +212,7 @@ func (t *PCMLocalTrack) getFrameFromChunkBuffer() media.PCM16Sample {
 }
 
 func (t *PCMLocalTrack) WriteSample(chunk media.PCM16Sample) error {
-	if t.closed.Load() {
+	if t.closed.IsBroken() {
 		return errors.New("track is closed")
 	}
 
@@ -240,7 +243,7 @@ func (t *PCMLocalTrack) processSamples() {
 	ticker := time.NewTicker(t.frameDuration)
 	defer ticker.Stop()
 
-	for !t.closed.Load() || t.numSamples.Load() != 0 {
+	for !t.closed.IsBroken() || t.numSamples.Load() != 0 {
 		var frame media.PCM16Sample
 		var snapshot *pcmLocalTrackLogSnapshot
 
@@ -270,7 +273,7 @@ func (t *PCMLocalTrack) processSamples() {
 }
 
 func (t *PCMLocalTrack) setMuted(muted bool) error {
-	if t.closed.Load() {
+	if t.closed.IsBroken() {
 		return errors.New("track is closed")
 	}
 
@@ -308,14 +311,14 @@ func (t *PCMLocalTrack) ClearQueue() {
 }
 
 func (t *PCMLocalTrack) Close() error {
-	if t.closed.CompareAndSwap(false, true) {
+	t.closed.Once(func() {
 		t.mu.Lock()
 		t.cond.Broadcast()
 		t.mu.Unlock()
 		if t.cpuStats != nil {
 			t.cpuStats.Stop()
 		}
-	}
+	})
 	return nil
 }
 
