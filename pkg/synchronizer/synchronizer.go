@@ -386,6 +386,22 @@ func (s *Synchronizer) GetEndedAt() int64 {
 	return s.endedAt
 }
 
+// SynchronizerAdapter wraps the legacy Synchronizer to implement the Sync interface.
+// The Synchronizer's own AddTrack returns *TrackSynchronizer (concrete type); this
+// adapter's AddTrack returns TrackSync so that *SynchronizerAdapter satisfies Sync.
+type SynchronizerAdapter struct {
+	*Synchronizer
+}
+
+func (a *SynchronizerAdapter) AddTrack(track TrackRemote, identity string) TrackSync {
+	return a.Synchronizer.AddTrack(track, identity)
+}
+
+// AsSyncInterface returns a Sync-compatible wrapper around this Synchronizer.
+func (s *Synchronizer) AsSyncInterface() Sync {
+	return &SynchronizerAdapter{Synchronizer: s}
+}
+
 func (s *Synchronizer) getExternalMediaDeadline() (time.Duration, bool) {
 	s.RLock()
 	startTime := s.externalMediaStartTime
