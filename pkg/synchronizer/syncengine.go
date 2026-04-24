@@ -37,6 +37,10 @@ const (
 	// and wall-clock PTS before falling back to wall clock.
 	wallClockSanityThreshold = 5 * time.Second
 
+	// maxTimelyPacketAge is how long a track can be behind the pipeline deadline
+	// before its PTS is force-corrected forward.
+	maxTimelyPacketAge = 10 * time.Second
+
 	// defaultOldPacketThreshold is the default age after which packets are dropped.
 	defaultOldPacketThreshold = 500 * time.Millisecond
 )
@@ -66,6 +70,15 @@ func WithSyncEngineOldPacketThreshold(d time.Duration) SyncEngineOption {
 	}
 }
 
+// WithSyncEngineMediaRunningTime sets the initial media running time provider and max delay.
+// If a track's PTS falls behind the deadline by more than maxDelay for >10s, PTS is force-corrected.
+func WithSyncEngineMediaRunningTime(mediaRunningTime func() (time.Duration, bool), maxDelay time.Duration) SyncEngineOption {
+	return func(e *SyncEngine) {
+		e.mediaRunningTime = mediaRunningTime
+		e.maxMediaRunningTimeDelay = maxDelay
+	}
+}
+
 // SyncEngine orchestrates NtpEstimator, ParticipantSync, and SessionTimeline
 // to provide cross-participant alignment and per-participant A/V lip sync.
 // It implements the Sync interface.
@@ -85,8 +98,9 @@ type SyncEngine struct {
 	oldPacketThreshold time.Duration
 	onStarted          func()
 
-	mediaRunningTime     func() (time.Duration, bool)
-	mediaRunningTimeLock sync.RWMutex
+	mediaRunningTime         func() (time.Duration, bool)
+	maxMediaRunningTimeDelay time.Duration
+	mediaRunningTimeLock     sync.RWMutex
 }
 
 // NewSyncEngine creates a new SyncEngine with the given options.
@@ -285,6 +299,17 @@ func (e *SyncEngine) SetMediaRunningTime(mediaRunningTime func() (time.Duration,
 	e.mediaRunningTimeLock.Unlock()
 }
 
+// getMediaDeadline returns the current pipeline deadline, or false if unavailable.
+func (e *SyncEngine) getMediaDeadline() (time.Duration, bool) {
+	e.mediaRunningTimeLock.RLock()
+	fn := e.mediaRunningTime
+	e.mediaRunningTimeLock.RUnlock()
+	if fn == nil {
+		return 0, false
+	}
+	return fn()
+}
+
 // initializeIfNeeded sets the session start time and fires the onStarted callback
 // on the first track initialization. Returns the startedAt value.
 func (e *SyncEngine) initializeIfNeeded(receivedAt time.Time) int64 {
@@ -321,6 +346,9 @@ type syncEngineTrack struct {
 	ntpTransitioned bool
 	transitionSlew  time.Duration
 	lastSlewPTS     time.Duration // PTS at which slew was last updated
+
+	// pipeline time feedback
+	lastTimelyPacket time.Time
 
 	// drain
 	maxPTS    time.Duration
@@ -368,6 +396,7 @@ func (st *syncEngineTrack) initializeLocked(pkt jitter.ExtPacket) {
 
 	st.startTime = receivedAt
 	st.lastTS = pkt.Timestamp
+	st.lastTimelyPacket = receivedAt
 	st.initialized = true
 
 	// Initialize the engine's session start time.
@@ -452,7 +481,20 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 	}
 	st.engine.timeline.mu.RUnlock()
 
-	// Step 6: Enforce monotonicity.
+	// Step 6: Pipeline time feedback — if the track has fallen behind the
+	// pipeline's deadline for too long, force-correct PTS forward.
+	if deadline, ok := st.engine.getMediaDeadline(); ok && st.engine.maxMediaRunningTimeDelay > 0 {
+		limit := deadline - st.engine.maxMediaRunningTimeDelay
+		if pts < limit {
+			if time.Since(st.lastTimelyPacket) > maxTimelyPacketAge {
+				pts = deadline - st.engine.maxMediaRunningTimeDelay/2
+			}
+		} else {
+			st.lastTimelyPacket = time.Now()
+		}
+	}
+
+	// Step 7: Enforce monotonicity.
 	if pts < st.lastPTSAdjusted+time.Millisecond && st.lastPTSAdjusted > 0 {
 		pts = st.lastPTSAdjusted + time.Millisecond
 	}

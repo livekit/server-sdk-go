@@ -45,7 +45,7 @@ func TestIntegration_CrossParticipantSync(t *testing.T) {
 		bobNTPOffset = 500 * time.Millisecond
 	)
 
-	engine := NewSyncEngine()
+	engine := NewSyncEngine(WithSyncEngineOldPacketThreshold(0))
 
 	aliceTrack := newMockAudioTrack("audio-alice", 1000)
 	bobTrack := newMockAudioTrack("audio-bob", 2000)
@@ -157,7 +157,7 @@ func TestIntegration_AVLipSync(t *testing.T) {
 		videoEncoderDelay = 80 * time.Millisecond
 	)
 
-	engine := NewSyncEngine()
+	engine := NewSyncEngine(WithSyncEngineOldPacketThreshold(0))
 
 	audioTrack := newMockAudioTrack("audio-alice", 1000)
 	videoTrack := newMockVideoTrack("video-alice", 2000)
