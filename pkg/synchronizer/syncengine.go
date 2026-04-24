@@ -320,7 +320,7 @@ type syncEngineTrack struct {
 	// NTP transition
 	ntpTransitioned bool
 	transitionSlew  time.Duration
-	lastSlewTime    time.Time // wall-clock time of last slew step
+	lastSlewPTS     time.Duration // PTS at which slew was last updated
 
 	// drain
 	maxPTS    time.Duration
@@ -420,18 +420,14 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 		pts = ntpPTS
 	}
 
-	// Step 4: Apply transition slew (absorb gradually toward zero, time-based).
+	// Step 4: Apply transition slew (absorb gradually toward zero, pts-based).
 	if st.transitionSlew != 0 {
 		pts += st.transitionSlew
 
-		now := pkt.ReceivedAt
-		if now.IsZero() {
-			now = time.Now()
-		}
-		if !st.lastSlewTime.IsZero() {
-			elapsed := now.Sub(st.lastSlewTime)
-			maxStep := time.Duration(float64(transitionSlewRatePerSecond) * elapsed.Seconds())
-			if maxStep > 0 {
+		if st.lastSlewPTS > 0 {
+			ptsDelta := pts - st.lastSlewPTS
+			if ptsDelta > 0 {
+				maxStep := time.Duration(float64(transitionSlewRatePerSecond) * ptsDelta.Seconds())
 				if st.transitionSlew > 0 {
 					st.transitionSlew -= maxStep
 					if st.transitionSlew < 0 {
@@ -445,7 +441,7 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 				}
 			}
 		}
-		st.lastSlewTime = now
+		st.lastSlewPTS = pts
 	}
 
 	// Step 5: Apply ParticipantSync A/V adjustment.
