@@ -17,6 +17,7 @@ package synchronizer
 import (
 	"errors"
 	"math"
+	"sync"
 	"time"
 )
 
@@ -46,11 +47,9 @@ type srSample struct {
 // sender report pairs to map RTP timestamps to NTP time. It is modeled after
 // Chrome's RtpToNtpEstimator.
 type NtpEstimator struct {
+	mu        sync.Mutex
 	clockRate uint32
 
-	// Circular buffer of SR samples. These fields are unexported but
-	// package-accessible so that ParticipantSync (same package) can read
-	// the most recent sample.
 	samples    [maxSRSamples]srSample
 	sampleLen  int // number of valid samples in the buffer (0..maxSRSamples)
 	sampleHead int // index of the next write position
@@ -77,11 +76,32 @@ func NewNtpEstimator(clockRate uint32) *NtpEstimator {
 	}
 }
 
+// Reset clears all state, returning the estimator to its initial condition.
+// Used when a stream discontinuity is detected (e.g., stream restart with a new
+// RTP offset) and the old regression is no longer valid.
+func (e *NtpEstimator) Reset() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.samples = [maxSRSamples]srSample{}
+	e.sampleLen = 0
+	e.sampleHead = 0
+	e.lastRTP = 0
+	e.rtpOffset = 0
+	e.hasLastRTP = false
+	e.slopeNanos = 0
+	e.meanX = 0
+	e.meanY = 0
+	e.residStd = 0
+	e.ready = false
+}
+
 // OnSenderReport ingests a new RTCP sender report observation.
 // ntpTime is the 64-bit NTP timestamp from the SR, rtpTimestamp is the
 // corresponding RTP timestamp, and receivedAt is the local wall-clock time
 // when the SR was received.
 func (e *NtpEstimator) OnSenderReport(ntpTime uint64, rtpTimestamp uint32, receivedAt time.Time) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	ntpNanos := ntpTimestampToNanos(ntpTime)
 	unwrapped := e.unwrapRTP(rtpTimestamp)
 
@@ -118,11 +138,15 @@ func (e *NtpEstimator) OnSenderReport(ntpTime uint64, rtpTimestamp uint32, recei
 // IsReady returns true once at least 2 sender reports have been processed
 // and the regression is valid.
 func (e *NtpEstimator) IsReady() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	return e.ready
 }
 
 // RtpToNtp maps an RTP timestamp to wall-clock time using the current regression.
 func (e *NtpEstimator) RtpToNtp(rtpTimestamp uint32) (time.Time, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	if !e.ready {
 		return time.Time{}, errNotReady
 	}
@@ -135,6 +159,8 @@ func (e *NtpEstimator) RtpToNtp(rtpTimestamp uint32) (time.Time, error) {
 // Slope returns the regression slope: seconds of NTP time per RTP tick.
 // For a perfect clock this equals 1/clockRate.
 func (e *NtpEstimator) Slope() float64 {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	return e.slopeNanos / 1e9
 }
 

@@ -93,6 +93,53 @@ func (st *SessionTimeline) AddParticipant(identity string) *ParticipantClock {
 	return pc
 }
 
+// GetOrAddParticipant returns the ParticipantClock for the given identity,
+// creating one if it doesn't exist. This is safe for concurrent use.
+func (st *SessionTimeline) GetOrAddParticipant(identity string) *ParticipantClock {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	if pc, ok := st.participants[identity]; ok {
+		return pc
+	}
+
+	pc := &ParticipantClock{
+		owdEstimator:    latency.NewOWDEstimator(latency.OWDEstimatorParamsDefault),
+		participantSync: NewParticipantSync(),
+		tracks:          make(map[string]*participantTrack),
+	}
+	st.participants[identity] = pc
+	return pc
+}
+
+// GetTrackEstimator returns the NTP estimator for a participant's track, or nil.
+func (st *SessionTimeline) GetTrackEstimator(identity, trackID string) *NtpEstimator {
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+
+	pc, ok := st.participants[identity]
+	if !ok {
+		return nil
+	}
+	pt, ok := pc.tracks[trackID]
+	if !ok {
+		return nil
+	}
+	return pt.estimator
+}
+
+// GetParticipantSync returns the ParticipantSync for a participant, or nil.
+func (st *SessionTimeline) GetParticipantSync(identity string) *ParticipantSync {
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+
+	pc, ok := st.participants[identity]
+	if !ok {
+		return nil
+	}
+	return pc.participantSync
+}
+
 // RemoveParticipant removes the participant with the given identity.
 func (st *SessionTimeline) RemoveParticipant(identity string) {
 	st.mu.Lock()
@@ -102,6 +149,23 @@ func (st *SessionTimeline) RemoveParticipant(identity string) {
 
 // OnSenderReport processes an RTCP sender report for a participant's track.
 // It updates the NTP estimator, OWD estimator, and records the NTP epoch.
+// ResetTrack clears the NTP estimator for a track, forcing it to rebuild from
+// new sender reports. Used when a stream discontinuity is detected.
+func (st *SessionTimeline) ResetTrack(identity, trackID string) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	pc, ok := st.participants[identity]
+	if !ok {
+		return
+	}
+	pt, ok := pc.tracks[trackID]
+	if !ok {
+		return
+	}
+	pt.estimator.Reset()
+}
+
 func (st *SessionTimeline) OnSenderReport(identity, trackID string, clockRate uint32, ntpTime uint64, rtpTimestamp uint32, receivedAt time.Time) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -127,15 +191,12 @@ func (st *SessionTimeline) OnSenderReport(identity, trackID string, clockRate ui
 	// Convert NTP timestamp to nanoseconds and update OWD.
 	senderNtpNanos := ntpTimestampToNanos(ntpTime)
 	receiverNanos := receivedAt.UnixNano()
-	_, pathChanged := pc.owdEstimator.Update(senderNtpNanos, receiverNanos)
-
-	// If a path change was detected, re-anchor the NTP epoch to the current SR.
-	// This handles cases where the network path changes (e.g., server migration).
-	if pathChanged && pc.hasEpoch {
-		pc.ntpEpoch = nanosToTime(senderNtpNanos)
-	}
+	pc.owdEstimator.Update(senderNtpNanos, receiverNanos)
 
 	// Record the NTP epoch from the first SR for this participant.
+	// Note: ntpEpoch cancels out in the GetSessionPTS formula
+	// (sessionPTS = ntpTime + OWD - sessionStart), so its exact value
+	// doesn't affect the output. It's kept for readability of the formula.
 	if !pc.hasEpoch {
 		pc.ntpEpoch = nanosToTime(senderNtpNanos)
 		pc.hasEpoch = true

@@ -81,30 +81,25 @@ func TestIntegration_CrossParticipantSync(t *testing.T) {
 		// since OnRTCP uses time.Now(). We need deterministic timing.
 		engine.timeline.OnSenderReport("alice", "audio-alice", clockRate, aliceNTP, rtpTS, receivedAt)
 
-		// Also process through OnRTCP-like path to update ParticipantSync.
-		// We mimic the SR processing that OnRTCP does for ParticipantSync wiring.
-		engine.timeline.mu.RLock()
-		if pc, ok := engine.timeline.participants["alice"]; ok {
-			if pt, ok := pc.tracks["audio-alice"]; ok {
-				pc.participantSync.SetTrackEstimator("audio-alice", MediaTypeAudio, pt.estimator)
-				pc.participantSync.OnSenderReport("audio-alice")
+		// Wire up ParticipantSync with the track's estimator.
+		if est := engine.timeline.GetTrackEstimator("alice", "audio-alice"); est != nil {
+			if ps := engine.timeline.GetParticipantSync("alice"); ps != nil {
+				ps.SetTrackEstimator("audio-alice", MediaTypeAudio, est)
+				ps.OnSenderReport("audio-alice")
 			}
 		}
-		engine.timeline.mu.RUnlock()
 		_ = aliceSR // used above indirectly
 
 		// Bob SR: NTP = realTime + 500ms (Bob's NTP clock is 500ms ahead)
 		bobNTP := ntpToUint64(realTime.Add(bobNTPOffset))
 		engine.timeline.OnSenderReport("bob", "audio-bob", clockRate, bobNTP, rtpTS, receivedAt)
 
-		engine.timeline.mu.RLock()
-		if pc, ok := engine.timeline.participants["bob"]; ok {
-			if pt, ok := pc.tracks["audio-bob"]; ok {
-				pc.participantSync.SetTrackEstimator("audio-bob", MediaTypeAudio, pt.estimator)
-				pc.participantSync.OnSenderReport("audio-bob")
+		if est := engine.timeline.GetTrackEstimator("bob", "audio-bob"); est != nil {
+			if ps := engine.timeline.GetParticipantSync("bob"); ps != nil {
+				ps.SetTrackEstimator("audio-bob", MediaTypeAudio, est)
+				ps.OnSenderReport("audio-bob")
 			}
 		}
-		engine.timeline.mu.RUnlock()
 	}
 
 	// Get PTS for both participants at "real time + 10s" with corresponding
@@ -191,26 +186,15 @@ func TestIntegration_AVLipSync(t *testing.T) {
 		videoNTP := ntpToUint64(srTime.Add(videoEncoderDelay))
 		engine.timeline.OnSenderReport("alice", "video-alice", videoClockRate, videoNTP, videoRTP, receivedAt)
 
-		// Wire up ParticipantSync with latest estimators and trigger SR processing.
-		engine.timeline.mu.RLock()
-		if pc, ok := engine.timeline.participants["alice"]; ok {
-			if pt, ok := pc.tracks["audio-alice"]; ok {
-				pc.participantSync.SetTrackEstimator("audio-alice", MediaTypeAudio, pt.estimator)
-				pc.participantSync.OnSenderReport("audio-alice")
+		// Wire up ParticipantSync with latest estimators.
+		if ps := engine.timeline.GetParticipantSync("alice"); ps != nil {
+			if est := engine.timeline.GetTrackEstimator("alice", "audio-alice"); est != nil {
+				ps.SetTrackEstimator("audio-alice", MediaTypeAudio, est)
 			}
-			if pt, ok := pc.tracks["video-alice"]; ok {
-				pc.participantSync.SetTrackEstimator("video-alice", MediaTypeVideo, pt.estimator)
-				pc.participantSync.OnSenderReport("video-alice")
-			}
-
-			// Drive slew adjustments with elapsed session time.
-			startedAt := engine.startedAt.Load()
-			if startedAt > 0 {
-				elapsed := time.Duration(receivedAt.UnixNano() - startedAt)
-				pc.participantSync.updateAdjustments(elapsed)
+			if est := engine.timeline.GetTrackEstimator("alice", "video-alice"); est != nil {
+				ps.SetTrackEstimator("video-alice", MediaTypeVideo, est)
 			}
 		}
-		engine.timeline.mu.RUnlock()
 	}
 
 	// Push multiple packets through GetPTS to drive the transition slew

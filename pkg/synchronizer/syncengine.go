@@ -25,6 +25,7 @@ import (
 
 	"github.com/livekit/media-sdk/jitter"
 
+	"github.com/livekit/protocol/logger"
 	"github.com/livekit/protocol/utils/rtputil"
 )
 
@@ -34,8 +35,15 @@ const (
 	transitionSlewRatePerSecond = 5 * time.Millisecond
 
 	// wallClockSanityThreshold is the maximum divergence between RTP-derived PTS
-	// and wall-clock PTS before falling back to wall clock.
+	// and wall-clock PTS before falling back to wall clock in wallClockPTS().
 	wallClockSanityThreshold = 5 * time.Second
+
+	// ntpTrustThreshold is the maximum allowed divergence between NTP-derived PTS
+	// and wall-clock PTS. If NTP disagrees with wall clock by more than this,
+	// the NTP data is suspect (bad SRs, clock jumps, nonsensical timing) and
+	// we clamp to wall clock. This prevents bad publishers from dragging PTS far
+	// from reality.
+	ntpTrustThreshold = 500 * time.Millisecond
 
 	// maxTimelyPacketAge is how long a track can be behind the pipeline deadline
 	// before its PTS is force-corrected forward.
@@ -126,13 +134,7 @@ func (e *SyncEngine) AddTrack(track TrackRemote, identity string) TrackSync {
 	defer e.mu.Unlock()
 
 	// Ensure the participant exists in the timeline.
-	e.timeline.mu.Lock()
-	pc, ok := e.timeline.participants[identity]
-	if !ok {
-		e.timeline.mu.Unlock()
-		pc = e.timeline.AddParticipant(identity)
-		e.timeline.mu.Lock()
-	}
+	pc := e.timeline.GetOrAddParticipant(identity)
 
 	// Auto-register the track with ParticipantSync using a placeholder estimator.
 	mt := MediaTypeAudio
@@ -141,12 +143,12 @@ func (e *SyncEngine) AddTrack(track TrackRemote, identity string) TrackSync {
 	}
 	placeholder := NewNtpEstimator(clockRate)
 	pc.participantSync.SetTrackEstimator(track.ID(), mt, placeholder)
-	e.timeline.mu.Unlock()
 
 	st := &syncEngineTrack{
 		engine:    e,
 		track:     track,
 		identity:  identity,
+		logger:    logger.GetLogger().WithValues("trackID", track.ID(), "kind", track.Kind().String(), "syncEngine", true),
 		converter: rtputil.NewRTPConverter(int64(clockRate)),
 	}
 
@@ -181,6 +183,7 @@ func (e *SyncEngine) RemoveTrack(trackID string) {
 	delete(e.trackIDs, trackID)
 	e.mu.Unlock()
 
+	st.logger.Infow("track removed", "lastPTS", st.lastPTSAdjusted)
 	st.Close()
 }
 
@@ -209,27 +212,16 @@ func (e *SyncEngine) OnRTCP(packet rtcp.Packet) {
 	e.timeline.OnSenderReport(identity, trackID, clockRate, sr.NTPTime, sr.RTPTime, now)
 
 	// Wire up ParticipantSync: get the track's estimator from timeline and update it.
-	e.timeline.mu.RLock()
-	pc, pcOK := e.timeline.participants[identity]
-	if pcOK {
-		pt, ptOK := pc.tracks[trackID]
-		if ptOK {
-			mt := MediaTypeAudio
-			if st.track.Kind() == webrtc.RTPCodecTypeVideo {
-				mt = MediaTypeVideo
-			}
-			pc.participantSync.SetTrackEstimator(trackID, mt, pt.estimator)
-			pc.participantSync.OnSenderReport(trackID)
-
-			// Compute elapsed session time for slew limiting.
-			startedAt := e.startedAt.Load()
-			if startedAt > 0 {
-				elapsed := time.Duration(now.UnixNano() - startedAt)
-				pc.participantSync.updateAdjustments(elapsed)
-			}
+	if estimator := e.timeline.GetTrackEstimator(identity, trackID); estimator != nil {
+		mt := MediaTypeAudio
+		if st.track.Kind() == webrtc.RTPCodecTypeVideo {
+			mt = MediaTypeVideo
+		}
+		if ps := e.timeline.GetParticipantSync(identity); ps != nil {
+			ps.SetTrackEstimator(trackID, mt, estimator)
+			ps.OnSenderReport(trackID)
 		}
 	}
-	e.timeline.mu.RUnlock()
 
 	// Call onSR callback if set.
 	st.mu.Lock()
@@ -237,16 +229,23 @@ func (e *SyncEngine) OnRTCP(packet rtcp.Packet) {
 	st.mu.Unlock()
 
 	if onSR != nil {
-		// Compute drift as the difference between NTP-derived time and wall clock elapsed.
-		ntpNanos := ntpTimestampToNanos(sr.NTPTime)
-		ntpTime := nanosToTime(ntpNanos)
+		// Compute drift using OWD-normalized session PTS (not raw NTP, which
+		// includes the sender's clock offset and would produce phantom drift
+		// if the sender's NTP clock adjusts during the recording).
 		startedAt := e.startedAt.Load()
 		if startedAt > 0 {
-			sessionStart := time.Unix(0, startedAt)
-			expectedElapsed := now.Sub(sessionStart)
-			ntpElapsed := ntpTime.Sub(sessionStart)
-			drift := ntpElapsed - expectedElapsed
-			onSR(drift)
+			sessionPTS, err := e.timeline.GetSessionPTS(identity, trackID, sr.RTPTime)
+			if err == nil {
+				sessionStart := time.Unix(0, startedAt)
+				expectedElapsed := now.Sub(sessionStart)
+				drift := sessionPTS - expectedElapsed
+				st.logger.Debugw("sender report",
+					"drift", drift,
+					"sessionPTS", sessionPTS,
+					"expectedElapsed", expectedElapsed,
+				)
+				onSR(drift)
+			}
 		}
 	}
 }
@@ -330,6 +329,7 @@ type syncEngineTrack struct {
 	engine    *SyncEngine
 	track     TrackRemote
 	identity  string
+	logger    logger.Logger
 	converter *rtputil.RTPConverter
 	startGate startGate // from start_gate.go, nil if not enabled
 
@@ -342,10 +342,12 @@ type syncEngineTrack struct {
 	initialized     bool
 	closed          bool
 
-	// NTP transition
+	// NTP transition and smoothing
 	ntpTransitioned bool
 	transitionSlew  time.Duration
 	lastSlewPTS     time.Duration // PTS at which slew was last updated
+	lastNtpPTS      time.Duration // last raw NTP PTS (before corrections), for jump detection
+	ntpCorrection   time.Duration // smoothing correction for SR-induced NTP jumps
 
 	// pipeline time feedback
 	lastTimelyPacket time.Time
@@ -402,6 +404,12 @@ func (st *syncEngineTrack) initializeLocked(pkt jitter.ExtPacket) {
 	// Initialize the engine's session start time.
 	sessionStart := st.engine.initializeIfNeeded(receivedAt)
 	st.sessionOffset = time.Duration(receivedAt.UnixNano() - sessionStart)
+
+	st.logger.Infow("initialized track",
+		"startTime", st.startTime,
+		"sessionOffset", st.sessionOffset,
+		"rtpTS", pkt.Timestamp,
+	)
 }
 
 // GetPTS implements TrackSync. It computes the presentation timestamp for a packet
@@ -435,51 +443,123 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 	// Step 1: Try NTP-grounded PTS from SessionTimeline.
 	ntpPTS, ntpErr := st.engine.timeline.GetSessionPTS(st.identity, st.track.ID(), ts)
 
+	wallPTS := st.wallClockPTS(pkt)
+
 	var pts time.Duration
 	if ntpErr != nil {
 		// Step 2: Fall back to wall-clock PTS.
-		pts = st.wallClockPTS(pkt)
+		pts = wallPTS
 	} else {
+		// Step 2b: Clamp NTP PTS to within ntpTrustThreshold of wall clock.
+		// Prevents bad publishers (wrong SRs, clock jumps) from dragging PTS far from reality.
+		diff := ntpPTS - wallPTS
+		if diff > ntpTrustThreshold || diff < -ntpTrustThreshold {
+			st.logger.Warnw("NTP PTS exceeds trust threshold, clamping to wall clock", nil,
+				"ntpPTS", ntpPTS,
+				"wallPTS", wallPTS,
+				"diff", diff,
+			)
+			pts = wallPTS
+		} else {
+			pts = ntpPTS
+		}
+
 		// Step 3: On first successful NTP PTS, compute transition correction.
 		if !st.ntpTransitioned {
-			wallPTS := st.wallClockPTS(pkt)
-			st.transitionSlew = wallPTS - ntpPTS
+			st.transitionSlew = wallPTS - pts
 			st.ntpTransitioned = true
+			st.logger.Infow("NTP transition",
+				"wallPTS", wallPTS,
+				"ntpPTS", ntpPTS,
+				"transitionSlew", st.transitionSlew,
+			)
 		}
-		pts = ntpPTS
+	}
+
+	// Compute PTS delta for slew rate calculations (used by both transition slew and NTP correction).
+	// Must be computed before either adjustment modifies pts.
+	var slewPTSDelta time.Duration
+	if st.lastSlewPTS > 0 {
+		slewPTSDelta = pts - st.lastSlewPTS
 	}
 
 	// Step 4: Apply transition slew (absorb gradually toward zero, pts-based).
 	if st.transitionSlew != 0 {
 		pts += st.transitionSlew
 
-		if st.lastSlewPTS > 0 {
-			ptsDelta := pts - st.lastSlewPTS
-			if ptsDelta > 0 {
-				maxStep := time.Duration(float64(transitionSlewRatePerSecond) * ptsDelta.Seconds())
+		if slewPTSDelta > 0 {
+			maxStep := time.Duration(float64(transitionSlewRatePerSecond) * slewPTSDelta.Seconds())
+			if st.transitionSlew > 0 {
+				st.transitionSlew -= maxStep
+				if st.transitionSlew < 0 {
+					st.transitionSlew = 0
+				}
+			} else {
+				st.transitionSlew += maxStep
 				if st.transitionSlew > 0 {
-					st.transitionSlew -= maxStep
-					if st.transitionSlew < 0 {
-						st.transitionSlew = 0
-					}
-				} else {
-					st.transitionSlew += maxStep
-					if st.transitionSlew > 0 {
-						st.transitionSlew = 0
-					}
+					st.transitionSlew = 0
 				}
 			}
 		}
-		st.lastSlewPTS = pts
 	}
 
-	// Step 5: Apply ParticipantSync A/V adjustment.
-	st.engine.timeline.mu.RLock()
-	if pc, ok := st.engine.timeline.participants[st.identity]; ok {
-		adj := pc.participantSync.GetAdjustment(st.track.ID())
-		pts += adj
+	// Step 5: Detect discontinuities and smooth NTP regression jumps.
+	rtpDelta := ts - st.lastTS // uint32 subtraction, wraps correctly for forward deltas
+	rtpDeltaDuration := st.converter.ToDuration(rtpDelta)
+
+	if st.lastTS != 0 && rtpDeltaDuration >= 30*time.Second {
+		// Discontinuity: stream restart, SSRC reuse with new RTP offset, or massive gap.
+		// Reset NTP state — the old regression is no longer valid.
+		st.engine.timeline.ResetTrack(st.identity, st.track.ID())
+		st.lastNtpPTS = 0
+		st.ntpCorrection = 0
+		st.ntpTransitioned = false
+		st.transitionSlew = 0
+		st.lastSlewPTS = 0
+		st.logger.Warnw("stream discontinuity detected, resetting NTP state", nil,
+			"rtpDelta", rtpDelta,
+			"rtpDeltaDuration", rtpDeltaDuration,
+		)
+	} else if ntpErr == nil && st.lastNtpPTS > 0 && rtpDelta > 0 {
+		// Normal forward packet: detect NTP regression jumps.
+		// When a new SR shifts the regression, the NTP-derived PTS can jump
+		// relative to where the previous PTS + RTP delta would predict.
+		// Absorb the jump into ntpCorrection and decay it via slew.
+		expectedNtpPTS := st.lastNtpPTS + rtpDeltaDuration
+		jump := pts - expectedNtpPTS
+		if jump > deadbandThreshold || jump < -deadbandThreshold {
+			st.ntpCorrection += -jump
+			pts += -jump
+			st.logger.Debugw("NTP regression jump detected",
+				"jump", jump,
+				"ntpCorrection", st.ntpCorrection,
+			)
+		}
 	}
-	st.engine.timeline.mu.RUnlock()
+	if ntpErr == nil {
+		st.lastNtpPTS = pts
+	}
+
+	// Decay ntpCorrection toward zero via slew.
+	if st.ntpCorrection != 0 {
+		if slewPTSDelta > 0 {
+			maxStep := time.Duration(float64(slewRatePerSecond) * slewPTSDelta.Seconds())
+			if st.ntpCorrection > 0 {
+				st.ntpCorrection -= maxStep
+				if st.ntpCorrection < 0 {
+					st.ntpCorrection = 0
+				}
+			} else {
+				st.ntpCorrection += maxStep
+				if st.ntpCorrection > 0 {
+					st.ntpCorrection = 0
+				}
+			}
+		}
+		pts += st.ntpCorrection
+	}
+
+	st.lastSlewPTS = pts
 
 	// Step 6: Pipeline time feedback — if the track has fallen behind the
 	// pipeline's deadline for too long, force-correct PTS forward.
@@ -487,7 +567,14 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 		limit := deadline - st.engine.maxMediaRunningTimeDelay
 		if pts < limit {
 			if time.Since(st.lastTimelyPacket) > maxTimelyPacketAge {
+				oldPTS := pts
 				pts = deadline - st.engine.maxMediaRunningTimeDelay/2
+				st.logger.Warnw("force-correcting PTS forward, track behind pipeline deadline", nil,
+					"oldPTS", oldPTS,
+					"newPTS", pts,
+					"deadline", deadline,
+					"behindBy", limit-oldPTS,
+				)
 			}
 		} else {
 			st.lastTimelyPacket = time.Now()
