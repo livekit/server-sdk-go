@@ -286,6 +286,7 @@ type syncEngineTrack struct {
 
 	mu              sync.Mutex
 	startTime       time.Time
+	sessionOffset   time.Duration // offset from session start to this track's start
 	lastTS          uint32
 	lastPTS         time.Duration
 	lastPTSAdjusted time.Duration
@@ -346,7 +347,8 @@ func (st *syncEngineTrack) initializeLocked(pkt jitter.ExtPacket) {
 	st.initialized = true
 
 	// Initialize the engine's session start time.
-	st.engine.initializeIfNeeded(receivedAt)
+	sessionStart := st.engine.initializeIfNeeded(receivedAt)
+	st.sessionOffset = time.Duration(receivedAt.UnixNano() - sessionStart)
 }
 
 // GetPTS implements TrackSync. It computes the presentation timestamp for a packet
@@ -445,8 +447,8 @@ func (st *syncEngineTrack) wallClockPTS(pkt jitter.ExtPacket) time.Duration {
 		return st.lastPTS
 	}
 
-	// Wall-clock elapsed.
-	wallElapsed := pkt.ReceivedAt.Sub(st.startTime)
+	// Wall-clock elapsed since this track started, plus session offset
+	wallElapsed := pkt.ReceivedAt.Sub(st.startTime) + st.sessionOffset
 
 	// If we have a previous timestamp, use RTP delta for more precision.
 	if st.lastPTS > 0 {
