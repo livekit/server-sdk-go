@@ -36,6 +36,9 @@ const (
 	// wallClockSanityThreshold is the maximum divergence between RTP-derived PTS
 	// and wall-clock PTS before falling back to wall clock.
 	wallClockSanityThreshold = 5 * time.Second
+
+	// defaultOldPacketThreshold is the default age after which packets are dropped.
+	defaultOldPacketThreshold = 500 * time.Millisecond
 )
 
 // SyncEngineOption configures a SyncEngine.
@@ -55,6 +58,14 @@ func WithSyncEngineStartGate() SyncEngineOption {
 	}
 }
 
+// WithSyncEngineOldPacketThreshold sets the age after which packets are dropped.
+// Zero disables the check.
+func WithSyncEngineOldPacketThreshold(d time.Duration) SyncEngineOption {
+	return func(e *SyncEngine) {
+		e.oldPacketThreshold = d
+	}
+}
+
 // SyncEngine orchestrates NtpEstimator, ParticipantSync, and SessionTimeline
 // to provide cross-participant alignment and per-participant A/V lip sync.
 // It implements the Sync interface.
@@ -70,8 +81,9 @@ type SyncEngine struct {
 	// high-water mark for removed tracks, so End() includes their PTS
 	maxRemovedPTS time.Duration
 
-	enableStartGate bool
-	onStarted       func()
+	enableStartGate    bool
+	oldPacketThreshold time.Duration
+	onStarted          func()
 
 	mediaRunningTime     func() (time.Duration, bool)
 	mediaRunningTimeLock sync.RWMutex
@@ -80,9 +92,10 @@ type SyncEngine struct {
 // NewSyncEngine creates a new SyncEngine with the given options.
 func NewSyncEngine(opts ...SyncEngineOption) *SyncEngine {
 	e := &SyncEngine{
-		timeline: NewSessionTimeline(),
-		tracks:   make(map[uint32]*syncEngineTrack),
-		trackIDs: make(map[string]*syncEngineTrack),
+		timeline:           NewSessionTimeline(),
+		tracks:             make(map[uint32]*syncEngineTrack),
+		trackIDs:           make(map[string]*syncEngineTrack),
+		oldPacketThreshold: defaultOldPacketThreshold,
 	}
 	for _, opt := range opts {
 		opt(e)
@@ -381,6 +394,13 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 	// Same RTP timestamp as last packet: return same PTS (same frame).
 	if ts == st.lastTS && st.lastPTSAdjusted > 0 {
 		return st.lastPTSAdjusted, nil
+	}
+
+	// Drop packets older than threshold.
+	if st.engine.oldPacketThreshold > 0 && !pkt.ReceivedAt.IsZero() {
+		if time.Since(pkt.ReceivedAt) > st.engine.oldPacketThreshold {
+			return 0, ErrPacketTooOld
+		}
 	}
 
 	// Step 1: Try NTP-grounded PTS from SessionTimeline.
