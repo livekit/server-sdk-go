@@ -67,6 +67,9 @@ type SyncEngine struct {
 	startedAt atomic.Int64
 	endedAt   atomic.Int64
 
+	// high-water mark for removed tracks, so End() includes their PTS
+	maxRemovedPTS time.Duration
+
 	enableStartGate bool
 	onStarted       func()
 
@@ -138,6 +141,14 @@ func (e *SyncEngine) RemoveTrack(trackID string) {
 		e.mu.Unlock()
 		return
 	}
+
+	// Preserve removed track's PTS high-water mark so End() includes it.
+	st.mu.Lock()
+	if st.lastPTSAdjusted > e.maxRemovedPTS {
+		e.maxRemovedPTS = st.lastPTSAdjusted
+	}
+	st.mu.Unlock()
+
 	ssrc := uint32(st.track.SSRC())
 	delete(e.tracks, ssrc)
 	delete(e.trackIDs, trackID)
@@ -218,8 +229,8 @@ func (e *SyncEngine) End() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	// Find the maximum adjusted PTS across all tracks.
-	var maxPTS time.Duration
+	// Start from the high-water mark of removed tracks.
+	maxPTS := e.maxRemovedPTS
 	for _, st := range e.tracks {
 		st.mu.Lock()
 		if st.lastPTSAdjusted > maxPTS {
