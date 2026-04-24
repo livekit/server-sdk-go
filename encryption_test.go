@@ -142,3 +142,8 @@ func BenchmarkEncryptAudioNewCipher(b *testing.B) {
 	}
 
 }
+
+func TestDeriveKeyFromStringEmpty(t *testing.T) {
+	_, err := DeriveKeyFromString("")
+	require.ErrorIs(t, err, ErrIncorrectSecretLength)
+}

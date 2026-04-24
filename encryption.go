@@ -11,6 +11,8 @@ import (
 
 	"golang.org/x/crypto/hkdf"
 	"golang.org/x/crypto/pbkdf2"
+
+	e2eetypes "github.com/livekit/server-sdk-go/v2/e2ee/types"
 )
 
 const (
@@ -23,12 +25,16 @@ const (
 )
 
 var (
-	ErrIncorrectKeyLength    = errors.New("incorrect key length for encryption/decryption")
-	ErrUnableGenerateIV      = errors.New("unable to generate iv for encryption")
-	ErrIncorrectIVLength     = errors.New("incorrect iv length")
+	// Error sentinels re-exported from e2ee/types so they're identical
+	// across both packages (callers can use errors.Is without caring which
+	// package raised the error).
+	ErrIncorrectKeyLength  = e2eetypes.ErrIncorrectKeyLength
+	ErrUnableGenerateIV    = e2eetypes.ErrUnableGenerateIV
+	ErrIncorrectIVLength   = e2eetypes.ErrIncorrectIVLength
+	ErrBlockCipherRequired = e2eetypes.ErrBlockCipherRequired
+
 	ErrIncorrectSecretLength = errors.New("input secret provided to derivation function cannot be empty or nil")
 	ErrIncorrectSaltLength   = errors.New("input salt provided to derivation function cannot be empty or nil")
-	ErrBlockCipherRequired   = errors.New("input block cipher cannot be nil")
 )
 
 func DeriveKeyFromString(password string) ([]byte, error) {

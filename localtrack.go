@@ -17,6 +17,7 @@ package lksdk
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"math/rand"
 	"strings"
@@ -36,6 +37,7 @@ import (
 	"github.com/livekit/protocol/livekit"
 	protoLogger "github.com/livekit/protocol/logger"
 	"github.com/livekit/protocol/utils/guid"
+	e2eetypes "github.com/livekit/server-sdk-go/v2/e2ee/types"
 )
 
 const (
@@ -80,13 +82,14 @@ type LocalTrack struct {
 	videoLayer               *livekit.VideoLayer
 	onRTCP                   func(rtcp.Packet)
 
-	muted        atomic.Bool
-	disconnected atomic.Bool
-	cancelWrite  func()
-	writeClosed  chan struct{}
-	provider     SampleProvider
-	onBind       func()
-	onUnbind     func()
+	muted          atomic.Bool
+	disconnected   atomic.Bool
+	cancelWrite    func()
+	writeClosed    chan struct{}
+	provider       SampleProvider
+	frameEncryptor e2eetypes.FrameEncryptor // nil = no encryption
+	onBind         func()
+	onUnbind       func()
 	// notify when sample provider responds with EOF
 	onWriteComplete func()
 }
@@ -101,6 +104,16 @@ func WithSimulcast(simulcastID string, layer *livekit.VideoLayer) LocalTrackOpti
 	return func(s *LocalTrack) {
 		s.videoLayer = layer
 		s.simulcastID = simulcastID
+	}
+}
+
+// WithFrameEncryptor sets a frame-level encryptor for the track.
+// When set, all samples written via WriteSample are encrypted before
+// RTP packetization. Use NewAudioFrameEncryptor, NewH264FrameEncryptor,
+// or NewH265FrameEncryptor to create a suitable encryptor.
+func WithFrameEncryptor(enc e2eetypes.FrameEncryptor) LocalTrackOptions {
+	return func(s *LocalTrack) {
+		s.frameEncryptor = enc
 	}
 }
 
@@ -510,7 +523,17 @@ func (s *LocalTrack) WriteSample(sample media.Sample, opts *SampleWriteOptions) 
 		s.packetizer.SkipSamples(skippedSamples)
 	}
 
-	packets := s.packetizer.Packetize(sample.Data, samplesPerPacket)
+	data := sample.Data
+	if s.frameEncryptor != nil {
+		var err error
+		data, err = s.frameEncryptor.EncryptFrame(data)
+		if err != nil {
+			s.lock.Unlock()
+			return fmt.Errorf("frame encryption: %w", err)
+		}
+	}
+
+	packets := s.packetizer.Packetize(data, samplesPerPacket)
 
 	s.lastTS = sample.Timestamp
 	s.lastRTPTimestamp = currentRTPTimestamp
