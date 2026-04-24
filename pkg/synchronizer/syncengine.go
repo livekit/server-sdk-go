@@ -367,6 +367,11 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 
 	ts := pkt.Timestamp
 
+	// Same RTP timestamp as last packet: return same PTS (same frame).
+	if ts == st.lastTS && st.lastPTSAdjusted > 0 {
+		return st.lastPTSAdjusted, nil
+	}
+
 	// Step 1: Try NTP-grounded PTS from SessionTimeline.
 	ntpPTS, ntpErr := st.engine.timeline.GetSessionPTS(st.identity, st.track.ID(), ts)
 
