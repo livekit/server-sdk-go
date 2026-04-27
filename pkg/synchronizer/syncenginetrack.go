@@ -31,7 +31,7 @@ import (
 type syncEngineTrack struct {
 	engine    *SyncEngine
 	track     TrackRemote
-	identity  string
+	participantID  string
 	logger    logger.Logger
 	converter *rtputil.RTPConverter
 	startGate startGate // from start_gate.go, nil if not enabled
@@ -144,7 +144,7 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 	}
 
 	// Step 1: Try NTP-grounded PTS from SessionTimeline.
-	rawNtpPTS, ntpErr := st.engine.timeline.GetSessionPTS(st.identity, st.track.ID(), ts)
+	rawNtpPTS, ntpErr := st.engine.timeline.GetSessionPTS(st.participantID, st.track.ID(), ts)
 
 	wallPTS := st.wallClockPTS(pkt)
 
@@ -160,7 +160,7 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 
 	if st.lastTS != 0 && rtpDeltaDuration >= 30*time.Second {
 		// Discontinuity: stream restart, SSRC reuse with new RTP offset, or massive gap.
-		st.engine.timeline.ResetTrack(st.identity, st.track.ID())
+		st.engine.timeline.ResetTrack(st.participantID, st.track.ID())
 		st.lastNtpPTS = 0
 		st.ntpCorrection = 0
 		st.ntpTransitioned = false

@@ -147,7 +147,7 @@ func NewSyncEngine(opts ...SyncEngineOption) *SyncEngine {
 }
 
 // AddTrack registers a new track and returns a TrackSync handle.
-func (e *SyncEngine) AddTrack(track TrackRemote, identity string) TrackSync {
+func (e *SyncEngine) AddTrack(track TrackRemote, participantID string) TrackSync {
 	ssrc := uint32(track.SSRC())
 	clockRate := track.Codec().ClockRate
 
@@ -155,7 +155,7 @@ func (e *SyncEngine) AddTrack(track TrackRemote, identity string) TrackSync {
 	defer e.mu.Unlock()
 
 	// Ensure the participant exists in the timeline.
-	pc := e.timeline.GetOrAddParticipant(identity)
+	pc := e.timeline.GetOrAddParticipant(participantID)
 
 	// Auto-register the track with a placeholder estimator.
 	placeholder := NewNtpEstimator(clockRate)
@@ -164,7 +164,7 @@ func (e *SyncEngine) AddTrack(track TrackRemote, identity string) TrackSync {
 	st := &syncEngineTrack{
 		engine:    e,
 		track:     track,
-		identity:  identity,
+		participantID:  participantID,
 		logger:    e.getTrackLogger(track),
 		converter: rtputil.NewRTPConverter(int64(clockRate)),
 	}
@@ -202,12 +202,12 @@ func (e *SyncEngine) RemoveTrack(trackID string) {
 
 	// Clean up track from participant, and remove the participant from the
 	// timeline if this was their last track.
-	identity := st.identity
-	if pc := e.timeline.GetParticipantClock(identity); pc != nil {
+	participantID := st.participantID
+	if pc := e.timeline.GetParticipantClock(participantID); pc != nil {
 		pc.RemoveTrack(trackID)
 	}
-	if !e.hasTracksForParticipant(identity) {
-		e.timeline.RemoveParticipant(identity)
+	if !e.hasTracksForParticipant(participantID) {
+		e.timeline.RemoveParticipant(participantID)
 	}
 
 	st.logger.Infow("track removed", "lastPTS", st.lastPTSAdjusted)
@@ -228,7 +228,7 @@ func (e *SyncEngine) OnRTCP(packet rtcp.Packet) {
 		e.mu.Unlock()
 		return
 	}
-	identity := st.identity
+	participantID := st.participantID
 	trackID := st.track.ID()
 	clockRate := st.track.Codec().ClockRate
 	e.mu.Unlock()
@@ -236,11 +236,11 @@ func (e *SyncEngine) OnRTCP(packet rtcp.Packet) {
 	now := time.Now()
 
 	// Feed the SR to the session timeline (updates NTP estimator + OWD).
-	e.timeline.OnSenderReport(identity, trackID, clockRate, sr.NTPTime, sr.RTPTime, now)
+	e.timeline.OnSenderReport(participantID, trackID, clockRate, sr.NTPTime, sr.RTPTime, now)
 
 	// Update the participant's track estimator from the timeline.
-	if estimator := e.timeline.GetTrackEstimator(identity, trackID); estimator != nil {
-		if pc := e.timeline.GetParticipantClock(identity); pc != nil {
+	if estimator := e.timeline.GetTrackEstimator(participantID, trackID); estimator != nil {
+		if pc := e.timeline.GetParticipantClock(participantID); pc != nil {
 			pc.SetTrackEstimator(trackID, estimator)
 		}
 	}
@@ -256,7 +256,7 @@ func (e *SyncEngine) OnRTCP(packet rtcp.Packet) {
 		// if the sender's NTP clock adjusts during the recording).
 		startedAt := e.startedAt.Load()
 		if startedAt > 0 {
-			sessionPTS, err := e.timeline.GetSessionPTS(identity, trackID, sr.RTPTime)
+			sessionPTS, err := e.timeline.GetSessionPTS(participantID, trackID, sr.RTPTime)
 			if err == nil {
 				sessionStart := time.Unix(0, startedAt)
 				expectedElapsed := now.Sub(sessionStart)
@@ -345,12 +345,12 @@ func (e *SyncEngine) initializeIfNeeded(receivedAt time.Time) int64 {
 }
 
 // hasTracksForParticipant returns true if any remaining track belongs to the
-// given participant identity. Caller must NOT hold e.mu.
-func (e *SyncEngine) hasTracksForParticipant(identity string) bool {
+// given participant participantID. Caller must NOT hold e.mu.
+func (e *SyncEngine) hasTracksForParticipant(participantID string) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for _, st := range e.tracks {
-		if st.identity == identity {
+		if st.participantID == participantID {
 			return true
 		}
 	}

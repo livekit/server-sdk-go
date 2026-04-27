@@ -25,7 +25,7 @@ import (
 // Sync is the top-level synchronization interface.
 // Implemented by both Synchronizer (legacy) and SyncEngine (new).
 type Sync interface {
-	AddTrack(track TrackRemote, identity string) TrackSync
+	AddTrack(track TrackRemote, participantID string) TrackSync
 	RemoveTrack(trackID string)
 	OnRTCP(packet rtcp.Packet)
 	End()

@@ -275,14 +275,14 @@ func NewSynchronizerWithOptions(opts ...SynchronizerOption) *Synchronizer {
 	}
 }
 
-func (s *Synchronizer) AddTrack(track TrackRemote, identity string) *TrackSynchronizer {
+func (s *Synchronizer) AddTrack(track TrackRemote, participantID string) *TrackSynchronizer {
 	t := newTrackSynchronizer(s, track)
 
 	s.Lock()
-	p := s.psByIdentity[identity]
+	p := s.psByIdentity[participantID]
 	if p == nil {
 		p = newParticipantSynchronizer()
-		s.psByIdentity[identity] = p
+		s.psByIdentity[participantID] = p
 	}
 	ssrc := uint32(track.SSRC())
 	s.ssrcByID[track.ID()] = ssrc
@@ -393,8 +393,8 @@ type SynchronizerAdapter struct {
 	*Synchronizer
 }
 
-func (a *SynchronizerAdapter) AddTrack(track TrackRemote, identity string) TrackSync {
-	return a.Synchronizer.AddTrack(track, identity)
+func (a *SynchronizerAdapter) AddTrack(track TrackRemote, participantID string) TrackSync {
+	return a.Synchronizer.AddTrack(track, participantID)
 }
 
 // AsSyncInterface returns a Sync-compatible wrapper around this Synchronizer.

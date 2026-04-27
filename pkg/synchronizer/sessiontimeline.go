@@ -24,7 +24,10 @@ import (
 	"github.com/livekit/protocol/logger"
 )
 
-var errNoSenderReports = errors.New("SessionTimeline: no sender reports received for track")
+var (
+	errNoSenderReports = errors.New("SessionTimeline: no sender reports received for track")
+	errNoSessionStart  = errors.New("SessionTimeline: session start time not set")
+)
 
 // SessionTimeline establishes a shared recording timeline and maps each
 // participant's NTP clock domain onto it using OWD (one-way delay)
@@ -67,8 +70,8 @@ func (st *SessionTimeline) SetSessionStart(t time.Time) {
 	st.hasStart = true
 }
 
-// AddParticipant registers a new participant with the given identity.
-func (st *SessionTimeline) AddParticipant(identity string) *ParticipantClock {
+// AddParticipant registers a new participant with the given participantID.
+func (st *SessionTimeline) AddParticipant(participantID string) *ParticipantClock {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 
@@ -76,17 +79,17 @@ func (st *SessionTimeline) AddParticipant(identity string) *ParticipantClock {
 		owdEstimator: latency.NewOWDEstimator(latency.OWDEstimatorParamsDefault),
 		tracks:       make(map[string]*NtpEstimator),
 	}
-	st.participants[identity] = pc
+	st.participants[participantID] = pc
 	return pc
 }
 
-// GetOrAddParticipant returns the ParticipantClock for the given identity,
+// GetOrAddParticipant returns the ParticipantClock for the given participantID,
 // creating one if it doesn't exist. This is safe for concurrent use.
-func (st *SessionTimeline) GetOrAddParticipant(identity string) *ParticipantClock {
+func (st *SessionTimeline) GetOrAddParticipant(participantID string) *ParticipantClock {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 
-	if pc, ok := st.participants[identity]; ok {
+	if pc, ok := st.participants[participantID]; ok {
 		return pc
 	}
 
@@ -94,16 +97,16 @@ func (st *SessionTimeline) GetOrAddParticipant(identity string) *ParticipantCloc
 		owdEstimator: latency.NewOWDEstimator(latency.OWDEstimatorParamsDefault),
 		tracks:       make(map[string]*NtpEstimator),
 	}
-	st.participants[identity] = pc
+	st.participants[participantID] = pc
 	return pc
 }
 
 // GetTrackEstimator returns the NTP estimator for a participant's track, or nil.
-func (st *SessionTimeline) GetTrackEstimator(identity, trackID string) *NtpEstimator {
+func (st *SessionTimeline) GetTrackEstimator(participantID, trackID string) *NtpEstimator {
 	st.mu.RLock()
 	defer st.mu.RUnlock()
 
-	pc, ok := st.participants[identity]
+	pc, ok := st.participants[participantID]
 	if !ok {
 		return nil
 	}
@@ -111,29 +114,27 @@ func (st *SessionTimeline) GetTrackEstimator(identity, trackID string) *NtpEstim
 }
 
 // GetParticipantClock returns the ParticipantClock for a participant, or nil.
-func (st *SessionTimeline) GetParticipantClock(identity string) *ParticipantClock {
+func (st *SessionTimeline) GetParticipantClock(participantID string) *ParticipantClock {
 	st.mu.RLock()
 	defer st.mu.RUnlock()
 
-	return st.participants[identity]
+	return st.participants[participantID]
 }
 
-// RemoveParticipant removes the participant with the given identity.
-func (st *SessionTimeline) RemoveParticipant(identity string) {
+// RemoveParticipant removes the participant with the given participantID.
+func (st *SessionTimeline) RemoveParticipant(participantID string) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	delete(st.participants, identity)
+	delete(st.participants, participantID)
 }
 
-// OnSenderReport processes an RTCP sender report for a participant's track.
-// It updates the NTP estimator, OWD estimator, and records the NTP epoch.
 // ResetTrack clears the NTP estimator for a track, forcing it to rebuild from
 // new sender reports. Used when a stream discontinuity is detected.
-func (st *SessionTimeline) ResetTrack(identity, trackID string) {
+func (st *SessionTimeline) ResetTrack(participantID, trackID string) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 
-	pc, ok := st.participants[identity]
+	pc, ok := st.participants[participantID]
 	if !ok {
 		return
 	}
@@ -142,11 +143,13 @@ func (st *SessionTimeline) ResetTrack(identity, trackID string) {
 	}
 }
 
-func (st *SessionTimeline) OnSenderReport(identity, trackID string, clockRate uint32, ntpTime uint64, rtpTimestamp uint32, receivedAt time.Time) {
+// OnSenderReport processes an RTCP sender report for a participant's track.
+// It updates the NTP estimator, OWD estimator, and records the NTP epoch.
+func (st *SessionTimeline) OnSenderReport(participantID, trackID string, clockRate uint32, ntpTime uint64, rtpTimestamp uint32, receivedAt time.Time) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 
-	pc, ok := st.participants[identity]
+	pc, ok := st.participants[participantID]
 	if !ok {
 		return
 	}
@@ -187,13 +190,17 @@ func (st *SessionTimeline) OnSenderReport(identity, trackID string, clockRate ui
 //   - participantNtpEpoch = NTP time from first SR for this participant
 //   - epochOnReceiverClock = participantNtpEpoch + estimatedOWD
 //   - sessionStart = wall-clock time first packet arrived
-func (st *SessionTimeline) GetSessionPTS(identity, trackID string, rtpTimestamp uint32) (time.Duration, error) {
+func (st *SessionTimeline) GetSessionPTS(participantID, trackID string, rtpTimestamp uint32) (time.Duration, error) {
 	st.mu.RLock()
 	defer st.mu.RUnlock()
 
-	pc, ok := st.participants[identity]
+	if !st.hasStart {
+		return 0, errNoSessionStart
+	}
+
+	pc, ok := st.participants[participantID]
 	if !ok {
-		return 0, fmt.Errorf("SessionTimeline: unknown participant %q", identity)
+		return 0, fmt.Errorf("SessionTimeline: unknown participant %q", participantID)
 	}
 
 	est, ok := pc.tracks[trackID]
@@ -228,7 +235,7 @@ func (st *SessionTimeline) GetSessionPTS(identity, trackID string, rtpTimestamp 
 	if (sessionPTS < 0 || sessionPTS > 24*time.Hour) && st.logger != nil {
 		st.logger.Warnw("GetSessionPTS: abnormal result",
 			nil,
-			"identity", identity,
+			"participantID", participantID,
 			"trackID", trackID,
 			"rtpTimestamp", rtpTimestamp,
 			"ntpTime", ntpTime,
