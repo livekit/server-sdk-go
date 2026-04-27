@@ -15,9 +15,11 @@ import (
 type AgentClient struct {
 	agentClient livekit.CloudAgent
 	authBase
+	httpClient *http.Client
+	twirpOpts  []twirp.ClientOption
 }
 
-func NewAgentClient(url string, apiKey string, apiSecret string, opts ...twirp.ClientOption) (*AgentClient, error) {
+func NewAgentClient(url string, apiKey string, apiSecret string, opts ...AgentClientOption) (*AgentClient, error) {
 	serverUrl := os.Getenv("LK_AGENTS_URL")
 	if serverUrl == "" {
 		url = signalling.ToHttpURL(url)
@@ -25,12 +27,29 @@ func NewAgentClient(url string, apiKey string, apiSecret string, opts ...twirp.C
 		re := regexp.MustCompile(pattern)
 		serverUrl = re.ReplaceAllString(url, "https://agents.")
 	}
+	c := &AgentClient{
+		authBase:   authBase{apiKey, apiSecret},
+		httpClient: &http.Client{},
+	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	c.agentClient = livekit.NewCloudAgentProtobufClient(serverUrl, c.httpClient, c.twirpOpts...)
+	return c, nil
+}
 
-	client := livekit.NewCloudAgentProtobufClient(serverUrl, &http.Client{}, opts...)
-	return &AgentClient{
-		agentClient: client,
-		authBase:    authBase{apiKey, apiSecret},
-	}, nil
+type AgentClientOption func(*AgentClient)
+
+func WithHTTPClient(httpClient *http.Client) AgentClientOption {
+	return func(c *AgentClient) {
+		c.httpClient = httpClient
+	}
+}
+
+func WithTwirpClientOptions(opts ...twirp.ClientOption) AgentClientOption {
+	return func(c *AgentClient) {
+		c.twirpOpts = opts
+	}
 }
 
 func (c *AgentClient) CreateAgent(ctx context.Context, req *livekit.CreateAgentRequest) (*livekit.CreateAgentResponse, error) {
