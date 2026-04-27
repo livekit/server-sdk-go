@@ -109,6 +109,17 @@ func (e *NtpEstimator) OnSenderReport(ntpTime uint64, rtpTimestamp uint32, recei
 	ntpNanos := ntpTimestampToNanos(ntpTime)
 	unwrapped := e.unwrapRTP(rtpTimestamp)
 
+	// Skip duplicate SRs (same NTP/RTP pair as the most recent sample).
+	// This happens when the same SR is dispatched multiple times via
+	// per-publication RTCP callbacks.
+	if e.sampleLen > 0 {
+		lastIdx := (e.sampleHead - 1 + maxSRSamples) % maxSRSamples
+		last := e.samples[lastIdx]
+		if last.unwrappedRTP == unwrapped && last.ntpNanos == ntpNanos {
+			return
+		}
+	}
+
 	// Outlier rejection: if we already have a valid regression, check whether
 	// this new sample deviates from the prediction by more than 3 standard
 	// deviations.
