@@ -535,22 +535,16 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 			"rtpDelta", rtpDelta,
 			"rtpDeltaDuration", rtpDeltaDuration,
 		)
-	} else if ntpErr == nil && st.lastNtpPTS > 0 && rtpDelta > 0 {
-		// Normal forward packet: detect NTP regression jumps.
-		// When a new SR shifts the regression, the NTP-derived PTS can jump
-		// relative to where the previous PTS + RTP delta would predict.
-		// Absorb the jump into ntpCorrection and decay it via slew.
-		expectedNtpPTS := st.lastNtpPTS + rtpDeltaDuration
-		jump := pts - expectedNtpPTS
-		if jump > deadbandThreshold || jump < -deadbandThreshold {
-			st.ntpCorrection += -jump
-			pts += -jump
-			st.logger.Debugw("NTP regression jump detected",
-				"jump", jump,
-				"ntpCorrection", st.ntpCorrection,
-			)
-		}
 	}
+	// TODO: NTP regression jump detection disabled for debugging audio pop.
+	// } else if ntpErr == nil && st.lastNtpPTS > 0 && rtpDelta > 0 {
+	// 	expectedNtpPTS := st.lastNtpPTS + rtpDeltaDuration
+	// 	jump := pts - expectedNtpPTS
+	// 	if jump > deadbandThreshold || jump < -deadbandThreshold {
+	// 		st.ntpCorrection += -jump
+	// 		pts += -jump
+	// 	}
+	// }
 	if ntpErr == nil {
 		st.lastNtpPTS = pts
 	}
