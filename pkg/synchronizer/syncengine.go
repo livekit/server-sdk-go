@@ -26,33 +26,8 @@ import (
 )
 
 const (
-	// transitionSlewRatePerSecond is the rate at which the wall-clock→NTP
-	// transition correction is absorbed: 5ms per second of real time.
-	transitionSlewRatePerSecond = 5 * time.Millisecond
-
-	// wallClockSanityThreshold is the maximum divergence between RTP-derived PTS
-	// and wall-clock PTS before falling back to wall clock in wallClockPTS().
-	wallClockSanityThreshold = 5 * time.Second
-
-	// ntpTrustThreshold is the maximum allowed divergence between NTP-derived PTS
-	// and wall-clock PTS. If NTP disagrees with wall clock by more than this,
-	// the NTP data is suspect (bad SRs, clock jumps, nonsensical timing) and
-	// we clamp to wall clock. This prevents bad publishers from dragging PTS far
-	// from reality.
-	ntpTrustThreshold = 500 * time.Millisecond
-
-	// maxTimelyPacketAge is how long a track can be behind the pipeline deadline
-	// before its PTS is force-corrected forward.
-	maxTimelyPacketAge = 10 * time.Second
-
 	// defaultOldPacketThreshold is the default age after which packets are dropped.
 	defaultOldPacketThreshold = 500 * time.Millisecond
-
-	// slewRatePerSecond is the maximum rate at which PTS corrections are absorbed.
-	slewRatePerSecond = 5 * time.Millisecond
-
-	// deadbandThreshold is the minimum |correction| before slew smoothing kicks in.
-	deadbandThreshold = 5 * time.Millisecond
 )
 
 // SyncEngineOption configures a SyncEngine.
@@ -155,11 +130,7 @@ func (e *SyncEngine) AddTrack(track TrackRemote, participantID string) TrackSync
 	defer e.mu.Unlock()
 
 	// Ensure the participant exists in the timeline.
-	pc := e.timeline.GetOrAddParticipant(participantID)
-
-	// Auto-register the track with a placeholder estimator.
-	placeholder := NewNtpEstimator(clockRate)
-	pc.SetTrackEstimator(track.ID(), placeholder)
+	e.timeline.GetOrAddParticipant(participantID)
 
 	st := &syncEngineTrack{
 		engine:    e,
@@ -237,13 +208,6 @@ func (e *SyncEngine) OnRTCP(packet rtcp.Packet) {
 
 	// Feed the SR to the session timeline (updates NTP estimator + OWD).
 	e.timeline.OnSenderReport(participantID, trackID, clockRate, sr.NTPTime, sr.RTPTime, now)
-
-	// Update the participant's track estimator from the timeline.
-	if estimator := e.timeline.GetTrackEstimator(participantID, trackID); estimator != nil {
-		if pc := e.timeline.GetParticipantClock(participantID); pc != nil {
-			pc.SetTrackEstimator(trackID, estimator)
-		}
-	}
 
 	// Call onSR callback if set.
 	st.mu.Lock()

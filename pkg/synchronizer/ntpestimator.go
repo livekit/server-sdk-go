@@ -100,13 +100,23 @@ func (e *NtpEstimator) Reset() {
 	e.ready = false
 }
 
+// SRResult indicates the outcome of processing a sender report.
+type SRResult int
+
+const (
+	SRAccepted SRResult = iota
+	SRDuplicate
+	SROutlier
+)
+
 // OnSenderReport ingests a new RTCP sender report observation.
 // ntpTime is the 64-bit NTP timestamp from the SR, rtpTimestamp is the
 // corresponding RTP timestamp, and receivedAt is the local wall-clock time
 // when the SR was received.
-func (e *NtpEstimator) OnSenderReport(ntpTime uint64, rtpTimestamp uint32, receivedAt time.Time) {
+func (e *NtpEstimator) OnSenderReport(ntpTime uint64, rtpTimestamp uint32, receivedAt time.Time) SRResult {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+
 	ntpNanos := ntpTimestampToNanos(ntpTime)
 	unwrapped := e.unwrapRTP(rtpTimestamp)
 
@@ -117,7 +127,7 @@ func (e *NtpEstimator) OnSenderReport(ntpTime uint64, rtpTimestamp uint32, recei
 		lastIdx := (e.sampleHead - 1 + maxSRSamples) % maxSRSamples
 		last := e.samples[lastIdx]
 		if last.unwrappedRTP == unwrapped && last.ntpNanos == ntpNanos {
-			return
+			return SRDuplicate
 		}
 	}
 
@@ -128,8 +138,7 @@ func (e *NtpEstimator) OnSenderReport(ntpTime uint64, rtpTimestamp uint32, recei
 		predicted := e.slopeNanos*(float64(unwrapped)-e.meanX) + e.meanY
 		residual := math.Abs(float64(ntpNanos) - predicted)
 		if residual > outlierThresholdStdDevs*e.residStd {
-			// Reject this sample as an outlier.
-			return
+			return SROutlier
 		}
 	}
 
@@ -150,6 +159,7 @@ func (e *NtpEstimator) OnSenderReport(ntpTime uint64, rtpTimestamp uint32, recei
 		e.ready = true
 	}
 
+	return SRAccepted
 }
 
 // IsReady returns true once at least 2 sender reports have been processed

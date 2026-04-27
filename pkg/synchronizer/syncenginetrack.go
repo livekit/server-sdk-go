@@ -27,6 +27,33 @@ import (
 	"github.com/livekit/protocol/utils/rtputil"
 )
 
+const (
+	// transitionSlewRatePerSecond is the rate at which the wall-clock→NTP
+	// transition correction is absorbed: 5ms per second of real time.
+	transitionSlewRatePerSecond = 5 * time.Millisecond
+
+	// wallClockSanityThreshold is the maximum divergence between RTP-derived PTS
+	// and wall-clock PTS before falling back to wall clock in wallClockPTS().
+	wallClockSanityThreshold = 5 * time.Second
+
+	// ntpTrustThreshold is the maximum allowed divergence between NTP-derived PTS
+	// and wall-clock PTS. If NTP disagrees with wall clock by more than this,
+	// the NTP data is suspect (bad SRs, clock jumps, nonsensical timing) and
+	// we clamp to wall clock. This prevents bad publishers from dragging PTS far
+	// from reality.
+	ntpTrustThreshold = 500 * time.Millisecond
+
+	// maxTimelyPacketAge is how long a track can be behind the pipeline deadline
+	// before its PTS is force-corrected forward.
+	maxTimelyPacketAge = 10 * time.Second
+
+	// slewRatePerSecond is the maximum rate at which PTS corrections are absorbed.
+	slewRatePerSecond = 5 * time.Millisecond
+
+	// deadbandThreshold is the minimum |correction| before slew smoothing kicks in.
+	deadbandThreshold = 5 * time.Millisecond
+)
+
 // syncEngineTrack implements TrackSync for a single track within a SyncEngine.
 type syncEngineTrack struct {
 	engine    *SyncEngine

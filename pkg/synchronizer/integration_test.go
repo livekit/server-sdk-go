@@ -80,24 +80,11 @@ func TestIntegration_CrossParticipantClock(t *testing.T) {
 		// Manually set receivedAt by calling OnSenderReport on the timeline directly
 		// since OnRTCP uses time.Now(). We need deterministic timing.
 		engine.timeline.OnSenderReport("alice", "audio-alice", clockRate, aliceNTP, rtpTS, receivedAt)
-
-		// Wire up ParticipantClock with the track's estimator.
-		if est := engine.timeline.GetTrackEstimator("alice", "audio-alice"); est != nil {
-			if ps := engine.timeline.GetParticipantClock("alice"); ps != nil {
-				ps.SetTrackEstimator("audio-alice", est)
-			}
-		}
 		_ = aliceSR // used above indirectly
 
 		// Bob SR: NTP = realTime + 500ms (Bob's NTP clock is 500ms ahead)
 		bobNTP := ntpToUint64(realTime.Add(bobNTPOffset))
 		engine.timeline.OnSenderReport("bob", "audio-bob", clockRate, bobNTP, rtpTS, receivedAt)
-
-		if est := engine.timeline.GetTrackEstimator("bob", "audio-bob"); est != nil {
-			if ps := engine.timeline.GetParticipantClock("bob"); ps != nil {
-				ps.SetTrackEstimator("audio-bob", est)
-			}
-		}
 	}
 
 	// Get PTS for both participants at "real time + 10s" with corresponding
@@ -183,16 +170,6 @@ func TestIntegration_AVLipSync(t *testing.T) {
 		videoRTP := uint32(i) * 5 * videoClockRate
 		videoNTP := ntpToUint64(srTime.Add(videoEncoderDelay))
 		engine.timeline.OnSenderReport("alice", "video-alice", videoClockRate, videoNTP, videoRTP, receivedAt)
-
-		// Wire up ParticipantClock with latest estimators.
-		if ps := engine.timeline.GetParticipantClock("alice"); ps != nil {
-			if est := engine.timeline.GetTrackEstimator("alice", "audio-alice"); est != nil {
-				ps.SetTrackEstimator("audio-alice", est)
-			}
-			if est := engine.timeline.GetTrackEstimator("alice", "video-alice"); est != nil {
-				ps.SetTrackEstimator("video-alice", est)
-			}
-		}
 	}
 
 	// Push multiple packets through GetPTS to drive the transition slew

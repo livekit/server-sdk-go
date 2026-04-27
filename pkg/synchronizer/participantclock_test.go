@@ -34,29 +34,22 @@ func readyEstimator(clockRate uint32, baseNtp time.Time, baseRtp uint32, count i
 	return e
 }
 
-func TestParticipantClock_SetAndRemoveTrack(t *testing.T) {
+func TestParticipantClock_RemoveTrack(t *testing.T) {
 	st := NewSessionTimeline(nil)
-	pc := st.AddParticipant("alice")
-
-	e := readyEstimator(48000, time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC), 0, 5)
-	pc.SetTrackEstimator("audio-1", e)
-
-	pc.RemoveTrack("audio-1")
-}
-
-func TestParticipantClock_UpdateEstimator(t *testing.T) {
-	st := NewSessionTimeline(nil)
-	pc := st.AddParticipant("alice")
+	st.AddParticipant("alice")
 
 	baseNtp := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
-	e1 := readyEstimator(48000, baseNtp, 0, 5)
-	e2 := readyEstimator(48000, baseNtp.Add(time.Second), 0, 5)
+	// Feed SRs to create the track estimator via the timeline.
+	for i := 0; i < 5; i++ {
+		ntpTime := baseNtp.Add(time.Duration(i) * 5 * time.Second)
+		rtpTS := uint32(i) * 5 * 48000
+		st.OnSenderReport("alice", "audio-1", 48000, ntpToUint64(ntpTime), rtpTS, ntpTime.Add(30*time.Millisecond))
+	}
 
-	pc.SetTrackEstimator("audio-1", e1)
-	pc.SetTrackEstimator("audio-1", e2)
+	pc := st.GetParticipantClock("alice")
+	require.NotNil(t, pc)
+	require.True(t, pc.HasTrack("audio-1"))
 
-	// Should use e2, not e1.
-	pc.mu.Lock()
-	require.Same(t, e2, pc.tracks["audio-1"])
-	pc.mu.Unlock()
+	pc.RemoveTrack("audio-1")
+	require.False(t, pc.HasTrack("audio-1"))
 }
