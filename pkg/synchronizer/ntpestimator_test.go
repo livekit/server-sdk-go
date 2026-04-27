@@ -32,27 +32,28 @@ func ntpToUint64(t time.Time) uint64 {
 	return secs<<32 | frac
 }
 
-func TestNtpEstimator_NotReadyBeforeTwoSRs(t *testing.T) {
+func TestNtpEstimator_NotReadyBeforeEnoughSRs(t *testing.T) {
 	e := NewNtpEstimator(90000, nil)
 
-	// Zero SRs: not ready
 	require.False(t, e.IsReady(), "should not be ready with 0 SRs")
 
 	_, err := e.RtpToNtp(1000)
 	require.Error(t, err, "RtpToNtp should error when not ready")
 
-	// One SR: still not ready
+	// Feed SRs one at a time, checking readiness
 	now := time.Now()
-	e.OnSenderReport(ntpToUint64(now), 90000, now)
-	require.False(t, e.IsReady(), "should not be ready with 1 SR")
+	for i := 0; i < minSamplesReady-1; i++ {
+		srTime := now.Add(time.Duration(i) * time.Second)
+		rtpTS := uint32(i+1) * 90000
+		e.OnSenderReport(ntpToUint64(srTime), rtpTS, srTime)
+		require.False(t, e.IsReady(), "should not be ready with %d SRs", i+1)
+	}
 
-	_, err = e.RtpToNtp(90000)
-	require.Error(t, err, "RtpToNtp should error with only 1 SR")
-
-	// Two SRs: ready
-	now2 := now.Add(time.Second)
-	e.OnSenderReport(ntpToUint64(now2), 180000, now2)
-	require.True(t, e.IsReady(), "should be ready with 2 SRs")
+	// One more SR makes it ready
+	srTime := now.Add(time.Duration(minSamplesReady-1) * time.Second)
+	rtpTS := uint32(minSamplesReady) * 90000
+	e.OnSenderReport(ntpToUint64(srTime), rtpTS, srTime)
+	require.True(t, e.IsReady(), "should be ready with %d SRs", minSamplesReady)
 
 	_, err = e.RtpToNtp(135000)
 	require.NoError(t, err, "RtpToNtp should succeed when ready")

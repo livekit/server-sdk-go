@@ -27,6 +27,11 @@ const (
 	// maxSRSamples is the sliding window size for sender report pairs.
 	maxSRSamples = 20
 
+	// minSamplesReady is the minimum number of SR pairs needed before the
+	// regression is considered ready. With only 2 points the slope is entirely
+	// determined by SR timing jitter; 4 gives a much more stable fit.
+	minSamplesReady = 4
+
 	// outlierThresholdStdDevs is the number of standard deviations beyond which
 	// a new SR is considered an outlier and excluded from the regression.
 	outlierThresholdStdDevs = 3.0
@@ -62,7 +67,7 @@ type NtpEstimator struct {
 	rtpOffset  int64 // cumulative offset from wraparounds
 	hasLastRTP bool
 
-	// Regression results (valid when sampleLen >= 2)
+	// Regression results (valid when sampleLen >= minSamplesReady)
 	// The internal model is: ntpNanos = slopeNanos * (unwrappedRTP - meanX) + meanY
 	// where slopeNanos is nanos per RTP tick.
 	slopeNanos float64 // nanos of NTP time per RTP tick
@@ -144,7 +149,7 @@ func (e *NtpEstimator) OnSenderReport(ntpTime uint64, rtpTimestamp uint32, recei
 	}
 
 	// Recompute regression if we have enough samples.
-	if e.sampleLen >= 2 {
+	if e.sampleLen >= minSamplesReady {
 		e.computeRegression()
 		e.ready = true
 	}
