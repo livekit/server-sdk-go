@@ -94,6 +94,16 @@ func WithSyncEngineLogger(l logger.Logger) SyncEngineOption {
 	}
 }
 
+// WithSyncEngineAudioDriftCompensated signals that audio drift is handled
+// externally (e.g., by a tempo controller) and the sync engine should not
+// apply NTP PTS corrections to audio tracks. NTP regression still runs for
+// drift measurement and reporting.
+func WithSyncEngineAudioDriftCompensated() SyncEngineOption {
+	return func(e *SyncEngine) {
+		e.audioDriftCompensated = true
+	}
+}
+
 // SyncEngine orchestrates NtpEstimator, ParticipantSync, and SessionTimeline
 // to provide cross-participant alignment and per-participant A/V lip sync.
 // It implements the Sync interface.
@@ -109,10 +119,11 @@ type SyncEngine struct {
 	// high-water mark for removed tracks, so End() includes their PTS
 	maxRemovedPTS time.Duration
 
-	logger             logger.Logger
-	enableStartGate    bool
-	oldPacketThreshold time.Duration
-	onStarted          func()
+	logger                logger.Logger
+	enableStartGate       bool
+	oldPacketThreshold    time.Duration
+	audioDriftCompensated bool // audio drift handled externally (e.g., tempo controller)
+	onStarted             func()
 
 	mediaRunningTime         func() (time.Duration, bool)
 	maxMediaRunningTimeDelay time.Duration
@@ -460,6 +471,11 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 
 	wallPTS := st.wallClockPTS(pkt)
 
+	// Audio tracks with external drift compensation (e.g., tempo controller) skip
+	// NTP PTS corrections — drift is handled by resampling, not PTS adjustment.
+	// NTP regression still runs (via OnSenderReport) for drift measurement.
+	useWallClockOnly := st.engine.audioDriftCompensated && st.track.Kind() == webrtc.RTPCodecTypeAudio
+
 	// Step 2: Detect discontinuities and NTP regression jumps on RAW NTP PTS.
 	// This operates before any corrections to avoid feedback loops.
 	rtpDelta := ts - st.lastTS
@@ -477,7 +493,7 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 			"rtpDelta", rtpDelta,
 			"rtpDeltaDuration", rtpDeltaDuration,
 		)
-	} else if ntpErr == nil && st.lastNtpPTS > 0 && rtpDelta > 0 {
+	} else if !useWallClockOnly && ntpErr == nil && st.lastNtpPTS > 0 && rtpDelta > 0 {
 		// Detect regression jumps: compare raw NTP PTS against expected.
 		expectedRawNtpPTS := st.lastNtpPTS + rtpDeltaDuration
 		jump := rawNtpPTS - expectedRawNtpPTS
@@ -495,7 +511,7 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 
 	// Step 3: Compute final PTS with corrections.
 	var pts time.Duration
-	if ntpErr != nil {
+	if ntpErr != nil || useWallClockOnly {
 		pts = wallPTS
 	} else {
 		// Apply NTP jump correction.
