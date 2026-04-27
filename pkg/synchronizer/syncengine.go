@@ -456,49 +456,82 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 	}
 
 	// Step 1: Try NTP-grounded PTS from SessionTimeline.
-	ntpPTS, ntpErr := st.engine.timeline.GetSessionPTS(st.identity, st.track.ID(), ts)
+	rawNtpPTS, ntpErr := st.engine.timeline.GetSessionPTS(st.identity, st.track.ID(), ts)
 
 	wallPTS := st.wallClockPTS(pkt)
 
+	// Step 2: Detect discontinuities and NTP regression jumps on RAW NTP PTS.
+	// This operates before any corrections to avoid feedback loops.
+	rtpDelta := ts - st.lastTS
+	rtpDeltaDuration := st.converter.ToDuration(rtpDelta)
+
+	if st.lastTS != 0 && rtpDeltaDuration >= 30*time.Second {
+		// Discontinuity: stream restart, SSRC reuse with new RTP offset, or massive gap.
+		st.engine.timeline.ResetTrack(st.identity, st.track.ID())
+		st.lastNtpPTS = 0
+		st.ntpCorrection = 0
+		st.ntpTransitioned = false
+		st.transitionSlew = 0
+		st.lastSlewPTS = 0
+		st.logger.Warnw("stream discontinuity detected, resetting NTP state", nil,
+			"rtpDelta", rtpDelta,
+			"rtpDeltaDuration", rtpDeltaDuration,
+		)
+	} else if ntpErr == nil && st.lastNtpPTS > 0 && rtpDelta > 0 {
+		// Detect regression jumps: compare raw NTP PTS against expected.
+		expectedRawNtpPTS := st.lastNtpPTS + rtpDeltaDuration
+		jump := rawNtpPTS - expectedRawNtpPTS
+		if jump > deadbandThreshold || jump < -deadbandThreshold {
+			st.ntpCorrection -= jump
+			st.logger.Debugw("NTP regression jump detected",
+				"jump", jump,
+				"ntpCorrection", st.ntpCorrection,
+			)
+		}
+	}
+	if ntpErr == nil {
+		st.lastNtpPTS = rawNtpPTS // Always track raw NTP PTS, never corrected
+	}
+
+	// Step 3: Compute final PTS with corrections.
 	var pts time.Duration
 	if ntpErr != nil {
-		// Step 2: Fall back to wall-clock PTS.
 		pts = wallPTS
 	} else {
-		// Step 2b: Clamp NTP PTS to within ntpTrustThreshold of wall clock.
-		// Prevents bad publishers (wrong SRs, clock jumps) from dragging PTS far from reality.
-		diff := ntpPTS - wallPTS
+		// Apply NTP jump correction.
+		pts = rawNtpPTS + st.ntpCorrection
+
+		// Clamp corrected PTS to within trust threshold of wall clock.
+		diff := pts - wallPTS
 		if diff > ntpTrustThreshold || diff < -ntpTrustThreshold {
 			st.logger.Warnw("NTP PTS exceeds trust threshold, clamping to wall clock", nil,
-				"ntpPTS", ntpPTS,
+				"rawNtpPTS", rawNtpPTS,
+				"ntpCorrection", st.ntpCorrection,
 				"wallPTS", wallPTS,
 				"diff", diff,
 			)
 			pts = wallPTS
-		} else {
-			pts = ntpPTS
 		}
 
-		// Step 3: On first successful NTP PTS, compute transition correction.
+		// On first successful NTP PTS, compute transition correction.
 		if !st.ntpTransitioned {
 			st.transitionSlew = wallPTS - pts
 			st.ntpTransitioned = true
 			st.logger.Infow("NTP transition",
 				"wallPTS", wallPTS,
-				"ntpPTS", ntpPTS,
+				"ntpPTS", rawNtpPTS,
 				"transitionSlew", st.transitionSlew,
 			)
 		}
 	}
 
-	// Compute PTS delta for slew rate calculations (used by both transition slew and NTP correction).
-	// Must be computed before either adjustment modifies pts.
+	// Compute PTS delta for slew rate calculations.
 	var slewPTSDelta time.Duration
 	if st.lastSlewPTS > 0 {
 		slewPTSDelta = pts - st.lastSlewPTS
 	}
 
-	// Step 4: Apply transition slew (absorb gradually toward zero, pts-based).
+	// Step 4: Apply transition slew (absorb gradually toward zero).
 	if st.transitionSlew != 0 {
 		pts += st.transitionSlew
 
@@ -518,37 +551,6 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 		}
 	}
 
-	// Step 5: Detect discontinuities and smooth NTP regression jumps.
-	rtpDelta := ts - st.lastTS // uint32 subtraction, wraps correctly for forward deltas
-	rtpDeltaDuration := st.converter.ToDuration(rtpDelta)
-
-	if st.lastTS != 0 && rtpDeltaDuration >= 30*time.Second {
-		// Discontinuity: stream restart, SSRC reuse with new RTP offset, or massive gap.
-		// Reset NTP state — the old regression is no longer valid.
-		st.engine.timeline.ResetTrack(st.identity, st.track.ID())
-		st.lastNtpPTS = 0
-		st.ntpCorrection = 0
-		st.ntpTransitioned = false
-		st.transitionSlew = 0
-		st.lastSlewPTS = 0
-		st.logger.Warnw("stream discontinuity detected, resetting NTP state", nil,
-			"rtpDelta", rtpDelta,
-			"rtpDeltaDuration", rtpDeltaDuration,
-		)
-	}
-	// TODO: NTP regression jump detection disabled for debugging audio pop.
-	// } else if ntpErr == nil && st.lastNtpPTS > 0 && rtpDelta > 0 {
-	// 	expectedNtpPTS := st.lastNtpPTS + rtpDeltaDuration
-	// 	jump := pts - expectedNtpPTS
-	// 	if jump > deadbandThreshold || jump < -deadbandThreshold {
-	// 		st.ntpCorrection += -jump
-	// 		pts += -jump
-	// 	}
-	// }
-	if ntpErr == nil {
-		st.lastNtpPTS = pts
-	}
-
 	// Decay ntpCorrection toward zero via slew.
 	if st.ntpCorrection != 0 {
 		if slewPTSDelta > 0 {
@@ -565,7 +567,6 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 				}
 			}
 		}
-		pts += st.ntpCorrection
 	}
 
 	st.lastSlewPTS = pts
