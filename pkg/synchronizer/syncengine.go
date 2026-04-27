@@ -87,6 +87,13 @@ func WithSyncEngineMediaRunningTime(mediaRunningTime func() (time.Duration, bool
 	}
 }
 
+// WithSyncEngineLogger sets the logger for the sync engine and all sub-components.
+func WithSyncEngineLogger(l logger.Logger) SyncEngineOption {
+	return func(e *SyncEngine) {
+		e.logger = l
+	}
+}
+
 // SyncEngine orchestrates NtpEstimator, ParticipantSync, and SessionTimeline
 // to provide cross-participant alignment and per-participant A/V lip sync.
 // It implements the Sync interface.
@@ -102,6 +109,7 @@ type SyncEngine struct {
 	// high-water mark for removed tracks, so End() includes their PTS
 	maxRemovedPTS time.Duration
 
+	logger             logger.Logger
 	enableStartGate    bool
 	oldPacketThreshold time.Duration
 	onStarted          func()
@@ -114,7 +122,6 @@ type SyncEngine struct {
 // NewSyncEngine creates a new SyncEngine with the given options.
 func NewSyncEngine(opts ...SyncEngineOption) *SyncEngine {
 	e := &SyncEngine{
-		timeline:           NewSessionTimeline(),
 		tracks:             make(map[uint32]*syncEngineTrack),
 		trackIDs:           make(map[string]*syncEngineTrack),
 		oldPacketThreshold: defaultOldPacketThreshold,
@@ -122,6 +129,7 @@ func NewSyncEngine(opts ...SyncEngineOption) *SyncEngine {
 	for _, opt := range opts {
 		opt(e)
 	}
+	e.timeline = NewSessionTimeline(e.logger)
 	return e
 }
 
@@ -141,14 +149,14 @@ func (e *SyncEngine) AddTrack(track TrackRemote, identity string) TrackSync {
 	if track.Kind() == webrtc.RTPCodecTypeVideo {
 		mt = MediaTypeVideo
 	}
-	placeholder := NewNtpEstimator(clockRate)
+	placeholder := NewNtpEstimator(clockRate, e.logger)
 	pc.participantSync.SetTrackEstimator(track.ID(), mt, placeholder)
 
 	st := &syncEngineTrack{
 		engine:    e,
 		track:     track,
 		identity:  identity,
-		logger:    logger.GetLogger().WithValues("trackID", track.ID(), "kind", track.Kind().String(), "syncEngine", true),
+		logger:    e.getTrackLogger(track),
 		converter: rtputil.NewRTPConverter(int64(clockRate)),
 	}
 
@@ -320,6 +328,13 @@ func (e *SyncEngine) initializeIfNeeded(receivedAt time.Time) int64 {
 		}
 	}
 	return e.startedAt.Load()
+}
+
+func (e *SyncEngine) getTrackLogger(track TrackRemote) logger.Logger {
+	if e.logger != nil {
+		return e.logger.WithValues("trackID", track.ID(), "kind", track.Kind().String())
+	}
+	return logger.GetLogger().WithValues("trackID", track.ID(), "kind", track.Kind().String(), "syncEngine", true)
 }
 
 // --- syncEngineTrack ---

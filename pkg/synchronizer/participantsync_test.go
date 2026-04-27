@@ -25,7 +25,7 @@ import (
 // so that it is ready for use. The SR samples are spaced 5 seconds apart in both
 // NTP and RTP time.
 func readyEstimator(clockRate uint32, baseNtp time.Time, baseRtp uint32, count int) *NtpEstimator {
-	e := NewNtpEstimator(clockRate)
+	e := NewNtpEstimator(clockRate, nil)
 	for i := 0; i < count; i++ {
 		ntpTime := baseNtp.Add(time.Duration(i) * 5 * time.Second)
 		rtpTS := baseRtp + uint32(i)*uint32(clockRate)*5

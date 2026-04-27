@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/livekit/mediatransportutil/pkg/latency"
+	"github.com/livekit/protocol/logger"
 )
 
 var errNoSenderReports = errors.New("SessionTimeline: no sender reports received for track")
@@ -58,14 +59,16 @@ type ParticipantClock struct {
 //     - sessionStart = wall-clock time first packet of any track arrived
 type SessionTimeline struct {
 	mu           sync.RWMutex
+	logger       logger.Logger
 	participants map[string]*ParticipantClock
 	sessionStart time.Time
 	hasStart     bool
 }
 
 // NewSessionTimeline creates a new SessionTimeline.
-func NewSessionTimeline() *SessionTimeline {
+func NewSessionTimeline(l logger.Logger) *SessionTimeline {
 	return &SessionTimeline{
+		logger:       l,
 		participants: make(map[string]*ParticipantClock),
 	}
 }
@@ -179,7 +182,7 @@ func (st *SessionTimeline) OnSenderReport(identity, trackID string, clockRate ui
 	pt, ok := pc.tracks[trackID]
 	if !ok {
 		pt = &participantTrack{
-			estimator: NewNtpEstimator(clockRate),
+			estimator: NewNtpEstimator(clockRate, st.logger),
 			trackID:   trackID,
 		}
 		pc.tracks[trackID] = pt
@@ -251,6 +254,22 @@ func (st *SessionTimeline) GetSessionPTS(identity, trackID string, rtpTimestamp 
 
 	// Compute the session PTS.
 	sessionPTS := sinceEpoch + epochOnReceiverClock.Sub(st.sessionStart)
+
+	if (sessionPTS < 0 || sessionPTS > 24*time.Hour) && st.logger != nil {
+		st.logger.Warnw("GetSessionPTS: abnormal result",
+			nil,
+			"identity", identity,
+			"trackID", trackID,
+			"rtpTimestamp", rtpTimestamp,
+			"ntpTime", ntpTime,
+			"ntpEpoch", pc.ntpEpoch,
+			"sinceEpoch", sinceEpoch,
+			"estimatedOWD", estimatedOWD,
+			"epochOnReceiverClock", epochOnReceiverClock,
+			"sessionStart", st.sessionStart,
+			"sessionPTS", sessionPTS,
+		)
+	}
 
 	return sessionPTS, nil
 }

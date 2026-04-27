@@ -30,7 +30,7 @@ func TestSessionTimeline_SingleParticipant(t *testing.T) {
 		trackID   = "audio-1"
 	)
 
-	st := NewSessionTimeline()
+	st := NewSessionTimeline(nil)
 
 	// Session starts at a fixed wall-clock time.
 	sessionStart := time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC)
@@ -87,7 +87,7 @@ func TestSessionTimeline_CrossParticipantAlignment(t *testing.T) {
 	// Bob's NTP clock is offset by 500ms relative to alice's (different NTP servers).
 	bobNTPOffset := 500 * time.Millisecond
 
-	st := NewSessionTimeline()
+	st := NewSessionTimeline(nil)
 	sessionStart := time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC)
 	st.SetSessionStart(sessionStart)
 
@@ -157,7 +157,7 @@ func TestSessionTimeline_LateJoiner(t *testing.T) {
 		owd       = 50 * time.Millisecond
 	)
 
-	st := NewSessionTimeline()
+	st := NewSessionTimeline(nil)
 	sessionStart := time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC)
 	st.SetSessionStart(sessionStart)
 
@@ -206,7 +206,7 @@ func TestSessionTimeline_LateJoiner(t *testing.T) {
 
 func TestSessionTimeline_FallbackBeforeSRs(t *testing.T) {
 	// Verify error when no SRs received.
-	st := NewSessionTimeline()
+	st := NewSessionTimeline(nil)
 	sessionStart := time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC)
 	st.SetSessionStart(sessionStart)
 
