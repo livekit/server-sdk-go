@@ -26,21 +26,6 @@ import (
 
 var errNoSenderReports = errors.New("SessionTimeline: no sender reports received for track")
 
-// participantTrack holds per-track state within a ParticipantClock.
-type participantTrack struct {
-	estimator *NtpEstimator
-	trackID   string
-}
-
-// ParticipantClock holds OWD and NTP estimation state for a single participant.
-type ParticipantClock struct {
-	owdEstimator    *latency.OWDEstimator
-	participantSync *ParticipantSync
-	tracks          map[string]*participantTrack
-	ntpEpoch        time.Time // NTP time from first SR
-	hasEpoch        bool
-}
-
 // SessionTimeline establishes a shared recording timeline and maps each
 // participant's NTP clock domain onto it using OWD (one-way delay)
 // normalization. This is the key component that fixes cross-participant
@@ -88,9 +73,8 @@ func (st *SessionTimeline) AddParticipant(identity string) *ParticipantClock {
 	defer st.mu.Unlock()
 
 	pc := &ParticipantClock{
-		owdEstimator:    latency.NewOWDEstimator(latency.OWDEstimatorParamsDefault),
-		participantSync: NewParticipantSync(),
-		tracks:          make(map[string]*participantTrack),
+		owdEstimator: latency.NewOWDEstimator(latency.OWDEstimatorParamsDefault),
+		tracks:       make(map[string]*NtpEstimator),
 	}
 	st.participants[identity] = pc
 	return pc
@@ -107,9 +91,8 @@ func (st *SessionTimeline) GetOrAddParticipant(identity string) *ParticipantCloc
 	}
 
 	pc := &ParticipantClock{
-		owdEstimator:    latency.NewOWDEstimator(latency.OWDEstimatorParamsDefault),
-		participantSync: NewParticipantSync(),
-		tracks:          make(map[string]*participantTrack),
+		owdEstimator: latency.NewOWDEstimator(latency.OWDEstimatorParamsDefault),
+		tracks:       make(map[string]*NtpEstimator),
 	}
 	st.participants[identity] = pc
 	return pc
@@ -124,23 +107,15 @@ func (st *SessionTimeline) GetTrackEstimator(identity, trackID string) *NtpEstim
 	if !ok {
 		return nil
 	}
-	pt, ok := pc.tracks[trackID]
-	if !ok {
-		return nil
-	}
-	return pt.estimator
+	return pc.tracks[trackID]
 }
 
-// GetParticipantSync returns the ParticipantSync for a participant, or nil.
-func (st *SessionTimeline) GetParticipantSync(identity string) *ParticipantSync {
+// GetParticipantClock returns the ParticipantClock for a participant, or nil.
+func (st *SessionTimeline) GetParticipantClock(identity string) *ParticipantClock {
 	st.mu.RLock()
 	defer st.mu.RUnlock()
 
-	pc, ok := st.participants[identity]
-	if !ok {
-		return nil
-	}
-	return pc.participantSync
+	return st.participants[identity]
 }
 
 // RemoveParticipant removes the participant with the given identity.
@@ -162,11 +137,9 @@ func (st *SessionTimeline) ResetTrack(identity, trackID string) {
 	if !ok {
 		return
 	}
-	pt, ok := pc.tracks[trackID]
-	if !ok {
-		return
+	if est, ok := pc.tracks[trackID]; ok {
+		est.Reset()
 	}
-	pt.estimator.Reset()
 }
 
 func (st *SessionTimeline) OnSenderReport(identity, trackID string, clockRate uint32, ntpTime uint64, rtpTimestamp uint32, receivedAt time.Time) {
@@ -179,17 +152,14 @@ func (st *SessionTimeline) OnSenderReport(identity, trackID string, clockRate ui
 	}
 
 	// Get or create the per-track NTP estimator.
-	pt, ok := pc.tracks[trackID]
+	est, ok := pc.tracks[trackID]
 	if !ok {
-		pt = &participantTrack{
-			estimator: NewNtpEstimator(clockRate, st.logger),
-			trackID:   trackID,
-		}
-		pc.tracks[trackID] = pt
+		est = NewNtpEstimator(clockRate)
+		pc.tracks[trackID] = est
 	}
 
 	// Feed the SR to the NTP estimator.
-	pt.estimator.OnSenderReport(ntpTime, rtpTimestamp, receivedAt)
+	est.OnSenderReport(ntpTime, rtpTimestamp, receivedAt)
 
 	// Convert NTP timestamp to nanoseconds and update OWD.
 	senderNtpNanos := ntpTimestampToNanos(ntpTime)
@@ -226,12 +196,12 @@ func (st *SessionTimeline) GetSessionPTS(identity, trackID string, rtpTimestamp 
 		return 0, fmt.Errorf("SessionTimeline: unknown participant %q", identity)
 	}
 
-	pt, ok := pc.tracks[trackID]
+	est, ok := pc.tracks[trackID]
 	if !ok {
 		return 0, errNoSenderReports
 	}
 
-	if !pt.estimator.IsReady() {
+	if !est.IsReady() {
 		return 0, errNotReady
 	}
 
@@ -240,7 +210,7 @@ func (st *SessionTimeline) GetSessionPTS(identity, trackID string, rtpTimestamp 
 	}
 
 	// Map RTP to NTP wall-clock time.
-	ntpTime, err := pt.estimator.RtpToNtp(rtpTimestamp)
+	ntpTime, err := est.RtpToNtp(rtpTimestamp)
 	if err != nil {
 		return 0, err
 	}

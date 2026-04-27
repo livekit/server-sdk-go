@@ -25,7 +25,7 @@ import (
 // so that it is ready for use. The SR samples are spaced 5 seconds apart in both
 // NTP and RTP time.
 func readyEstimator(clockRate uint32, baseNtp time.Time, baseRtp uint32, count int) *NtpEstimator {
-	e := NewNtpEstimator(clockRate, nil)
+	e := NewNtpEstimator(clockRate)
 	for i := 0; i < count; i++ {
 		ntpTime := baseNtp.Add(time.Duration(i) * 5 * time.Second)
 		rtpTS := baseRtp + uint32(i)*uint32(clockRate)*5
@@ -34,31 +34,29 @@ func readyEstimator(clockRate uint32, baseNtp time.Time, baseRtp uint32, count i
 	return e
 }
 
-func TestParticipantSync_SetAndRemoveTrack(t *testing.T) {
-	ps := NewParticipantSync()
+func TestParticipantClock_SetAndRemoveTrack(t *testing.T) {
+	st := NewSessionTimeline(nil)
+	pc := st.AddParticipant("alice")
 
 	e := readyEstimator(48000, time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC), 0, 5)
-	ps.SetTrackEstimator("audio-1", MediaTypeAudio, e)
+	pc.SetTrackEstimator("audio-1", e)
 
-	ps.RemoveTrack("audio-1")
-
-	// Should not panic or error after removal.
-	ps.OnSenderReport("audio-1")
+	pc.RemoveTrack("audio-1")
 }
 
-func TestParticipantSync_UpdateEstimator(t *testing.T) {
-	ps := NewParticipantSync()
+func TestParticipantClock_UpdateEstimator(t *testing.T) {
+	st := NewSessionTimeline(nil)
+	pc := st.AddParticipant("alice")
 
 	baseNtp := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
 	e1 := readyEstimator(48000, baseNtp, 0, 5)
 	e2 := readyEstimator(48000, baseNtp.Add(time.Second), 0, 5)
 
-	ps.SetTrackEstimator("audio-1", MediaTypeAudio, e1)
-	ps.SetTrackEstimator("audio-1", MediaTypeAudio, e2)
+	pc.SetTrackEstimator("audio-1", e1)
+	pc.SetTrackEstimator("audio-1", e2)
 
 	// Should use e2, not e1.
-	ps.mu.Lock()
-	entry := ps.tracks["audio-1"]
-	require.Same(t, e2, entry.estimator)
-	ps.mu.Unlock()
+	pc.mu.Lock()
+	require.Same(t, e2, pc.tracks["audio-1"])
+	pc.mu.Unlock()
 }

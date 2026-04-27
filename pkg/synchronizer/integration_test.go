@@ -21,8 +21,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestIntegration_CrossParticipantSync exercises the full SyncEngine stack
-// (NtpEstimator -> SessionTimeline -> ParticipantSync -> SyncEngine) to verify
+// TestIntegration_CrossParticipantClock exercises the full SyncEngine stack
+// (NtpEstimator -> SessionTimeline -> ParticipantClock -> SyncEngine) to verify
 // that two participants producing audio at the same real-world time are aligned
 // on the session timeline despite having different NTP clock offsets.
 //
@@ -38,7 +38,7 @@ import (
 //
 // The formula sessionPTS = ntpTime + OWD - sessionStart normalizes the clock
 // offset because ntpTime includes the +500ms and OWD reflects the -500ms.
-func TestIntegration_CrossParticipantSync(t *testing.T) {
+func TestIntegration_CrossParticipantClock(t *testing.T) {
 	const (
 		clockRate    = uint32(48000)
 		owd          = 50 * time.Millisecond
@@ -81,11 +81,10 @@ func TestIntegration_CrossParticipantSync(t *testing.T) {
 		// since OnRTCP uses time.Now(). We need deterministic timing.
 		engine.timeline.OnSenderReport("alice", "audio-alice", clockRate, aliceNTP, rtpTS, receivedAt)
 
-		// Wire up ParticipantSync with the track's estimator.
+		// Wire up ParticipantClock with the track's estimator.
 		if est := engine.timeline.GetTrackEstimator("alice", "audio-alice"); est != nil {
-			if ps := engine.timeline.GetParticipantSync("alice"); ps != nil {
-				ps.SetTrackEstimator("audio-alice", MediaTypeAudio, est)
-				ps.OnSenderReport("audio-alice")
+			if ps := engine.timeline.GetParticipantClock("alice"); ps != nil {
+				ps.SetTrackEstimator("audio-alice", est)
 			}
 		}
 		_ = aliceSR // used above indirectly
@@ -95,9 +94,8 @@ func TestIntegration_CrossParticipantSync(t *testing.T) {
 		engine.timeline.OnSenderReport("bob", "audio-bob", clockRate, bobNTP, rtpTS, receivedAt)
 
 		if est := engine.timeline.GetTrackEstimator("bob", "audio-bob"); est != nil {
-			if ps := engine.timeline.GetParticipantSync("bob"); ps != nil {
-				ps.SetTrackEstimator("audio-bob", MediaTypeAudio, est)
-				ps.OnSenderReport("audio-bob")
+			if ps := engine.timeline.GetParticipantClock("bob"); ps != nil {
+				ps.SetTrackEstimator("audio-bob", est)
 			}
 		}
 	}
@@ -142,7 +140,7 @@ func TestIntegration_CrossParticipantSync(t *testing.T) {
 //   - Video has 80ms encoder delay: video NTP = audio NTP + 80ms for same
 //     real-world instant (video capture is delayed by encoding pipeline)
 //
-// The ParticipantSync detects the A/V NTP offset and applies a slew-limited
+// The ParticipantClock detects the A/V NTP offset and applies a slew-limited
 // correction on the video track to bring them into alignment.
 func TestIntegration_AVLipSync(t *testing.T) {
 	const (
@@ -186,13 +184,13 @@ func TestIntegration_AVLipSync(t *testing.T) {
 		videoNTP := ntpToUint64(srTime.Add(videoEncoderDelay))
 		engine.timeline.OnSenderReport("alice", "video-alice", videoClockRate, videoNTP, videoRTP, receivedAt)
 
-		// Wire up ParticipantSync with latest estimators.
-		if ps := engine.timeline.GetParticipantSync("alice"); ps != nil {
+		// Wire up ParticipantClock with latest estimators.
+		if ps := engine.timeline.GetParticipantClock("alice"); ps != nil {
 			if est := engine.timeline.GetTrackEstimator("alice", "audio-alice"); est != nil {
-				ps.SetTrackEstimator("audio-alice", MediaTypeAudio, est)
+				ps.SetTrackEstimator("audio-alice", est)
 			}
 			if est := engine.timeline.GetTrackEstimator("alice", "video-alice"); est != nil {
-				ps.SetTrackEstimator("video-alice", MediaTypeVideo, est)
+				ps.SetTrackEstimator("video-alice", est)
 			}
 		}
 	}
@@ -223,7 +221,7 @@ func TestIntegration_AVLipSync(t *testing.T) {
 	require.NoError(t, err)
 
 	// The 80ms encoder delay should be corrected (or mostly corrected) by
-	// ParticipantSync's slew-limited adjustment. Allow 100ms tolerance to
+	// ParticipantClock's slew-limited adjustment. Allow 100ms tolerance to
 	// account for slew rate convergence.
 	diff := audioPTS - videoPTS
 	if diff < 0 {

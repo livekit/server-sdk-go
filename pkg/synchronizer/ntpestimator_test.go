@@ -33,7 +33,7 @@ func ntpToUint64(t time.Time) uint64 {
 }
 
 func TestNtpEstimator_NotReadyBeforeEnoughSRs(t *testing.T) {
-	e := NewNtpEstimator(90000, nil)
+	e := NewNtpEstimator(90000)
 
 	require.False(t, e.IsReady(), "should not be ready with 0 SRs")
 
@@ -61,7 +61,7 @@ func TestNtpEstimator_NotReadyBeforeEnoughSRs(t *testing.T) {
 
 func TestNtpEstimator_AccurateMapping(t *testing.T) {
 	const clockRate = 90000
-	e := NewNtpEstimator(clockRate, nil)
+	e := NewNtpEstimator(clockRate)
 
 	baseTime := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
 
@@ -100,7 +100,7 @@ func TestNtpEstimator_AccurateMapping(t *testing.T) {
 
 func TestNtpEstimator_OutlierRejection(t *testing.T) {
 	const clockRate = 90000
-	e := NewNtpEstimator(clockRate, nil)
+	e := NewNtpEstimator(clockRate)
 
 	baseTime := time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC)
 
@@ -132,7 +132,7 @@ func TestNtpEstimator_OutlierRejection(t *testing.T) {
 
 func TestNtpEstimator_Wraparound(t *testing.T) {
 	const clockRate = 90000
-	e := NewNtpEstimator(clockRate, nil)
+	e := NewNtpEstimator(clockRate)
 
 	baseTime := time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC)
 
@@ -175,7 +175,7 @@ func TestNtpEstimator_Wraparound(t *testing.T) {
 
 func TestNtpEstimator_SlidingWindow(t *testing.T) {
 	const clockRate = 90000
-	e := NewNtpEstimator(clockRate, nil)
+	e := NewNtpEstimator(clockRate)
 
 	baseTime := time.Date(2025, 4, 1, 0, 0, 0, 0, time.UTC)
 
@@ -202,7 +202,7 @@ func TestNtpEstimator_SlidingWindow(t *testing.T) {
 
 func TestNtpEstimator_Slope(t *testing.T) {
 	const clockRate = 90000
-	e := NewNtpEstimator(clockRate, nil)
+	e := NewNtpEstimator(clockRate)
 
 	baseTime := time.Date(2025, 5, 1, 0, 0, 0, 0, time.UTC)
 

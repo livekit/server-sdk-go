@@ -19,8 +19,6 @@ import (
 	"math"
 	"sync"
 	"time"
-
-	"github.com/livekit/protocol/logger"
 )
 
 const (
@@ -55,7 +53,6 @@ type srSample struct {
 // Chrome's RtpToNtpEstimator.
 type NtpEstimator struct {
 	mu        sync.Mutex
-	logger    logger.Logger
 	clockRate uint32
 
 	samples    [maxSRSamples]srSample
@@ -78,9 +75,8 @@ type NtpEstimator struct {
 }
 
 // NewNtpEstimator creates an NtpEstimator for a codec with the given clock rate.
-func NewNtpEstimator(clockRate uint32, l logger.Logger) *NtpEstimator {
+func NewNtpEstimator(clockRate uint32) *NtpEstimator {
 	return &NtpEstimator{
-		logger:    l,
 		clockRate: clockRate,
 	}
 }
@@ -154,23 +150,6 @@ func (e *NtpEstimator) OnSenderReport(ntpTime uint64, rtpTimestamp uint32, recei
 		e.ready = true
 	}
 
-	if e.logger == nil {
-		return
-	}
-	e.logger.Debugw("NtpEstimator: SR ingested",
-		"clockRate", e.clockRate,
-		"rtpTS", rtpTimestamp,
-		"unwrappedRTP", unwrapped,
-		"ntpTimeRaw", ntpTime,
-		"ntpNanos", ntpNanos,
-		"ntpAsTime", nanosToTime(ntpNanos),
-		"sampleLen", e.sampleLen,
-		"ready", e.ready,
-		"slopeNanos", e.slopeNanos,
-		"meanX", e.meanX,
-		"meanY", e.meanY,
-		"residStd", e.residStd,
-	)
 }
 
 // IsReady returns true once at least 2 sender reports have been processed
