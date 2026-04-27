@@ -55,12 +55,14 @@ func New(opts ...ClientOption) (*Client, error) {
 	if client.projectURL == "" {
 		return nil, fmt.Errorf("project credentials are required")
 	}
-	agentClient, err := lksdk.NewAgentClient(client.projectURL, client.apiKey, client.apiSecret, twirp.WithClientHooks(&twirp.ClientHooks{
-		RequestPrepared: func(ctx context.Context, req *http.Request) (context.Context, error) {
-			client.setLivekitHeaders(req)
-			return ctx, nil
-		},
-	}))
+	agentClient, err := lksdk.NewAgentClient(client.projectURL, client.apiKey, client.apiSecret,
+		lksdk.WithTwirpClientOptions(
+			twirp.WithClientHooks(&twirp.ClientHooks{
+				RequestPrepared: func(ctx context.Context, req *http.Request) (context.Context, error) {
+					client.setLivekitHeaders(req)
+					return ctx, nil
+				},
+			})))
 	if err != nil {
 		return nil, err
 	}
