@@ -127,16 +127,14 @@ func (c *Client) CreateAgentV2(
 func (c *Client) DeployAgent(
 	ctx context.Context,
 	agentID string,
-	agentName string,
 	source fs.FS,
 	secrets []*lkproto.AgentSecret,
 	excludeFiles []string,
 	buildLogStreamWriter io.Writer,
 ) error {
 	resp, err := c.AgentClient.DeployAgent(ctx, &lkproto.DeployAgentRequest{
-		AgentId:   agentID,
-		AgentName: agentName,
-		Secrets:   secrets,
+		AgentId: agentID,
+		Secrets: secrets,
 	})
 	if err != nil {
 		return err
@@ -150,7 +148,6 @@ func (c *Client) DeployAgent(
 func (c *Client) DeployAgentV2(
 	ctx context.Context,
 	agentID string,
-	agentName string,
 	source fs.FS,
 	secrets []*lkproto.AgentSecret,
 	environment string,
@@ -159,7 +156,6 @@ func (c *Client) DeployAgentV2(
 ) error {
 	resp, err := c.AgentClient.DeployAgentV2(ctx, &lkproto.DeployAgentV2Request{
 		AgentId:     agentID,
-		AgentName:   agentName,
 		Secrets:     secrets,
 		Environment: environment,
 	})
