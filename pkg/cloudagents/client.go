@@ -55,12 +55,14 @@ func New(opts ...ClientOption) (*Client, error) {
 	if client.projectURL == "" {
 		return nil, fmt.Errorf("project credentials are required")
 	}
-	agentClient, err := lksdk.NewAgentClient(client.projectURL, client.apiKey, client.apiSecret, twirp.WithClientHooks(&twirp.ClientHooks{
-		RequestPrepared: func(ctx context.Context, req *http.Request) (context.Context, error) {
-			client.setLivekitHeaders(req)
-			return ctx, nil
-		},
-	}))
+	agentClient, err := lksdk.NewAgentClient(client.projectURL, client.apiKey, client.apiSecret,
+		lksdk.WithTwirpClientOptions(
+			twirp.WithClientHooks(&twirp.ClientHooks{
+				RequestPrepared: func(ctx context.Context, req *http.Request) (context.Context, error) {
+					client.setLivekitHeaders(req)
+					return ctx, nil
+				},
+			})))
 	if err != nil {
 		return nil, err
 	}
@@ -106,12 +108,14 @@ func (c *Client) CreateAgent(
 
 func (c *Client) CreateAgentV2(
 	ctx context.Context,
+	agentName string,
 	secrets []*lkproto.AgentSecret,
 	regions []string,
 ) (*lkproto.CreateAgentV2Response, error) {
 	resp, err := c.AgentClient.CreateAgentV2(ctx, &lkproto.CreateAgentV2Request{
-		Secrets: secrets,
-		Regions: regions,
+		Secrets:   secrets,
+		Regions:   regions,
+		AgentName: agentName,
 	})
 	if err != nil {
 		return nil, err
@@ -146,6 +150,7 @@ func (c *Client) DeployAgent(
 func (c *Client) DeployAgentV2(
 	ctx context.Context,
 	agentID string,
+	agentName string,
 	source fs.FS,
 	secrets []*lkproto.AgentSecret,
 	environment string,
@@ -154,6 +159,7 @@ func (c *Client) DeployAgentV2(
 ) error {
 	resp, err := c.AgentClient.DeployAgentV2(ctx, &lkproto.DeployAgentV2Request{
 		AgentId:     agentID,
+		AgentName:   agentName,
 		Secrets:     secrets,
 		Environment: environment,
 	})
