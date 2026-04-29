@@ -266,8 +266,8 @@ func (p *baseParticipant) addPublication(publication TrackPublication) {
 }
 
 func (p *baseParticipant) getPublication(sid string) TrackPublication {
-	p.lock.Lock()
-	defer p.lock.Unlock()
+	p.lock.RLock()
+	defer p.lock.RUnlock()
 
 	track, ok := p.tracks.Load(sid)
 	if !ok {
