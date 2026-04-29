@@ -11,7 +11,7 @@ require (
 	github.com/livekit/media-sdk v0.0.0-20260424094251-1e21ae1138de
 	github.com/livekit/mediatransportutil v0.0.0-20251128105421-19c7a7b81c22
 	github.com/livekit/protocol v1.45.5-0.20260423163244-347de5a2ef78
-	github.com/magefile/mage v1.17.0
+	github.com/magefile/mage v1.17.1
 	github.com/moby/buildkit v0.26.2
 	github.com/moby/patternmatcher v0.6.1
 	github.com/pion/dtls/v3 v3.1.2
@@ -23,8 +23,8 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/twitchtv/twirp v8.1.3+incompatible
 	go.uber.org/atomic v1.11.0
-	golang.org/x/crypto v0.49.0
-	golang.org/x/mod v0.34.0
+	golang.org/x/crypto v0.50.0
+	golang.org/x/mod v0.35.0
 	google.golang.org/protobuf v1.36.11
 )
 
@@ -138,8 +138,8 @@ require (
 	golang.org/x/exp v0.0.0-20260212183809-81e46e3db34a // indirect
 	golang.org/x/net v0.52.0 // indirect
 	golang.org/x/sync v0.20.0
-	golang.org/x/sys v0.42.0 // indirect
-	golang.org/x/text v0.35.0 // indirect
+	golang.org/x/sys v0.43.0 // indirect
+	golang.org/x/text v0.36.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 	golang.org/x/tools v0.43.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260209200024-4cfbd4190f57 // indirect
