@@ -112,6 +112,7 @@ func (p *RemoteParticipant) addSubscribedMediaTrack(
 				}
 				time.Sleep(50 * time.Millisecond)
 			}
+			p.engine.log.Warnw("timed out waiting for track publication metadata", nil, "trackSID", trackSID, "participant", p.Identity())
 			p.Callback.OnTrackSubscriptionFailed(trackSID, p)
 			p.roomCallback.OnTrackSubscriptionFailed(trackSID, p)
 		}()
