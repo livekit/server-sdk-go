@@ -871,6 +871,7 @@ func (r *Room) OnDisconnected(reason DisconnectionReason) {
 }
 
 func (r *Room) OnRestarting() {
+	r.log.Infow("room connection restarting")
 	r.setConnectionState(ConnectionStateReconnecting)
 	r.callback.OnReconnecting()
 
@@ -898,11 +899,13 @@ func (r *Room) OnRestarted(
 }
 
 func (r *Room) OnResuming() {
+	r.log.Infow("room connection resuming")
 	r.setConnectionState(ConnectionStateReconnecting)
 	r.callback.OnReconnecting()
 }
 
 func (r *Room) OnResumed() {
+	r.log.Infow("room connection resumed")
 	r.setConnectionState(ConnectionStateConnected)
 	r.callback.OnReconnected()
 	r.sendSyncState()

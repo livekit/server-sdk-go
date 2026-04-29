@@ -486,6 +486,7 @@ func (e *RTCEngine) createSubscriberPCLocked(configuration webrtc.Configuration)
 		} else if c.Label() == lossyDataChannelName {
 			e.lossyDCSub = c
 		} else {
+			e.log.Warnw("received unknown data channel label, ignoring", nil, "label", c.Label())
 			return
 		}
 		c.OnMessage(e.handleDataPacket)
@@ -626,6 +627,7 @@ func (e *RTCEngine) UnregisterTrackPublishedListener(cid string) {
 func (e *RTCEngine) handleDataPacket(msg webrtc.DataChannelMessage) {
 	packet, err := e.readDataPacket(msg)
 	if err != nil {
+		e.log.Warnw("failed to parse data packet", err, "isString", msg.IsString)
 		return
 	}
 	identity := packet.ParticipantIdentity
@@ -733,10 +735,10 @@ func (e *RTCEngine) handleDisconnect(fullReconnect bool) {
 				}
 			}
 
-			delay := time.Duration(reconnectCount*reconnectCount) * initialReconnectInterval
-			if delay > maxReconnectInterval {
-				break
-			}
+			// Quadratic backoff: delay grows as reconnectCount² × initialReconnectInterval.
+			// Clamped to maxReconnectInterval so a future increase to maxReconnectCount
+			// cannot produce unbounded delays or skip the final OnDisconnected call.
+			delay := min(time.Duration(reconnectCount*reconnectCount)*initialReconnectInterval, maxReconnectInterval)
 			if reconnectCount < maxReconnectCount-1 {
 				time.Sleep(delay)
 			}
