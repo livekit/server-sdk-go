@@ -44,7 +44,7 @@ func compareVersions(v1, v2 string) int {
 
 		if p1 < p2 {
 			return -1
-		} else if parts1[i] > parts2[i] {
+		} else if p1 > p2 {
 			return 1
 		} else if (i == k-1) && (p1 == p2) {
 			return 0

@@ -19,7 +19,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -1001,10 +1000,11 @@ func (r *Room) OnSpeakersChanged(speakerUpdates []*livekit.SpeakerInfo) {
 		if info.Sid == r.LocalParticipant.SID() {
 			participant = r.LocalParticipant
 		} else {
-			participant = r.GetParticipantBySID(info.Sid)
-		}
-		if reflect.ValueOf(participant).IsNil() {
-			continue
+			rp := r.GetParticipantBySID(info.Sid)
+			if rp == nil {
+				continue
+			}
+			participant = rp
 		}
 
 		participant.setAudioLevel(info.Level)
@@ -1109,7 +1109,7 @@ func (r *Room) OnTranscription(transcription *livekit.Transcription) {
 	} else {
 		rp := r.GetParticipantByIdentity(transcription.TranscribedParticipantIdentity)
 		if rp == nil {
-			r.log.Debugw("recieved transcription for unknown participant", "participant", transcription.TranscribedParticipantIdentity)
+			r.log.Debugw("received transcription for unknown participant", "participant", transcription.TranscribedParticipantIdentity)
 			return
 		}
 		publication = rp.getPublication(transcription.TrackId)
@@ -1123,7 +1123,7 @@ func (r *Room) OnTranscription(transcription *livekit.Transcription) {
 func (r *Room) OnLocalTrackSubscribed(trackSubscribed *livekit.TrackSubscribed) {
 	trackPublication := r.LocalParticipant.getLocalPublication(trackSubscribed.TrackSid)
 	if trackPublication == nil {
-		r.log.Debugw("recieved track subscribed for unknown track", "trackID", trackSubscribed.TrackSid)
+		r.log.Debugw("received track subscribed for unknown track", "trackID", trackSubscribed.TrackSid)
 		return
 	}
 	r.callback.OnLocalTrackSubscribed(trackPublication, r.LocalParticipant)
