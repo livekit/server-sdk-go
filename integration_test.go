@@ -563,3 +563,84 @@ func TestSimulcastCodec(t *testing.T) {
 	}
 
 }
+
+// TestPublishTrackSingleStreamCodecMime verifies that a single-stream
+// (no backup codec) PublishTrack populates AddTrackRequest.SimulcastCodecs
+// with the primary codec's MimeType, so trackPublicationBase.MimeType()
+// returns a non-empty value and setPublishingCodecsQuality classifies the
+// subscribed codec as primary instead of falling into the backup branch.
+//
+// Regression test for: single-stream H.265 publishes negotiated SDP cleanly
+// but the subscriber's track stayed muted with zero RTP forwarded, because
+// the publisher SDK was emitting "subscriber requested backup codec but no
+// track found" for every subscribed codec.
+func TestPublishTrackSingleStreamCodecMime(t *testing.T) {
+	cases := []struct {
+		name  string
+		codec webrtc.RTPCodecCapability
+	}{
+		{
+			name: "h264",
+			codec: webrtc.RTPCodecCapability{
+				MimeType:  webrtc.MimeTypeH264,
+				ClockRate: 90000,
+			},
+		},
+		{
+			name: "h265",
+			codec: webrtc.RTPCodecCapability{
+				MimeType:  webrtc.MimeTypeH265,
+				ClockRate: 90000,
+			},
+		},
+		{
+			name: "vp8",
+			codec: webrtc.RTPCodecCapability{
+				MimeType:  webrtc.MimeTypeVP8,
+				ClockRate: 90000,
+			},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			pub, err := createAgent(t.Name(), nil, "publisher")
+			require.NoError(t, err)
+			defer pub.Disconnect()
+
+			trackPub := pubNullTrack(t, pub, "single_codec", c.codec)
+			t.Log("published single-stream track:", trackPub.SID(), "codec:", trackPub.MimeType())
+
+			// Wait briefly for the server's TrackPublishedResponse to populate info.
+			require.Eventually(t, func() bool {
+				return trackPub.MimeType() != ""
+			}, 5*time.Second, 50*time.Millisecond, "MimeType should be populated from server response")
+
+			require.Equal(t, c.codec.MimeType, trackPub.MimeType(),
+				"single-stream %s publish should report its codec MimeType (regression for H.265 single-stream)", c.name)
+
+			subscribed := make(chan struct{}, 1)
+			sub, err := createAgent(t.Name(), &RoomCallback{
+				ParticipantCallback: ParticipantCallback{
+					OnTrackSubscribed: func(track *webrtc.TrackRemote, publication *RemoteTrackPublication, rp *RemoteParticipant) {
+						t.Log("subscribed:", track.Codec().MimeType, publication.SID())
+						require.Equal(t, publication.SID(), trackPub.SID())
+						require.Equal(t, c.codec.MimeType, track.Codec().MimeType)
+						select {
+						case subscribed <- struct{}{}:
+						default:
+						}
+					},
+				},
+			}, "subscriber")
+			require.NoError(t, err)
+			defer sub.Disconnect()
+
+			select {
+			case <-subscribed:
+			case <-time.After(10 * time.Second):
+				t.Fatalf("subscriber never received %s track — SFU likely never started forwarding RTP", c.name)
+			}
+		})
+	}
+}

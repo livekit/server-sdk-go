@@ -173,6 +173,19 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 		} else {
 			p.log.Warnw("backup codec publication with encryption is not supported, ignoring backup codec", nil)
 		}
+	} else if kind == TrackKindVideo && primaryCodec.MimeType != "" {
+		// TrackPublishedResponse does not include a top-level TrackInfo.MimeType,
+		// but the server echoes AddTrackRequest.SimulcastCodecs into
+		// TrackInfo.Codecs. Populate the primary codec here so MimeType()
+		// (publication.go:78-105) returns a non-empty value, which lets
+		// setPublishingCodecsQuality (publication.go:485-528) correctly
+		// classify subscribed video codecs as primary rather than backup.
+		req.SimulcastCodecs = []*livekit.SimulcastCodec{
+			{
+				Codec: primaryCodec.MimeType,
+				Cid:   track.ID(),
+			},
+		}
 	}
 	if err := p.engine.SendAddTrack(req); err != nil {
 		return nil, err
