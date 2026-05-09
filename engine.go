@@ -19,6 +19,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -824,6 +825,9 @@ func (e *RTCEngine) createSubscriberPCAnswerAndSend() error {
 }
 
 func (e *RTCEngine) makeRTCConfiguration(iceServers []*livekit.ICEServer, clientConfig *livekit.ClientConfiguration) webrtc.Configuration {
+	if e.connParams.DisableTURN {
+		iceServers = filterTURNServers(iceServers)
+	}
 	rtcICEServers := protosignalling.FromProtoIceServers(iceServers)
 	configuration := webrtc.Configuration{
 		ICEServers:         rtcICEServers,
@@ -834,6 +838,27 @@ func (e *RTCEngine) makeRTCConfiguration(iceServers []*livekit.ICEServer, client
 		configuration.ICETransportPolicy = webrtc.ICETransportPolicyRelay
 	}
 	return configuration
+}
+
+func filterTURNServers(iceServers []*livekit.ICEServer) []*livekit.ICEServer {
+	var filtered []*livekit.ICEServer
+	for _, server := range iceServers {
+		var urls []string
+		for _, u := range server.Urls {
+			lower := strings.ToLower(u)
+			if !strings.HasPrefix(lower, "turn:") && !strings.HasPrefix(lower, "turns:") {
+				urls = append(urls, u)
+			}
+		}
+		if len(urls) > 0 {
+			filtered = append(filtered, &livekit.ICEServer{
+				Urls:       urls,
+				Username:   server.Username,
+				Credential: server.Credential,
+			})
+		}
+	}
+	return filtered
 }
 
 func (e *RTCEngine) publishDataPacket(pck *livekit.DataPacket, kind livekit.DataPacket_Kind) error {

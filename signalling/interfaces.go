@@ -90,6 +90,10 @@ type ConnectParams struct {
 
 	ICETransportPolicy webrtc.ICETransportPolicy
 
+	// DisableTURN removes TURN/TURNS URLs from the ICE server list provided by the SFU.
+	// Use this when the client is co-located with the SFU and does not need relay candidates.
+	DisableTURN bool
+
 	DTLSEllipticCurves []dtlsElliptic.Curve // FIPS 140: override default DTLS curves
 
 	// internal use

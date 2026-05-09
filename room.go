@@ -157,6 +157,15 @@ func WithICETransportPolicy(iceTransportPolicy webrtc.ICETransportPolicy) Connec
 	}
 }
 
+// WithDisableTURN removes TURN/TURNS URLs from the ICE server configuration
+// provided by the SFU. Use this when the client is co-located with the SFU
+// and does not need relay candidates.
+func WithDisableTURN() ConnectOption {
+	return func(p *signalling.ConnectParams) {
+		p.DisableTURN = true
+	}
+}
+
 // WithDisableRegionDiscovery disables automatic region discovery for LiveKit Cloud.
 func WithDisableRegionDiscovery() ConnectOption {
 	return func(p *signalling.ConnectParams) {
