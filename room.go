@@ -34,6 +34,7 @@ import (
 	protoLogger "github.com/livekit/protocol/logger"
 	protosignalling "github.com/livekit/protocol/signalling"
 
+	"github.com/livekit/server-sdk-go/v2/e2ee"
 	"github.com/livekit/server-sdk-go/v2/signalling"
 
 	"github.com/livekit/mediatransportutil/pkg/pacer"
@@ -221,6 +222,17 @@ func WithLogger(l protoLogger.Logger) ConnectOption {
 	}
 }
 
+// WithDataEncryption enables end-to-end encryption for data channel messages.
+// When set, outgoing data packets are encrypted and incoming EncryptedPacket
+// messages are decrypted automatically using the provided KeyProvider.
+func WithDataEncryption(opts *EncryptionOptions) ConnectOption {
+	return func(p *signalling.ConnectParams) {
+		if opts != nil {
+			p.DataEncryptionKeyProvider = opts.KeyProvider
+		}
+	}
+}
+
 type PLIWriter func(webrtc.SSRC)
 
 type Room struct {
@@ -386,6 +398,11 @@ func (r *Room) JoinWithContextAndToken(ctx context.Context, url, token string, o
 
 	if params.Logger != nil {
 		r.SetLogger(params.Logger)
+	}
+
+	// Enable data channel E2EE if a key provider was supplied.
+	if params.DataEncryptionKeyProvider != nil {
+		r.engine.dataCryptor = e2ee.NewDataCryptor(params.DataEncryptionKeyProvider)
 	}
 
 	isSuccess := false
