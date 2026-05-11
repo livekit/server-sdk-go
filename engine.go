@@ -402,6 +402,12 @@ func (e *RTCEngine) createPublisherPCLocked(configuration webrtc.Configuration) 
 		}
 	}
 
+	if e.useSinglePeerConnection {
+		e.publisher.pc.OnTrack(func(remote *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
+			e.engineHandler.OnMediaTrack(remote, receiver)
+		})
+	}
+
 	trueVal := true
 	falseVal := false
 	maxRetries := uint16(1)
