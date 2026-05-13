@@ -235,7 +235,6 @@ func (e *RTCEngine) JoinContext(
 			return false, err
 		}
 
-		// TODO: reuse code with MediaSectionsRequirement handling
 		if err = e.addInitialMediaSectionsLocked(initialMediaSectionsAudio, initialMediaSectionsVideo); err != nil {
 			e.pclock.Unlock()
 			return false, err
