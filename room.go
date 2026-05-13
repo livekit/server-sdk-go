@@ -28,7 +28,6 @@ import (
 	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v4"
-	"golang.org/x/mod/semver"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 
@@ -335,20 +334,19 @@ type Room struct {
 // NewRoom can be used to update callbacks before calling Join
 func NewRoom(callback *RoomCallback) *Room {
 	r := &Room{
-		log:                     logger,
-		useSinglePeerConnection: semver.Compare("v"+Version, "v3.0.0") >= 0,
-		remoteParticipants:      make(map[livekit.ParticipantIdentity]*RemoteParticipant),
-		sidToIdentity:           make(map[livekit.ParticipantID]livekit.ParticipantIdentity),
-		sidDefers:               make(map[livekit.ParticipantID]map[livekit.TrackID]func(*RemoteParticipant)),
-		callback:                NewRoomCallback(),
-		sidReady:                make(chan struct{}),
-		connectionState:         ConnectionStateDisconnected,
-		regionURLProvider:       newRegionURLProvider(),
-		byteStreamHandlers:      &sync.Map{},
-		byteStreamReaders:       &sync.Map{},
-		textStreamHandlers:      &sync.Map{},
-		textStreamReaders:       &sync.Map{},
-		rpcHandlers:             &sync.Map{},
+		log:                logger,
+		remoteParticipants: make(map[livekit.ParticipantIdentity]*RemoteParticipant),
+		sidToIdentity:      make(map[livekit.ParticipantID]livekit.ParticipantIdentity),
+		sidDefers:          make(map[livekit.ParticipantID]map[livekit.TrackID]func(*RemoteParticipant)),
+		callback:           NewRoomCallback(),
+		sidReady:           make(chan struct{}),
+		connectionState:    ConnectionStateDisconnected,
+		regionURLProvider:  newRegionURLProvider(),
+		byteStreamHandlers: &sync.Map{},
+		byteStreamReaders:  &sync.Map{},
+		textStreamHandlers: &sync.Map{},
+		textStreamReaders:  &sync.Map{},
+		rpcHandlers:        &sync.Map{},
 	}
 	r.callback.Merge(callback)
 
