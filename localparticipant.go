@@ -56,16 +56,14 @@ func newLocalParticipant(engine *RTCEngine, roomcallback *RoomCallback, serverIn
 	}
 }
 
-// PublishTrack publishes a local track to the room.
-// The track will be available to other participants in the room.
-func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPublicationOptions, pubOpts ...LocalTrackPublishOption) (*LocalTrackPublication, error) {
+func (p *LocalParticipant) prepareTrackPublication(track webrtc.TrackLocal, opts *TrackPublicationOptions, pubOpts ...LocalTrackPublishOption) (*LocalTrackPublication, *livekit.AddTrackRequest, error) {
 	pubOptions := &LocalTrackPublishOptions{}
 	for _, opt := range pubOpts {
 		opt(pubOptions)
 	}
 	if pubOptions.backupCodecTrack != nil {
 		if _, ok := track.(TrackLocalWithCodec); !ok {
-			return nil, ErrMissingPrimaryCodec
+			return nil, nil, ErrMissingPrimaryCodec
 		}
 	}
 
@@ -85,12 +83,8 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 
 	transport := p.getPublishTransport()
 	if transport == nil {
-		return nil, ErrNoPeerConnection
+		return nil, nil, ErrNoPeerConnection
 	}
-
-	pubChan := make(chan *livekit.TrackPublishedResponse, 1)
-	p.engine.RegisterTrackPublishedListener(track.ID(), pubChan)
-	defer p.engine.UnregisterTrackPublishedListener(track.ID())
 
 	pub := NewLocalTrackPublication(kind, track, *opts, p.engine, p.log)
 	pub.onMuteChanged = p.onTrackMuted
@@ -102,7 +96,7 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 	// observed in practice.
 	sender, err := transport.PeerConnection().AddTrack(track)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// LocalTrack will consume rtcp packets so we don't need to consume again
@@ -174,6 +168,31 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 			p.log.Warnw("backup codec publication with encryption is not supported, ignoring backup codec", nil)
 		}
 	}
+	return pub, req, nil
+}
+
+func (p *LocalParticipant) notifyTrackPublished(pub *LocalTrackPublication) {
+	p.Callback.OnLocalTrackPublished(pub, p)
+	p.roomCallback.OnLocalTrackPublished(pub, p)
+}
+
+// PublishTrack publishes a local track to the room.
+// The track will be available to other participants in the room.
+func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPublicationOptions, pubOpts ...LocalTrackPublishOption) (*LocalTrackPublication, error) {
+	transport := p.getPublishTransport()
+	if transport == nil {
+		return nil, ErrNoPeerConnection
+	}
+
+	pub, req, err := p.prepareTrackPublication(track, opts, pubOpts...)
+	if err != nil {
+		return nil, err
+	}
+
+	pubChan := make(chan *livekit.TrackPublishedResponse, 1)
+	p.engine.RegisterTrackPublishedListener(track.ID(), pubChan)
+	defer p.engine.UnregisterTrackPublishedListener(track.ID())
+
 	if err := p.engine.SendAddTrack(req); err != nil {
 		return nil, err
 	}
@@ -191,26 +210,22 @@ func (p *LocalParticipant) PublishTrack(track webrtc.TrackLocal, opts *TrackPubl
 	pub.updateInfo(pubRes.Track)
 	p.addPublication(pub)
 
-	p.Callback.OnLocalTrackPublished(pub, p)
-	p.roomCallback.OnLocalTrackPublished(pub, p)
-
+	p.notifyTrackPublished(pub)
 	p.engine.log.Infow("published track", "name", opts.Name, "source", opts.Source.String(), "trackID", pubRes.Track.Sid)
 	return pub, nil
 }
 
-// PublishSimulcastTrack publishes a simulcast track with up to three quality layers to the server.
-// This allows the server to dynamically switch between different quality levels based on network conditions.
-func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *TrackPublicationOptions, pubOpts ...LocalTrackPublishOption) (*LocalTrackPublication, error) {
+func (p *LocalParticipant) prepareSimulcastTrackPublication(tracks []*LocalTrack, opts *TrackPublicationOptions, pubOpts ...LocalTrackPublishOption) (*LocalTrackPublication, *livekit.AddTrackRequest, *LocalTrack, error) {
 	if len(tracks) == 0 {
-		return nil, nil
+		return nil, nil, nil, ErrInvalidSimulcastTrack
 	}
 
 	for _, track := range tracks {
 		if track.Kind() != webrtc.RTPCodecTypeVideo {
-			return nil, ErrUnsupportedSimulcastKind
+			return nil, nil, nil, ErrUnsupportedSimulcastKind
 		}
 		if track.videoLayer == nil || track.RID() == "" {
-			return nil, ErrInvalidSimulcastTrack
+			return nil, nil, nil, ErrInvalidSimulcastTrack
 		}
 	}
 
@@ -237,16 +252,12 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *Tra
 
 	mainTrack := tracksCopy[len(tracksCopy)-1]
 
-	pubChan := make(chan *livekit.TrackPublishedResponse, 1)
-	p.engine.RegisterTrackPublishedListener(mainTrack.ID(), pubChan)
-	defer p.engine.UnregisterTrackPublishedListener(mainTrack.ID())
-
 	pub := NewLocalTrackPublication(KindFromRTPType(mainTrack.Kind()), nil, *opts, p.engine, p.log)
 	pub.onMuteChanged = p.onTrackMuted
 
 	transport := p.getPublishTransport()
 	if transport == nil {
-		return nil, ErrNoPeerConnection
+		return nil, nil, nil, ErrNoPeerConnection
 	}
 
 	// add transceivers
@@ -265,7 +276,7 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *Tra
 			// observed in practice.
 			sender, err = pc.AddTrack(st)
 			if err != nil {
-				return nil, err
+				return nil, nil, nil, err
 			}
 
 			// as there is no way to get transceiver from sender, search
@@ -277,7 +288,7 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *Tra
 			}
 		} else {
 			if err = sender.AddEncoding(st); err != nil {
-				return nil, err
+				return nil, nil, nil, err
 			}
 		}
 		pub.addSimulcastTrack(st)
@@ -330,8 +341,31 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *Tra
 
 		pub.setBackupCodecTracksForSimulcast(backupTracksCopy)
 	}
-	err = p.engine.SendAddTrack(req)
+	return pub, req, mainTrack, nil
+}
+
+// PublishSimulcastTrack publishes a simulcast track with up to three quality layers to the server.
+// This allows the server to dynamically switch between different quality levels based on network conditions.
+func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *TrackPublicationOptions, pubOpts ...LocalTrackPublishOption) (*LocalTrackPublication, error) {
+	if len(tracks) == 0 {
+		return nil, nil
+	}
+
+	transport := p.getPublishTransport()
+	if transport == nil {
+		return nil, ErrNoPeerConnection
+	}
+
+	pub, req, mainTrack, err := p.prepareSimulcastTrackPublication(tracks, opts, pubOpts...)
 	if err != nil {
+		return nil, err
+	}
+
+	pubChan := make(chan *livekit.TrackPublishedResponse, 1)
+	p.engine.RegisterTrackPublishedListener(mainTrack.ID(), pubChan)
+	defer p.engine.UnregisterTrackPublishedListener(mainTrack.ID())
+
+	if err := p.engine.SendAddTrack(req); err != nil {
 		return nil, err
 	}
 
@@ -348,8 +382,7 @@ func (p *LocalParticipant) PublishSimulcastTrack(tracks []*LocalTrack, opts *Tra
 
 	transport.Negotiate()
 
-	p.Callback.OnLocalTrackPublished(pub, p)
-	p.roomCallback.OnLocalTrackPublished(pub, p)
+	p.notifyTrackPublished(pub)
 
 	p.engine.log.Infow("published simulcast track", "name", opts.Name, "source", opts.Source.String(), "trackID", pubRes.Track.Sid)
 

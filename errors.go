@@ -34,4 +34,5 @@ var (
 	ErrNoPeerConnection         = errors.New("peer connection not established")
 	ErrAborted                  = errors.New("operation was aborted")
 	ErrMissingPrimaryCodec      = errors.New("primary track must be TrackLocalWithCodec when backup codec is present")
+	ErrPublishRequiresSinglePC  = errors.New("WithTrack requires WithSinglePeerConnection() to be enabled")
 )
