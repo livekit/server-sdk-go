@@ -100,6 +100,10 @@ type ConnectParams struct {
 	// DataEncryptionKeyProvider enables data channel E2EE when set.
 	DataEncryptionKeyProvider e2eetypes.KeyProvider
 
+	// UseSinglePeerConnection enables single peer connection mode in which the
+	// publisher PC is reused for both publishing and receiving media.
+	UseSinglePeerConnection bool
+
 	// internal use
 	Codecs []webrtc.RTPCodecParameters
 

@@ -29,6 +29,7 @@ import (
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v4"
 	"golang.org/x/mod/semver"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 
 	protoLogger "github.com/livekit/protocol/logger"
@@ -104,10 +105,24 @@ type ConnectInfo struct {
 	ParticipantAttributes map[string]string
 }
 
-type ConnectOption func(*signalling.ConnectParams)
+type connPubTrack struct {
+	track           webrtc.TrackLocal
+	simulcastTracks []*LocalTrack
+
+	opts    *TrackPublicationOptions
+	pubOpts []LocalTrackPublishOption
+}
+
+type connParams struct {
+	*signalling.ConnectParams
+
+	pubTracks []*connPubTrack
+}
+
+type ConnectOption func(*connParams)
 
 func WithConnectTimeout(timeout time.Duration) ConnectOption {
-	return func(p *signalling.ConnectParams) {
+	return func(p *connParams) {
 		p.ConnectTimeout = timeout
 	}
 }
@@ -115,7 +130,7 @@ func WithConnectTimeout(timeout time.Duration) ConnectOption {
 // WithAutoSubscribe sets whether the participant should automatically subscribe to tracks.
 // Default is true.
 func WithAutoSubscribe(val bool) ConnectOption {
-	return func(p *signalling.ConnectParams) {
+	return func(p *connParams) {
 		p.AutoSubscribe = val
 	}
 }
@@ -123,7 +138,7 @@ func WithAutoSubscribe(val bool) ConnectOption {
 // WithRetransmitBufferSize sets the retransmit buffer size to respond to NACK requests.
 // Must be one of: 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768.
 func WithRetransmitBufferSize(val uint16) ConnectOption {
-	return func(p *signalling.ConnectParams) {
+	return func(p *connParams) {
 		p.RetransmitBufferSize = val
 	}
 }
@@ -131,14 +146,14 @@ func WithRetransmitBufferSize(val uint16) ConnectOption {
 // WithPacer enables the use of a pacer on this connection
 // A pacer helps to smooth out video packet rate to avoid overwhelming downstream. Learn more at: https://chromium.googlesource.com/external/webrtc/+/master/modules/pacing/g3doc/index.md
 func WithPacer(pacer pacer.Factory) ConnectOption {
-	return func(p *signalling.ConnectParams) {
+	return func(p *connParams) {
 		p.Pacer = pacer
 	}
 }
 
 // WithInterceptors sets custom RTP interceptors for the connection.
 func WithInterceptors(interceptors []interceptor.Factory) ConnectOption {
-	return func(p *signalling.ConnectParams) {
+	return func(p *connParams) {
 		p.Interceptors = interceptors
 	}
 }
@@ -146,14 +161,14 @@ func WithInterceptors(interceptors []interceptor.Factory) ConnectOption {
 // WithIncludeDefaultInterceptors sets whether to register default interceptors
 // along with custom interceptors.
 func WithIncludeDefaultInterceptors(include bool) ConnectOption {
-	return func(p *signalling.ConnectParams) {
+	return func(p *connParams) {
 		p.IncludeDefaultInterceptors = include
 	}
 }
 
 // WithICETransportPolicy sets the ICE transport policy (UDP, Relay, etc.).
 func WithICETransportPolicy(iceTransportPolicy webrtc.ICETransportPolicy) ConnectOption {
-	return func(p *signalling.ConnectParams) {
+	return func(p *connParams) {
 		p.ICETransportPolicy = iceTransportPolicy
 	}
 }
@@ -162,21 +177,21 @@ func WithICETransportPolicy(iceTransportPolicy webrtc.ICETransportPolicy) Connec
 // provided by the SFU. Use this when the client is co-located with the SFU
 // and does not need relay candidates.
 func WithDisableTURN() ConnectOption {
-	return func(p *signalling.ConnectParams) {
+	return func(p *connParams) {
 		p.DisableTURN = true
 	}
 }
 
 // WithDisableRegionDiscovery disables automatic region discovery for LiveKit Cloud.
 func WithDisableRegionDiscovery() ConnectOption {
-	return func(p *signalling.ConnectParams) {
+	return func(p *connParams) {
 		p.DisableRegionDiscovery = true
 	}
 }
 
 // WithMetadata sets custom metadata for the participant.
 func WithMetadata(metadata string) ConnectOption {
-	return func(p *signalling.ConnectParams) {
+	return func(p *connParams) {
 		p.Metadata = metadata
 	}
 }
@@ -184,7 +199,7 @@ func WithMetadata(metadata string) ConnectOption {
 // WithExtraAttributes sets additional key-value attributes for the participant.
 // Empty string values will be ignored.
 func WithExtraAttributes(attrs map[string]string) ConnectOption {
-	return func(p *signalling.ConnectParams) {
+	return func(p *connParams) {
 		if len(attrs) != 0 && p.Attributes == nil {
 			p.Attributes = make(map[string]string, len(attrs))
 		}
@@ -198,7 +213,7 @@ func WithExtraAttributes(attrs map[string]string) ConnectOption {
 }
 
 func WithCodecs(codecs []livekit.Codec) ConnectOption {
-	return func(p *signalling.ConnectParams) {
+	return func(p *connParams) {
 		pCodecs := make([]webrtc.RTPCodecParameters, 0, len(codecs))
 		for i := range codecs {
 			pCodecs = append(pCodecs, protoCodecs.ToWebrtcCodecParameters(&codecs[i]))
@@ -211,13 +226,13 @@ func WithCodecs(codecs []livekit.Codec) ConnectOption {
 // Use this on FIPS 140-enabled systems to specify NIST-approved curves (e.g. P-256, P-384)
 // instead of the default X25519.
 func WithDTLSEllipticCurves(curves ...dtlsElliptic.Curve) ConnectOption {
-	return func(p *signalling.ConnectParams) {
+	return func(p *connParams) {
 		p.DTLSEllipticCurves = curves
 	}
 }
 
 func WithLogger(l protoLogger.Logger) ConnectOption {
-	return func(p *signalling.ConnectParams) {
+	return func(p *connParams) {
 		p.Logger = l
 	}
 }
@@ -226,14 +241,65 @@ func WithLogger(l protoLogger.Logger) ConnectOption {
 // When set, outgoing data packets are encrypted and incoming EncryptedPacket
 // messages are decrypted automatically using the provided KeyProvider.
 func WithDataEncryption(opts *EncryptionOptions) ConnectOption {
-	return func(p *signalling.ConnectParams) {
+	return func(p *connParams) {
 		if opts != nil {
 			p.DataEncryptionKeyProvider = opts.KeyProvider
 		}
 	}
 }
 
+// WithSinglePeerConnection enables single peer connection mode. In this mode
+// the publisher PC handles both publishing and receiving media.
+func WithSinglePeerConnection() ConnectOption {
+	return func(p *connParams) {
+		p.UseSinglePeerConnection = true
+	}
+}
+
+// WithTrack queues a track to be published as part of the join
+// request. Requires WithSinglePeerConnection(). It can be called multiple times to
+// publish multiple tracks.
+//
+// The track's LocalTrackPublication is available via the OnLocalTrackPublished
+// callback or LocalParticipant.TrackPublications() as soon as Join returns.
+func WithTrack(track webrtc.TrackLocal, opts *TrackPublicationOptions, pubOpts ...LocalTrackPublishOption) ConnectOption {
+	return func(p *connParams) {
+		p.pubTracks = append(p.pubTracks, &connPubTrack{
+			track:   track,
+			opts:    opts,
+			pubOpts: pubOpts,
+		})
+	}
+}
+
+// WithSimulcastTrack queues a simulcast video track (multiple
+// LocalTracks representing different quality layers, low to high) to be
+// published as part of the join request. Requires WithSinglePeerConnection().
+//
+// The track's LocalTrackPublication is available via the OnLocalTrackPublished
+// callback or LocalParticipant.TrackPublications() as soon as Join returns.
+func WithSimulcastTrack(tracks []*LocalTrack, opts *TrackPublicationOptions, pubOpts ...LocalTrackPublishOption) ConnectOption {
+	return func(p *connParams) {
+		p.pubTracks = append(p.pubTracks, &connPubTrack{
+			simulcastTracks: tracks,
+			opts:            opts,
+			pubOpts:         pubOpts,
+		})
+	}
+}
+
 type PLIWriter func(webrtc.SSRC)
+
+type trackPublicationWithJoin struct {
+	pub *LocalTrackPublication
+	// cid keys the trackPublished listener. For a single-layer publication
+	// it's the track's CID; for a simulcast publication it's the main
+	// (highest-quality) layer's CID, matching AddTrackRequest.Cid.
+	cid       string
+	opts      *TrackPublicationOptions
+	pubChan   chan *livekit.TrackPublishedResponse
+	simulcast bool
+}
 
 type Room struct {
 	log                     protoLogger.Logger
@@ -355,11 +421,6 @@ func (r *Room) Join(url string, info ConnectInfo, opts ...ConnectOption) error {
 
 // JoinWithContext - like Join, but accepts a context for cancellation/deadline.
 func (r *Room) JoinWithContext(ctx context.Context, url string, info ConnectInfo, opts ...ConnectOption) error {
-	var params signalling.ConnectParams
-	for _, opt := range opts {
-		opt(&params)
-	}
-
 	// generate token
 	at := auth.NewAccessToken(info.APIKey, info.APISecret)
 	grant := &auth.VideoGrant{
@@ -388,10 +449,14 @@ func (r *Room) JoinWithToken(url, token string, opts ...ConnectOption) error {
 
 // JoinWithContextAndToken - like JoinWithToken, but accepts a context for cancellation/deadline.
 func (r *Room) JoinWithContextAndToken(ctx context.Context, url, token string, opts ...ConnectOption) error {
-	params := &signalling.ConnectParams{
-		AutoSubscribe:  true,
-		ConnectTimeout: 3 * time.Second,
+	params := &connParams{
+		ConnectParams: &signalling.ConnectParams{
+			AutoSubscribe:           true,
+			ConnectTimeout:          3 * time.Second,
+			UseSinglePeerConnection: r.useSinglePeerConnection,
+		},
 	}
+
 	for _, opt := range opts {
 		opt(params)
 	}
@@ -403,6 +468,32 @@ func (r *Room) JoinWithContextAndToken(ctx context.Context, url, token string, o
 	// Enable data channel E2EE if a key provider was supplied.
 	if params.DataEncryptionKeyProvider != nil {
 		r.engine.dataCryptor = e2ee.NewDataCryptor(params.DataEncryptionKeyProvider)
+	}
+
+	if params.UseSinglePeerConnection {
+		r.useSinglePeerConnection = params.UseSinglePeerConnection
+	}
+	r.engine.configureSignalling(r.useSinglePeerConnection)
+
+	if len(params.pubTracks) > 0 && !r.useSinglePeerConnection {
+		return ErrPublishRequiresSinglePC
+	}
+
+	var trackPubs []*trackPublicationWithJoin
+	pubFunc := func() ([]*livekit.AddTrackRequest, error) {
+		pubs, req, err := r.publishTracksWithJoin(params.pubTracks)
+		trackPubs = pubs
+		return req, err
+	}
+	cleanPubReg := func() {
+		for _, tp := range trackPubs {
+			r.engine.UnregisterTrackPublishedListener(tp.cid)
+			// clean simulcast track transceiver as it has been set during publishing
+			for _, lt := range tp.pub.simulcastTracks {
+				lt.SetTransceiver(nil)
+			}
+		}
+		trackPubs = nil
 	}
 
 	isSuccess := false
@@ -423,9 +514,10 @@ func (r *Room) JoinWithContextAndToken(ctx context.Context, url, token string, o
 
 				r.log.Debugw("RTC engine joining room", "url", bestURL, "connectTimeout", params.ConnectTimeout)
 				callCtx, cancelCallCtx := context.WithTimeout(ctx, params.ConnectTimeout)
-				isSuccess, err = r.engine.JoinContext(callCtx, bestURL, token, params)
+				isSuccess, err = r.engine.JoinContext(callCtx, bestURL, token, params.ConnectParams, pubFunc)
 				cancelCallCtx()
 				if err != nil {
+					cleanPubReg()
 					// try the next URL with exponential backoff
 					d := time.Duration(1<<min(tries, 6)) * 100 * time.Millisecond // max 6.4 seconds
 					r.log.Errorw(
@@ -445,9 +537,14 @@ func (r *Room) JoinWithContextAndToken(ctx context.Context, url, token string, o
 	}
 
 	if !isSuccess {
-		if _, err := r.engine.JoinContext(ctx, url, token, params); err != nil {
+		if _, err := r.engine.JoinContext(ctx, url, token, params.ConnectParams, pubFunc); err != nil {
+			cleanPubReg()
 			return err
 		}
+	}
+
+	if err := r.completePublishWithJoin(ctx, trackPubs); err != nil {
+		return err
 	}
 
 	return nil
@@ -764,6 +861,92 @@ func (r *Room) getLocalParticipantSID() string {
 	}
 
 	return ""
+}
+
+func (r *Room) publishTracksWithJoin(pubTracks []*connPubTrack) ([]*trackPublicationWithJoin, []*livekit.AddTrackRequest, error) {
+	addTrackRequests := make([]*livekit.AddTrackRequest, 0, len(pubTracks))
+	trackPubs := make([]*trackPublicationWithJoin, 0, len(pubTracks))
+
+	rollback := func() {
+		for _, tp := range trackPubs {
+			r.engine.UnregisterTrackPublishedListener(tp.cid)
+			for _, lt := range tp.pub.simulcastTracks {
+				lt.SetTransceiver(nil)
+			}
+		}
+	}
+
+	for _, pubTrack := range pubTracks {
+		var (
+			publication *LocalTrackPublication
+			req         *livekit.AddTrackRequest
+			simulcast   bool
+			err         error
+		)
+		switch {
+		case len(pubTrack.simulcastTracks) > 0:
+			publication, req, _, err = r.LocalParticipant.prepareSimulcastTrackPublication(pubTrack.simulcastTracks, pubTrack.opts, pubTrack.pubOpts...)
+			simulcast = true
+		case pubTrack.track != nil:
+			publication, req, err = r.LocalParticipant.prepareTrackPublication(pubTrack.track, pubTrack.opts, pubTrack.pubOpts...)
+		default:
+			err = ErrInvalidParameter
+		}
+		if err != nil {
+			r.log.Errorw("failed to prepare publish track with join", err)
+			// Roll back listeners and transceivers we already registered so the
+			// publisher PC doesn't ship orphan m-sections in the join offer.
+			rollback()
+			return nil, nil, err
+		}
+		pubChan := make(chan *livekit.TrackPublishedResponse, 1)
+		r.engine.RegisterTrackPublishedListener(req.Cid, pubChan)
+		trackPubs = append(trackPubs, &trackPublicationWithJoin{
+			pub:       publication,
+			cid:       req.Cid,
+			opts:      pubTrack.opts,
+			pubChan:   pubChan,
+			simulcast: simulcast,
+		})
+		addTrackRequests = append(addTrackRequests, req)
+	}
+
+	return trackPubs, addTrackRequests, nil
+}
+
+func (r *Room) completePublishWithJoin(ctx context.Context, trackPubs []*trackPublicationWithJoin) error {
+	if len(trackPubs) == 0 {
+		return nil
+	}
+
+	g, gctx := errgroup.WithContext(ctx)
+	waitCtx, cancel := context.WithTimeout(gctx, trackPublishTimeout)
+	defer cancel()
+	for _, tp := range trackPubs {
+		publication, cid, opts, pubChan, simulcast := tp.pub, tp.cid, tp.opts, tp.pubChan, tp.simulcast
+		g.Go(func() error {
+			defer r.engine.UnregisterTrackPublishedListener(cid)
+
+			var pubRes *livekit.TrackPublishedResponse
+			select {
+			case pubRes = <-pubChan:
+			case <-waitCtx.Done():
+				return waitCtx.Err()
+			}
+
+			publication.updateInfo(pubRes.Track)
+			r.LocalParticipant.addPublication(publication)
+			r.LocalParticipant.notifyTrackPublished(publication)
+			label := "published track"
+			if simulcast {
+				label = "published simulcast track"
+			}
+			r.engine.log.Infow(label, "name", opts.Name, "source", opts.Source.String(), "trackID", pubRes.Track.Sid)
+			return nil
+		})
+	}
+
+	return g.Wait()
 }
 
 // Establishes the participant as a receiver for calls of the specified RPC method.

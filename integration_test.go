@@ -239,6 +239,418 @@ func TestJoinError(t *testing.T) {
 	require.Contains(t, errString, "unauthorized:")
 }
 
+// TestJoinSinglePeerConnection verifies offer-with-join in single-PC mode:
+// the publisher offer is sent in the JoinRequest, no subscriber PC is
+// created, and subscribed media + data flow through the publisher PC.
+func TestJoinSinglePeerConnection(t *testing.T) {
+	remoteParticipantsOfPub := make(chan string, 1)
+	pub, err := createAgent(t.Name(), &RoomCallback{
+		OnParticipantConnected: func(participant *RemoteParticipant) {
+			remoteParticipantsOfPub <- participant.Identity()
+		},
+	}, "publisher-singlepc", WithSinglePeerConnection())
+	require.NoError(t, err)
+	defer pub.Disconnect()
+
+	require.True(t, pub.useSinglePeerConnection)
+	require.Equal(t, ConnectionStateConnected, pub.ConnectionState())
+	_, hasSubscriber := pub.engine.Subscriber()
+	require.False(t, hasSubscriber, "no subscriber PC should be created in single-PC mode")
+
+	audioTrackName := "audio_singlepc"
+	var trackReceived atomic.Bool
+	var receivedData atomic.String
+	subCB := &RoomCallback{
+		ParticipantCallback: ParticipantCallback{
+			OnDataPacket: func(data DataPacket, params DataReceiveParams) {
+				if u, ok := data.(*UserDataPacket); ok {
+					receivedData.Store(string(u.Payload))
+				}
+			},
+			OnTrackSubscribed: func(track *webrtc.TrackRemote, publication *RemoteTrackPublication, rp *RemoteParticipant) {
+				require.Equal(t, audioTrackName, publication.Name())
+				require.Equal(t, webrtc.RTPCodecTypeAudio, track.Kind())
+				trackReceived.Store(true)
+			},
+		},
+	}
+	sub, err := createAgent(t.Name(), subCB, "subscriber-singlepc", WithSinglePeerConnection())
+	require.NoError(t, err)
+	defer sub.Disconnect()
+	_, hasSubscriber = sub.engine.Subscriber()
+	require.False(t, hasSubscriber)
+
+	<-remoteParticipantsOfPub
+
+	pub.LocalParticipant.PublishDataPacket(UserData([]byte("singlepc")), WithDataPublishReliable(true))
+	localPub := pubNullTrack(t, pub, audioTrackName, webrtc.RTPCodecCapability{
+		MimeType:  webrtc.MimeTypeOpus,
+		ClockRate: 48000,
+		Channels:  2,
+	})
+	require.Equal(t, audioTrackName, localPub.Name())
+
+	require.Eventually(t, trackReceived.Load, 5*time.Second, 100*time.Millisecond,
+		"subscriber should receive audio track over single PC")
+	require.Eventually(t, func() bool { return receivedData.Load() == "singlepc" }, 5*time.Second, 100*time.Millisecond,
+		"subscriber should receive data packet over single PC")
+}
+
+// TestPublishRequiresSinglePC verifies that queuing a track via WithTrack
+// without also enabling WithSinglePeerConnection() is rejected at Join time.
+func TestPublishRequiresSinglePC(t *testing.T) {
+	codec := webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2}
+	track, err := NewLocalTrack(codec)
+	require.NoError(t, err)
+
+	room := NewRoom(&RoomCallback{})
+	err = room.Join(host, ConnectInfo{
+		APIKey:              apiKey,
+		APISecret:           apiSecret,
+		RoomName:            t.Name(),
+		ParticipantIdentity: "publisher-err",
+	}, WithTrack(track, &TrackPublicationOptions{Name: "x"}))
+	require.ErrorIs(t, err, ErrPublishRequiresSinglePC)
+}
+
+// TestPubSub covers the publish/subscribe roundtrip for both the "post-publish"
+// path (default Join + PublishTrack/PublishSimulcastTrack) and the
+// "pre-publish" path (WithSinglePeerConnection() + WithTrack/
+// WithSimulcastTrack queued for the JoinRequest). The bidirectional subtest
+// has two peers exchange single-layer audio + single-layer video (covers
+// WithTrack and PublishTrack code paths); the simulcast subtest has one
+// publisher push audio + a 3-layer simulcast video to a passive subscriber
+// (covers WithSimulcastTrack and PublishSimulcastTrack). It supersedes the
+// older one-direction TestPrePublishTrack and TestPrePublishSimulcastTrack.
+func TestPubSub(t *testing.T) {
+	cases := []struct {
+		name       string
+		prepublish bool
+	}{
+		{"post_publish", false},
+		{"pre_publish", true},
+	}
+	for _, c := range cases {
+		c := c
+		t.Run(c.name+"_bidirectional", func(t *testing.T) {
+			runBidirectionalPubSub(t, c.prepublish)
+		})
+		t.Run(c.name+"_simulcast", func(t *testing.T) {
+			runSimulcastPubSub(t, c.prepublish)
+		})
+	}
+}
+
+func newSingleSampleTrack(t *testing.T, codec webrtc.RTPCodecCapability) *LocalTrack {
+	t.Helper()
+	track, err := NewLocalTrack(codec)
+	require.NoError(t, err)
+	provider := NewSampleTestProvider(codec)
+	track.OnBind(func() {
+		if err := track.StartWrite(provider, func() {}); err != nil {
+			track.log.Errorw("could not start writing", err)
+		}
+	})
+	return track
+}
+
+func newSimulcastSampleTracks(t *testing.T, codec webrtc.RTPCodecCapability, simulcastID string) []*LocalTrack {
+	t.Helper()
+	layers := []*livekit.VideoLayer{
+		{Quality: livekit.VideoQuality_LOW, Width: 160, Height: 120},
+		{Quality: livekit.VideoQuality_MEDIUM, Width: 320, Height: 240},
+		{Quality: livekit.VideoQuality_HIGH, Width: 640, Height: 480},
+	}
+	out := make([]*LocalTrack, 0, len(layers))
+	for _, layer := range layers {
+		layer := layer
+		track, err := NewLocalTrack(codec, WithSimulcast(simulcastID, layer))
+		require.NoError(t, err)
+		provider := NewSampleTestProvider(codec)
+		track.OnBind(func() {
+			if err := track.StartWrite(provider, func() {}); err != nil {
+				track.log.Errorw("could not start writing", err)
+			}
+		})
+		out = append(out, track)
+	}
+	return out
+}
+
+// runBidirectionalPubSub: two peers, each publishes audio + single-layer
+// video, each subscribes to the other's two tracks. Verifies cross-direction
+// pub/sub through both publish paths.
+func runBidirectionalPubSub(t *testing.T, prepublish bool) {
+	audioCodec := webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2}
+	videoCodec := webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP8, ClockRate: 90000}
+
+	type observed struct {
+		sid  string
+		kind webrtc.RTPCodecType
+	}
+	type peer struct {
+		identity               string
+		audioName, videoName   string
+		audioTrack, videoTrack *LocalTrack
+		audioPub, videoPub     *LocalTrackPublication
+		room                   *Room
+		observedLock           sync.Mutex
+		observed               map[string]observed
+		rtpCounts              map[string]*atomic.Int32
+	}
+
+	mkPeer := func(identity string) *peer {
+		return &peer{
+			identity:   identity,
+			audioName:  identity + "_audio",
+			videoName:  identity + "_video",
+			audioTrack: newSingleSampleTrack(t, audioCodec),
+			videoTrack: newSingleSampleTrack(t, videoCodec),
+			observed:   make(map[string]observed),
+			rtpCounts: map[string]*atomic.Int32{
+				identity + "_audio": new(atomic.Int32),
+				identity + "_video": new(atomic.Int32),
+			},
+		}
+	}
+	alice := mkPeer("alice")
+	bob := mkPeer("bob")
+
+	callbackFor := func(p, other *peer) *RoomCallback {
+		return &RoomCallback{
+			ParticipantCallback: ParticipantCallback{
+				OnTrackSubscribed: func(track *webrtc.TrackRemote, publication *RemoteTrackPublication, _ *RemoteParticipant) {
+					name := publication.Name()
+					p.observedLock.Lock()
+					p.observed[name] = observed{sid: publication.SID(), kind: track.Kind()}
+					p.observedLock.Unlock()
+					counter := other.rtpCounts[name]
+					go func() {
+						for {
+							if _, _, err := track.ReadRTP(); err != nil {
+								return
+							}
+							if counter != nil {
+								counter.Add(1)
+							}
+						}
+					}()
+				},
+			},
+		}
+	}
+
+	connectOpts := func(p *peer) []ConnectOption {
+		if !prepublish {
+			return nil
+		}
+		return []ConnectOption{
+			WithSinglePeerConnection(),
+			WithTrack(p.audioTrack, &TrackPublicationOptions{Name: p.audioName}),
+			WithTrack(p.videoTrack, &TrackPublicationOptions{Name: p.videoName}),
+		}
+	}
+
+	join := func(p, other *peer) {
+		p.room = NewRoom(callbackFor(p, other))
+		require.NoError(t, p.room.Join(host, ConnectInfo{
+			APIKey:              apiKey,
+			APISecret:           apiSecret,
+			RoomName:            t.Name(),
+			ParticipantIdentity: p.identity,
+		}, connectOpts(p)...))
+	}
+	join(alice, bob)
+	defer alice.room.Disconnect()
+	join(bob, alice)
+	defer bob.room.Disconnect()
+
+	resolvePublications := func(p *peer) {
+		if prepublish {
+			pubs := p.room.LocalParticipant.TrackPublications()
+			require.Len(t, pubs, 2, "%s should have 2 publications after pre-publish Join", p.identity)
+			for _, pub := range pubs {
+				lp, ok := pub.(*LocalTrackPublication)
+				require.True(t, ok)
+				switch pub.Name() {
+				case p.audioName:
+					p.audioPub = lp
+				case p.videoName:
+					p.videoPub = lp
+				}
+			}
+		} else {
+			audioPub, err := p.room.LocalParticipant.PublishTrack(p.audioTrack, &TrackPublicationOptions{Name: p.audioName})
+			require.NoError(t, err)
+			p.audioPub = audioPub
+			videoPub, err := p.room.LocalParticipant.PublishTrack(p.videoTrack, &TrackPublicationOptions{Name: p.videoName})
+			require.NoError(t, err)
+			p.videoPub = videoPub
+		}
+		for _, pub := range []*LocalTrackPublication{p.audioPub, p.videoPub} {
+			require.NotNil(t, pub, "%s publication missing", p.identity)
+			require.NotEmpty(t, pub.SID(), "%s publication SID should be set", p.identity)
+		}
+	}
+	resolvePublications(alice)
+	resolvePublications(bob)
+
+	waitObserved := func(observer *peer, name string) {
+		require.Eventually(t, func() bool {
+			observer.observedLock.Lock()
+			defer observer.observedLock.Unlock()
+			_, ok := observer.observed[name]
+			return ok
+		}, 10*time.Second, 100*time.Millisecond, "%s should observe %s", observer.identity, name)
+	}
+	for _, name := range []string{bob.audioName, bob.videoName} {
+		waitObserved(alice, name)
+	}
+	for _, name := range []string{alice.audioName, alice.videoName} {
+		waitObserved(bob, name)
+	}
+
+	assertMatch := func(observer, publisher *peer, name string, expectedKind webrtc.RTPCodecType, pub *LocalTrackPublication) {
+		observer.observedLock.Lock()
+		defer observer.observedLock.Unlock()
+		obs := observer.observed[name]
+		require.Equal(t, pub.SID(), obs.sid, "%s -> %s %s SID mismatch", publisher.identity, observer.identity, name)
+		require.Equal(t, expectedKind, obs.kind, "%s %s kind mismatch", publisher.identity, name)
+	}
+	assertMatch(alice, bob, bob.audioName, webrtc.RTPCodecTypeAudio, bob.audioPub)
+	assertMatch(alice, bob, bob.videoName, webrtc.RTPCodecTypeVideo, bob.videoPub)
+	assertMatch(bob, alice, alice.audioName, webrtc.RTPCodecTypeAudio, alice.audioPub)
+	assertMatch(bob, alice, alice.videoName, webrtc.RTPCodecTypeVideo, alice.videoPub)
+
+	allSIDs := map[string]bool{}
+	for _, p := range []*peer{alice, bob} {
+		for _, pub := range []*LocalTrackPublication{p.audioPub, p.videoPub} {
+			allSIDs[pub.SID()] = true
+		}
+	}
+	require.Len(t, allSIDs, 4, "all four publication SIDs should be distinct")
+
+	waitRTP := func(observer, publisher *peer) {
+		for _, name := range []string{publisher.audioName, publisher.videoName} {
+			name := name
+			require.Eventually(t, func() bool {
+				return publisher.rtpCounts[name].Load() > 0
+			}, 10*time.Second, 100*time.Millisecond, "%s should receive RTP for %s", observer.identity, name)
+		}
+	}
+	waitRTP(alice, bob)
+	waitRTP(bob, alice)
+}
+
+// runSimulcastPubSub: one publisher pushes audio + 3-layer simulcast video,
+// one passive subscriber receives them. Asymmetric so the publisher's
+// 3+3 recvonly slot budget in single-PC pre-publish mode is not exhausted
+// by inbound traffic.
+func runSimulcastPubSub(t *testing.T, prepublish bool) {
+	audioCodec := webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2}
+	videoCodec := webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP8, ClockRate: 90000}
+
+	audioName := "simulcast_audio"
+	videoName := "simulcast_video"
+
+	var (
+		subAudioSID, subVideoSID   atomic.String
+		subAudioKind, subVideoKind atomic.Value // webrtc.RTPCodecType
+		subAudioRTP, subVideoRTP   atomic.Int32
+	)
+	subCB := &RoomCallback{
+		ParticipantCallback: ParticipantCallback{
+			OnTrackSubscribed: func(track *webrtc.TrackRemote, publication *RemoteTrackPublication, _ *RemoteParticipant) {
+				name := publication.Name()
+				switch name {
+				case audioName:
+					subAudioSID.Store(publication.SID())
+					subAudioKind.Store(track.Kind())
+				case videoName:
+					subVideoSID.Store(publication.SID())
+					subVideoKind.Store(track.Kind())
+				}
+				go func() {
+					for {
+						if _, _, err := track.ReadRTP(); err != nil {
+							return
+						}
+						switch name {
+						case audioName:
+							subAudioRTP.Add(1)
+						case videoName:
+							subVideoRTP.Add(1)
+						}
+					}
+				}()
+			},
+		},
+	}
+	sub, err := createAgent(t.Name(), subCB, "subscriber-simulcast")
+	require.NoError(t, err)
+	defer sub.Disconnect()
+
+	audioTrack := newSingleSampleTrack(t, audioCodec)
+	simTracks := newSimulcastSampleTracks(t, videoCodec, "SC_"+videoName)
+
+	pubRoom := NewRoom(&RoomCallback{})
+	defer pubRoom.Disconnect()
+
+	var audioPub, videoPub *LocalTrackPublication
+	if prepublish {
+		require.NoError(t, pubRoom.Join(host, ConnectInfo{
+			APIKey:              apiKey,
+			APISecret:           apiSecret,
+			RoomName:            t.Name(),
+			ParticipantIdentity: "publisher-simulcast",
+		},
+			WithSinglePeerConnection(),
+			WithTrack(audioTrack, &TrackPublicationOptions{Name: audioName}),
+			WithSimulcastTrack(simTracks, &TrackPublicationOptions{Name: videoName}),
+		))
+		pubs := pubRoom.LocalParticipant.TrackPublications()
+		require.Len(t, pubs, 2, "publisher should have 2 publications after pre-publish Join")
+		for _, pub := range pubs {
+			lp, ok := pub.(*LocalTrackPublication)
+			require.True(t, ok)
+			switch pub.Name() {
+			case audioName:
+				audioPub = lp
+			case videoName:
+				videoPub = lp
+			}
+		}
+	} else {
+		require.NoError(t, pubRoom.Join(host, ConnectInfo{
+			APIKey:              apiKey,
+			APISecret:           apiSecret,
+			RoomName:            t.Name(),
+			ParticipantIdentity: "publisher-simulcast",
+		}))
+		audioPub, err = pubRoom.LocalParticipant.PublishTrack(audioTrack, &TrackPublicationOptions{Name: audioName})
+		require.NoError(t, err)
+		videoPub, err = pubRoom.LocalParticipant.PublishSimulcastTrack(simTracks, &TrackPublicationOptions{Name: videoName})
+		require.NoError(t, err)
+	}
+	require.NotNil(t, audioPub)
+	require.NotNil(t, videoPub)
+	require.NotEmpty(t, audioPub.SID())
+	require.NotEmpty(t, videoPub.SID())
+	require.NotEqual(t, audioPub.SID(), videoPub.SID())
+
+	require.Eventually(t, func() bool {
+		return subAudioSID.Load() != "" && subVideoSID.Load() != ""
+	}, 10*time.Second, 100*time.Millisecond, "subscriber should observe both audio and simulcast video")
+	require.Equal(t, audioPub.SID(), subAudioSID.Load(), "audio SID should match end-to-end")
+	require.Equal(t, videoPub.SID(), subVideoSID.Load(), "simulcast video SID should match end-to-end")
+	require.Equal(t, webrtc.RTPCodecTypeAudio, subAudioKind.Load())
+	require.Equal(t, webrtc.RTPCodecTypeVideo, subVideoKind.Load())
+
+	require.Eventually(t, func() bool {
+		return subAudioRTP.Load() > 0 && subVideoRTP.Load() > 0
+	}, 10*time.Second, 100*time.Millisecond, "subscriber should receive RTP for both tracks")
+}
+
 func TestResume(t *testing.T) {
 	var reconnected atomic.Bool
 	pubCB := &RoomCallback{

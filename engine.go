@@ -94,6 +94,12 @@ const (
 	maxReconnectCount        = 10
 	initialReconnectInterval = 300 * time.Millisecond
 	maxReconnectInterval     = 60 * time.Second
+
+	// Number of recvonly transceivers pre-allocated on the publisher PC in
+	// single peer connection mode so auto-subscribed media has m-sections
+	// ready in the initial offer.
+	initialMediaSectionsAudio = 3
+	initialMediaSectionsVideo = 3
 )
 
 type RTCEngine struct {
@@ -156,19 +162,29 @@ func NewRTCEngine(
 		joinTimeout:              15 * time.Second,
 		reliableMsgSeq:           1,
 	}
-	if !useSinglePeerConnection {
-		e.signalling = signalling.NewSignalling(signalling.SignallingParams{
-			Logger: e.log,
-		})
-	} else {
-		e.signalling = signalling.NewSignallingJoinRequest(signalling.SignallingJoinRequestParams{
-			Logger: e.log,
-		})
-	}
 	e.signalHandler = signalling.NewSignalHandler(signalling.SignalHandlerParams{
 		Logger:    e.log,
 		Processor: e,
 	})
+	e.configureSignalling(useSinglePeerConnection)
+
+	return e
+}
+
+func (e *RTCEngine) configureSignalling(useSinglePeerConnection bool) {
+	e.useSinglePeerConnection = useSinglePeerConnection
+	if useSinglePeerConnection {
+		e.signalling = signalling.NewSignallingJoinRequest(signalling.SignallingJoinRequestParams{
+			Logger: e.log,
+		})
+	} else {
+		e.signalling = signalling.NewSignalling(signalling.SignallingParams{
+			Logger: e.log,
+		})
+	}
+	if e.signalTransport != nil {
+		e.signalTransport.Close()
+	}
 	e.signalTransport = signalling.NewSignalTransportWebSocket(signalling.SignalTransportWebSocketParams{
 		Logger:                 e.log,
 		Version:                Version,
@@ -177,9 +193,6 @@ func NewRTCEngine(
 		SignalTransportHandler: e,
 		SignalHandler:          e.signalHandler,
 	})
-
-	e.onClose = []func(){}
-	return e
 }
 
 // SetLogger overrides default logger.
@@ -201,19 +214,41 @@ func (e *RTCEngine) JoinContext(
 	url string,
 	token string,
 	connectParams *signalling.ConnectParams,
+	publishWithJoin func() ([]*livekit.AddTrackRequest, error),
 ) (bool, error) {
 	e.url = url
 	e.token.Store(token)
 	e.connParams = connectParams
 
 	var (
-		publisherOffer webrtc.SessionDescription
-		err            error
+		publisherOffer   webrtc.SessionDescription
+		err              error
+		addTrackRequests []*livekit.AddTrackRequest
 	)
 	if e.signalling.PublishInJoin() {
 		e.pclock.Lock()
-		e.createPublisherPCLocked(webrtc.Configuration{})
 
+		// clear & recreate publisher pc to ensure a clean slate for the publisher offer and any pre-added m-sections.
+		e.closePeerConnectionsLocked()
+		if err = e.createPublisherPCLocked(webrtc.Configuration{}); err != nil {
+			e.pclock.Unlock()
+			return false, err
+		}
+
+		// TODO: reuse code with MediaSectionsRequirement handling
+		if err = e.addInitialMediaSectionsLocked(initialMediaSectionsAudio, initialMediaSectionsVideo); err != nil {
+			e.pclock.Unlock()
+			return false, err
+		}
+		e.pclock.Unlock()
+
+		if publishWithJoin != nil {
+			if addTrackRequests, err = publishWithJoin(); err != nil {
+				return false, err
+			}
+		}
+
+		e.pclock.Lock()
 		publisherOffer, err = e.publisher.GetLocalOffer()
 		if err != nil {
 			e.pclock.Unlock()
@@ -223,7 +258,11 @@ func (e *RTCEngine) JoinContext(
 		e.pclock.Unlock()
 	}
 
-	if err = e.signalTransport.Join(ctx, url, token, *connectParams, nil, publisherOffer); err != nil {
+	if err = ctx.Err(); err != nil {
+		return false, err
+	}
+
+	if err = e.signalTransport.Join(ctx, url, token, *connectParams, addTrackRequests, publisherOffer); err != nil {
 		if verr := e.validate(ctx, url, token, connectParams, ""); verr != nil {
 			return false, verr
 		}
@@ -248,6 +287,10 @@ func (e *RTCEngine) Close() {
 	if !e.closed.CompareAndSwap(false, true) {
 		return
 	}
+
+	e.pclock.Lock()
+	e.pendingPublisherOffer = webrtc.SessionDescription{}
+	e.pclock.Unlock()
 
 	go func() {
 		for e.reconnecting.Load() {
@@ -435,6 +478,24 @@ func (e *RTCEngine) createPublisherPCLocked(configuration webrtc.Configuration) 
 	return nil
 }
 
+func (e *RTCEngine) addInitialMediaSectionsLocked(numAudio, numVideo int) error {
+	if e.publisher == nil {
+		return nil
+	}
+	init := webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionRecvonly}
+	for i := 0; i < numAudio; i++ {
+		if _, err := e.publisher.pc.AddTransceiverFromKind(webrtc.RTPCodecTypeAudio, init); err != nil {
+			return err
+		}
+	}
+	for i := 0; i < numVideo; i++ {
+		if _, err := e.publisher.pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo, init); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (e *RTCEngine) createSubscriberPCLocked(configuration webrtc.Configuration) error {
 	if e.useSinglePeerConnection {
 		return nil
@@ -533,6 +594,10 @@ func (e *RTCEngine) closePeerConnections() {
 	e.pclock.Lock()
 	defer e.pclock.Unlock()
 
+	e.closePeerConnectionsLocked()
+}
+
+func (e *RTCEngine) closePeerConnectionsLocked() {
 	if e.publisher != nil {
 		e.publisher.Close()
 		e.publisher = nil
@@ -824,7 +889,7 @@ func (e *RTCEngine) restartConnection() error {
 
 	e.closePeerConnections()
 
-	_, err := e.JoinContext(context.TODO(), e.url, e.token.Load(), e.connParams)
+	_, err := e.JoinContext(context.TODO(), e.url, e.token.Load(), e.connParams, nil)
 	return err
 }
 
