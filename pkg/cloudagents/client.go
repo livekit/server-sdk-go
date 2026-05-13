@@ -78,6 +78,7 @@ func New(opts ...ClientOption) (*Client, error) {
 // CreateAgent creates a new agent by building from source.
 func (c *Client) CreateAgent(
 	ctx context.Context,
+	agentName string,
 	source fs.FS,
 	secrets []*lkproto.AgentSecret,
 	regions []string,
@@ -85,8 +86,9 @@ func (c *Client) CreateAgent(
 	buildLogStreamWriter io.Writer,
 ) (*lkproto.CreateAgentResponse, error) {
 	resp, err := c.AgentClient.CreateAgent(ctx, &lkproto.CreateAgentRequest{
-		Secrets: secrets,
-		Regions: regions,
+		AgentName: agentName,
+		Secrets:   secrets,
+		Regions:   regions,
 	})
 	if err != nil {
 		return nil, err
@@ -107,12 +109,14 @@ func (c *Client) CreateAgent(
 
 func (c *Client) CreateAgentV2(
 	ctx context.Context,
+	agentName string,
 	secrets []*lkproto.AgentSecret,
 	regions []string,
 ) (*lkproto.CreateAgentV2Response, error) {
 	resp, err := c.AgentClient.CreateAgentV2(ctx, &lkproto.CreateAgentV2Request{
-		Secrets: secrets,
-		Regions: regions,
+		Secrets:   secrets,
+		Regions:   regions,
+		AgentName: agentName,
 	})
 	if err != nil {
 		return nil, err
@@ -167,10 +171,11 @@ func (c *Client) DeployAgentV2(
 
 // RegisterAgent creates an agent record without uploading source or triggering a build.
 // Use this when you intend to push a prebuilt image immediately after via GetPushTarget.
-func (c *Client) RegisterAgent(ctx context.Context, secrets []*lkproto.AgentSecret, regions []string) (string, error) {
+func (c *Client) RegisterAgent(ctx context.Context, agentName string, secrets []*lkproto.AgentSecret, regions []string) (string, error) {
 	resp, err := c.AgentClient.CreateAgent(ctx, &lkproto.CreateAgentRequest{
-		Secrets: secrets,
-		Regions: regions,
+		AgentName: agentName,
+		Secrets:   secrets,
+		Regions:   regions,
 	})
 	if err != nil {
 		return "", err

@@ -149,4 +149,6 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
+replace github.com/livekit/protocol => ../protocol
+
 tool github.com/maxbrunsfeld/counterfeiter/v6
