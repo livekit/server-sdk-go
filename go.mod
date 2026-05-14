@@ -11,7 +11,7 @@ require (
 	github.com/livekit/media-sdk v0.0.0-20260424094251-1e21ae1138de
 	github.com/livekit/mediatransportutil v0.0.0-20251128105421-19c7a7b81c22
 	github.com/livekit/protocol v1.45.9-0.20260514181713-80e20dbf4fc6
-	github.com/magefile/mage v1.17.0
+	github.com/magefile/mage v1.17.2
 	github.com/moby/buildkit v0.26.2
 	github.com/moby/patternmatcher v0.6.1
 	github.com/pion/dtls/v3 v3.1.2
@@ -135,7 +135,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.43.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.10.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	go.uber.org/zap v1.27.1
+	go.uber.org/zap v1.28.0
 	go.uber.org/zap/exp v0.3.0 // indirect
 	golang.org/x/exp v0.0.0-20260212183809-81e46e3db34a // indirect
 	golang.org/x/net v0.53.0 // indirect
