@@ -147,14 +147,14 @@ func (c *Client) DeployAgentV2(
 	agentID string,
 	source fs.FS,
 	secrets []*lkproto.AgentSecret,
-	environment string,
+	agentDeployment string,
 	excludeFiles []string,
 	buildLogStreamWriter io.Writer,
 ) error {
 	resp, err := c.AgentClient.DeployAgentV2(ctx, &lkproto.DeployAgentV2Request{
-		AgentId:     agentID,
-		Secrets:     secrets,
-		Environment: environment,
+		AgentId:    agentID,
+		Secrets:    secrets,
+		Deployment: agentDeployment,
 	})
 	if err != nil {
 		return err
@@ -162,7 +162,7 @@ func (c *Client) DeployAgentV2(
 	if !resp.Success {
 		return fmt.Errorf("failed to deploy agent: %s", resp.Message)
 	}
-	return c.uploadAndBuild(ctx, agentID, "", resp.PresignedReq, source, environment, excludeFiles, buildLogStreamWriter)
+	return c.uploadAndBuild(ctx, agentID, "", resp.PresignedReq, source, agentDeployment, excludeFiles, buildLogStreamWriter)
 }
 
 // RegisterAgent creates an agent record without uploading source or triggering a build.
@@ -200,7 +200,7 @@ func (c *Client) uploadAndBuild(
 	presignedUrl string,
 	presignedPostRequest *lkproto.PresignedPostRequest,
 	source fs.FS,
-	environment string,
+	agentDeployment string,
 	excludeFiles []string,
 	buildLogStreamWriter io.Writer,
 ) error {
@@ -212,7 +212,7 @@ func (c *Client) uploadAndBuild(
 	); err != nil {
 		return err
 	}
-	if err := c.build(ctx, agentID, environment, buildLogStreamWriter); err != nil {
+	if err := c.build(ctx, agentID, agentDeployment, buildLogStreamWriter); err != nil {
 		return err
 	}
 	return nil
