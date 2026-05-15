@@ -69,6 +69,7 @@ func (c *Client) build(ctx context.Context, id string, agentDeployment string, w
 	eg.Go(func() error {
 		defer close(ch)
 		scanner := bufio.NewScanner(resp.Body)
+		scanner.Buffer(make([]byte, bufio.MaxScanTokenSize), 4*1024*1024)
 		for scanner.Scan() {
 			line := scanner.Text()
 			if strings.HasPrefix(line, "BUILD ERROR:") {
