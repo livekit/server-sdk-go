@@ -275,14 +275,14 @@ func NewSynchronizerWithOptions(opts ...SynchronizerOption) *Synchronizer {
 	}
 }
 
-func (s *Synchronizer) AddTrack(track TrackRemote, identity string) *TrackSynchronizer {
+func (s *Synchronizer) AddTrack(track TrackRemote, participantID string) *TrackSynchronizer {
 	t := newTrackSynchronizer(s, track)
 
 	s.Lock()
-	p := s.psByIdentity[identity]
+	p := s.psByIdentity[participantID]
 	if p == nil {
 		p = newParticipantSynchronizer()
-		s.psByIdentity[identity] = p
+		s.psByIdentity[participantID] = p
 	}
 	ssrc := uint32(track.SSRC())
 	s.ssrcByID[track.ID()] = ssrc
@@ -384,6 +384,22 @@ func (s *Synchronizer) GetEndedAt() int64 {
 	defer s.RUnlock()
 
 	return s.endedAt
+}
+
+// SynchronizerAdapter wraps the legacy Synchronizer to implement the Sync interface.
+// The Synchronizer's own AddTrack returns *TrackSynchronizer (concrete type); this
+// adapter's AddTrack returns TrackSync so that *SynchronizerAdapter satisfies Sync.
+type SynchronizerAdapter struct {
+	*Synchronizer
+}
+
+func (a *SynchronizerAdapter) AddTrack(track TrackRemote, participantID string) TrackSync {
+	return a.Synchronizer.AddTrack(track, participantID)
+}
+
+// AsSyncInterface returns a Sync-compatible wrapper around this Synchronizer.
+func (s *Synchronizer) AsSyncInterface() Sync {
+	return &SynchronizerAdapter{Synchronizer: s}
 }
 
 func (s *Synchronizer) getExternalMediaDeadline() (time.Duration, bool) {

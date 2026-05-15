@@ -15,6 +15,10 @@ import (
 	"github.com/livekit/server-sdk-go/v2/pkg/synchronizer/synchronizerfakes"
 )
 
+// Compile-time interface checks
+var _ synchronizer.Sync = (*synchronizer.SynchronizerAdapter)(nil)
+var _ synchronizer.TrackSync = (*synchronizer.TrackSynchronizer)(nil)
+
 const timeTolerance = time.Millisecond * 10
 const fakeAudioTrackID = "audio-1"
 
