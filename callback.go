@@ -138,6 +138,9 @@ const (
 )
 
 // GetDisconnectionReason converts a protocol disconnect reason to a DisconnectionReason.
+// Many protocol reasons (e.g. ROOM_DELETED, SERVER_SHUTDOWN, MEDIA_FAILURE) collapse
+// into OtherReason. New code that needs to distinguish between them should read the
+// raw protocol value via Room.DisconnectReason() instead.
 func GetDisconnectionReason(reason livekit.DisconnectReason) DisconnectionReason {
 	// TODO: SDK should forward the original reason and provide helpers like IsRequestedLeave.
 	r := OtherReason

@@ -309,6 +309,7 @@ type Room struct {
 	callback                *RoomCallback
 	connectionState         ConnectionState
 	sidReady                chan struct{}
+	disconnectReason        livekit.DisconnectReason
 
 	remoteParticipants map[livekit.ParticipantIdentity]*RemoteParticipant
 	sidToIdentity      map[livekit.ParticipantID]livekit.ParticipantIdentity
@@ -1069,11 +1070,26 @@ func (r *Room) OnRoomJoined(
 	}
 }
 
-func (r *Room) OnDisconnected(reason DisconnectionReason) {
+func (r *Room) OnDisconnected(reason livekit.DisconnectReason) {
+	r.lock.Lock()
+	r.disconnectReason = reason
+	r.lock.Unlock()
+
 	r.callback.OnDisconnected()
-	r.callback.OnDisconnectedWithReason(reason)
+	r.callback.OnDisconnectedWithReason(GetDisconnectionReason(reason))
 
 	r.cleanup()
+}
+
+// DisconnectReason returns the raw protocol disconnect reason reported by the
+// server. Returns livekit.DisconnectReason_UNKNOWN_REASON if the room has not
+// been disconnected or no reason was reported. Use this when the coarse
+// DisconnectionReason enum surfaced by OnDisconnectedWithReason collapses
+// values you need to distinguish (e.g. ROOM_DELETED vs ROOM_CLOSED).
+func (r *Room) DisconnectReason() livekit.DisconnectReason {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+	return r.disconnectReason
 }
 
 func (r *Room) OnRestarting() {
