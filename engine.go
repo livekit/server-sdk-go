@@ -42,7 +42,7 @@ import (
 type engineHandler interface {
 	OnLocalTrackUnpublished(response *livekit.TrackUnpublishedResponse)
 	OnTrackRemoteMuted(request *livekit.MuteTrackRequest)
-	OnDisconnected(reason DisconnectionReason)
+	OnDisconnected(protoReason livekit.DisconnectReason)
 	OnMediaTrack(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver)
 	OnParticipantUpdate([]*livekit.ParticipantInfo)
 	OnSpeakersChanged([]*livekit.SpeakerInfo)
@@ -832,7 +832,7 @@ func (e *RTCEngine) handleDisconnect(fullReconnect bool) {
 			}
 		}
 
-		e.engineHandler.OnDisconnected(Failed)
+		e.engineHandler.OnDisconnected(livekit.DisconnectReason_SIGNAL_CLOSE)
 	}()
 }
 
@@ -1472,7 +1472,7 @@ func (e *RTCEngine) OnLeave(leave *livekit.LeaveRequest) {
 		e.Close()
 		reason := leave.GetReason()
 		e.log.Infow("server initiated leave", "reason", reason)
-		e.engineHandler.OnDisconnected(GetDisconnectionReason(reason))
+		e.engineHandler.OnDisconnected(reason)
 
 	case livekit.LeaveRequest_RECONNECT:
 		e.handleDisconnect(true)
