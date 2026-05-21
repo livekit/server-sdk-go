@@ -55,12 +55,12 @@ type NackGeneratorInterceptor struct {
 	interceptor.NoOp
 	lock       sync.Mutex
 	writer     atomic.Value
-	nackQueues map[uint32]*nack.NackQueue
+	nackQueues map[uint32]nack.NackQueueInterface
 }
 
 func NewNackGeneratorInterceptor() (*NackGeneratorInterceptor, error) {
 	n := &NackGeneratorInterceptor{
-		nackQueues: make(map[uint32]*nack.NackQueue),
+		nackQueues: make(map[uint32]nack.NackQueueInterface),
 	}
 
 	return n, nil
@@ -85,7 +85,7 @@ func (n *NackGeneratorInterceptor) BindRemoteStream(info *interceptor.StreamInfo
 		return reader
 	}
 
-	nackQueue := nack.NewNACKQueue(nack.NackQueueParamsDefault)
+	nackQueue := nack.NewNACKQueueSafe(nack.NackQueueParamsDefault)
 	n.lock.Lock()
 	n.nackQueues[info.SSRC] = nackQueue
 	n.lock.Unlock()
