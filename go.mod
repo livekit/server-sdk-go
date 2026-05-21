@@ -9,7 +9,7 @@ require (
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/livekit/mageutil v0.0.0-20250511045019-0f1ff63f7731
 	github.com/livekit/media-sdk v0.0.0-20260424094251-1e21ae1138de
-	github.com/livekit/mediatransportutil v0.0.0-20251128105421-19c7a7b81c22
+	github.com/livekit/mediatransportutil v0.0.0-20260521165806-8004f10ad0c5
 	github.com/livekit/protocol v1.46.0
 	github.com/magefile/mage v1.17.0
 	github.com/moby/buildkit v0.26.2
