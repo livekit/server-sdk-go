@@ -327,3 +327,96 @@ func TestSyncEngine_OnRTCP_DriftCallback_NotCalledBeforeTrackInitialized(t *test
 
 	require.False(t, fired, "onSR must not fire before any packets have initialized the track")
 }
+
+func TestSyncEngine_BackwardRTPDoesNotResetNTPState(t *testing.T) {
+	// A single backward (reordered) packet must NOT trigger the discontinuity
+	// reset that wipes lastNtpPTS / ntpCorrection / transitionSlew / etc.
+	// Without the signed-delta guard, an unsigned uint32 subtraction would
+	// wrap a one-frame backward delta into ~24h and trip the 30s threshold.
+	engine := NewSyncEngine()
+	track := newMockAudioTrack("audio-1", 1000)
+	tr := engine.AddTrack(track, "alice").(*syncEngineTrack)
+
+	now := time.Now()
+	tr.PrimeForStart(makeExtPacket(0, 0, now))
+	tr.GetPTS(makeExtPacket(0, 0, now))
+	// Build up some state.
+	for i := 1; i <= 5; i++ {
+		pkt := makeExtPacket(uint32(i)*960, uint16(i), now.Add(time.Duration(i)*20*time.Millisecond))
+		tr.GetPTS(pkt)
+	}
+
+	// Seed lastNtpPTS so we can verify it survives the reorder.
+	tr.mu.Lock()
+	tr.lastNtpPTS = 100 * time.Millisecond
+	tr.transitionSlew = 50 * time.Millisecond
+	tr.mu.Unlock()
+
+	// Feed a backward packet (one frame behind lastTS).
+	backPkt := makeExtPacket(uint32(4)*960, 6, now.Add(120*time.Millisecond))
+	_, _ = tr.GetPTS(backPkt)
+
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	require.Equal(t, 100*time.Millisecond, tr.lastNtpPTS, "lastNtpPTS must survive backward reorder")
+	// transitionSlew may decay slightly via the normal slew loop, but must not
+	// be wiped to zero (which is what the unsigned-wrap discontinuity reset did).
+	require.Greater(t, tr.transitionSlew, 40*time.Millisecond,
+		"transitionSlew must survive backward reorder (got %v)", tr.transitionSlew)
+}
+
+func TestSyncEngine_ForwardDiscontinuityStillResetsNTPState(t *testing.T) {
+	// Sanity check: a genuine large forward RTP jump (≥30s of media) MUST still
+	// trigger the discontinuity reset. The signed-delta fix in #8 must not
+	// disable this path.
+	engine := NewSyncEngine()
+	track := newMockAudioTrack("audio-1", 1000)
+	tr := engine.AddTrack(track, "alice").(*syncEngineTrack)
+
+	now := time.Now()
+	tr.PrimeForStart(makeExtPacket(0, 0, now))
+	tr.GetPTS(makeExtPacket(0, 0, now))
+	tr.GetPTS(makeExtPacket(960, 1, now.Add(20*time.Millisecond)))
+
+	tr.mu.Lock()
+	tr.lastNtpPTS = 100 * time.Millisecond
+	tr.transitionSlew = 50 * time.Millisecond
+	tr.mu.Unlock()
+
+	// Jump 60s of RTP forward.
+	bigJumpTS := uint32(960) + uint32(48000*60)
+	tr.GetPTS(makeExtPacket(bigJumpTS, 2, now.Add(60*time.Second)))
+
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	require.Equal(t, time.Duration(0), tr.lastNtpPTS, "lastNtpPTS must be reset on forward discontinuity")
+	require.Equal(t, time.Duration(0), tr.transitionSlew, "transitionSlew must be reset on forward discontinuity")
+}
+
+func TestSyncEngine_OnSR_NotCalledAfterRemoveTrack(t *testing.T) {
+	// After RemoveTrack closes the track, a subsequent SR for the same SSRC
+	// (if it slipped in via an in-flight RTCP packet) must not invoke onSR.
+	// In practice, RemoveTrack also removes the track from the SSRC map, so
+	// OnRTCP would early-return — but Close() nulls onSR as defense in depth
+	// for the snapshot-and-drop-lock race in OnRTCP.
+	engine := NewSyncEngine()
+	track := newMockAudioTrack("audio-1", 1000)
+	tr := engine.AddTrack(track, "alice").(*syncEngineTrack)
+
+	fired := false
+	tr.OnSenderReport(func(d time.Duration) { fired = true })
+
+	now := time.Now()
+	tr.PrimeForStart(makeExtPacket(0, 0, now))
+	tr.GetPTS(makeExtPacket(0, 0, now))
+
+	// Close the track directly to simulate the post-snapshot race.
+	tr.Close()
+
+	tr.mu.Lock()
+	require.Nil(t, tr.onSR, "Close() must drop the SR callback")
+	require.True(t, tr.closed, "Close() must set closed=true")
+	tr.mu.Unlock()
+
+	require.False(t, fired, "no callback should have fired during Close")
+}

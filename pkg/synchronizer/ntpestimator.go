@@ -34,12 +34,28 @@ const (
 	// a new SR is considered an outlier and excluded from the regression.
 	outlierThresholdStdDevs = 3.0
 
+	// maxConsecutiveOutliers is how many SRs may be rejected in a row before
+	// the estimator decides the sender's NTP clock has stepped (or otherwise
+	// jumped to a state inconsistent with the prior regression) and rebuilds
+	// from scratch. At typical 1 Hz RTCP this is ~5 seconds of sustained
+	// rejection.
+	maxConsecutiveOutliers = 5
+
+	// minOutlierStdDevNanos is the floor applied to residStd when computing
+	// the outlier threshold. Without it, an exactly-fitting set of samples
+	// would produce residStd = 0 (or a few ULPs), and outlier detection would
+	// effectively disable — letting a sender NTP step through as if it were a
+	// real measurement. 100µs corresponds to ~300µs at the 3σ threshold, which
+	// is well below typical SR jitter on real networks but well above any
+	// float-precision artifact.
+	minOutlierStdDevNanos = 100_000 // 100µs in nanoseconds
+
 	// ntpEpochOffset is the number of seconds between the NTP epoch (1900-01-01)
 	// and the Unix epoch (1970-01-01).
 	ntpEpochOffset = 2208988800
 )
 
-var errNotReady = errors.New("NtpEstimator: not enough sender reports for regression (need >= 2)")
+var errNotReady = errors.New("NtpEstimator: not enough sender reports for regression")
 
 // srSample holds one sender report observation used in the regression.
 type srSample struct {
@@ -72,6 +88,8 @@ type NtpEstimator struct {
 	meanY      float64 // mean of NTP nanos values in the current window
 	residStd   float64 // residual standard deviation in NTP nanos
 	ready      bool
+
+	consecutiveOutliers int
 }
 
 // NewNtpEstimator creates an NtpEstimator for a codec with the given clock rate.
@@ -87,6 +105,10 @@ func NewNtpEstimator(clockRate uint32) *NtpEstimator {
 func (e *NtpEstimator) Reset() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	e.resetLocked()
+}
+
+func (e *NtpEstimator) resetLocked() {
 	e.samples = [maxSRSamples]srSample{}
 	e.sampleLen = 0
 	e.sampleHead = 0
@@ -98,6 +120,7 @@ func (e *NtpEstimator) Reset() {
 	e.meanY = 0
 	e.residStd = 0
 	e.ready = false
+	e.consecutiveOutliers = 0
 }
 
 // SRResult indicates the outcome of processing a sender report.
@@ -133,14 +156,28 @@ func (e *NtpEstimator) OnSenderReport(ntpTime uint64, rtpTimestamp uint32, recei
 
 	// Outlier rejection: if we already have a valid regression, check whether
 	// this new sample deviates from the prediction by more than 3 standard
-	// deviations.
-	if e.ready && e.residStd > 0 {
+	// deviations. Persistent rejection (e.g., sender's NTP clock stepped)
+	// triggers a full reset so the regression can rebuild from the new state.
+	// residStd is floored to avoid disabling detection when the prior samples
+	// happened to fit the line exactly.
+	if e.ready {
+		std := e.residStd
+		if std < minOutlierStdDevNanos {
+			std = minOutlierStdDevNanos
+		}
 		predicted := e.slopeNanos*(float64(unwrapped)-e.meanX) + e.meanY
 		residual := math.Abs(float64(ntpNanos) - predicted)
-		if residual > outlierThresholdStdDevs*e.residStd {
-			return SROutlier
+		if residual > outlierThresholdStdDevs*std {
+			e.consecutiveOutliers++
+			if e.consecutiveOutliers < maxConsecutiveOutliers {
+				return SROutlier
+			}
+			// Persistent outliers: rebuild from scratch starting with this SR.
+			e.resetLocked()
+			unwrapped = e.unwrapRTP(rtpTimestamp)
 		}
 	}
+	e.consecutiveOutliers = 0
 
 	// Write into circular buffer.
 	e.samples[e.sampleHead] = srSample{

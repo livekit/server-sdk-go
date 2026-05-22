@@ -182,10 +182,17 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 
 	// Step 2: Detect discontinuities and NTP regression jumps on RAW NTP PTS.
 	// This operates before any corrections to avoid feedback loops.
+	//
+	// Signed delta distinguishes forward gaps from backward (reordered) packets.
+	// Unsigned uint32 subtraction would wrap a one-frame backward delta into
+	// ~24 hours, falsely triggering the discontinuity branch and wiping all
+	// NTP state. The jitter buffer should normally hand us in-order packets,
+	// but defense-in-depth is cheap.
+	signedRTPDelta := int32(ts - st.lastTS)
 	rtpDelta := ts - st.lastTS
 	rtpDeltaDuration := st.converter.ToDuration(rtpDelta)
 
-	if st.lastTS != 0 && rtpDeltaDuration >= 30*time.Second {
+	if st.lastTS != 0 && signedRTPDelta > 0 && rtpDeltaDuration >= 30*time.Second {
 		// Discontinuity: stream restart, SSRC reuse with new RTP offset, or massive gap.
 		st.engine.timeline.ResetTrack(st.participantID, st.track.ID())
 		st.lastNtpPTS = 0
@@ -197,7 +204,7 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 			"rtpDelta", rtpDelta,
 			"rtpDeltaDuration", rtpDeltaDuration,
 		)
-	} else if !useWallClockOnly && ntpErr == nil && st.lastNtpPTS > 0 && rtpDelta > 0 {
+	} else if !useWallClockOnly && ntpErr == nil && st.lastNtpPTS > 0 && signedRTPDelta > 0 {
 		// Detect regression jumps: compare raw NTP PTS against expected.
 		expectedRawNtpPTS := st.lastNtpPTS + rtpDeltaDuration
 		jump := rawNtpPTS - expectedRawNtpPTS
@@ -209,8 +216,10 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 			)
 		}
 	}
-	if ntpErr == nil {
-		st.lastNtpPTS = rawNtpPTS // Always track raw NTP PTS, never corrected
+	// Only track lastNtpPTS for forward packets — using a backward sample
+	// would corrupt the next iteration's expected-jump baseline.
+	if ntpErr == nil && (st.lastTS == 0 || signedRTPDelta > 0) {
+		st.lastNtpPTS = rawNtpPTS
 	}
 
 	// Step 3: Compute final PTS with corrections.
@@ -289,8 +298,6 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 		}
 	}
 
-	st.lastSlewPTS = pts
-
 	// Step 6: Pipeline time feedback — if the track has fallen behind the
 	// pipeline's deadline for too long, force-correct PTS forward.
 	if deadline, ok := st.engine.getMediaDeadline(); ok && st.engine.maxMediaRunningTimeDelay > 0 {
@@ -321,10 +328,13 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 		return 0, io.EOF
 	}
 
-	// Update state.
+	// Update state. lastSlewPTS records the final emitted PTS so the next
+	// packet's slewPTSDelta reflects the true PTS-space progression (including
+	// any force-correct jump and monotonicity bump applied above).
 	st.lastTS = ts
-	st.lastPTS = pts // the raw PTS before adjustment (for wall clock computation)
+	st.lastPTS = pts
 	st.lastPTSAdjusted = pts
+	st.lastSlewPTS = pts
 
 	return pts, nil
 }
@@ -403,4 +413,7 @@ func (st *syncEngineTrack) Close() {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	st.closed = true
+	// Drop the SR callback so any in-flight OnRTCP that has already snapshotted
+	// the track but not yet read onSR sees nil and skips the callback.
+	st.onSR = nil
 }

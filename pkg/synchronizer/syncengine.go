@@ -211,12 +211,15 @@ func (e *SyncEngine) OnRTCP(packet rtcp.Packet) {
 	// Feed the SR to the session timeline (updates NTP estimator + OWD).
 	e.timeline.OnSenderReport(participantID, trackID, clockRate, sr.NTPTime, sr.RTPTime, now)
 
-	// Call onSR callback if set.
+	// Call onSR callback if set. If the track has been closed concurrently,
+	// drop the callback — the consumer (e.g., tempo controller) may have torn
+	// down by now.
 	st.mu.Lock()
 	onSR := st.onSR
+	closed := st.closed
 	st.mu.Unlock()
 
-	if onSR == nil {
+	if onSR == nil || closed {
 		return
 	}
 
