@@ -67,9 +67,10 @@ type syncEngineTrack struct {
 	startTime       time.Time
 	sessionOffset   time.Duration // offset from session start to this track's start
 	lastTS          uint32
-	lastPTS         time.Duration
-	lastPTSAdjusted time.Duration
-	initialized     bool
+	lastWallPTS     time.Duration // last pure wall-clock-derived PTS, independent of NTP corrections; used as the baseline for wallClockPTSForRTPLocked
+	lastPTSAdjusted time.Duration // last emitted PTS (post-NTP-correction, post-slew, post-monotonicity)
+	initialized     bool          // initializeLocked has run (startTime/sessionOffset/lastTS are set)
+	hasEmitted      bool          // GetPTS has returned at least one PTS; used to distinguish "no prior emission" from "prior emission was zero-valued"
 	closed          bool
 
 	// NTP transition and smoothing
@@ -77,6 +78,7 @@ type syncEngineTrack struct {
 	transitionSlew  time.Duration
 	lastSlewPTS     time.Duration // PTS at which slew was last updated
 	lastNtpPTS      time.Duration // last raw NTP PTS (before corrections), for jump detection
+	hasLastNtpPTS   bool          // lastNtpPTS holds a baseline from the current NTP regression (cleared when NTP becomes unavailable or on RTP discontinuity)
 	ntpCorrection   time.Duration // smoothing correction for SR-induced NTP jumps
 
 	// pipeline time feedback
@@ -92,12 +94,21 @@ type syncEngineTrack struct {
 // PrimeForStart implements TrackSync. It buffers packets through the optional
 // start gate and initializes the track on the first valid packet.
 func (st *syncEngineTrack) PrimeForStart(pkt jitter.ExtPacket) ([]jitter.ExtPacket, int, bool) {
+	// onStarted (if any) is invoked after st.mu is released to avoid reentrancy
+	// deadlock; see initializeIfNeeded for the rationale.
+	var onStarted func()
+	defer func() {
+		if onStarted != nil {
+			onStarted()
+		}
+	}()
+
 	st.mu.Lock()
 	defer st.mu.Unlock()
 
 	if st.initialized || st.startGate == nil {
 		if !st.initialized {
-			st.initializeLocked(pkt)
+			onStarted = st.initializeLocked(pkt)
 		}
 		return []jitter.ExtPacket{pkt}, 0, true
 	}
@@ -112,15 +123,17 @@ func (st *syncEngineTrack) PrimeForStart(pkt jitter.ExtPacket) ([]jitter.ExtPack
 	}
 
 	if !st.initialized {
-		st.initializeLocked(ready[0])
+		onStarted = st.initializeLocked(ready[0])
 	}
 
 	return ready, dropped, true
 }
 
 // initializeLocked sets the track's start time and registers with the engine.
-// Caller must hold st.mu.
-func (st *syncEngineTrack) initializeLocked(pkt jitter.ExtPacket) {
+// Caller must hold st.mu. Returns a non-nil onStarted callback IFF this call
+// was the first track initialization for the engine; the caller MUST invoke
+// the returned callback only after releasing st.mu.
+func (st *syncEngineTrack) initializeLocked(pkt jitter.ExtPacket) func() {
 	receivedAt := pkt.ReceivedAt
 	if receivedAt.IsZero() {
 		receivedAt = time.Now()
@@ -132,7 +145,7 @@ func (st *syncEngineTrack) initializeLocked(pkt jitter.ExtPacket) {
 	st.initialized = true
 
 	// Initialize the engine's session start time.
-	sessionStart := st.engine.initializeIfNeeded(receivedAt)
+	sessionStart, onStarted := st.engine.initializeIfNeeded(receivedAt)
 	st.sessionOffset = time.Duration(receivedAt.UnixNano() - sessionStart)
 
 	st.logger.Infow("initialized track",
@@ -140,11 +153,21 @@ func (st *syncEngineTrack) initializeLocked(pkt jitter.ExtPacket) {
 		"sessionOffset", st.sessionOffset,
 		"rtpTS", pkt.Timestamp,
 	)
+	return onStarted
 }
 
 // GetPTS implements TrackSync. It computes the presentation timestamp for a packet
 // using the NTP-grounded timeline when available, falling back to wall clock otherwise.
 func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
+	// onStarted (if any) is invoked after st.mu is released to avoid reentrancy
+	// deadlock; see initializeIfNeeded for the rationale.
+	var onStarted func()
+	defer func() {
+		if onStarted != nil {
+			onStarted()
+		}
+	}()
+
 	st.mu.Lock()
 	defer st.mu.Unlock()
 
@@ -153,13 +176,15 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 	}
 
 	if !st.initialized {
-		st.initializeLocked(pkt)
+		onStarted = st.initializeLocked(pkt)
 	}
 
 	ts := pkt.Timestamp
 
 	// Same RTP timestamp as last packet: return same PTS (same frame).
-	if ts == st.lastTS && st.lastPTSAdjusted > 0 {
+	// hasEmitted distinguishes "we've previously emitted for this lastTS" from
+	// the first-call case where lastTS was just set by initializeLocked.
+	if st.hasEmitted && ts == st.lastTS {
 		return st.lastPTSAdjusted, nil
 	}
 
@@ -192,20 +217,60 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 	rtpDelta := ts - st.lastTS
 	rtpDeltaDuration := st.converter.ToDuration(rtpDelta)
 
-	if st.lastTS != 0 && signedRTPDelta > 0 && rtpDeltaDuration >= 30*time.Second {
-		// Discontinuity: stream restart, SSRC reuse with new RTP offset, or massive gap.
+	// ntpNowReady tracks whether the NTP regression is the source for THIS
+	// packet's PTS. This is the unified gate for jump detection, transition
+	// computation, and lastNtpPTS tracking — and the trigger for clearing
+	// smoothing state when NTP goes away. Anything that invalidates the
+	// regression mid-session (estimator outlier rebuild via the timeline,
+	// ResetTrack from a discontinuity below, useWallClockOnly mode) flows
+	// through this single gate.
+	ntpNowReady := ntpErr == nil && !useWallClockOnly
+
+	// signedRTPDelta > 0 implicitly skips the first call (delta is 0 there because
+	// initializeLocked set lastTS to this packet's ts) and any backward reorders.
+	discontinuity := signedRTPDelta > 0 && rtpDeltaDuration >= 30*time.Second
+	if discontinuity {
+		// Stream restart, SSRC reuse with new RTP offset, or massive gap.
+		// Reset the timeline-side regression. rawNtpPTS we already have was
+		// computed against the pre-reset regression; treat NTP as unavailable
+		// for this packet so we fall back to wallPTS and clear smoothing state
+		// in the unified branch below.
 		st.engine.timeline.ResetTrack(st.participantID, st.track.ID())
-		st.lastNtpPTS = 0
-		st.ntpCorrection = 0
-		st.ntpTransitioned = false
-		st.transitionSlew = 0
-		st.lastSlewPTS = 0
+		ntpNowReady = false
+		// NTP smoothing state (lastNtpPTS, transitionSlew, ntpCorrection) is
+		// cleared by the !ntpNowReady branch below. lastSlewPTS does not need
+		// to be cleared: the end-of-iter update overwrites it with the
+		// pre-slew PTS for this packet, providing a valid baseline for the
+		// next iteration's slewPTSDelta.
 		st.logger.Warnw("stream discontinuity detected, resetting NTP state", nil,
 			"rtpDelta", rtpDelta,
 			"rtpDeltaDuration", rtpDeltaDuration,
 		)
-	} else if !useWallClockOnly && ntpErr == nil && st.lastNtpPTS > 0 && signedRTPDelta > 0 {
-		// Detect regression jumps: compare raw NTP PTS against expected.
+	}
+
+	if !ntpNowReady {
+		// NTP is not the source for this packet — either it was never ready,
+		// the estimator was rebuilt internally (persistent outliers in the
+		// timeline's NtpEstimator), the discontinuity branch above just reset
+		// it, or we're in audio-drift-compensated mode. Forget any in-flight
+		// NTP smoothing state so that a future NTP-ready packet triggers a
+		// fresh transition against whatever regression is current then.
+		//
+		// Without this clear, ntpTransitioned would stay true from the prior
+		// NTP session, the transition correction would never be recomputed
+		// against the new regression, and lastNtpPTS would feed a stale
+		// expectation into the jump-detection branch on the very first
+		// post-rebuild packet — producing a large bogus ntpCorrection.
+		if st.ntpTransitioned || st.hasLastNtpPTS || st.ntpCorrection != 0 || st.transitionSlew != 0 {
+			st.ntpTransitioned = false
+			st.transitionSlew = 0
+			st.ntpCorrection = 0
+			st.hasLastNtpPTS = false
+			st.lastNtpPTS = 0
+		}
+	} else if st.hasLastNtpPTS && signedRTPDelta > 0 {
+		// Steady NTP: detect regression jumps by comparing raw NTP PTS against
+		// the previous packet's raw value extrapolated by RTP delta.
 		expectedRawNtpPTS := st.lastNtpPTS + rtpDeltaDuration
 		jump := rawNtpPTS - expectedRawNtpPTS
 		if jump > deadbandThreshold || jump < -deadbandThreshold {
@@ -216,15 +281,24 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 			)
 		}
 	}
-	// Only track lastNtpPTS for forward packets — using a backward sample
-	// would corrupt the next iteration's expected-jump baseline.
-	if ntpErr == nil && (st.lastTS == 0 || signedRTPDelta > 0) {
+
+	// Track lastNtpPTS for forward (or first-NTP-packet) updates — using a
+	// backward sample would corrupt the next iteration's expected-jump
+	// baseline. signedRTPDelta >= 0 covers the first call (delta = 0, by way
+	// of initializeLocked setting lastTS to this packet's ts) and forward
+	// packets. hasLastNtpPTS is the canonical "have we recorded a baseline"
+	// flag; lastNtpPTS being zero is also a valid raw NTP value at session
+	// start so we never rely on it as a sentinel.
+	if ntpNowReady && signedRTPDelta >= 0 {
 		st.lastNtpPTS = rawNtpPTS
+		st.hasLastNtpPTS = true
 	}
 
-	// Step 3: Compute final PTS with corrections.
+	// Step 3: Compute final PTS with corrections. ntpNowReady (set above) is
+	// the unified gate — covers ntpErr, useWallClockOnly, AND the discontinuity
+	// reset that just invalidated rawNtpPTS by resetting the regression.
 	var pts time.Duration
-	if ntpErr != nil || useWallClockOnly {
+	if !ntpNowReady {
 		pts = wallPTS
 	} else {
 		// Apply NTP jump correction.
@@ -254,9 +328,19 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 		}
 	}
 
+	// Capture the pre-slew, pre-force-correction, pre-monotonicity PTS as the
+	// next iteration's slew baseline. This is what tracks "media-time
+	// progression" — using the post-correction emitted PTS instead (the
+	// pre-#911 author's original choice and a regression in #911) freezes the
+	// decay clock whenever a force-correction jump or monotonicity bump shifts
+	// the output away from raw media time: slewPTSDelta collapses to ~1ms
+	// (monotonicity step) per packet, dropping the decay step from the
+	// intended 100µs to ~5µs, and stalling drain for tens of minutes.
+	preSlewPTS := pts
+
 	// Compute PTS delta for slew rate calculations.
 	var slewPTSDelta time.Duration
-	if st.lastSlewPTS > 0 {
+	if st.hasEmitted {
 		slewPTSDelta = pts - st.lastSlewPTS
 	}
 
@@ -318,8 +402,10 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 		}
 	}
 
-	// Step 7: Enforce monotonicity.
-	if pts < st.lastPTSAdjusted+time.Millisecond && st.lastPTSAdjusted > 0 {
+	// Step 7: Enforce monotonicity. hasEmitted distinguishes "we have a prior
+	// emitted PTS to be greater than" from the first-emission case where
+	// lastPTSAdjusted is zero by default.
+	if st.hasEmitted && pts < st.lastPTSAdjusted+time.Millisecond {
 		pts = st.lastPTSAdjusted + time.Millisecond
 	}
 
@@ -328,27 +414,25 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 		return 0, io.EOF
 	}
 
-	// Update state. lastSlewPTS records the final emitted PTS so the next
-	// packet's slewPTSDelta reflects the true PTS-space progression (including
-	// any force-correct jump and monotonicity bump applied above).
+	// Update state. lastWallPTS captures the pre-adjustment wall-clock-derived
+	// PTS for this packet so that wallClockPTSForRTPLocked has an NTP-independent
+	// baseline for the next packet's RTP-delta extrapolation. lastSlewPTS holds
+	// the pre-slew/pre-force-correction PTS (captured as preSlewPTS above) so
+	// the next iteration's slewPTSDelta tracks media-time progression rather
+	// than output-space movement — see preSlewPTS comment for why.
 	st.lastTS = ts
-	st.lastPTS = pts
+	st.lastWallPTS = wallPTS
 	st.lastPTSAdjusted = pts
-	st.lastSlewPTS = pts
+	st.lastSlewPTS = preSlewPTS
+	st.hasEmitted = true
 
 	return pts, nil
 }
 
 // wallClockPTS computes a PTS based on wall-clock timing and RTP deltas.
+// Independent of NTP corrections — used as a sanity reference for NTP-derived PTS.
 func (st *syncEngineTrack) wallClockPTS(pkt jitter.ExtPacket) time.Duration {
-	ts := pkt.Timestamp
-
-	// Same RTP timestamp as last packet: same frame.
-	if st.lastTS == ts && st.lastPTS > 0 {
-		return st.lastPTS
-	}
-
-	return st.wallClockPTSForRTPLocked(ts, pkt.ReceivedAt)
+	return st.wallClockPTSForRTPLocked(pkt.Timestamp, pkt.ReceivedAt)
 }
 
 // wallClockPTSForRTP computes the wall-clock-grounded PTS for the given RTP
@@ -370,12 +454,13 @@ func (st *syncEngineTrack) wallClockPTSForRTPLocked(ts uint32, receivedAt time.T
 	// Wall-clock elapsed since this track started, plus session offset
 	wallElapsed := receivedAt.Sub(st.startTime) + st.sessionOffset
 
-	// If we have a previous timestamp, use RTP delta for more precision.
+	// If we have processed at least one packet, use RTP delta from the previous
+	// pure-wall-clock baseline for more precision (immune to receivedAt jitter).
 	// uint32 subtraction wraps for backward RTP timestamps; the sanity check
 	// below catches the resulting huge positive delta and falls back to wall clock.
-	if st.lastPTS > 0 {
+	if st.initialized {
 		rtpDelta := ts - st.lastTS
-		rtpDerived := st.lastPTS + st.converter.ToDuration(rtpDelta)
+		rtpDerived := st.lastWallPTS + st.converter.ToDuration(rtpDelta)
 
 		// Sanity check: if RTP-derived PTS diverges from wall-clock by > 5s, use wall clock.
 		diff := rtpDerived - wallElapsed
@@ -412,6 +497,14 @@ func (st *syncEngineTrack) LastPTSAdjusted() time.Duration {
 func (st *syncEngineTrack) Close() {
 	st.mu.Lock()
 	defer st.mu.Unlock()
+	st.closeLocked()
+}
+
+// closeLocked is the lock-held implementation of Close. Caller must hold st.mu.
+// Used by SyncEngine.removeTrackLocked to inline the close action within the
+// same critical section that snapshots lastPTSAdjusted, eliminating the race
+// window between snapshot and close.
+func (st *syncEngineTrack) closeLocked() {
 	st.closed = true
 	// Drop the SR callback so any in-flight OnRTCP that has already snapshotted
 	// the track but not yet read onSR sees nil and skips the callback.

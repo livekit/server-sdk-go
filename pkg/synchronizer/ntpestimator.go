@@ -19,6 +19,8 @@ import (
 	"math"
 	"sync"
 	"time"
+
+	"github.com/livekit/mediatransportutil/pkg/latency"
 )
 
 const (
@@ -67,6 +69,15 @@ type srSample struct {
 // NtpEstimator maintains a linear regression over a sliding window of RTCP
 // sender report pairs to map RTP timestamps to NTP time. It is modeled after
 // Chrome's RtpToNtpEstimator.
+//
+// Each NtpEstimator also owns a per-track OWDEstimator. OWD is per-track
+// rather than per-participant because audio and video tracks of the same
+// participant typically have different (senderNTP, receivedAt) relationships:
+// video frames carry an encoder-delay-shifted NTP timestamp relative to the
+// audio sample taken at the same real-world instant. Feeding both into one
+// shared estimator produces a blended estimate biased toward whichever track
+// happens to have lower raw OWD, and the OWDEstimator's path-change detector
+// misfires on the sign-alternating input pattern.
 type NtpEstimator struct {
 	mu        sync.Mutex
 	clockRate uint32
@@ -90,12 +101,17 @@ type NtpEstimator struct {
 	ready      bool
 
 	consecutiveOutliers int
+
+	// owdEstimator tracks the per-track propagation delay (receiver wall time
+	// minus sender NTP at SR emission). Updated only on accepted SRs.
+	owdEstimator *latency.OWDEstimator
 }
 
 // NewNtpEstimator creates an NtpEstimator for a codec with the given clock rate.
 func NewNtpEstimator(clockRate uint32) *NtpEstimator {
 	return &NtpEstimator{
-		clockRate: clockRate,
+		clockRate:    clockRate,
+		owdEstimator: latency.NewOWDEstimator(latency.OWDEstimatorParamsDefault),
 	}
 }
 
@@ -121,6 +137,10 @@ func (e *NtpEstimator) resetLocked() {
 	e.residStd = 0
 	e.ready = false
 	e.consecutiveOutliers = 0
+	// Reset OWD: a sender NTP step that triggered the regression rebuild also
+	// invalidates the previously-measured clock offset, so the estimator must
+	// re-converge from the new sender state.
+	e.owdEstimator = latency.NewOWDEstimator(latency.OWDEstimatorParamsDefault)
 }
 
 // SRResult indicates the outcome of processing a sender report.
@@ -196,7 +216,21 @@ func (e *NtpEstimator) OnSenderReport(ntpTime uint64, rtpTimestamp uint32, recei
 		e.ready = true
 	}
 
+	// Feed the OWD estimator only with accepted SRs — outliers would
+	// contaminate the propagation-delay measurement.
+	e.owdEstimator.Update(ntpNanos, receivedAt.UnixNano())
+
 	return SRAccepted
+}
+
+// EstimatedOWD returns the current estimated propagation delay for this track.
+// The value may be negative when the sender's NTP clock is ahead of the
+// receiver's wall clock — that is by design; the cross-participant alignment
+// formula relies on the OWD absorbing whatever clock offset exists.
+func (e *NtpEstimator) EstimatedOWD() time.Duration {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return time.Duration(e.owdEstimator.EstimatedPropagationDelay())
 }
 
 // IsReady returns true once at least 2 sender reports have been processed

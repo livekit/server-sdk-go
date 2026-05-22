@@ -123,30 +123,58 @@ func NewSyncEngine(opts ...SyncEngineOption) *SyncEngine {
 }
 
 // AddTrack registers a new track and returns a TrackSync handle.
+//
+// If the track's SSRC or track ID collides with an existing entry (common with
+// browser/SFU renegotiation), the existing entry is closed and cleaned up
+// first — this prevents leaked tracks, missed maxRemovedPTS contributions, and
+// stale NtpEstimator state in the shared ParticipantClock.
+//
+// If End() has already been called on the engine, the returned track is
+// immediately closed so the caller's pipeline drains cleanly without emitting
+// post-end media.
 func (e *SyncEngine) AddTrack(track TrackRemote, participantID string) TrackSync {
 	ssrc := uint32(track.SSRC())
+	trackID := track.ID()
 	clockRate := track.Codec().ClockRate
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
+	// Defensively clean up colliding entries. The two lookups may resolve to
+	// the same track (exact re-add) or to two distinct tracks (partial reuse);
+	// removeTrackLocked deletes from both maps, so the second check naturally
+	// sees nil for the same-track case.
+	if existing := e.tracks[ssrc]; existing != nil {
+		e.removeTrackLocked(existing)
+	}
+	if existing := e.trackIDs[trackID]; existing != nil {
+		e.removeTrackLocked(existing)
+	}
+
 	// Ensure the participant exists in the timeline.
 	e.timeline.GetOrAddParticipant(participantID)
 
 	st := &syncEngineTrack{
-		engine:    e,
-		track:     track,
-		participantID:  participantID,
-		logger:    e.getTrackLogger(track),
-		converter: rtputil.NewRTPConverter(int64(clockRate)),
+		engine:        e,
+		track:         track,
+		participantID: participantID,
+		logger:        e.getTrackLogger(track),
+		converter:     rtputil.NewRTPConverter(int64(clockRate)),
 	}
 
 	if e.enableStartGate {
 		st.startGate = newStartGate(clockRate, track.Kind(), nil)
 	}
 
+	if e.endedAt.Load() != 0 {
+		// Post-End: the session is sealed. Mark the track closed so every
+		// GetPTS returns io.EOF without emitting media.
+		st.closed = true
+		st.logger.Warnw("AddTrack called after End(); returning closed track", nil)
+	}
+
 	e.tracks[ssrc] = st
-	e.trackIDs[track.ID()] = st
+	e.trackIDs[trackID] = st
 
 	return st
 }
@@ -154,36 +182,52 @@ func (e *SyncEngine) AddTrack(track TrackRemote, participantID string) TrackSync
 // RemoveTrack removes a track by track ID.
 func (e *SyncEngine) RemoveTrack(trackID string) {
 	e.mu.Lock()
+	defer e.mu.Unlock()
 	st, ok := e.trackIDs[trackID]
 	if !ok {
-		e.mu.Unlock()
 		return
 	}
+	e.removeTrackLocked(st)
+}
 
-	// Preserve removed track's PTS high-water mark so End() includes it.
+// removeTrackLocked closes a track, snapshots its final PTS into the engine's
+// high-water mark, removes it from the lookup maps, and tears down the
+// associated timeline state. Caller must hold e.mu.
+//
+// Performing all of this under e.mu (rather than dropping the lock partway as
+// the original implementation did) guarantees three properties:
+//   - No concurrent GetPTS can advance lastPTSAdjusted between the snapshot
+//     and the close (st.closed is set under st.mu inside the same critical
+//     section that reads lastPTSAdjusted).
+//   - The hasTracksForParticipantLocked → RemoveParticipant decision is made
+//     against a consistent map state, eliminating the TOCTOU window in which
+//     a concurrent AddTrack for the same participant could have its freshly
+//     inserted ParticipantClock deleted out from under it.
+//   - There is no opportunity for End() to interleave and observe a stale
+//     maxRemovedPTS.
+func (e *SyncEngine) removeTrackLocked(st *syncEngineTrack) {
 	st.mu.Lock()
-	if st.lastPTSAdjusted > e.maxRemovedPTS {
-		e.maxRemovedPTS = st.lastPTSAdjusted
-	}
+	st.closeLocked()
+	lastPTS := st.lastPTSAdjusted
+	participantID := st.participantID
+	trackID := st.track.ID()
+	ssrc := uint32(st.track.SSRC())
 	st.mu.Unlock()
 
-	ssrc := uint32(st.track.SSRC())
+	if lastPTS > e.maxRemovedPTS {
+		e.maxRemovedPTS = lastPTS
+	}
 	delete(e.tracks, ssrc)
 	delete(e.trackIDs, trackID)
-	e.mu.Unlock()
 
-	// Clean up track from participant, and remove the participant from the
-	// timeline if this was their last track.
-	participantID := st.participantID
 	if pc := e.timeline.GetParticipantClock(participantID); pc != nil {
 		pc.RemoveTrack(trackID)
 	}
-	if !e.hasTracksForParticipant(participantID) {
+	if !e.hasTracksForParticipantLocked(participantID) {
 		e.timeline.RemoveParticipant(participantID)
 	}
 
-	st.logger.Infow("track removed", "lastPTS", st.lastPTSAdjusted)
-	st.Close()
+	st.logger.Infow("track removed", "lastPTS", lastPTS)
 }
 
 // OnRTCP processes an RTCP packet, dispatching sender reports to the appropriate
@@ -317,24 +361,28 @@ func (e *SyncEngine) getMediaDeadline() (time.Duration, bool) {
 	return fn()
 }
 
-// initializeIfNeeded sets the session start time and fires the onStarted callback
-// on the first track initialization. Returns the startedAt value.
-func (e *SyncEngine) initializeIfNeeded(receivedAt time.Time) int64 {
+// initializeIfNeeded sets the session start time on the first track
+// initialization and returns the resulting startedAt value alongside a
+// non-nil onStarted callback IFF this call won the CAS (and an onStarted
+// callback is configured).
+//
+// The caller is responsible for invoking the returned callback AFTER releasing
+// any per-track mutex it holds. Invoking the user-supplied onStarted while
+// st.mu is held would expose the callback to a reentrancy deadlock if it
+// touched the originating track (e.g., calling GetPTS, LastPTSAdjusted, or
+// Close on it).
+func (e *SyncEngine) initializeIfNeeded(receivedAt time.Time) (int64, func()) {
 	nano := receivedAt.UnixNano()
 	if e.startedAt.CompareAndSwap(0, nano) {
 		e.timeline.SetSessionStart(receivedAt)
-		if e.onStarted != nil {
-			e.onStarted()
-		}
+		return nano, e.onStarted
 	}
-	return e.startedAt.Load()
+	return e.startedAt.Load(), nil
 }
 
-// hasTracksForParticipant returns true if any remaining track belongs to the
-// given participant participantID. Caller must NOT hold e.mu.
-func (e *SyncEngine) hasTracksForParticipant(participantID string) bool {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+// hasTracksForParticipantLocked returns true if any remaining track belongs
+// to the given participantID. Caller must hold e.mu.
+func (e *SyncEngine) hasTracksForParticipantLocked(participantID string) bool {
 	for _, st := range e.tracks {
 		if st.participantID == participantID {
 			return true
