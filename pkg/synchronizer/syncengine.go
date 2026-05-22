@@ -93,6 +93,12 @@ type SyncEngine struct {
 
 	startedAt atomic.Int64
 	endedAt   atomic.Int64
+	// ended is the authoritative "End() has been called" signal. It is
+	// distinct from endedAt: endedAt is the PTS-derived end timestamp (zero
+	// if End was called before any track started), whereas ended is set
+	// unconditionally on End() so post-End AddTrack can detect the sealed
+	// state even when the session never produced media.
+	ended atomic.Bool
 
 	// high-water mark for removed tracks, so End() includes their PTS
 	maxRemovedPTS time.Duration
@@ -166,9 +172,12 @@ func (e *SyncEngine) AddTrack(track TrackRemote, participantID string) TrackSync
 		st.startGate = newStartGate(clockRate, track.Kind(), nil)
 	}
 
-	if e.endedAt.Load() != 0 {
+	if e.ended.Load() {
 		// Post-End: the session is sealed. Mark the track closed so every
-		// GetPTS returns io.EOF without emitting media.
+		// GetPTS returns io.EOF without emitting media. Use the dedicated
+		// `ended` flag rather than endedAt: when End() ran with no tracks
+		// initialized yet (startedAt == 0), endedAt stays at 0 since there
+		// is no meaningful PTS-derived timestamp.
 		st.closed = true
 		st.logger.Warnw("AddTrack called after End(); returning closed track", nil)
 	}
@@ -252,18 +261,26 @@ func (e *SyncEngine) OnRTCP(packet rtcp.Packet) {
 
 	now := time.Now()
 
-	// Feed the SR to the session timeline (updates NTP estimator + OWD).
-	e.timeline.OnSenderReport(participantID, trackID, clockRate, sr.NTPTime, sr.RTPTime, now)
-
-	// Call onSR callback if set. If the track has been closed concurrently,
-	// drop the callback — the consumer (e.g., tempo controller) may have torn
-	// down by now.
+	// Feed the SR to the session timeline UNDER st.mu so that a concurrent
+	// removeTrackLocked (which takes st.mu via closeLocked) cannot delete the
+	// track's NtpEstimator from pc.tracks between our lookup and our update —
+	// otherwise pc.OnSenderReport would auto-create a zombie estimator that
+	// nothing will ever clean up (it lives in pc.tracks until the participant
+	// itself is removed, which only happens when the participant's LAST
+	// track is removed).
+	//
+	// We also drop the SR entirely if the track was closed before we got
+	// here: a removed track's SRs should not influence the timeline.
 	st.mu.Lock()
+	if st.closed {
+		st.mu.Unlock()
+		return
+	}
+	e.timeline.OnSenderReport(participantID, trackID, clockRate, sr.NTPTime, sr.RTPTime, now)
 	onSR := st.onSR
-	closed := st.closed
 	st.mu.Unlock()
 
-	if onSR == nil || closed {
+	if onSR == nil {
 		return
 	}
 
@@ -302,33 +319,82 @@ func (e *SyncEngine) OnRTCP(packet rtcp.Packet) {
 	onSR(drift)
 }
 
-// End signals the end of the session and sets drain ceilings on all tracks.
+// End signals the end of the session. After End() returns, all currently
+// registered tracks will return io.EOF from GetPTS for any packet whose PTS
+// would exceed the high-water mark of emissions seen so far, and any future
+// AddTrack will return an already-closed track.
+//
+// End() is safe to call multiple times: the ended flag and endedAt are stable
+// once set, and drain ceilings on already-drained tracks are idempotent.
 func (e *SyncEngine) End() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	// Start from the high-water mark of removed tracks.
-	maxPTS := e.maxRemovedPTS
+	if e.ended.Load() {
+		// Idempotent: second End() call has nothing to do. lastPTSAdjusted
+		// on surviving tracks cannot have advanced past the drain ceiling
+		// set by the first call (GetPTS would have returned io.EOF), so
+		// recomputing maxPTS would just yield the same value and rewriting
+		// endedAt would be redundant.
+		return
+	}
+	e.ended.Store(true)
+
+	// Acquire all per-track locks for a single atomic snapshot + drain pass.
+	// Holding every st.mu through both the max-PTS read AND the drain-ceiling
+	// write closes the TOCTOU in which a track could advance lastPTSAdjusted
+	// between the snapshot loop and the drain-set loop, emitting a packet
+	// past what endedAt promised. GetPTS is the only other st.mu holder, and
+	// it never acquires more than one st.mu at a time, so there is no
+	// deadlock risk in lock-everything order.
 	for _, st := range e.tracks {
 		st.mu.Lock()
+	}
+
+	maxPTS := e.maxRemovedPTS
+	for _, st := range e.tracks {
 		if st.lastPTSAdjusted > maxPTS {
 			maxPTS = st.lastPTSAdjusted
 		}
-		st.mu.Unlock()
 	}
 
 	startedAt := e.startedAt.Load()
 	if startedAt > 0 {
 		e.endedAt.Store(startedAt + int64(maxPTS))
-	} else {
-		e.endedAt.Store(time.Now().UnixNano())
+	}
+	// else: leave endedAt = 0. End() was called before any track started;
+	// there is no meaningful PTS-derived end timestamp. The `ended` flag
+	// above is what tells AddTrack to return closed tracks.
+
+	// Per-track disposition: tracks that have already emitted media get a
+	// drain ceiling so their in-flight packets can flush up to maxPTS; tracks
+	// that have not yet emitted are closed outright. The latter handles two
+	// distinct edge cases under one rule:
+	//
+	//   1. End() called before any track started. All hasEmitted are false,
+	//      so all tracks close — no media leaks via the post-init first
+	//      packet that would otherwise slip through `pts > maxPTS` when
+	//      maxPTS == 0.
+	//
+	//   2. End() called after some tracks started but a sibling track is
+	//      still buffered in the start gate (initialized via PrimeForStart
+	//      but not yet emitted via GetPTS). Without this rule, the sibling
+	//      track would inherit a maxPTS == 0 drain ceiling (since it never
+	//      contributed to lastPTSAdjusted) — but maxPTS gets the global max
+	//      from the active tracks, so its first packet's pts (typically
+	//      sessionOffset) could still slip through up to that global value.
+	//      Closing here prevents post-End emission from a track that never
+	//      produced media before the seal.
+	for _, st := range e.tracks {
+		if st.hasEmitted {
+			st.maxPTS = maxPTS
+			st.maxPTSSet = true
+		} else {
+			st.closeLocked()
+		}
 	}
 
-	// Set drain ceiling on all tracks.
 	for _, st := range e.tracks {
-		st.mu.Lock()
-		st.maxPTS = maxPTS
-		st.maxPTSSet = true
 		st.mu.Unlock()
 	}
 }
@@ -363,8 +429,15 @@ func (e *SyncEngine) getMediaDeadline() (time.Duration, bool) {
 
 // initializeIfNeeded sets the session start time on the first track
 // initialization and returns the resulting startedAt value alongside a
-// non-nil onStarted callback IFF this call won the CAS (and an onStarted
+// non-nil onStarted callback IFF this call won the race (and an onStarted
 // callback is configured).
+//
+// The timeline's sessionStart is established BEFORE startedAt is published
+// atomically. This ordering matters: any code path that checks
+// startedAt.Load() != 0 and then queries the timeline (e.g., OnRTCP →
+// GetSessionPTS) must not see startedAt set without the timeline also being
+// ready, or it would silently drop the SR callback / force wall-clock PTS
+// on a concurrent GetPTS that observed startedAt before timeline.hasStart.
 //
 // The caller is responsible for invoking the returned callback AFTER releasing
 // any per-track mutex it holds. Invoking the user-supplied onStarted while
@@ -373,11 +446,19 @@ func (e *SyncEngine) getMediaDeadline() (time.Duration, bool) {
 // Close on it).
 func (e *SyncEngine) initializeIfNeeded(receivedAt time.Time) (int64, func()) {
 	nano := receivedAt.UnixNano()
-	if e.startedAt.CompareAndSwap(0, nano) {
-		e.timeline.SetSessionStart(receivedAt)
+	if e.timeline.SetSessionStartIfNotSet(receivedAt) {
+		// We won. Publish startedAt only after the timeline is observably
+		// ready, so callers gated on startedAt see consistent state.
+		e.startedAt.Store(nano)
 		return nano, e.onStarted
 	}
-	return e.startedAt.Load(), nil
+	// Non-winner: another goroutine has already set the timeline, but may not
+	// yet have published e.startedAt atomically. Read from the timeline to
+	// get a stable value — reading e.startedAt.Load() here could return 0
+	// during that brief window and cause the caller's sessionOffset to be
+	// computed as receivedAt.UnixNano() (huge), permanently offsetting that
+	// track from the session timeline.
+	return e.timeline.GetSessionStartNanos(), nil
 }
 
 // hasTracksForParticipantLocked returns true if any remaining track belongs

@@ -66,6 +66,39 @@ func (st *SessionTimeline) SetSessionStart(t time.Time) {
 	st.hasStart = true
 }
 
+// SetSessionStartIfNotSet atomically sets the session start time only if it
+// has not yet been set. Returns true on the first successful set, false
+// otherwise. This is used by SyncEngine.initializeIfNeeded to order the
+// timeline state ahead of the public startedAt publication, eliminating the
+// window in which startedAt is visible as non-zero but hasStart is still
+// false (which would silently drop SR callbacks and force one packet to
+// wall-clock PTS on a different track).
+func (st *SessionTimeline) SetSessionStartIfNotSet(t time.Time) bool {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	if st.hasStart {
+		return false
+	}
+	st.sessionStart = t
+	st.hasStart = true
+	return true
+}
+
+// GetSessionStartNanos returns the session start time in Unix nanoseconds,
+// or 0 if not yet set. This is the authoritative read for callers that need
+// a stable value — reading SyncEngine.startedAt directly is racy during the
+// brief window after the winning initializeIfNeeded goroutine has set the
+// timeline but not yet published startedAt atomically.
+func (st *SessionTimeline) GetSessionStartNanos() int64 {
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+	if !st.hasStart {
+		return 0
+	}
+	return st.sessionStart.UnixNano()
+}
+
 // AddParticipant registers a new participant with the given participantID.
 func (st *SessionTimeline) AddParticipant(participantID string) *ParticipantClock {
 	st.mu.Lock()

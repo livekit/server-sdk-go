@@ -106,6 +106,14 @@ func (st *syncEngineTrack) PrimeForStart(pkt jitter.ExtPacket) ([]jitter.ExtPack
 	st.mu.Lock()
 	defer st.mu.Unlock()
 
+	if st.closed {
+		// Track was closed (either via Close, removeTrackLocked, or post-End
+		// AddTrack). Skip initialization entirely — initializeLocked would
+		// otherwise spuriously fire onStarted for a track that will only
+		// ever return io.EOF from GetPTS. Signal done with no packets.
+		return nil, 0, true
+	}
+
 	if st.initialized || st.startGate == nil {
 		if !st.initialized {
 			onStarted = st.initializeLocked(pkt)
@@ -147,6 +155,13 @@ func (st *syncEngineTrack) initializeLocked(pkt jitter.ExtPacket) func() {
 	// Initialize the engine's session start time.
 	sessionStart, onStarted := st.engine.initializeIfNeeded(receivedAt)
 	st.sessionOffset = time.Duration(receivedAt.UnixNano() - sessionStart)
+	// Seed lastWallPTS to sessionOffset so wallClockPTSForRTPLocked returns
+	// sessionOffset (not 0) for the first packet's RTP-delta extrapolation.
+	// Without this, late-joining tracks would have lastWallPTS=0 and emit
+	// wallPTS starting at 0 instead of sessionOffset, then the NTP trust
+	// threshold clamp (500ms) would lock pts to the wrong wallPTS for any
+	// sessionOffset between ~20ms and 5s (the sanity-fallback range).
+	st.lastWallPTS = st.sessionOffset
 
 	st.logger.Infow("initialized track",
 		"startTime", st.startTime,
@@ -305,6 +320,7 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 		pts = rawNtpPTS + st.ntpCorrection
 
 		// Clamp corrected PTS to within trust threshold of wall clock.
+		clamped := false
 		diff := pts - wallPTS
 		if diff > ntpTrustThreshold || diff < -ntpTrustThreshold {
 			st.logger.Warnw("NTP PTS exceeds trust threshold, clamping to wall clock", nil,
@@ -314,10 +330,17 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 				"diff", diff,
 			)
 			pts = wallPTS
+			clamped = true
 		}
 
-		// On first successful NTP PTS, compute transition correction.
-		if !st.ntpTransitioned {
+		// On first successful NTP PTS that is NOT clamped, compute the
+		// transition correction. If clamped, we leave ntpTransitioned=false
+		// so a future un-clamped packet can establish the transition fresh.
+		// Setting ntpTransitioned=true here on a clamp would compute
+		// transitionSlew = wallPTS - wallPTS = 0 and lock that in — when
+		// rawNtpPTS later converges back within the trust threshold, pts
+		// would jump by up to ntpTrustThreshold with no slew to absorb it.
+		if !clamped && !st.ntpTransitioned {
 			st.transitionSlew = wallPTS - pts
 			st.ntpTransitioned = true
 			st.logger.Infow("NTP transition",
@@ -409,7 +432,7 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 		pts = st.lastPTSAdjusted + time.Millisecond
 	}
 
-	// Step 7: Enforce drain ceiling.
+	// Step 8: Enforce drain ceiling.
 	if st.maxPTSSet && pts > st.maxPTS {
 		return 0, io.EOF
 	}
@@ -451,6 +474,17 @@ func (st *syncEngineTrack) wallClockPTSForRTP(ts uint32, receivedAt time.Time) (
 // wallClockPTSForRTPLocked is the lock-held implementation of wall-clock PTS
 // computation. Caller must hold st.mu.
 func (st *syncEngineTrack) wallClockPTSForRTPLocked(ts uint32, receivedAt time.Time) time.Duration {
+	// Defense in depth: if receivedAt is the zero time.Time, wallElapsed
+	// below would be a ~63-billion-second negative duration, the sanity
+	// threshold would reject rtpDerived, and the function would return 0
+	// regardless of sessionOffset — locking the trust-threshold clamp onto
+	// a bogus baseline. initializeLocked already substitutes time.Now() for
+	// zero ReceivedAt on the first packet; do the same here in case a later
+	// caller (e.g., OnRTCP using sr.RTPTime + an unset receivedAt) misses it.
+	if receivedAt.IsZero() {
+		receivedAt = time.Now()
+	}
+
 	// Wall-clock elapsed since this track started, plus session offset
 	wallElapsed := receivedAt.Sub(st.startTime) + st.sessionOffset
 
@@ -504,9 +538,19 @@ func (st *syncEngineTrack) Close() {
 // Used by SyncEngine.removeTrackLocked to inline the close action within the
 // same critical section that snapshots lastPTSAdjusted, eliminating the race
 // window between snapshot and close.
+//
+// Closing only stops FUTURE OnRTCP invocations (which check st.closed before
+// the timeline call). An OnRTCP that has already acquired st.mu and read
+// st.onSR into a local before closeLocked can run will still invoke that
+// captured callback once after close — st.mu serializes the two but the
+// callback function pointer is already copied. Consumers must therefore
+// tolerate one final SR callback per RemoveTrack/Close. Tightening this
+// would require holding st.mu across the user-supplied callback, which is
+// an unacceptable constraint on what the callback may do.
 func (st *syncEngineTrack) closeLocked() {
 	st.closed = true
-	// Drop the SR callback so any in-flight OnRTCP that has already snapshotted
-	// the track but not yet read onSR sees nil and skips the callback.
+	// Clear the field too: OnRTCP invocations that arrive AFTER close and
+	// somehow pass the closed check would see nil. Also helps GC release
+	// any state captured by the callback closure.
 	st.onSR = nil
 }

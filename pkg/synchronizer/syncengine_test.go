@@ -68,8 +68,13 @@ func makeExtPacket(ts uint32, sn uint16, receivedAt time.Time) jitter.ExtPacket 
 // --- Tests ---
 
 func TestSyncEngine_ImplementsSyncInterface(t *testing.T) {
-	// Compile-time check that SyncEngine implements Sync.
+	// Compile-time check that SyncEngine implements Sync and that
+	// syncEngineTrack implements TrackSync. Without the second assertion,
+	// dropping or breaking a TrackSync method would only surface at the
+	// AddTrack return-type assignment sites — which would be reported as a
+	// confusing assignment error rather than a missing-method error.
 	var _ Sync = (*SyncEngine)(nil)
+	var _ TrackSync = (*syncEngineTrack)(nil)
 }
 
 func TestSyncEngine_FallbackToWallClockBeforeSRs(t *testing.T) {
@@ -118,8 +123,10 @@ func TestSyncEngine_TransitionsToNTPAfterSRs(t *testing.T) {
 	require.NoError(t, err)
 	require.Greater(t, int64(pts1), int64(pts0))
 
-	// Feed 3 sender reports to make NTP estimator ready.
-	for i := 0; i < 3; i++ {
+	// Feed 5 sender reports to make NTP estimator ready (minSamplesReady=4,
+	// so 3 was not enough — the original test was passing only because it
+	// never actually exercised the NTP path).
+	for i := 0; i < 5; i++ {
 		srTime := now.Add(time.Duration(i) * time.Second)
 		rtpTS := uint32(i) * 48000
 		ntpTime := ntpToUint64(srTime)

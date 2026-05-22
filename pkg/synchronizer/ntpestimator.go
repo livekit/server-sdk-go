@@ -210,9 +210,12 @@ func (e *NtpEstimator) OnSenderReport(ntpTime uint64, rtpTimestamp uint32, recei
 		e.sampleLen++
 	}
 
-	// Recompute regression if we have enough samples.
-	if e.sampleLen >= minSamplesReady {
-		e.computeRegression()
+	// Recompute regression if we have enough samples. computeRegression
+	// returns false on degenerate input (e.g., all RTP timestamps identical,
+	// which yields sumDxDx == 0). In that case ready stays at its prior
+	// value rather than flipping to true with stale/zero regression
+	// coefficients — IsReady() must imply usable slope/mean.
+	if e.sampleLen >= minSamplesReady && e.computeRegression() {
 		e.ready = true
 	}
 
@@ -265,7 +268,11 @@ func (e *NtpEstimator) Slope() float64 {
 // computeRegression performs ordinary least squares on the current samples
 // using centered data to preserve float64 precision.
 // Model: ntpNanos = slopeNanos * (unwrappedRTP - meanX) + meanY
-func (e *NtpEstimator) computeRegression() {
+//
+// Returns false if the input is degenerate (all RTP timestamps identical,
+// yielding sumDxDx == 0). The caller must NOT set ready=true in that case —
+// the existing slope/mean values are stale and would produce wrong NTP times.
+func (e *NtpEstimator) computeRegression() bool {
 	n := float64(e.sampleLen)
 
 	// First pass: compute means for centering.
@@ -288,7 +295,7 @@ func (e *NtpEstimator) computeRegression() {
 
 	if sumDxDx == 0 {
 		// Degenerate case: all RTP timestamps identical.
-		return
+		return false
 	}
 
 	e.slopeNanos = sumDxDy / sumDxDx
@@ -307,9 +314,13 @@ func (e *NtpEstimator) computeRegression() {
 		e.residStd = math.Sqrt(sumResidSq / (n - 2))
 	} else {
 		// With exactly 2 points the regression is exact; use a small positive
-		// value so that the 3-sigma check is not trivially zero.
+		// value so that the 3-sigma check is not trivially zero. (Currently
+		// unreachable since the caller requires sampleLen >= minSamplesReady
+		// (= 4) before invoking; left in place for robustness if minSamplesReady
+		// is lowered.)
 		e.residStd = math.Sqrt(sumResidSq / n)
 	}
+	return true
 }
 
 // iterSamples calls fn for each valid sample in the circular buffer.
