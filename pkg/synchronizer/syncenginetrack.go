@@ -338,10 +338,31 @@ func (st *syncEngineTrack) wallClockPTS(pkt jitter.ExtPacket) time.Duration {
 		return st.lastPTS
 	}
 
+	return st.wallClockPTSForRTPLocked(ts, pkt.ReceivedAt)
+}
+
+// wallClockPTSForRTP computes the wall-clock-grounded PTS for the given RTP
+// timestamp at the given receive time. Returns false if the track has not yet
+// been initialized (no packets processed). Used to compute the PTS that would
+// be assigned to an SR's RTP timestamp without actually emitting it.
+func (st *syncEngineTrack) wallClockPTSForRTP(ts uint32, receivedAt time.Time) (time.Duration, bool) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if !st.initialized {
+		return 0, false
+	}
+	return st.wallClockPTSForRTPLocked(ts, receivedAt), true
+}
+
+// wallClockPTSForRTPLocked is the lock-held implementation of wall-clock PTS
+// computation. Caller must hold st.mu.
+func (st *syncEngineTrack) wallClockPTSForRTPLocked(ts uint32, receivedAt time.Time) time.Duration {
 	// Wall-clock elapsed since this track started, plus session offset
-	wallElapsed := pkt.ReceivedAt.Sub(st.startTime) + st.sessionOffset
+	wallElapsed := receivedAt.Sub(st.startTime) + st.sessionOffset
 
 	// If we have a previous timestamp, use RTP delta for more precision.
+	// uint32 subtraction wraps for backward RTP timestamps; the sanity check
+	// below catches the resulting huge positive delta and falls back to wall clock.
 	if st.lastPTS > 0 {
 		rtpDelta := ts - st.lastTS
 		rtpDerived := st.lastPTS + st.converter.ToDuration(rtpDelta)

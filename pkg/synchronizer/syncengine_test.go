@@ -195,3 +195,135 @@ func makeSenderReport(ssrc uint32, ntpTime uint64, rtpTime uint32) *rtcp.SenderR
 		RTPTime: rtpTime,
 	}
 }
+
+func TestSyncEngineTrack_wallClockPTSForRTP_NotInitialized(t *testing.T) {
+	engine := NewSyncEngine()
+	track := newMockAudioTrack("audio-1", 1000)
+	st := engine.AddTrack(track, "alice").(*syncEngineTrack)
+
+	_, ok := st.wallClockPTSForRTP(0, time.Now())
+	require.False(t, ok, "should report not-ok before initialization")
+}
+
+func TestSyncEngineTrack_wallClockPTSForRTP_UsesRTPDelta(t *testing.T) {
+	engine := NewSyncEngine()
+	track := newMockAudioTrack("audio-1", 1000)
+	st := engine.AddTrack(track, "alice").(*syncEngineTrack)
+
+	startTime := time.Now()
+	st.mu.Lock()
+	st.startTime = startTime
+	st.lastTS = 48000 // 1s at 48kHz
+	st.lastPTS = time.Second
+	st.initialized = true
+	st.mu.Unlock()
+
+	// SR RTPTime is 1s ahead of lastTS, wallElapsed matches → returns rtpDerived.
+	wallPTS, ok := st.wallClockPTSForRTP(96000, startTime.Add(2*time.Second))
+	require.True(t, ok)
+	require.Equal(t, 2*time.Second, wallPTS)
+}
+
+func TestSyncEngineTrack_wallClockPTSForRTP_BackwardRTPFallsBackToWallClock(t *testing.T) {
+	engine := NewSyncEngine()
+	track := newMockAudioTrack("audio-1", 1000)
+	st := engine.AddTrack(track, "alice").(*syncEngineTrack)
+
+	startTime := time.Now()
+	st.mu.Lock()
+	st.startTime = startTime
+	st.lastTS = 48000 * 100 // 100s of media already
+	st.lastPTS = 100 * time.Second
+	st.initialized = true
+	st.mu.Unlock()
+
+	// RTPTime behind lastTS: uint32 wrap → huge rtpDerived → sanity check fails
+	// → falls back to wall-clock elapsed.
+	wallPTS, ok := st.wallClockPTSForRTP(48000, startTime.Add(time.Second))
+	require.True(t, ok)
+	require.Equal(t, time.Second, wallPTS)
+}
+
+// driftScenario runs N packets and SRs through an engine and returns the
+// sequence of drift values reported via OnSenderReport.
+func driftScenario(t *testing.T, audioCompensated bool) ([]time.Duration, time.Duration, *SyncEngine) {
+	t.Helper()
+	opts := []SyncEngineOption{}
+	if audioCompensated {
+		opts = append(opts, WithSyncEngineAudioDriftCompensated())
+	}
+	engine := NewSyncEngine(opts...)
+	track := newMockAudioTrack("audio-1", 1000)
+	ts := engine.AddTrack(track, "alice")
+
+	var drifts []time.Duration
+	ts.OnSenderReport(func(d time.Duration) { drifts = append(drifts, d) })
+
+	now := time.Now()
+	pkt0 := makeExtPacket(0, 0, now)
+	ts.PrimeForStart(pkt0)
+	ts.GetPTS(pkt0)
+	// 50 packets at 48kHz / 20ms each → lastTS=48000, lastPTS≈1s.
+	for i := 1; i <= 50; i++ {
+		pkt := makeExtPacket(uint32(i)*960, uint16(i), now.Add(time.Duration(i)*20*time.Millisecond))
+		ts.GetPTS(pkt)
+	}
+
+	// 5 SRs to bring NTP regression online. RTP advances at nominal 48kHz, so
+	// for any RTP timestamp X, sessionPTS ≈ X / 48000.
+	for i := 1; i <= 5; i++ {
+		srWall := now.Add(time.Duration(i) * 200 * time.Millisecond)
+		rtpTS := uint32(i) * 9600 // 200ms * 48kHz
+		engine.OnRTCP(makeSenderReport(1000, ntpToUint64(srWall), rtpTS))
+	}
+
+	lastRTP := uint32(5) * 9600
+	sessionPTS, err := engine.timeline.GetSessionPTS("alice", "audio-1", lastRTP)
+	require.NoError(t, err)
+	return drifts, sessionPTS, engine
+}
+
+func TestSyncEngine_OnRTCP_DriftSign_AudioDriftCompensated(t *testing.T) {
+	drifts, sessionPTS, _ := driftScenario(t, true)
+	require.NotEmpty(t, drifts, "expected at least one drift callback")
+
+	// For audio-compensated mode: drift = wallPTS - sessionPTS.
+	// After 50 packets at nominal rate, wallPTS for the SR's RTP timestamp is
+	// derived from lastPTS (≈1s) + RTP delta. lastRTP=48000 == lastTS, so
+	// rtpDerived = lastPTS ≈ 1s. drift ≈ 1s - sessionPTS.
+	last := drifts[len(drifts)-1]
+	require.InDelta(t, float64(time.Second-sessionPTS), float64(last), float64(20*time.Millisecond),
+		"drift should equal wallPTS (~1s) minus sessionPTS; got %v, sessionPTS=%v", last, sessionPTS)
+}
+
+func TestSyncEngine_OnRTCP_DriftSign_NonCompensated(t *testing.T) {
+	drifts, sessionPTS, _ := driftScenario(t, false)
+	require.NotEmpty(t, drifts, "expected at least one drift callback")
+
+	// Non-compensated: drift = sessionPTS - expectedElapsed. expectedElapsed is
+	// now() - sessionStart at SR receive time; in this fast-running test it's
+	// roughly the test execution duration (tiny). So drift ≈ sessionPTS.
+	last := drifts[len(drifts)-1]
+	require.InDelta(t, float64(sessionPTS), float64(last), float64(50*time.Millisecond),
+		"drift should ≈ sessionPTS minus near-zero expectedElapsed; got %v, sessionPTS=%v", last, sessionPTS)
+}
+
+func TestSyncEngine_OnRTCP_DriftCallback_NotCalledBeforeTrackInitialized(t *testing.T) {
+	// SR arrives before any packets — engine has no startedAt yet, so the
+	// callback must not fire (regardless of audioDriftCompensated).
+	engine := NewSyncEngine(WithSyncEngineAudioDriftCompensated())
+	track := newMockAudioTrack("audio-1", 1000)
+	ts := engine.AddTrack(track, "alice")
+
+	fired := false
+	ts.OnSenderReport(func(d time.Duration) { fired = true })
+
+	// Feed enough SRs to make the timeline ready but no packets first.
+	now := time.Now()
+	for i := 1; i <= 6; i++ {
+		srWall := now.Add(time.Duration(i) * 200 * time.Millisecond)
+		engine.OnRTCP(makeSenderReport(1000, ntpToUint64(srWall), uint32(i)*9600))
+	}
+
+	require.False(t, fired, "onSR must not fire before any packets have initialized the track")
+}

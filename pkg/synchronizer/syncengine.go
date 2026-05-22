@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/pion/rtcp"
+	"github.com/pion/webrtc/v4"
 
 	"github.com/livekit/protocol/logger"
 	"github.com/livekit/protocol/utils/rtputil"
@@ -202,6 +203,7 @@ func (e *SyncEngine) OnRTCP(packet rtcp.Packet) {
 	participantID := st.participantID
 	trackID := st.track.ID()
 	clockRate := st.track.Codec().ClockRate
+	kind := st.track.Kind()
 	e.mu.Unlock()
 
 	now := time.Now()
@@ -214,26 +216,43 @@ func (e *SyncEngine) OnRTCP(packet rtcp.Packet) {
 	onSR := st.onSR
 	st.mu.Unlock()
 
-	if onSR != nil {
-		// Compute drift using OWD-normalized session PTS (not raw NTP, which
-		// includes the sender's clock offset and would produce phantom drift
-		// if the sender's NTP clock adjusts during the recording).
-		startedAt := e.startedAt.Load()
-		if startedAt > 0 {
-			sessionPTS, err := e.timeline.GetSessionPTS(participantID, trackID, sr.RTPTime)
-			if err == nil {
-				sessionStart := time.Unix(0, startedAt)
-				expectedElapsed := now.Sub(sessionStart)
-				drift := sessionPTS - expectedElapsed
-				st.logger.Debugw("sender report",
-					"drift", drift,
-					"sessionPTS", sessionPTS,
-					"expectedElapsed", expectedElapsed,
-				)
-				onSR(drift)
-			}
-		}
+	if onSR == nil {
+		return
 	}
+
+	startedAt := e.startedAt.Load()
+	if startedAt == 0 {
+		return
+	}
+
+	sessionPTS, err := e.timeline.GetSessionPTS(participantID, trackID, sr.RTPTime)
+	if err != nil {
+		return
+	}
+
+	var drift time.Duration
+	if e.audioDriftCompensated && kind == webrtc.RTPCodecTypeAudio {
+		// Audio PTS is emitted using wall-clock (NTP corrections skipped); the
+		// tempo controller closes the gap between what we emit and the NTP
+		// regression. Report `wallPTS - sessionPTS`: positive = wall PTS ahead
+		// (slow down), negative = behind (speed up).
+		wallPTS, ok := st.wallClockPTSForRTP(sr.RTPTime, now)
+		if !ok {
+			return
+		}
+		drift = wallPTS - sessionPTS
+	} else {
+		// Diagnostic: how far the NTP regression is from wall clock since
+		// session start. Not used for closed-loop correction.
+		sessionStart := time.Unix(0, startedAt)
+		drift = sessionPTS - now.Sub(sessionStart)
+	}
+
+	st.logger.Debugw("sender report",
+		"drift", drift,
+		"sessionPTS", sessionPTS,
+	)
+	onSR(drift)
 }
 
 // End signals the end of the session and sets drain ceilings on all tracks.
