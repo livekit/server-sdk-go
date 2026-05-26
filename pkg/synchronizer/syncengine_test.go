@@ -383,6 +383,9 @@ func TestSyncEngine_BackwardRTPDoesNotResetNTPState(t *testing.T) {
 	tr.mu.Lock()
 	initialLastNtpPTS := tr.lastNtpPTS
 	initialTransitionSlew := tr.transitionSlew
+	initialLastTS := tr.lastTS
+	initialLastWallPTS := tr.lastWallPTS
+	initialLastSlewPTS := tr.lastSlewPTS
 	tr.mu.Unlock()
 	require.Greater(t, int64(initialLastNtpPTS), int64(0), "lastNtpPTS should be populated by the prime sequence")
 
@@ -400,6 +403,11 @@ func TestSyncEngine_BackwardRTPDoesNotResetNTPState(t *testing.T) {
 	// backward packet, but must not be wiped to zero.
 	require.InDelta(t, float64(initialTransitionSlew), float64(tr.transitionSlew), float64(10*time.Millisecond),
 		"transitionSlew must survive backward reorder (initial %v, got %v)", initialTransitionSlew, tr.transitionSlew)
+	// RTP/wall/slew baselines must stay anchored to the last forward packet so
+	// the next forward packet's expected-extrapolation baselines line up.
+	require.Equal(t, initialLastTS, tr.lastTS, "lastTS must not shift backward on reorder")
+	require.Equal(t, initialLastWallPTS, tr.lastWallPTS, "lastWallPTS must not shift backward on reorder")
+	require.Equal(t, initialLastSlewPTS, tr.lastSlewPTS, "lastSlewPTS must not shift backward on reorder")
 }
 
 func TestSyncEngine_ForwardDiscontinuityStillResetsNTPState(t *testing.T) {

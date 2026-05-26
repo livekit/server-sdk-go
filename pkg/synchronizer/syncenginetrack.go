@@ -443,10 +443,21 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 	// the pre-slew/pre-force-correction PTS (captured as preSlewPTS above) so
 	// the next iteration's slewPTSDelta tracks media-time progression rather
 	// than output-space movement — see preSlewPTS comment for why.
-	st.lastTS = ts
-	st.lastWallPTS = wallPTS
+	//
+	// Anchor lastTS / lastWallPTS / lastSlewPTS on forward (signedRTPDelta >= 0)
+	// progression only — matches the lastNtpPTS guard above. A backward
+	// (reordered) packet would otherwise leave the next iteration's
+	// expectedRawNtpPTS (uses lastNtpPTS + (ts - lastTS) extrapolation) reading
+	// from mismatched baselines, and would feed a large positive slewPTSDelta
+	// into the decay loop on the next forward packet — burning slew far faster
+	// than intended. lastPTSAdjusted updates unconditionally so monotonicity
+	// always sees the most recently emitted PTS.
+	if signedRTPDelta >= 0 {
+		st.lastTS = ts
+		st.lastWallPTS = wallPTS
+		st.lastSlewPTS = preSlewPTS
+	}
 	st.lastPTSAdjusted = pts
-	st.lastSlewPTS = preSlewPTS
 	st.hasEmitted = true
 
 	return pts, nil
