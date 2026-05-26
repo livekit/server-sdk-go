@@ -229,6 +229,16 @@ func WithDTLSEllipticCurves(curves ...dtlsElliptic.Curve) ConnectOption {
 	}
 }
 
+// WithNetworkTypes restricts ICE candidate gathering to the specified network types.
+// For example, to force IPv6-only ICE candidates:
+//
+//	lksdk.WithNetworkTypes([]webrtc.NetworkType{webrtc.NetworkTypeUDP6, webrtc.NetworkTypeTCP6})
+func WithNetworkTypes(types []webrtc.NetworkType) ConnectOption {
+	return func(p *connParams) {
+		p.NetworkTypes = types
+	}
+}
+
 func WithLogger(l protoLogger.Logger) ConnectOption {
 	return func(p *connParams) {
 		p.Logger = l

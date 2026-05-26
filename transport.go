@@ -81,6 +81,7 @@ type PCTransportParams struct {
 	OnRTTUpdate                func(rtt uint32)
 	IsSender                   bool
 	DTLSEllipticCurves         []dtlsElliptic.Curve
+	NetworkTypes               []webrtc.NetworkType
 }
 
 func (t *PCTransport) registerDefaultInterceptors(params PCTransportParams, i *interceptor.Registry) error {
@@ -214,6 +215,9 @@ func NewPCTransport(params PCTransportParams) (*PCTransport, error) {
 		se.SetDTLSEllipticCurves(params.DTLSEllipticCurves...)
 	}
 	se.SetDTLSRetransmissionInterval(dtlsRetransmissionInterval)
+	if len(params.NetworkTypes) > 0 {
+		se.SetNetworkTypes(params.NetworkTypes)
+	}
 	se.SetICETimeouts(iceDisconnectedTimeout, iceFailedTimeout, iceKeepaliveInterval)
 	lf := pionlogger.NewLoggerFactory(logger)
 	if lf != nil {
