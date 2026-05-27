@@ -68,8 +68,13 @@ func makeExtPacket(ts uint32, sn uint16, receivedAt time.Time) jitter.ExtPacket 
 // --- Tests ---
 
 func TestSyncEngine_ImplementsSyncInterface(t *testing.T) {
-	// Compile-time check that SyncEngine implements Sync.
+	// Compile-time check that SyncEngine implements Sync and that
+	// syncEngineTrack implements TrackSync. Without the second assertion,
+	// dropping or breaking a TrackSync method would only surface at the
+	// AddTrack return-type assignment sites — which would be reported as a
+	// confusing assignment error rather than a missing-method error.
 	var _ Sync = (*SyncEngine)(nil)
+	var _ TrackSync = (*syncEngineTrack)(nil)
 }
 
 func TestSyncEngine_FallbackToWallClockBeforeSRs(t *testing.T) {
@@ -118,8 +123,10 @@ func TestSyncEngine_TransitionsToNTPAfterSRs(t *testing.T) {
 	require.NoError(t, err)
 	require.Greater(t, int64(pts1), int64(pts0))
 
-	// Feed 3 sender reports to make NTP estimator ready.
-	for i := 0; i < 3; i++ {
+	// Feed 5 sender reports to make NTP estimator ready (minSamplesReady=4,
+	// so 3 was not enough — the original test was passing only because it
+	// never actually exercised the NTP path).
+	for i := 0; i < 5; i++ {
 		srTime := now.Add(time.Duration(i) * time.Second)
 		rtpTS := uint32(i) * 48000
 		ntpTime := ntpToUint64(srTime)
@@ -214,7 +221,7 @@ func TestSyncEngineTrack_wallClockPTSForRTP_UsesRTPDelta(t *testing.T) {
 	st.mu.Lock()
 	st.startTime = startTime
 	st.lastTS = 48000 // 1s at 48kHz
-	st.lastPTS = time.Second
+	st.lastWallPTS = time.Second
 	st.initialized = true
 	st.mu.Unlock()
 
@@ -233,7 +240,7 @@ func TestSyncEngineTrack_wallClockPTSForRTP_BackwardRTPFallsBackToWallClock(t *t
 	st.mu.Lock()
 	st.startTime = startTime
 	st.lastTS = 48000 * 100 // 100s of media already
-	st.lastPTS = 100 * time.Second
+	st.lastWallPTS = 100 * time.Second
 	st.initialized = true
 	st.mu.Unlock()
 
@@ -326,4 +333,135 @@ func TestSyncEngine_OnRTCP_DriftCallback_NotCalledBeforeTrackInitialized(t *test
 	}
 
 	require.False(t, fired, "onSR must not fire before any packets have initialized the track")
+}
+
+// primeNTPReady drives enough SRs and forward packets through the track to
+// leave it in a steady NTP-ready state with non-zero lastNtpPTS. The SRs are
+// fed directly to the timeline (rather than via engine.OnRTCP) so that
+// receivedAt can be controlled — using engine.OnRTCP would stamp receivedAt
+// with time.Now(), producing a large negative OWD when senderNtp is in the
+// test's synthetic future. Returns the time of the last forward packet.
+func primeNTPReady(t *testing.T, engine *SyncEngine, tr *syncEngineTrack, participantID, trackID string, now time.Time) time.Time {
+	t.Helper()
+	const clockRate = uint32(48000)
+	tr.PrimeForStart(makeExtPacket(0, 0, now))
+	tr.GetPTS(makeExtPacket(0, 0, now))
+	// Feed enough SRs to make the NTP regression ready. receivedAt == srTime
+	// so the OWD estimator settles at ~0 and sessionPTS values stay positive.
+	for i := 1; i <= 5; i++ {
+		srTime := now.Add(time.Duration(i) * time.Second)
+		engine.timeline.OnSenderReport(participantID, trackID, clockRate, ntpToUint64(srTime), uint32(i)*clockRate, srTime)
+	}
+	// Process forward packets so lastNtpPTS / transitionSlew get populated via
+	// the real flow rather than direct field assignment. RTP timestamps match
+	// the SR range to keep regression extrapolation accurate.
+	lastRecv := now
+	for i := 1; i <= 5; i++ {
+		lastRecv = now.Add(time.Duration(i) * time.Second)
+		tr.GetPTS(makeExtPacket(uint32(i)*clockRate, uint16(i), lastRecv))
+	}
+	tr.mu.Lock()
+	require.True(t, tr.hasLastNtpPTS, "test setup: NTP regression should be ready after 5 SRs + 5 packets")
+	require.True(t, tr.ntpTransitioned, "test setup: ntpTransitioned should be set after first NTP-ready packet")
+	tr.mu.Unlock()
+	return lastRecv
+}
+
+func TestSyncEngine_BackwardRTPDoesNotResetNTPState(t *testing.T) {
+	// A single backward (reordered) packet must NOT trigger the discontinuity
+	// reset that wipes lastNtpPTS / ntpCorrection / transitionSlew / etc.
+	// Without the signed-delta guard, an unsigned uint32 subtraction would
+	// wrap a one-frame backward delta into ~24h and trip the 30s threshold.
+	engine := NewSyncEngine()
+	track := newMockAudioTrack("audio-1", 1000)
+	tr := engine.AddTrack(track, "alice").(*syncEngineTrack)
+
+	now := time.Now()
+	lastRecv := primeNTPReady(t, engine, tr, "alice", "audio-1", now)
+
+	// Snapshot state populated by the real flow.
+	tr.mu.Lock()
+	initialLastNtpPTS := tr.lastNtpPTS
+	initialTransitionSlew := tr.transitionSlew
+	initialLastTS := tr.lastTS
+	initialLastWallPTS := tr.lastWallPTS
+	initialLastSlewPTS := tr.lastSlewPTS
+	tr.mu.Unlock()
+	require.Greater(t, int64(initialLastNtpPTS), int64(0), "lastNtpPTS should be populated by the prime sequence")
+
+	// Feed a backward packet (one frame behind lastTS). NTP regression remains
+	// ready, so this should NOT trigger any clearing — neither the
+	// discontinuity reset nor the NTP-unavailable cleanup.
+	backPkt := makeExtPacket(uint32(4)*48000, 100, lastRecv.Add(20*time.Millisecond))
+	_, _ = tr.GetPTS(backPkt)
+
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	require.Equal(t, initialLastNtpPTS, tr.lastNtpPTS, "lastNtpPTS must survive backward reorder")
+	require.True(t, tr.ntpTransitioned, "ntpTransitioned must survive backward reorder")
+	// transitionSlew may decay slightly via the normal slew loop on the
+	// backward packet, but must not be wiped to zero.
+	require.InDelta(t, float64(initialTransitionSlew), float64(tr.transitionSlew), float64(10*time.Millisecond),
+		"transitionSlew must survive backward reorder (initial %v, got %v)", initialTransitionSlew, tr.transitionSlew)
+	// RTP/wall/slew baselines must stay anchored to the last forward packet so
+	// the next forward packet's expected-extrapolation baselines line up.
+	require.Equal(t, initialLastTS, tr.lastTS, "lastTS must not shift backward on reorder")
+	require.Equal(t, initialLastWallPTS, tr.lastWallPTS, "lastWallPTS must not shift backward on reorder")
+	require.Equal(t, initialLastSlewPTS, tr.lastSlewPTS, "lastSlewPTS must not shift backward on reorder")
+}
+
+func TestSyncEngine_ForwardDiscontinuityStillResetsNTPState(t *testing.T) {
+	// Sanity check: a genuine large forward RTP jump (≥30s of media) MUST still
+	// trigger the discontinuity reset. The signed-delta fix must not disable
+	// this path.
+	engine := NewSyncEngine()
+	track := newMockAudioTrack("audio-1", 1000)
+	tr := engine.AddTrack(track, "alice").(*syncEngineTrack)
+
+	now := time.Now()
+	lastRecv := primeNTPReady(t, engine, tr, "alice", "audio-1", now)
+
+	tr.mu.Lock()
+	require.Greater(t, int64(tr.lastNtpPTS), int64(0), "lastNtpPTS should be populated before the jump")
+	lastTS := tr.lastTS
+	tr.mu.Unlock()
+
+	// Jump 60s of RTP forward — well past the 30s discontinuity threshold.
+	bigJumpTS := lastTS + uint32(48000*60)
+	tr.GetPTS(makeExtPacket(bigJumpTS, 200, lastRecv.Add(60*time.Second)))
+
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	require.False(t, tr.hasLastNtpPTS, "hasLastNtpPTS must be reset on forward discontinuity")
+	require.Equal(t, time.Duration(0), tr.lastNtpPTS, "lastNtpPTS must be reset on forward discontinuity")
+	require.Equal(t, time.Duration(0), tr.transitionSlew, "transitionSlew must be reset on forward discontinuity")
+	require.False(t, tr.ntpTransitioned, "ntpTransitioned must be reset on forward discontinuity")
+}
+
+func TestSyncEngine_OnSR_NotCalledAfterRemoveTrack(t *testing.T) {
+	// After RemoveTrack closes the track, a subsequent SR for the same SSRC
+	// (if it slipped in via an in-flight RTCP packet) must not invoke onSR.
+	// In practice, RemoveTrack also removes the track from the SSRC map, so
+	// OnRTCP would early-return — but Close() nulls onSR as defense in depth
+	// for the snapshot-and-drop-lock race in OnRTCP.
+	engine := NewSyncEngine()
+	track := newMockAudioTrack("audio-1", 1000)
+	tr := engine.AddTrack(track, "alice").(*syncEngineTrack)
+
+	fired := false
+	tr.OnSenderReport(func(d time.Duration) { fired = true })
+
+	now := time.Now()
+	tr.PrimeForStart(makeExtPacket(0, 0, now))
+	tr.GetPTS(makeExtPacket(0, 0, now))
+
+	// Close the track directly to simulate the post-snapshot race.
+	tr.Close()
+
+	tr.mu.Lock()
+	require.Nil(t, tr.onSR, "Close() must drop the SR callback")
+	require.True(t, tr.closed, "Close() must set closed=true")
+	tr.mu.Unlock()
+
+	require.False(t, fired, "no callback should have fired during Close")
 }

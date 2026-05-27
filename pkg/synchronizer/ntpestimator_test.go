@@ -223,3 +223,111 @@ func TestNtpEstimator_Slope(t *testing.T) {
 	require.Less(t, relError, 1e-6,
 		"slope should be ~%e, got %e (relative error %e)", expectedSlope, gotSlope, relError)
 }
+
+func TestNtpEstimator_PersistentOutliersRebuildRegression(t *testing.T) {
+	// Simulates a sender NTP step correction: after a steady regression,
+	// every SR arrives with the same large NTP offset. The estimator must
+	// reject the first few outliers, then reset and rebuild from the new
+	// state — and the rebuilt regression must accurately map the post-step
+	// RTP/NTP relationship.
+	const clockRate = 90000
+	e := NewNtpEstimator(clockRate)
+
+	baseTime := time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC)
+
+	// Build a stable regression with 5 SRs.
+	for i := 0; i < 5; i++ {
+		wallTime := baseTime.Add(time.Duration(i) * time.Second)
+		rtpTS := uint32(i) * clockRate
+		e.OnSenderReport(ntpToUint64(wallTime), rtpTS, wallTime)
+	}
+	require.True(t, e.IsReady())
+
+	// Step the sender's NTP clock forward by 500ms while RTP keeps ticking
+	// at its normal rate. Every subsequent SR is now ~500ms off the old
+	// regression — far above 3σ.
+	const ntpStep = 500 * time.Millisecond
+	for i := 5; i < 5+maxConsecutiveOutliers-1; i++ {
+		wallTime := baseTime.Add(time.Duration(i)*time.Second + ntpStep)
+		rtpTS := uint32(i) * clockRate
+		result := e.OnSenderReport(ntpToUint64(wallTime), rtpTS, wallTime)
+		require.Equal(t, SROutlier, result, "SR %d should still be rejected", i)
+	}
+
+	// The Nth outlier triggers reset; the SR is accepted as the new baseline.
+	resetIdx := 5 + maxConsecutiveOutliers - 1
+	wallTime := baseTime.Add(time.Duration(resetIdx)*time.Second + ntpStep)
+	rtpTS := uint32(resetIdx) * clockRate
+	result := e.OnSenderReport(ntpToUint64(wallTime), rtpTS, wallTime)
+	require.Equal(t, SRAccepted, result, "Nth consecutive outlier should trigger reset and acceptance")
+	require.False(t, e.IsReady(), "regression should not be ready until minSamplesReady SRs accumulate")
+
+	// Feed minSamplesReady more SRs at the new (stepped) NTP base.
+	for i := resetIdx + 1; i < resetIdx+1+minSamplesReady; i++ {
+		wallTime := baseTime.Add(time.Duration(i)*time.Second + ntpStep)
+		rtpTS := uint32(i) * clockRate
+		result := e.OnSenderReport(ntpToUint64(wallTime), rtpTS, wallTime)
+		require.Equal(t, SRAccepted, result, "post-reset SR %d should be accepted", i)
+	}
+	require.True(t, e.IsReady(), "regression should be ready after rebuild")
+
+	// The rebuilt regression should accurately map post-step RTP timestamps.
+	queryIdx := resetIdx + 2
+	got, err := e.RtpToNtp(uint32(queryIdx) * clockRate)
+	require.NoError(t, err)
+	want := baseTime.Add(time.Duration(queryIdx)*time.Second + ntpStep)
+	diff := got.Sub(want)
+	if diff < 0 {
+		diff = -diff
+	}
+	require.Less(t, diff, time.Millisecond,
+		"post-rebuild mapping should be accurate; got %v want %v (off by %v)", got, want, diff)
+}
+
+func TestNtpEstimator_IntermittentOutliersDoNotReset(t *testing.T) {
+	// Network glitches that produce occasional outliers — but interleaved
+	// with normal SRs — should not trigger the rebuild path.
+	const clockRate = 90000
+	e := NewNtpEstimator(clockRate)
+
+	baseTime := time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC)
+
+	// Build a stable regression.
+	for i := 0; i < 5; i++ {
+		wallTime := baseTime.Add(time.Duration(i) * time.Second)
+		rtpTS := uint32(i) * clockRate
+		e.OnSenderReport(ntpToUint64(wallTime), rtpTS, wallTime)
+	}
+	require.True(t, e.IsReady())
+
+	// Alternate: 4 outliers spread across 8 SRs (never consecutive enough to
+	// trigger reset). Each outlier resets the counter, so we never reach
+	// maxConsecutiveOutliers.
+	for i := 0; i < 8; i++ {
+		idx := 5 + i
+		wallTime := baseTime.Add(time.Duration(idx) * time.Second)
+		rtpTS := uint32(idx) * clockRate
+
+		if i%2 == 0 {
+			// Outlier: same RTP slot but NTP wildly off.
+			badNTP := baseTime.Add(time.Duration(idx+50) * time.Second)
+			result := e.OnSenderReport(ntpToUint64(badNTP), rtpTS, wallTime)
+			require.Equal(t, SROutlier, result, "outlier SR at idx %d should be rejected", idx)
+		} else {
+			// Normal SR.
+			result := e.OnSenderReport(ntpToUint64(wallTime), rtpTS, wallTime)
+			require.Equal(t, SRAccepted, result, "normal SR at idx %d should be accepted", idx)
+		}
+	}
+
+	// Original regression should still be valid.
+	got, err := e.RtpToNtp(uint32(2.5 * clockRate))
+	require.NoError(t, err)
+	want := baseTime.Add(2500 * time.Millisecond)
+	diff := got.Sub(want)
+	if diff < 0 {
+		diff = -diff
+	}
+	require.Less(t, diff, 10*time.Millisecond,
+		"original regression should survive intermittent outliers; off by %v", diff)
+}

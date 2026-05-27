@@ -1,12 +1,27 @@
+// Copyright 2026 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package synchronizer
 
 import (
 	"strings"
 	"time"
 
+	"github.com/pion/webrtc/v4"
+
 	"github.com/livekit/media-sdk/jitter"
 	"github.com/livekit/protocol/logger"
-	"github.com/pion/webrtc/v4"
 )
 
 // startGate is a lightweight buffer that decides when a track should be
@@ -88,18 +103,37 @@ func (b *burstEstimatorGate) Push(pkt jitter.ExtPacket) ([]jitter.ExtPacket, int
 
 	if !b.hasLast {
 		b.lastTS = pkt.Timestamp
-		b.lastArrival = pkt.ReceivedAt
+		// Sanitize zero ReceivedAt: a zero time.Time as lastArrival would
+		// make every subsequent packet's arrivalDelta = realTime - zeroEpoch
+		// ≈ 50+ years, triggering restartSequence on every packet until
+		// flushAfter expires (2 s). Use time.Now() instead, mirroring what
+		// initializeLocked does in syncenginetrack.
+		if pkt.ReceivedAt.IsZero() {
+			b.lastArrival = time.Now()
+		} else {
+			b.lastArrival = pkt.ReceivedAt
+		}
 		b.hasLast = true
 		b.buffer = append(b.buffer[:0], pkt)
 		return nil, 0, false
 	}
 
 	signedTsDelta := int32(pkt.Timestamp - b.lastTS)
-	arrivalDelta := pkt.ReceivedAt.Sub(b.lastArrival)
+	arrivalAt := pkt.ReceivedAt
+	if arrivalAt.IsZero() {
+		arrivalAt = time.Now()
+	}
+	arrivalDelta := arrivalAt.Sub(b.lastArrival)
 
 	if signedTsDelta < 0 {
-		// ignore out-of-order packets while continuing to wait for stability
-		return nil, 0, false
+		// Out-of-order packet during burst estimation: cadence inputs require
+		// monotonic timestamps, so this packet cannot contribute. Count and
+		// report the drop so the caller's metrics/logging see it (otherwise
+		// OOO packets vanish silently and logCompletion's droppedPackets
+		// undercount — a real observability hole for shallow jitter buffer
+		// configurations where pre-gate reordering is incomplete).
+		b.totalDropped++
+		return nil, 1, false
 	}
 
 	if signedTsDelta == 0 {
@@ -112,7 +146,7 @@ func (b *burstEstimatorGate) Push(pkt jitter.ExtPacket) ([]jitter.ExtPacket, int
 	}
 
 	b.lastTS = pkt.Timestamp
-	b.lastArrival = pkt.ReceivedAt
+	b.lastArrival = arrivalAt
 
 	tsDuration := b.timestampToDuration(uint32(signedTsDelta))
 

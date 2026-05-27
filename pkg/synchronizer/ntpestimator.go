@@ -19,6 +19,8 @@ import (
 	"math"
 	"sync"
 	"time"
+
+	"github.com/livekit/mediatransportutil/pkg/latency"
 )
 
 const (
@@ -34,12 +36,28 @@ const (
 	// a new SR is considered an outlier and excluded from the regression.
 	outlierThresholdStdDevs = 3.0
 
+	// maxConsecutiveOutliers is how many SRs may be rejected in a row before
+	// the estimator decides the sender's NTP clock has stepped (or otherwise
+	// jumped to a state inconsistent with the prior regression) and rebuilds
+	// from scratch. At typical 1 Hz RTCP this is ~5 seconds of sustained
+	// rejection.
+	maxConsecutiveOutliers = 5
+
+	// minOutlierStdDevNanos is the floor applied to residStd when computing
+	// the outlier threshold. Without it, an exactly-fitting set of samples
+	// would produce residStd = 0 (or a few ULPs), and outlier detection would
+	// effectively disable — letting a sender NTP step through as if it were a
+	// real measurement. 100µs corresponds to ~300µs at the 3σ threshold, which
+	// is well below typical SR jitter on real networks but well above any
+	// float-precision artifact.
+	minOutlierStdDevNanos = 100_000 // 100µs in nanoseconds
+
 	// ntpEpochOffset is the number of seconds between the NTP epoch (1900-01-01)
 	// and the Unix epoch (1970-01-01).
 	ntpEpochOffset = 2208988800
 )
 
-var errNotReady = errors.New("NtpEstimator: not enough sender reports for regression (need >= 2)")
+var errNotReady = errors.New("NtpEstimator: not enough sender reports for regression")
 
 // srSample holds one sender report observation used in the regression.
 type srSample struct {
@@ -51,6 +69,15 @@ type srSample struct {
 // NtpEstimator maintains a linear regression over a sliding window of RTCP
 // sender report pairs to map RTP timestamps to NTP time. It is modeled after
 // Chrome's RtpToNtpEstimator.
+//
+// Each NtpEstimator also owns a per-track OWDEstimator. OWD is per-track
+// rather than per-participant because audio and video tracks of the same
+// participant typically have different (senderNTP, receivedAt) relationships:
+// video frames carry an encoder-delay-shifted NTP timestamp relative to the
+// audio sample taken at the same real-world instant. Feeding both into one
+// shared estimator produces a blended estimate biased toward whichever track
+// happens to have lower raw OWD, and the OWDEstimator's path-change detector
+// misfires on the sign-alternating input pattern.
 type NtpEstimator struct {
 	mu        sync.Mutex
 	clockRate uint32
@@ -72,12 +99,19 @@ type NtpEstimator struct {
 	meanY      float64 // mean of NTP nanos values in the current window
 	residStd   float64 // residual standard deviation in NTP nanos
 	ready      bool
+
+	consecutiveOutliers int
+
+	// owdEstimator tracks the per-track propagation delay (receiver wall time
+	// minus sender NTP at SR emission). Updated only on accepted SRs.
+	owdEstimator *latency.OWDEstimator
 }
 
 // NewNtpEstimator creates an NtpEstimator for a codec with the given clock rate.
 func NewNtpEstimator(clockRate uint32) *NtpEstimator {
 	return &NtpEstimator{
-		clockRate: clockRate,
+		clockRate:    clockRate,
+		owdEstimator: latency.NewOWDEstimator(latency.OWDEstimatorParamsDefault),
 	}
 }
 
@@ -87,6 +121,10 @@ func NewNtpEstimator(clockRate uint32) *NtpEstimator {
 func (e *NtpEstimator) Reset() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	e.resetLocked()
+}
+
+func (e *NtpEstimator) resetLocked() {
 	e.samples = [maxSRSamples]srSample{}
 	e.sampleLen = 0
 	e.sampleHead = 0
@@ -98,6 +136,11 @@ func (e *NtpEstimator) Reset() {
 	e.meanY = 0
 	e.residStd = 0
 	e.ready = false
+	e.consecutiveOutliers = 0
+	// Reset OWD: a sender NTP step that triggered the regression rebuild also
+	// invalidates the previously-measured clock offset, so the estimator must
+	// re-converge from the new sender state.
+	e.owdEstimator = latency.NewOWDEstimator(latency.OWDEstimatorParamsDefault)
 }
 
 // SRResult indicates the outcome of processing a sender report.
@@ -133,14 +176,28 @@ func (e *NtpEstimator) OnSenderReport(ntpTime uint64, rtpTimestamp uint32, recei
 
 	// Outlier rejection: if we already have a valid regression, check whether
 	// this new sample deviates from the prediction by more than 3 standard
-	// deviations.
-	if e.ready && e.residStd > 0 {
+	// deviations. Persistent rejection (e.g., sender's NTP clock stepped)
+	// triggers a full reset so the regression can rebuild from the new state.
+	// residStd is floored to avoid disabling detection when the prior samples
+	// happened to fit the line exactly.
+	if e.ready {
+		std := e.residStd
+		if std < minOutlierStdDevNanos {
+			std = minOutlierStdDevNanos
+		}
 		predicted := e.slopeNanos*(float64(unwrapped)-e.meanX) + e.meanY
 		residual := math.Abs(float64(ntpNanos) - predicted)
-		if residual > outlierThresholdStdDevs*e.residStd {
-			return SROutlier
+		if residual > outlierThresholdStdDevs*std {
+			e.consecutiveOutliers++
+			if e.consecutiveOutliers < maxConsecutiveOutliers {
+				return SROutlier
+			}
+			// Persistent outliers: rebuild from scratch starting with this SR.
+			e.resetLocked()
+			unwrapped = e.unwrapRTP(rtpTimestamp)
 		}
 	}
+	e.consecutiveOutliers = 0
 
 	// Write into circular buffer.
 	e.samples[e.sampleHead] = srSample{
@@ -153,13 +210,30 @@ func (e *NtpEstimator) OnSenderReport(ntpTime uint64, rtpTimestamp uint32, recei
 		e.sampleLen++
 	}
 
-	// Recompute regression if we have enough samples.
-	if e.sampleLen >= minSamplesReady {
-		e.computeRegression()
+	// Recompute regression if we have enough samples. computeRegression
+	// returns false on degenerate input (e.g., all RTP timestamps identical,
+	// which yields sumDxDx == 0). In that case ready stays at its prior
+	// value rather than flipping to true with stale/zero regression
+	// coefficients — IsReady() must imply usable slope/mean.
+	if e.sampleLen >= minSamplesReady && e.computeRegression() {
 		e.ready = true
 	}
 
+	// Feed the OWD estimator only with accepted SRs — outliers would
+	// contaminate the propagation-delay measurement.
+	e.owdEstimator.Update(ntpNanos, receivedAt.UnixNano())
+
 	return SRAccepted
+}
+
+// EstimatedOWD returns the current estimated propagation delay for this track.
+// The value may be negative when the sender's NTP clock is ahead of the
+// receiver's wall clock — that is by design; the cross-participant alignment
+// formula relies on the OWD absorbing whatever clock offset exists.
+func (e *NtpEstimator) EstimatedOWD() time.Duration {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return time.Duration(e.owdEstimator.EstimatedPropagationDelay())
 }
 
 // IsReady returns true once at least 2 sender reports have been processed
@@ -194,7 +268,11 @@ func (e *NtpEstimator) Slope() float64 {
 // computeRegression performs ordinary least squares on the current samples
 // using centered data to preserve float64 precision.
 // Model: ntpNanos = slopeNanos * (unwrappedRTP - meanX) + meanY
-func (e *NtpEstimator) computeRegression() {
+//
+// Returns false if the input is degenerate (all RTP timestamps identical,
+// yielding sumDxDx == 0). The caller must NOT set ready=true in that case —
+// the existing slope/mean values are stale and would produce wrong NTP times.
+func (e *NtpEstimator) computeRegression() bool {
 	n := float64(e.sampleLen)
 
 	// First pass: compute means for centering.
@@ -217,7 +295,7 @@ func (e *NtpEstimator) computeRegression() {
 
 	if sumDxDx == 0 {
 		// Degenerate case: all RTP timestamps identical.
-		return
+		return false
 	}
 
 	e.slopeNanos = sumDxDy / sumDxDx
@@ -236,9 +314,13 @@ func (e *NtpEstimator) computeRegression() {
 		e.residStd = math.Sqrt(sumResidSq / (n - 2))
 	} else {
 		// With exactly 2 points the regression is exact; use a small positive
-		// value so that the 3-sigma check is not trivially zero.
+		// value so that the 3-sigma check is not trivially zero. (Currently
+		// unreachable since the caller requires sampleLen >= minSamplesReady
+		// (= 4) before invoking; left in place for robustness if minSamplesReady
+		// is lowered.)
 		e.residStd = math.Sqrt(sumResidSq / n)
 	}
+	return true
 }
 
 // iterSamples calls fn for each valid sample in the circular buffer.

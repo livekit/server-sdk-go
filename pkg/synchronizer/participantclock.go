@@ -18,31 +18,30 @@ import (
 	"sync"
 	"time"
 
-	"github.com/livekit/mediatransportutil/pkg/latency"
 	"github.com/livekit/protocol/logger"
 )
 
-// ParticipantClock holds OWD and NTP estimation state for a single participant.
+// ParticipantClock holds NTP estimation state for a single participant. OWD
+// is tracked per-track inside each NtpEstimator (see NtpEstimator comment for
+// why a participant-wide OWD estimator is incorrect when a participant has
+// both audio and video tracks).
 type ParticipantClock struct {
-	mu           sync.Mutex
-	logger       logger.Logger
-	owdEstimator *latency.OWDEstimator
-	tracks       map[string]*NtpEstimator
-	ntpEpoch     time.Time // NTP time from first SR
-	hasEpoch     bool
+	mu     sync.Mutex
+	logger logger.Logger
+	tracks map[string]*NtpEstimator
 }
 
 // NewParticipantClock creates a new ParticipantClock.
 func NewParticipantClock(l logger.Logger) *ParticipantClock {
 	return &ParticipantClock{
-		logger:       l,
-		owdEstimator: latency.NewOWDEstimator(latency.OWDEstimatorParamsDefault),
-		tracks:       make(map[string]*NtpEstimator),
+		logger: l,
+		tracks: make(map[string]*NtpEstimator),
 	}
 }
 
 // OnSenderReport processes an RTCP sender report for a track.
-// It updates the NTP estimator, OWD estimator, and records the NTP epoch.
+// It updates the track's NTP estimator (which in turn updates the per-track
+// OWD estimator on accepted SRs).
 func (pc *ParticipantClock) OnSenderReport(trackID string, clockRate uint32, ntpTime uint64, rtpTimestamp uint32, receivedAt time.Time) {
 	pc.mu.Lock()
 	defer pc.mu.Unlock()
@@ -60,17 +59,6 @@ func (pc *ParticipantClock) OnSenderReport(trackID string, clockRate uint32, ntp
 			"rtpTimestamp", rtpTimestamp,
 			"ntpTime", ntpTime,
 		)
-	}
-	if result != SRAccepted {
-		return
-	}
-
-	senderNtpNanos := ntpTimestampToNanos(ntpTime)
-	pc.owdEstimator.Update(senderNtpNanos, receivedAt.UnixNano())
-
-	if !pc.hasEpoch {
-		pc.ntpEpoch = nanosToTime(senderNtpNanos)
-		pc.hasEpoch = true
 	}
 }
 
@@ -90,17 +78,12 @@ func (pc *ParticipantClock) RtpToReceiverClock(trackID string, rtpTimestamp uint
 		return time.Time{}, errNotReady
 	}
 
-	if !pc.hasEpoch {
-		return time.Time{}, errNoSenderReports
-	}
-
 	ntpTime, err := est.RtpToNtp(rtpTimestamp)
 	if err != nil {
 		return time.Time{}, err
 	}
 
-	estimatedOWD := time.Duration(pc.owdEstimator.EstimatedPropagationDelay())
-	return ntpTime.Add(estimatedOWD), nil
+	return ntpTime.Add(est.EstimatedOWD()), nil
 }
 
 // ResetTrack clears the NTP estimator for a track, forcing it to rebuild
