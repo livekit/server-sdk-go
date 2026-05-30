@@ -213,6 +213,7 @@ func NewPCTransport(params PCTransportParams) (*PCTransport, error) {
 	if len(params.DTLSEllipticCurves) > 0 {
 		se.SetDTLSEllipticCurves(params.DTLSEllipticCurves...)
 	}
+	se.DisableCloseByDTLS(true)
 	se.SetDTLSRetransmissionInterval(dtlsRetransmissionInterval)
 	se.SetICETimeouts(iceDisconnectedTimeout, iceFailedTimeout, iceKeepaliveInterval)
 	lf := pionlogger.NewLoggerFactory(logger)

@@ -368,19 +368,19 @@ func (e *RTCEngine) configure(
 	}
 
 	if e.publisher != nil {
-		setConfiguration(e.publisher, configuration)
-	} else {
-		if err := e.createPublisherPCLocked(configuration); err != nil {
-			return err
-		}
+		e.publisher.Close()
+		e.publisher = nil
+	}
+	if err := e.createPublisherPCLocked(configuration); err != nil {
+		return err
 	}
 
 	if e.subscriber != nil {
-		setConfiguration(e.subscriber, configuration)
-	} else {
-		if err := e.createSubscriberPCLocked(configuration); err != nil {
-			return err
-		}
+		e.subscriber.Close()
+		e.subscriber = nil
+	}
+	if err := e.createSubscriberPCLocked(configuration); err != nil {
+		return err
 	}
 
 	return nil
