@@ -227,7 +227,7 @@ func attributeChanges(old, cur map[string]string) map[string]string {
 
 func (p *baseParticipant) updateInfo(pi *livekit.ParticipantInfo, participant Participant) bool {
 	p.lock.Lock()
-	if p.info != nil && p.info.Version > pi.Version {
+	if p.info != nil && p.info.Version > pi.Version && p.sid == pi.Sid {
 		// already updated with a later version
 		p.lock.Unlock()
 		return false
