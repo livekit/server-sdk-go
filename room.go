@@ -450,7 +450,7 @@ func (r *Room) JoinWithContextAndToken(ctx context.Context, url, token string, o
 	params := &connParams{
 		ConnectParams: &signalling.ConnectParams{
 			AutoSubscribe:           true,
-			ConnectTimeout:          3 * time.Second,
+			ConnectTimeout:          5 * time.Second,
 			UseSinglePeerConnection: r.useSinglePeerConnection,
 		},
 	}
