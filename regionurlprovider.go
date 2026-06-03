@@ -19,6 +19,14 @@ const (
 	regionHostnameProviderSettingsCacheTime = 3 * time.Second
 )
 
+// regionSettingsURL builds the LiveKit Cloud region-discovery URL for a
+// hostname. It is a variable rather than a constant expression so tests can
+// point region discovery at a local mock server. Production behavior is
+// unchanged.
+var regionSettingsURL = func(cloudHostname string) string {
+	return "https://" + cloudHostname + "/settings/regions"
+}
+
 type regionURLProvider struct {
 	hostnameSettingsCache map[string]*hostnameSettingsCacheItem // hostname -> regionSettings
 
@@ -50,7 +58,7 @@ func (r *regionURLProvider) RefreshRegionSettings(cloudHostname, token string) e
 		return nil
 	}
 
-	settingsURL := "https://" + cloudHostname + "/settings/regions"
+	settingsURL := regionSettingsURL(cloudHostname)
 	req, err := http.NewRequest("GET", settingsURL, nil)
 	if err != nil {
 		return errors.New("refreshRegionSettings failed to create request: " + err.Error())
@@ -125,6 +133,9 @@ func parseCloudURL(serverURL string) (string, error) {
 	return parsedURL.Hostname(), nil
 }
 
-func isCloud(hostname string) bool {
+// isCloud reports whether the hostname belongs to LiveKit Cloud. It is a
+// variable rather than a plain function so tests can point region discovery at
+// a local mock server. Production behavior is unchanged.
+var isCloud = func(hostname string) bool {
 	return strings.HasSuffix(hostname, "livekit.cloud") || strings.HasSuffix(hostname, "livekit.io")
 }
