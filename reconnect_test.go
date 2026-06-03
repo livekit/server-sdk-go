@@ -194,9 +194,10 @@ func TestRegionFallbackConnects(t *testing.T) {
 		OnReconnecting: func() { reconnecting.Inc() },
 	}
 
+	// Default joinTimeout (15s) is left untouched on purpose: each stalled
+	// attempt must be bounded by the per-attempt ConnectTimeout, not joinTimeout.
 	room := NewRoom(cb)
-	// keep each failed attempt short so the two stalled regions fall through quickly
-	room.engine.joinTimeout = 500 * time.Millisecond
+	const connectTimeout = 2 * time.Second
 
 	start := time.Now()
 	err := room.Join(initialURL, ConnectInfo{
@@ -204,11 +205,18 @@ func TestRegionFallbackConnects(t *testing.T) {
 		APISecret:           apiSecret,
 		RoomName:            "region-fallback-" + t.Name(),
 		ParticipantIdentity: "region-fallback-sub",
-	})
+	}, WithConnectTimeout(connectTimeout))
+	elapsed := time.Since(start)
 	require.NoError(t, err, "should connect via the healthy region after the stalled ones")
 	defer room.Disconnect()
 
-	t.Logf("connected after %s", time.Since(start))
+	t.Logf("connected after %s", elapsed)
+
+	// Each stalled region must give up at ConnectTimeout, not joinTimeout. Two
+	// stalled attempts at 2s + backoff + a real connect is well under 10s; the
+	// pre-fix behavior (joinTimeout=15s per attempt, ConnectTimeout ignored)
+	// would take 30s+.
+	require.Less(t, elapsed, 10*time.Second, "stalled regions must honor ConnectTimeout, not joinTimeout")
 
 	// both stalled regions were attempted and torn down before falling through
 	require.EqualValues(t, 1, bad1.dialCount.Load(), "first region should be attempted")
@@ -245,9 +253,10 @@ func TestRegionFallbackSignalFailure(t *testing.T) {
 	// good region is the real livekit-server the integration suite runs against
 	initialURL := withMockRegions(t, []string{bad.wsURL, host})
 
+	// The bad region fails the signal request immediately (bad handshake), so it
+	// never reaches the peer-connection wait; no timeout tuning is needed.
 	var disconnects atomic.Int32
 	room := NewRoom(&RoomCallback{OnDisconnected: func() { disconnects.Inc() }})
-	room.engine.joinTimeout = 2 * time.Second
 
 	start := time.Now()
 	err := room.Join(initialURL, ConnectInfo{

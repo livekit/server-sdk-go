@@ -220,6 +220,11 @@ func (e *RTCEngine) JoinContext(
 	e.token.Store(token)
 	e.connParams = connectParams
 
+	// ConnectTimeout overrides the default joinTimeout.
+	if connectParams != nil && connectParams.ConnectTimeout > 0 {
+		e.joinTimeout = connectParams.ConnectTimeout
+	}
+
 	var (
 		publisherOffer   webrtc.SessionDescription
 		err              error
