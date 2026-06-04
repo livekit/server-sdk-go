@@ -20,11 +20,11 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v4"
-	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/livekit/protocol/livekit"
@@ -46,10 +46,10 @@ type TrackPublication interface {
 }
 
 type trackPublicationBase struct {
-	kind    atomic.String
+	kind    atomicString
 	track   Track
-	sid     atomic.String
-	name    atomic.String
+	sid     atomicString
+	name    atomicString
 	isMuted atomic.Bool
 
 	lock   sync.RWMutex

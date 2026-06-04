@@ -16,10 +16,10 @@ package interceptor
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
-	"go.uber.org/atomic"
 
 	"github.com/livekit/mediatransportutil/pkg/nack"
 )

@@ -19,11 +19,11 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"go.uber.org/atomic"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/livekit/protocol/livekit"
@@ -50,7 +50,7 @@ func newRegionSettingsServer(t *testing.T, regions *livekit.RegionSettings) *reg
 	rs.server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/settings/regions", r.URL.Path)
 		require.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
-		rs.hits.Inc()
+		rs.hits.Add(1)
 
 		rs.mu.Lock()
 		status, regions := rs.status, rs.regions

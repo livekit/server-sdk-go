@@ -17,8 +17,8 @@ package lksdk
 import (
 	"maps"
 	"sync"
+	"sync/atomic"
 
-	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/livekit/protocol/livekit"
@@ -52,7 +52,7 @@ type baseParticipant struct {
 	sid               string
 	identity          string
 	name              string
-	audioLevel        atomic.Float64
+	audioLevel        atomicFloat64
 	metadata          string
 	attributes        map[string]string
 	isSpeaking        atomic.Bool

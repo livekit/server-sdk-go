@@ -2,8 +2,7 @@ package main
 
 import (
 	"errors"
-
-	"go.uber.org/atomic"
+	"sync/atomic"
 
 	"github.com/livekit/media-sdk"
 )

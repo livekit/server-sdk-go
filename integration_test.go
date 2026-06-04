@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -29,7 +30,6 @@ import (
 	"github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/atomic"
 
 	"github.com/livekit/protocol/livekit"
 
@@ -259,7 +259,7 @@ func TestJoinSinglePeerConnection(t *testing.T) {
 
 	audioTrackName := "audio_singlepc"
 	var trackReceived atomic.Bool
-	var receivedData atomic.String
+	var receivedData atomicString
 	subCB := &RoomCallback{
 		ParticipantCallback: ParticipantCallback{
 			OnDataPacket: func(data DataPacket, params DataReceiveParams) {
@@ -554,7 +554,7 @@ func runSimulcastPubSub(t *testing.T, prepublish bool) {
 	videoName := "simulcast_video"
 
 	var (
-		subAudioSID, subVideoSID   atomic.String
+		subAudioSID, subVideoSID   atomicString
 		subAudioKind, subVideoKind atomic.Value // webrtc.RTPCodecType
 		subAudioRTP, subVideoRTP   atomic.Int32
 	)
@@ -843,7 +843,7 @@ func TestSubscribeMutedTrack(t *testing.T) {
 		ParticipantCallback: ParticipantCallback{
 			OnTrackSubscribed: func(track *webrtc.TrackRemote, publication *RemoteTrackPublication, rp *RemoteParticipant) {
 				trackLock.Lock()
-				trackReceived.Inc()
+				trackReceived.Add(1)
 				require.Equal(t, rp.Name(), pub.LocalParticipant.Name())
 				if track.Kind() == webrtc.RTPCodecTypeAudio {
 					require.Equal(t, publication.Name(), audioTrackName)
