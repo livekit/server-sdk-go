@@ -22,10 +22,10 @@ import (
 	"net/http"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/pion/webrtc/v4"
+	"go.uber.org/atomic"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
@@ -137,7 +137,7 @@ type RTCEngine struct {
 	requiresFullReconnect atomic.Bool
 
 	url        string
-	token      atomicString
+	token      atomic.String
 	connParams *signalling.ConnectParams
 
 	joinTimeout time.Duration

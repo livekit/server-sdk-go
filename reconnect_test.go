@@ -18,12 +18,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/atomic"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
@@ -56,7 +56,7 @@ func newStallRegion(t *testing.T) *stallRegion {
 			return
 		}
 		defer conn.Close()
-		sr.dialCount.Add(1)
+		sr.dialCount.Inc()
 
 		// Send a JoinResponse so the client treats signaling as established and
 		// begins waiting for the peer connection (which never comes).
@@ -89,7 +89,7 @@ func newStallRegion(t *testing.T) *stallRegion {
 			req := &livekit.SignalRequest{}
 			if proto.Unmarshal(data, req) == nil {
 				if _, ok := req.Message.(*livekit.SignalRequest_Leave); ok {
-					sr.leaveCount.Add(1)
+					sr.leaveCount.Inc()
 				}
 			}
 		}
@@ -117,9 +117,9 @@ func newSignalFailRegion(t *testing.T) *signalFailRegion {
 	sr.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/rtc":
-			sr.wsAttempts.Add(1)
+			sr.wsAttempts.Inc()
 		case "/rtc/validate":
-			sr.validateAttempts.Add(1)
+			sr.validateAttempts.Inc()
 		}
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
@@ -149,7 +149,7 @@ func withMockRegions(t *testing.T, regionURLs []string) (initialURL string) {
 	var hits atomic.Int32
 	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/settings/regions", r.URL.Path)
-		hits.Add(1)
+		hits.Inc()
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(body)
 	}))
@@ -190,8 +190,8 @@ func TestRegionFallbackConnects(t *testing.T) {
 	var disconnects atomic.Int32
 	var reconnecting atomic.Int32
 	cb := &RoomCallback{
-		OnDisconnected: func() { disconnects.Add(1) },
-		OnReconnecting: func() { reconnecting.Add(1) },
+		OnDisconnected: func() { disconnects.Inc() },
+		OnReconnecting: func() { reconnecting.Inc() },
 	}
 
 	// Default joinTimeout (15s) is left untouched on purpose: each stalled
@@ -256,7 +256,7 @@ func TestRegionFallbackSignalFailure(t *testing.T) {
 	// The bad region fails the signal request immediately (bad handshake), so it
 	// never reaches the peer-connection wait; no timeout tuning is needed.
 	var disconnects atomic.Int32
-	room := NewRoom(&RoomCallback{OnDisconnected: func() { disconnects.Add(1) }})
+	room := NewRoom(&RoomCallback{OnDisconnected: func() { disconnects.Inc() }})
 
 	start := time.Now()
 	err := room.Join(initialURL, ConnectInfo{

@@ -3,10 +3,11 @@ package media
 import (
 	"crypto/aes"
 	"crypto/cipher"
-	"sync/atomic"
 
 	"github.com/livekit/media-sdk/rtp"
 	lksdk "github.com/livekit/server-sdk-go/v2"
+
+	"go.uber.org/atomic"
 )
 
 type Decryptor interface {

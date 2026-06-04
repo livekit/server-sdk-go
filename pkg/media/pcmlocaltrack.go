@@ -3,7 +3,6 @@ package media
 import (
 	"errors"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/frostbyte73/core"
@@ -14,6 +13,7 @@ import (
 	protoLogger "github.com/livekit/protocol/logger"
 	"github.com/livekit/protocol/utils/hwstats"
 	"github.com/pion/webrtc/v4"
+	"go.uber.org/atomic"
 
 	lksdk "github.com/livekit/server-sdk-go/v2"
 )
@@ -195,7 +195,7 @@ func (t *PCMLocalTrack) getFrameFromChunkBuffer() media.PCM16Sample {
 		if remaining < len(chunk) {
 			t.chunkBuffer.PushFront(chunk[remaining:])
 		}
-		t.numSamples.Add(-int64(remaining))
+		t.numSamples.Sub(int64(remaining))
 	}
 
 	if len(frame) < t.samplesPerFrame {
