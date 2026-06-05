@@ -8,9 +8,9 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/livekit/mageutil v0.0.0-20250511045019-0f1ff63f7731
-	github.com/livekit/media-sdk v0.0.0-20260605182139-b8633b99de19
-	github.com/livekit/mediatransportutil v0.0.0-20260605182015-e79eb8d79819
-	github.com/livekit/protocol v1.46.6-0.20260605181725-7f0893ab5bf2
+	github.com/livekit/media-sdk v0.0.0-20260605212526-4c11a51d3c97
+	github.com/livekit/mediatransportutil v0.0.0-20260605212259-862d4a7bcb1e
+	github.com/livekit/protocol v1.46.7-0.20260605212020-c0615a2f6f84
 	github.com/magefile/mage v1.17.2
 	github.com/moby/buildkit v0.30.0
 	github.com/moby/patternmatcher v0.6.1
@@ -28,10 +28,15 @@ require (
 )
 
 require (
+	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/in-toto/attestation v1.1.2 // indirect
 	github.com/mackerelio/go-osstat v0.2.7 // indirect
+	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pion/turn/v5 v5.0.8 // indirect
+	github.com/prometheus/client_golang v1.23.2 // indirect
+	github.com/prometheus/client_model v0.6.2 // indirect
+	github.com/prometheus/common v0.68.1 // indirect
 	github.com/puzpuzpuz/xsync/v4 v4.5.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/mod v0.36.0 // indirect
@@ -80,7 +85,7 @@ require (
 	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/lithammer/shortuuid/v4 v4.2.0 // indirect
-	github.com/livekit/psrpc v0.7.2-0.20260604225640-4bab4033deca // indirect
+	github.com/livekit/psrpc v0.7.2 // indirect
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.12.2 // indirect
 	github.com/moby/locker v1.0.1 // indirect
 	github.com/moby/sys/signal v0.7.1 // indirect
