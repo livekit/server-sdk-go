@@ -106,7 +106,7 @@ func Lint() error {
 
 func Test() error {
 	fmt.Println("testing local packages...")
-	if err := mageutil.Run(context.Background(), "go test -short ./pkg/... -count=1"); err != nil {
+	if err := mageutil.Run(context.Background(), "go test -short -v ./pkg/... -count=1"); err != nil {
 		return err
 	}
 
@@ -157,7 +157,7 @@ logging:
 
 	fmt.Println("testing...")
 	testflags := os.Getenv("TestFlags")
-	return run(map[string]string{"LIVEKIT_KEYS": testApiKey}, `go test -race `+testflags)
+	return run(map[string]string{"LIVEKIT_KEYS": testApiKey}, `go test -v -race `+testflags)
 }
 
 func run(env map[string]string, commands ...string) error {

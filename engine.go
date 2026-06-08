@@ -220,6 +220,11 @@ func (e *RTCEngine) JoinContext(
 	e.token.Store(token)
 	e.connParams = connectParams
 
+	// ConnectTimeout overrides the default joinTimeout.
+	if connectParams != nil && connectParams.ConnectTimeout > 0 {
+		e.joinTimeout = connectParams.ConnectTimeout
+	}
+
 	var (
 		publisherOffer   webrtc.SessionDescription
 		err              error
@@ -269,6 +274,7 @@ func (e *RTCEngine) JoinContext(
 	}
 
 	if err = e.waitUntilConnected(); err != nil {
+		e.cleanupConnection()
 		return false, err
 	}
 
@@ -879,7 +885,7 @@ func (e *RTCEngine) resumeConnection() error {
 	return nil
 }
 
-func (e *RTCEngine) restartConnection() error {
+func (e *RTCEngine) cleanupConnection() {
 	if e.signalTransport.IsStarted() {
 		// TODO: special reason for reconnect?
 		e.SendLeaveWithReason(livekit.DisconnectReason_UNKNOWN_REASON)
@@ -887,6 +893,10 @@ func (e *RTCEngine) restartConnection() error {
 	e.signalTransport.Close()
 
 	e.closePeerConnections()
+}
+
+func (e *RTCEngine) restartConnection() error {
+	e.cleanupConnection()
 
 	_, err := e.JoinContext(context.TODO(), e.url, e.token.Load(), e.connParams, nil)
 	return err

@@ -74,7 +74,7 @@ type ConnectParams struct {
 	AutoSubscribe          bool
 	Reconnect              bool
 	DisableRegionDiscovery bool
-	// timeout for each connection attempt, default is 3 seconds
+	// timeout for each connection attempt, default is 5 seconds
 	ConnectTimeout time.Duration
 
 	RetransmitBufferSize uint16
