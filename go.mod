@@ -10,7 +10,7 @@ require (
 	github.com/livekit/mageutil v0.0.0-20250511045019-0f1ff63f7731
 	github.com/livekit/media-sdk v0.0.0-20260605212526-4c11a51d3c97
 	github.com/livekit/mediatransportutil v0.0.0-20260605212259-862d4a7bcb1e
-	github.com/livekit/protocol v1.46.7-0.20260605212020-c0615a2f6f84
+	github.com/livekit/protocol v1.46.7-0.20260608020211-e9abadf97706
 	github.com/magefile/mage v1.17.2
 	github.com/moby/buildkit v0.30.0
 	github.com/moby/patternmatcher v0.6.1
