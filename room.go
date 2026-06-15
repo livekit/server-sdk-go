@@ -17,6 +17,7 @@ package lksdk
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -947,7 +948,7 @@ func (r *Room) completePublishWithJoin(ctx context.Context, trackPubs []*trackPu
 	return g.Wait()
 }
 
-// Establishes the participant as a receiver for calls of the specified RPC method.
+// RegisterRpcCtxMethod establishes the participant as a receiver for calls of the specified RPC method.
 // Will overwrite any existing callback for the same method.
 //
 //   - @param method - The name of the indicated RPC method
@@ -970,11 +971,27 @@ func (r *Room) completePublishWithJoin(ctx context.Context, trackPubs []*trackPu
 // You may throw errors of type `RpcError` with a string `message` in the handler,
 // and they will be received on the caller's side with the message intact.
 // Other errors thrown in your handler will not be transmitted as-is, and will instead arrive to the caller as `1500` ("Application Error").
-func (r *Room) RegisterRpcMethod(method string, handler RpcHandlerFunc) error {
+func (r *Room) RegisterRpcCtxMethod(method string, handler RpcHandlerCtxFunc) error {
 	if _, loaded := r.rpcHandlers.LoadOrStore(method, handler); loaded {
 		return fmt.Errorf("rpc handler already registered for method: %s, unregisterRpcMethod before trying to register again", method)
 	}
 	return nil
+}
+
+func (r *Room) RegisterRpcMethod(method string, handler RpcHandlerFunc) error {
+	return r.RegisterRpcCtxMethod(method, func(ctx context.Context, data []byte) ([]byte, error) {
+		req := RpcInvocationData{Payload: string(data)}
+		if deadline, ok := ctx.Deadline(); ok && !deadline.IsZero() {
+			req.ResponseTimeout = time.Until(deadline)
+		}
+		if meta := RPCMetadataFromContext(ctx); meta != nil {
+			req.RequestID = meta.RequestID
+			req.CallerIdentity = meta.CallerIdentity
+			req.ResponseTimeout = meta.ResponseTimeout
+		}
+		resp, err := handler(req)
+		return []byte(resp), err
+	})
 }
 
 // UnregisterRpcMethod unregisters a previously registered RPC method.
@@ -1493,41 +1510,51 @@ func (r *Room) OnStreamTrailer(streamTrailer *livekit.DataStream_Trailer) {
 
 func (r *Room) OnRpcRequest(callerIdentity, requestId, method, payload string, responseTimeout time.Duration, version uint32) {
 	r.engine.publishRpcAck(callerIdentity, requestId)
+	returnError := func(e *RpcError) {
+		r.engine.publishRpcResponse(callerIdentity, requestId, nil, e)
+	}
 
 	if version != 1 {
-		r.engine.publishRpcResponse(callerIdentity, requestId, nil, rpcErrorFromBuiltInCodes(RpcUnsupportedVersion, nil))
+		returnError(rpcErrorFromBuiltInCodes(RpcUnsupportedVersion, nil))
 		return
 	}
 
 	handler, ok := r.rpcHandlers.Load(method)
 	if !ok {
-		r.engine.publishRpcResponse(callerIdentity, requestId, nil, rpcErrorFromBuiltInCodes(RpcUnsupportedMethod, nil))
+		returnError(rpcErrorFromBuiltInCodes(RpcUnsupportedMethod, nil))
 		return
 	}
-
-	response, err := handler.(RpcHandlerFunc)(RpcInvocationData{
+	ctx := context.Background()
+	ctx = withRPCMetadata(ctx, &RpcInvocationMetadata{
 		RequestID:       requestId,
 		CallerIdentity:  callerIdentity,
-		Payload:         payload,
 		ResponseTimeout: responseTimeout,
 	})
+	var cancel func()
+	if responseTimeout > 0 {
+		ctx, cancel = context.WithTimeout(ctx, responseTimeout)
+	} else {
+		ctx, cancel = context.WithCancel(ctx)
+	}
+	defer cancel()
+
+	response, err := handler.(RpcHandlerCtxFunc)(ctx, []byte(payload))
 
 	if err != nil {
-		if _, ok := err.(*RpcError); ok {
-			r.engine.publishRpcResponse(callerIdentity, requestId, nil, err.(*RpcError))
-		} else {
-			r.log.Warnw("unexpected error returned by RPC handler for method, using application error instead", err, "method", method)
-			r.engine.publishRpcResponse(callerIdentity, requestId, nil, rpcErrorFromBuiltInCodes(RpcApplicationError, nil))
+		if e, ok := errors.AsType[*RpcError](err); ok {
+			returnError(e)
+			return
 		}
+		r.log.Warnw("unexpected error returned by RPC handler for method, using application error instead", err, "method", method)
+		returnError(rpcErrorFromBuiltInCodes(RpcApplicationError, nil))
 		return
 	}
 
-	if byteLength(response) > MaxDataBytes {
-		r.engine.publishRpcResponse(callerIdentity, requestId, nil, rpcErrorFromBuiltInCodes(RpcResponsePayloadTooLarge, nil))
+	if len(response) > MaxDataBytes {
+		returnError(rpcErrorFromBuiltInCodes(RpcResponsePayloadTooLarge, nil))
 		return
 	}
-
-	r.engine.publishRpcResponse(callerIdentity, requestId, &response, nil)
+	r.engine.publishRpcResponse(callerIdentity, requestId, response, nil)
 }
 
 func (r *Room) OnRpcAck(requestId string) {

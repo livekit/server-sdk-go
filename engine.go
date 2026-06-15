@@ -1010,28 +1010,24 @@ func (e *RTCEngine) publishDataPacketLossy(pck *livekit.DataPacket) error {
 }
 
 // TODO: adjust RPC methods to return error on publishDataPacket failure
-func (e *RTCEngine) publishRpcResponse(destinationIdentity, requestId string, payload *string, err *RpcError) error {
+func (e *RTCEngine) publishRpcResponse(destinationIdentity, requestId string, payload []byte, err *RpcError) error {
+	resp := &livekit.DataPacket_RpcResponse{
+		RpcResponse: &livekit.RpcResponse{
+			RequestId: requestId,
+		},
+	}
 	packet := &livekit.DataPacket{
 		DestinationIdentities: []string{destinationIdentity},
-		Value: &livekit.DataPacket_RpcResponse{
-			RpcResponse: &livekit.RpcResponse{
-				RequestId: requestId,
-			},
-		},
+		Value:                 resp,
 	}
 
 	if err != nil {
-		packet.Value.(*livekit.DataPacket_RpcResponse).RpcResponse.Value = &livekit.RpcResponse_Error{
+		resp.RpcResponse.Value = &livekit.RpcResponse_Error{
 			Error: err.toProto(),
 		}
 	} else {
-		if payload == nil {
-			emptyStr := ""
-			payload = &emptyStr
-		}
-
-		packet.Value.(*livekit.DataPacket_RpcResponse).RpcResponse.Value = &livekit.RpcResponse_Payload{
-			Payload: *payload,
+		resp.RpcResponse.Value = &livekit.RpcResponse_Payload{
+			Payload: string(payload),
 		}
 	}
 
