@@ -96,7 +96,8 @@ func (c *Client) CreateAgent(
 		resp.PresignedUrl,
 		resp.PresignedPostRequest,
 		source,
-		"", // production (create always targets production)
+		nil, // no attributes on create
+		"",  // production (create always targets production)
 		excludeFiles,
 		buildLogStreamWriter,
 	); err != nil {
@@ -126,12 +127,14 @@ func (c *Client) DeployAgent(
 	agentID string,
 	source fs.FS,
 	secrets []*lkproto.AgentSecret,
+	attributes map[string]string,
 	excludeFiles []string,
 	buildLogStreamWriter io.Writer,
 ) error {
 	resp, err := c.AgentClient.DeployAgent(ctx, &lkproto.DeployAgentRequest{
-		AgentId: agentID,
-		Secrets: secrets,
+		AgentId:    agentID,
+		Secrets:    secrets,
+		Attributes: attributes,
 	})
 	if err != nil {
 		return err
@@ -139,7 +142,7 @@ func (c *Client) DeployAgent(
 	if !resp.Success {
 		return fmt.Errorf("failed to deploy agent: %s", resp.Message)
 	}
-	return c.uploadAndBuild(ctx, agentID, resp.PresignedUrl, resp.PresignedPostRequest, source, "", excludeFiles, buildLogStreamWriter)
+	return c.uploadAndBuild(ctx, agentID, resp.PresignedUrl, resp.PresignedPostRequest, source, attributes, "", excludeFiles, buildLogStreamWriter)
 }
 
 func (c *Client) DeployAgentV2(
@@ -147,6 +150,7 @@ func (c *Client) DeployAgentV2(
 	agentID string,
 	source fs.FS,
 	secrets []*lkproto.AgentSecret,
+	attributes map[string]string,
 	agentDeployment string,
 	excludeFiles []string,
 	buildLogStreamWriter io.Writer,
@@ -155,6 +159,7 @@ func (c *Client) DeployAgentV2(
 		AgentId:    agentID,
 		Secrets:    secrets,
 		Deployment: agentDeployment,
+		Attributes: attributes,
 	})
 	if err != nil {
 		return err
@@ -162,7 +167,7 @@ func (c *Client) DeployAgentV2(
 	if !resp.Success {
 		return fmt.Errorf("failed to deploy agent: %s", resp.Message)
 	}
-	return c.uploadAndBuild(ctx, agentID, "", resp.PresignedReq, source, agentDeployment, excludeFiles, buildLogStreamWriter)
+	return c.uploadAndBuild(ctx, agentID, "", resp.PresignedReq, source, attributes, agentDeployment, excludeFiles, buildLogStreamWriter)
 }
 
 func (c *Client) PromoteAgent(
@@ -220,6 +225,7 @@ func (c *Client) uploadAndBuild(
 	presignedUrl string,
 	presignedPostRequest *lkproto.PresignedPostRequest,
 	source fs.FS,
+	attributes map[string]string,
 	agentDeployment string,
 	excludeFiles []string,
 	buildLogStreamWriter io.Writer,
@@ -232,7 +238,7 @@ func (c *Client) uploadAndBuild(
 	); err != nil {
 		return err
 	}
-	if err := c.build(ctx, agentID, agentDeployment, buildLogStreamWriter); err != nil {
+	if err := c.build(ctx, agentID, attributes, agentDeployment, buildLogStreamWriter); err != nil {
 		return err
 	}
 	return nil
