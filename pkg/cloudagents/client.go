@@ -165,6 +165,26 @@ func (c *Client) DeployAgentV2(
 	return c.uploadAndBuild(ctx, agentID, "", resp.PresignedReq, source, agentDeployment, excludeFiles, buildLogStreamWriter)
 }
 
+func (c *Client) PromoteAgent(
+	ctx context.Context,
+	agentID string,
+	srcDeployment string,
+	dstDeployment string,
+) error {
+	resp, err := c.AgentClient.PromoteAgent(ctx, &lkproto.PromoteAgentRequest{
+		AgentId:       agentID,
+		SrcDeployment: srcDeployment,
+		DstDeployment: dstDeployment,
+	})
+	if err != nil {
+		return err
+	}
+	if !resp.Success {
+		return fmt.Errorf("failed to promote agent: %s", resp.Message)
+	}
+	return nil
+}
+
 // RegisterAgent creates an agent record without uploading source or triggering a build.
 // Use this when you intend to push a prebuilt image immediately after via GetPushTarget.
 func (c *Client) RegisterAgent(ctx context.Context, secrets []*lkproto.AgentSecret, regions []string) (string, error) {

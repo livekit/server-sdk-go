@@ -148,6 +148,14 @@ func (c *AgentClient) DeployAgentV2(ctx context.Context, req *livekit.DeployAgen
 	return c.agentClient.DeployAgentV2(ctx, req)
 }
 
+func (c *AgentClient) PromoteAgent(ctx context.Context, req *livekit.PromoteAgentRequest) (*livekit.PromoteAgentResponse, error) {
+	ctx, err := c.withAuth(ctx, withAgentGrant{Admin: true})
+	if err != nil {
+		return nil, err
+	}
+	return c.agentClient.PromoteAgent(ctx, req)
+}
+
 func (c *AgentClient) GetClientSettings(ctx context.Context, req *livekit.ClientSettingsRequest) (*livekit.ClientSettingsResponse, error) {
 	ctx, err := c.withAuth(ctx, withAgentGrant{Admin: true})
 	if err != nil {
