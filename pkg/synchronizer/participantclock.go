@@ -26,16 +26,20 @@ import (
 // why a participant-wide OWD estimator is incorrect when a participant has
 // both audio and video tracks).
 type ParticipantClock struct {
-	mu     sync.Mutex
-	logger logger.Logger
-	tracks map[string]*NtpEstimator
+	mu            sync.Mutex
+	logger        logger.Logger
+	participantID string
+	tracks        map[string]*NtpEstimator
+	seenFirstSR   map[string]bool
 }
 
 // NewParticipantClock creates a new ParticipantClock.
-func NewParticipantClock(l logger.Logger) *ParticipantClock {
+func NewParticipantClock(l logger.Logger, participantID string) *ParticipantClock {
 	return &ParticipantClock{
-		logger: l,
-		tracks: make(map[string]*NtpEstimator),
+		logger:        l,
+		participantID: participantID,
+		tracks:        make(map[string]*NtpEstimator),
+		seenFirstSR:   make(map[string]bool),
 	}
 }
 
@@ -53,12 +57,34 @@ func (pc *ParticipantClock) OnSenderReport(trackID string, clockRate uint32, ntp
 	}
 
 	result := est.OnSenderReport(ntpTime, rtpTimestamp, receivedAt)
-	if result == SROutlier && pc.logger != nil {
-		pc.logger.Warnw("sender report rejected as outlier", nil,
-			"trackID", trackID,
-			"rtpTimestamp", rtpTimestamp,
-			"ntpTime", ntpTime,
-		)
+	switch result {
+	case SROutlier:
+		if pc.logger != nil {
+			pc.logger.Warnw("sender report rejected as outlier", nil,
+				"trackID", trackID,
+				"rtpTimestamp", rtpTimestamp,
+				"ntpTime", ntpTime,
+			)
+		}
+	case SRRebuilt:
+		if pc.logger != nil {
+			pc.logger.Infow("NTP estimator rebuilt after persistent outliers",
+				"participantID", pc.participantID,
+				"trackID", trackID,
+			)
+		}
+		// A rebuild starts a new regression — the next SR is effectively a first.
+		delete(pc.seenFirstSR, trackID)
+	case SRAccepted:
+		if !pc.seenFirstSR[trackID] {
+			pc.seenFirstSR[trackID] = true
+			if pc.logger != nil {
+				pc.logger.Infow("first sender report accepted",
+					"participantID", pc.participantID,
+					"trackID", trackID,
+				)
+			}
+		}
 	}
 }
 
@@ -103,6 +129,7 @@ func (pc *ParticipantClock) RemoveTrack(trackID string) {
 	defer pc.mu.Unlock()
 
 	delete(pc.tracks, trackID)
+	delete(pc.seenFirstSR, trackID)
 }
 
 // HasTrack returns true if the participant has a track with the given ID.

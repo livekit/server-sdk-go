@@ -150,6 +150,7 @@ const (
 	SRAccepted SRResult = iota
 	SRDuplicate
 	SROutlier
+	SRRebuilt
 )
 
 // OnSenderReport ingests a new RTCP sender report observation.
@@ -180,6 +181,7 @@ func (e *NtpEstimator) OnSenderReport(ntpTime uint64, rtpTimestamp uint32, recei
 	// triggers a full reset so the regression can rebuild from the new state.
 	// residStd is floored to avoid disabling detection when the prior samples
 	// happened to fit the line exactly.
+	rebuilt := false
 	if e.ready {
 		std := e.residStd
 		if std < minOutlierStdDevNanos {
@@ -195,6 +197,7 @@ func (e *NtpEstimator) OnSenderReport(ntpTime uint64, rtpTimestamp uint32, recei
 			// Persistent outliers: rebuild from scratch starting with this SR.
 			e.resetLocked()
 			unwrapped = e.unwrapRTP(rtpTimestamp)
+			rebuilt = true
 		}
 	}
 	e.consecutiveOutliers = 0
@@ -223,6 +226,9 @@ func (e *NtpEstimator) OnSenderReport(ntpTime uint64, rtpTimestamp uint32, recei
 	// contaminate the propagation-delay measurement.
 	e.owdEstimator.Update(ntpNanos, receivedAt.UnixNano())
 
+	if rebuilt {
+		return SRRebuilt
+	}
 	return SRAccepted
 }
 
