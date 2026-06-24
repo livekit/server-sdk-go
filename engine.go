@@ -140,6 +140,10 @@ type RTCEngine struct {
 	token      atomic.String
 	connParams *signalling.ConnectParams
 
+	regionProvider *regionURLProvider
+	originalURL    string // the user-provided (global) URL; reconnect fallback
+	cloudHost      string // parsed cloud hostname; empty when not applicable
+
 	joinTimeout time.Duration
 
 	dataCryptor *e2ee.DataCryptor // E2EE data channel encryption (nil = disabled)
@@ -824,6 +828,9 @@ func (e *RTCEngine) handleDisconnect(fullReconnect bool) {
 				e.log.Infow("resuming connection...", "reconnectCount", reconnectCount)
 				if err := e.resumeConnection(); err != nil {
 					e.log.Errorw("resume connection failed", err)
+					// escalate to a full reconnect so region failover engages
+					// instead of retrying resume against the same (dead) region
+					e.requiresFullReconnect.Store(true)
 				} else {
 					return
 				}
@@ -895,11 +902,74 @@ func (e *RTCEngine) cleanupConnection() {
 	e.closePeerConnections()
 }
 
-func (e *RTCEngine) restartConnection() error {
-	e.cleanupConnection()
+// setRegionConnectInfo wires the region provider and the original (global) URL
+// into the engine so the reconnect path can fail over across regions. cloudHost
+// is empty when region discovery does not apply, in which case reconnect just
+// re-dials the original URL.
+func (e *RTCEngine) setRegionConnectInfo(provider *regionURLProvider, originalURL, cloudHost string) {
+	e.regionProvider = provider
+	e.originalURL = originalURL
+	e.cloudHost = cloudHost
+}
 
-	_, err := e.JoinContext(context.TODO(), e.url, e.token.Load(), e.connParams, nil)
-	return err
+func (e *RTCEngine) restartConnection() error {
+	return e.connectWithRegionFailover()
+}
+
+func (e *RTCEngine) connectWithRegionFailover() error {
+	attempt := func(url string) error {
+		e.cleanupConnection()
+		// bound each candidate so a blackholed endpoint fails fast (otherwise the
+		// signal dial is only capped by the WebSocket handshake timeout, ~45s)
+		timeout := e.joinTimeout
+		if e.connParams != nil && e.connParams.ConnectTimeout > 0 {
+			timeout = e.connParams.ConnectTimeout
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		_, err := e.JoinContext(ctx, url, e.token.Load(), e.connParams, nil)
+		return err
+	}
+
+	if e.regionProvider == nil || e.cloudHost == "" {
+		url := e.originalURL
+		if url == "" {
+			url = e.url
+		}
+		return attempt(url)
+	}
+
+	// current region first (benign cases like SFU scale-down stay put), then the
+	// server-sorted region list, then the global URL as a final fallback
+	candidates := []string{e.url}
+	if settings, err := e.regionProvider.RegionSettings(e.cloudHost, e.token.Load()); err != nil {
+		e.log.Infow("could not get region settings for reconnect, using current and original url", "error", err)
+	} else {
+		for _, region := range settings.GetRegions() {
+			candidates = append(candidates, region.Url)
+		}
+	}
+	candidates = append(candidates, e.originalURL)
+
+	tried := make(map[string]bool, len(candidates))
+	var lastErr error
+	for _, url := range candidates {
+		if url == "" || tried[url] {
+			continue
+		}
+		tried[url] = true
+		if err := attempt(url); err == nil {
+			return nil
+		} else {
+			lastErr = err
+			e.log.Infow("region reconnect attempt failed, trying next candidate", "url", url, "error", err)
+		}
+	}
+
+	if lastErr == nil {
+		lastErr = ErrCannotConnectSignal
+	}
+	return lastErr
 }
 
 func (e *RTCEngine) createSubscriberPCAnswerAndSend() error {
@@ -1473,6 +1543,11 @@ func (e *RTCEngine) OnTokenRefresh(refreshToken string) {
 
 func (e *RTCEngine) OnLeave(leave *livekit.LeaveRequest) {
 	e.log.Debugw("received leave request", "action", leave.GetAction())
+	// adopt any server-reported region list so the ensuing reconnect fails over
+	// using the server's authoritative ordering rather than stale DNS/settings
+	if regions := leave.GetRegions(); regions != nil && e.regionProvider != nil && e.cloudHost != "" {
+		e.regionProvider.SetServerReportedRegions(e.cloudHost, regions)
+	}
 	switch leave.GetAction() {
 	case livekit.LeaveRequest_DISCONNECT:
 		e.Close()

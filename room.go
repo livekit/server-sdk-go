@@ -497,39 +497,44 @@ func (r *Room) JoinWithContextAndToken(ctx context.Context, url, token string, o
 
 	isSuccess := false
 	cloudHostname, _ := parseCloudURL(url)
-	if !params.DisableRegionDiscovery && cloudHostname != "" {
-		if err := r.regionURLProvider.RefreshRegionSettings(cloudHostname, token); err != nil {
-			r.log.Errorw("failed to get best url", err)
+	regionHost := cloudHostname
+	if params.DisableRegionDiscovery {
+		regionHost = ""
+	}
+	// wire the original URL + region provider into the engine so the reconnect
+	// path can fail over across regions, not just the initial connect
+	r.engine.setRegionConnectInfo(r.regionURLProvider, url, regionHost)
+	if regionHost != "" {
+		settings, err := r.regionURLProvider.RegionSettings(regionHost, token)
+		if err != nil {
+			r.log.Errorw("failed to get region settings", err)
 		} else {
-			for tries := uint(0); !isSuccess; tries++ {
+			for i, region := range settings.GetRegions() {
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
-				bestURL, err := r.regionURLProvider.PopBestURL(cloudHostname, token)
-				if err != nil {
-					r.log.Errorw("failed to get best url", err)
-					break
-				}
+				bestURL := region.Url
 
 				r.log.Debugw("RTC engine joining room", "url", bestURL, "connectTimeout", params.ConnectTimeout)
 				callCtx, cancelCallCtx := context.WithTimeout(ctx, params.ConnectTimeout)
 				isSuccess, err = r.engine.JoinContext(callCtx, bestURL, token, params.ConnectParams, pubFunc)
 				cancelCallCtx()
-				if err != nil {
-					cleanPubReg()
-					// try the next URL with exponential backoff
-					d := time.Duration(1<<min(tries, 6)) * 100 * time.Millisecond // max 6.4 seconds
-					r.log.Errorw(
-						"failed to join room", err,
-						"retrying in", d,
-						"url", bestURL,
-					)
-					select {
-					case <-time.After(d):
-					case <-ctx.Done():
-						return ctx.Err()
-					}
-					continue
+				if err == nil {
+					break
+				}
+
+				cleanPubReg()
+				// try the next URL with exponential backoff
+				d := time.Duration(1<<min(uint(i), 6)) * 100 * time.Millisecond // max 6.4 seconds
+				r.log.Errorw(
+					"failed to join room", err,
+					"retrying in", d,
+					"url", bestURL,
+				)
+				select {
+				case <-time.After(d):
+				case <-ctx.Done():
+					return ctx.Err()
 				}
 			}
 		}

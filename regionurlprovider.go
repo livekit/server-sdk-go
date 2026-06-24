@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -32,9 +33,9 @@ type regionURLProvider struct {
 }
 
 type hostnameSettingsCacheItem struct {
-	regionSettings    *livekit.RegionSettings
-	updatedAt         time.Time
-	regionURLAttempts map[string]int
+	regionSettings *livekit.RegionSettings
+	updatedAt      time.Time
+	cacheTTL       time.Duration // from Cache-Control max-age; falls back to the default
 }
 
 func newRegionURLProvider() *regionURLProvider {
@@ -51,8 +52,14 @@ func (r *regionURLProvider) RefreshRegionSettings(cloudHostname, token string) e
 	hostnameSettings := r.hostnameSettingsCache[cloudHostname]
 	r.mutex.RUnlock()
 
-	if hostnameSettings != nil && time.Since(hostnameSettings.updatedAt) < regionHostnameProviderSettingsCacheTime {
-		return nil
+	if hostnameSettings != nil {
+		ttl := hostnameSettings.cacheTTL
+		if ttl <= 0 {
+			ttl = regionHostnameProviderSettingsCacheTime
+		}
+		if time.Since(hostnameSettings.updatedAt) < ttl {
+			return nil
+		}
 	}
 
 	settingsURL := regionSettingsURL(cloudHostname)
@@ -83,12 +90,17 @@ func (r *regionURLProvider) RefreshRegionSettings(cloudHostname, token string) e
 		return errors.New("refreshRegionSettings failed to decode region settings: " + err.Error())
 	}
 
-	item := &hostnameSettingsCacheItem{
-		regionSettings:    regions,
-		updatedAt:         time.Now(),
-		regionURLAttempts: map[string]int{},
+	ttl := regionHostnameProviderSettingsCacheTime
+	if maxAge := parseRegionSettingsMaxAge(resp.Header.Get("Cache-Control")); maxAge > 0 {
+		ttl = maxAge
 	}
+
 	r.mutex.Lock()
+	item := &hostnameSettingsCacheItem{
+		regionSettings: regions,
+		updatedAt:      time.Now(),
+		cacheTTL:       ttl,
+	}
 	r.hostnameSettingsCache[cloudHostname] = item
 	r.mutex.Unlock()
 
@@ -99,22 +111,62 @@ func (r *regionURLProvider) RefreshRegionSettings(cloudHostname, token string) e
 	return nil
 }
 
-// PopBestURL removes and returns the best region URL. Once all URLs are exhausted, it will return an error.
-// RefreshRegionSettings must be called to repopulate the list of regions.
-func (r *regionURLProvider) PopBestURL(cloudHostname, token string) (string, error) {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-
-	hostnameSettings := r.hostnameSettingsCache[cloudHostname]
-
-	if hostnameSettings == nil || hostnameSettings.regionSettings == nil || len(hostnameSettings.regionSettings.Regions) == 0 {
-		return "", errors.New("no regions available")
+// RegionSettings returns the cached region list for a hostname, refreshing it if
+// stale. The returned list is owned by the cache and must not be mutated; the
+// caller is responsible for tracking its own per-failover attempt state.
+func (r *regionURLProvider) RegionSettings(cloudHostname, token string) (*livekit.RegionSettings, error) {
+	if err := r.RefreshRegionSettings(cloudHostname, token); err != nil {
+		r.mutex.RLock()
+		cached := r.hostnameSettingsCache[cloudHostname]
+		r.mutex.RUnlock()
+		if cached == nil {
+			return nil, err
+		}
+		// a cached list exists; fall through and use it
 	}
 
-	bestRegionURL := hostnameSettings.regionSettings.Regions[0].Url
-	hostnameSettings.regionSettings.Regions = hostnameSettings.regionSettings.Regions[1:]
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+	item := r.hostnameSettingsCache[cloudHostname]
+	if item == nil {
+		return nil, errors.New("no regions available")
+	}
+	return item.regionSettings, nil
+}
 
-	return bestRegionURL, nil
+// SetServerReportedRegions stores a region list pushed by the server (e.g. on a
+// reconnect LeaveRequest), overriding the cached /settings/regions list and
+// resetting the cache TTL so the next failover uses it without re-fetching.
+func (r *regionURLProvider) SetServerReportedRegions(cloudHostname string, regions *livekit.RegionSettings) {
+	if regions == nil {
+		return
+	}
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	ttl := regionHostnameProviderSettingsCacheTime
+	if existing := r.hostnameSettingsCache[cloudHostname]; existing != nil && existing.cacheTTL > 0 {
+		ttl = existing.cacheTTL
+	}
+	r.hostnameSettingsCache[cloudHostname] = &hostnameSettingsCacheItem{
+		regionSettings: regions,
+		updatedAt:      time.Now(),
+		cacheTTL:       ttl,
+	}
+}
+
+// parseRegionSettingsMaxAge extracts the max-age (seconds) from a Cache-Control
+// header value, returning 0 when absent or unparseable. Directive names are
+// case-insensitive per RFC 9111.
+func parseRegionSettingsMaxAge(cacheControl string) time.Duration {
+	for _, directive := range strings.Split(cacheControl, ",") {
+		directive = strings.ToLower(strings.TrimSpace(directive))
+		if strings.HasPrefix(directive, "max-age=") {
+			if secs, err := strconv.Atoi(strings.TrimPrefix(directive, "max-age=")); err == nil && secs > 0 {
+				return time.Duration(secs) * time.Second
+			}
+		}
+	}
+	return 0
 }
 
 func parseCloudURL(serverURL string) (string, error) {
