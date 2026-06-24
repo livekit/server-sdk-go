@@ -102,3 +102,71 @@ func TestFilterTURNServers(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildReconnectCandidates(t *testing.T) {
+	regions := &livekit.RegionSettings{
+		Regions: []*livekit.RegionInfo{
+			{Url: "wss://r1"},
+			{Url: "wss://r2"},
+		},
+	}
+	tests := []struct {
+		name           string
+		serverDirected bool
+		currentURL     string
+		settings       *livekit.RegionSettings
+		originalURL    string
+		want           []string
+	}{
+		{
+			name:        "current first, then regions, then global",
+			currentURL:  "wss://current",
+			settings:    regions,
+			originalURL: "wss://global",
+			want:        []string{"wss://current", "wss://r1", "wss://r2", "wss://global"},
+		},
+		{
+			name:           "server-directed skips current",
+			serverDirected: true,
+			currentURL:     "wss://current",
+			settings:       regions,
+			originalURL:    "wss://global",
+			want:           []string{"wss://r1", "wss://r2", "wss://global"},
+		},
+		{
+			name:        "dedupes current when it is also the geo-best region",
+			currentURL:  "wss://r1",
+			settings:    regions,
+			originalURL: "wss://global",
+			want:        []string{"wss://r1", "wss://r2", "wss://global"},
+		},
+		{
+			name:        "nil settings falls back to current and global",
+			currentURL:  "wss://current",
+			settings:    nil,
+			originalURL: "wss://global",
+			want:        []string{"wss://current", "wss://global"},
+		},
+		{
+			name:           "server-directed with nil settings tries only global",
+			serverDirected: true,
+			currentURL:     "wss://current",
+			settings:       nil,
+			originalURL:    "wss://global",
+			want:           []string{"wss://global"},
+		},
+		{
+			name:        "drops empty urls",
+			currentURL:  "",
+			settings:    regions,
+			originalURL: "",
+			want:        []string{"wss://r1", "wss://r2"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := buildReconnectCandidates(tc.serverDirected, tc.currentURL, tc.settings, tc.originalURL)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}

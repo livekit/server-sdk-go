@@ -140,9 +140,10 @@ type RTCEngine struct {
 	token      atomic.String
 	connParams *signalling.ConnectParams
 
-	regionProvider *regionURLProvider
-	originalURL    string // the user-provided (global) URL; reconnect fallback
-	cloudHost      string // parsed cloud hostname; empty when not applicable
+	regionProvider          *regionURLProvider
+	originalURL             string      // the user-provided (global) URL; reconnect fallback
+	cloudHost               string      // parsed cloud hostname; empty when not applicable
+	serverDirectedReconnect atomic.Bool // server sent a region list on the last reconnect leave
 
 	joinTimeout time.Duration
 
@@ -939,25 +940,20 @@ func (e *RTCEngine) connectWithRegionFailover() error {
 		return attempt(url)
 	}
 
-	// current region first (benign cases like SFU scale-down stay put), then the
-	// server-sorted region list, then the global URL as a final fallback
-	candidates := []string{e.url}
-	if settings, err := e.regionProvider.RegionSettings(e.cloudHost, e.token.Load()); err != nil {
+	// when the server directed this reconnect with its own region list, honor it
+	// and skip the current region (it told us where to go); otherwise try current
+	// first (benign cases like SFU scale-down stay put)
+	serverDirected := e.serverDirectedReconnect.Swap(false)
+	var settings *livekit.RegionSettings
+	if s, err := e.regionProvider.RegionSettings(e.cloudHost, e.token.Load()); err != nil {
 		e.log.Infow("could not get region settings for reconnect, using current and original url", "error", err)
 	} else {
-		for _, region := range settings.GetRegions() {
-			candidates = append(candidates, region.Url)
-		}
+		settings = s
 	}
-	candidates = append(candidates, e.originalURL)
+	candidates := buildReconnectCandidates(serverDirected, e.url, settings, e.originalURL)
 
-	tried := make(map[string]bool, len(candidates))
 	var lastErr error
 	for _, url := range candidates {
-		if url == "" || tried[url] {
-			continue
-		}
-		tried[url] = true
 		if err := attempt(url); err == nil {
 			return nil
 		} else {
@@ -970,6 +966,32 @@ func (e *RTCEngine) connectWithRegionFailover() error {
 		lastErr = ErrCannotConnectSignal
 	}
 	return lastErr
+}
+
+// buildReconnectCandidates returns the ordered, de-duplicated list of URLs to try
+// on a full reconnect: the current region first (unless the server directed the
+// reconnect with its own region list), then the server-sorted regions, then the
+// original (global) URL as a final fallback. Empty entries are dropped.
+func buildReconnectCandidates(serverDirected bool, currentURL string, settings *livekit.RegionSettings, originalURL string) []string {
+	raw := make([]string, 0, len(settings.GetRegions())+2)
+	if !serverDirected {
+		raw = append(raw, currentURL)
+	}
+	for _, region := range settings.GetRegions() {
+		raw = append(raw, region.Url)
+	}
+	raw = append(raw, originalURL)
+
+	seen := make(map[string]bool, len(raw))
+	out := raw[:0]
+	for _, u := range raw {
+		if u == "" || seen[u] {
+			continue
+		}
+		seen[u] = true
+		out = append(out, u)
+	}
+	return out
 }
 
 func (e *RTCEngine) createSubscriberPCAnswerAndSend() error {
@@ -1547,6 +1569,8 @@ func (e *RTCEngine) OnLeave(leave *livekit.LeaveRequest) {
 	// using the server's authoritative ordering rather than stale DNS/settings
 	if regions := leave.GetRegions(); regions != nil && e.regionProvider != nil && e.cloudHost != "" {
 		e.regionProvider.SetServerReportedRegions(e.cloudHost, regions)
+		// the server told us where to go; the next failover skips the current region
+		e.serverDirectedReconnect.Store(true)
 	}
 	switch leave.GetAction() {
 	case livekit.LeaveRequest_DISCONNECT:
