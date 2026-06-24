@@ -104,7 +104,7 @@ func (st *SessionTimeline) AddParticipant(participantID string) *ParticipantCloc
 	st.mu.Lock()
 	defer st.mu.Unlock()
 
-	pc := NewParticipantClock(st.logger)
+	pc := NewParticipantClock(st.logger, participantID)
 	st.participants[participantID] = pc
 	return pc
 }
@@ -119,7 +119,7 @@ func (st *SessionTimeline) GetOrAddParticipant(participantID string) *Participan
 		return pc
 	}
 
-	pc := NewParticipantClock(st.logger)
+	pc := NewParticipantClock(st.logger, participantID)
 	st.participants[participantID] = pc
 	return pc
 }

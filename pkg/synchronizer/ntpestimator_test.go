@@ -259,7 +259,7 @@ func TestNtpEstimator_PersistentOutliersRebuildRegression(t *testing.T) {
 	wallTime := baseTime.Add(time.Duration(resetIdx)*time.Second + ntpStep)
 	rtpTS := uint32(resetIdx) * clockRate
 	result := e.OnSenderReport(ntpToUint64(wallTime), rtpTS, wallTime)
-	require.Equal(t, SRAccepted, result, "Nth consecutive outlier should trigger reset and acceptance")
+	require.Equal(t, SRRebuilt, result, "Nth consecutive outlier should trigger reset and acceptance")
 	require.False(t, e.IsReady(), "regression should not be ready until minSamplesReady SRs accumulate")
 
 	// Feed minSamplesReady more SRs at the new (stepped) NTP base.

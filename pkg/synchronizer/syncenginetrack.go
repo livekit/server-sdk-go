@@ -205,7 +205,13 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 
 	// Drop packets older than threshold.
 	if st.engine.oldPacketThreshold > 0 && !pkt.ReceivedAt.IsZero() {
-		if time.Since(pkt.ReceivedAt) > st.engine.oldPacketThreshold {
+		age := time.Since(pkt.ReceivedAt)
+		if age > st.engine.oldPacketThreshold {
+			st.logger.Infow("dropping old packet",
+				"age", age,
+				"threshold", st.engine.oldPacketThreshold,
+				"rtpTS", ts,
+			)
 			return 0, ErrPacketTooOld
 		}
 	}
@@ -469,14 +475,12 @@ func (st *syncEngineTrack) wallClockPTS(pkt jitter.ExtPacket) time.Duration {
 	return st.wallClockPTSForRTPLocked(pkt.Timestamp, pkt.ReceivedAt)
 }
 
-// wallClockPTSForRTP computes the wall-clock-grounded PTS for the given RTP
-// timestamp at the given receive time. Returns false if the track has not yet
-// been initialized (no packets processed). Used to compute the PTS that would
-// be assigned to an SR's RTP timestamp without actually emitting it.
+// wallClockPTSForRTP returns the PTS that would be assigned to an SR's RTP timestamp without emitting it.
 func (st *syncEngineTrack) wallClockPTSForRTP(ts uint32, receivedAt time.Time) (time.Duration, bool) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	if !st.initialized {
+	// closed: closeLocked may have run between OnRTCP releasing st.mu and us reacquiring it; a phantom wallPTS here would arm a tempo correction against audio that is already gone.
+	if !st.initialized || st.closed {
 		return 0, false
 	}
 	return st.wallClockPTSForRTPLocked(ts, receivedAt), true
