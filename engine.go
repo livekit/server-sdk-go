@@ -983,7 +983,8 @@ func buildReconnectCandidates(serverDirected bool, currentURL string, settings *
 	raw = append(raw, originalURL)
 
 	seen := make(map[string]bool, len(raw))
-	out := raw[:0]
+
+	out := make([]string, 0, len(raw))
 	for _, u := range raw {
 		if u == "" || seen[u] {
 			continue
