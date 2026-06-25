@@ -140,6 +140,11 @@ type RTCEngine struct {
 	token      atomic.String
 	connParams *signalling.ConnectParams
 
+	regionProvider          *regionURLProvider
+	originalURL             string      // the user-provided (global) URL; reconnect fallback
+	cloudHost               string      // parsed cloud hostname; empty when not applicable
+	serverDirectedReconnect atomic.Bool // server sent a region list on the last reconnect leave
+
 	joinTimeout time.Duration
 
 	dataCryptor *e2ee.DataCryptor // E2EE data channel encryption (nil = disabled)
@@ -824,6 +829,9 @@ func (e *RTCEngine) handleDisconnect(fullReconnect bool) {
 				e.log.Infow("resuming connection...", "reconnectCount", reconnectCount)
 				if err := e.resumeConnection(); err != nil {
 					e.log.Errorw("resume connection failed", err)
+					// escalate to a full reconnect so region failover engages
+					// instead of retrying resume against the same (dead) region
+					e.requiresFullReconnect.Store(true)
 				} else {
 					return
 				}
@@ -895,11 +903,100 @@ func (e *RTCEngine) cleanupConnection() {
 	e.closePeerConnections()
 }
 
-func (e *RTCEngine) restartConnection() error {
-	e.cleanupConnection()
+// setRegionConnectInfo wires the region provider and the original (global) URL
+// into the engine so the reconnect path can fail over across regions. cloudHost
+// is empty when region discovery does not apply, in which case reconnect just
+// re-dials the original URL.
+func (e *RTCEngine) setRegionConnectInfo(provider *regionURLProvider, originalURL, cloudHost string) {
+	e.regionProvider = provider
+	e.originalURL = originalURL
+	e.cloudHost = cloudHost
+}
 
-	_, err := e.JoinContext(context.TODO(), e.url, e.token.Load(), e.connParams, nil)
+func (e *RTCEngine) restartConnection() error {
+	return e.connectWithRegionFailover(e.attemptJoin)
+}
+
+// attemptJoin tears down the current connection and rejoins to a single URL,
+// bounded by a timeout so a blackholed endpoint fails fast (otherwise the signal
+// dial is only capped by the WebSocket handshake timeout, ~45s).
+func (e *RTCEngine) attemptJoin(url string) error {
+	e.cleanupConnection()
+	timeout := e.joinTimeout
+	if e.connParams != nil && e.connParams.ConnectTimeout > 0 {
+		timeout = e.connParams.ConnectTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	_, err := e.JoinContext(ctx, url, e.token.Load(), e.connParams, nil)
 	return err
+}
+
+// connectWithRegionFailover performs a full reconnect by walking the candidate
+// list and connecting to the first that succeeds. attempt connects to a single
+// URL; it is a parameter so tests can mock per-region success/failure.
+func (e *RTCEngine) connectWithRegionFailover(attempt func(url string) error) error {
+	if e.regionProvider == nil || e.cloudHost == "" {
+		url := e.originalURL
+		if url == "" {
+			url = e.url
+		}
+		return attempt(url)
+	}
+
+	// when the server directed this reconnect with its own region list, honor it
+	// and skip the current region (it told us where to go); otherwise try current
+	// first (benign cases like SFU scale-down stay put)
+	serverDirected := e.serverDirectedReconnect.Swap(false)
+	var settings *livekit.RegionSettings
+	if s, err := e.regionProvider.RegionSettings(e.cloudHost, e.token.Load()); err != nil {
+		e.log.Infow("could not get region settings for reconnect, using current and original url", "error", err)
+	} else {
+		settings = s
+	}
+	candidates := buildReconnectCandidates(serverDirected, e.url, settings, e.originalURL)
+
+	var lastErr error
+	for _, url := range candidates {
+		if err := attempt(url); err == nil {
+			return nil
+		} else {
+			lastErr = err
+			e.log.Infow("region reconnect attempt failed, trying next candidate", "url", url, "error", err)
+		}
+	}
+
+	if lastErr == nil {
+		lastErr = ErrCannotConnectSignal
+	}
+	return lastErr
+}
+
+// buildReconnectCandidates returns the ordered, de-duplicated list of URLs to try
+// on a full reconnect: the current region first (unless the server directed the
+// reconnect with its own region list), then the server-sorted regions, then the
+// original (global) URL as a final fallback. Empty entries are dropped.
+func buildReconnectCandidates(serverDirected bool, currentURL string, settings *livekit.RegionSettings, originalURL string) []string {
+	raw := make([]string, 0, len(settings.GetRegions())+2)
+	if !serverDirected {
+		raw = append(raw, currentURL)
+	}
+	for _, region := range settings.GetRegions() {
+		raw = append(raw, region.Url)
+	}
+	raw = append(raw, originalURL)
+
+	seen := make(map[string]bool, len(raw))
+
+	out := make([]string, 0, len(raw))
+	for _, u := range raw {
+		if u == "" || seen[u] {
+			continue
+		}
+		seen[u] = true
+		out = append(out, u)
+	}
+	return out
 }
 
 func (e *RTCEngine) createSubscriberPCAnswerAndSend() error {
@@ -1248,6 +1345,17 @@ func (e *RTCEngine) Simulate(scenario SimulateScenario) {
 				},
 			),
 		)
+
+	case SimulateLeaveRequestFullReconnect:
+		e.signalTransport.SendMessage(
+			e.signalling.SignalSimulateScenario(
+				&livekit.SimulateScenario{
+					Scenario: &livekit.SimulateScenario_LeaveRequestFullReconnect{
+						LeaveRequestFullReconnect: true,
+					},
+				},
+			),
+		)
 	}
 }
 
@@ -1473,6 +1581,13 @@ func (e *RTCEngine) OnTokenRefresh(refreshToken string) {
 
 func (e *RTCEngine) OnLeave(leave *livekit.LeaveRequest) {
 	e.log.Debugw("received leave request", "action", leave.GetAction())
+	// adopt any server-reported region list so the ensuing reconnect fails over
+	// using the server's authoritative ordering rather than stale DNS/settings
+	if regions := leave.GetRegions(); regions != nil && e.regionProvider != nil && e.cloudHost != "" {
+		e.regionProvider.SetServerReportedRegions(e.cloudHost, regions)
+		// the server told us where to go; the next failover skips the current region
+		e.serverDirectedReconnect.Store(true)
+	}
 	switch leave.GetAction() {
 	case livekit.LeaveRequest_DISCONNECT:
 		e.Close()

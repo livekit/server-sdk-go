@@ -84,7 +84,7 @@ func newTestProvider(rs *regionSettingsServer) *regionURLProvider {
 	return p
 }
 
-func TestRegionURLProvider_FetchAndPopOrder(t *testing.T) {
+func TestRegionURLProvider_RegionSettingsOrder(t *testing.T) {
 	rs := newRegionSettingsServer(t, &livekit.RegionSettings{
 		Regions: []*livekit.RegionInfo{
 			{Region: "us-east", Url: "wss://us-east.example.com", Distance: 10},
@@ -94,24 +94,23 @@ func TestRegionURLProvider_FetchAndPopOrder(t *testing.T) {
 	})
 	p := newTestProvider(rs)
 
-	require.NoError(t, p.RefreshRegionSettings(rs.hostname, "test-token"))
-	require.EqualValues(t, 1, rs.hits.Load(), "should hit /settings/regions once")
-
-	// PopBestURL returns regions in the order the server provided them (server
-	// sorts by proximity), removing each as it goes.
-	for _, want := range []string{
+	want := []string{
 		"wss://us-east.example.com",
 		"wss://us-west.example.com",
 		"wss://eu.example.com",
-	} {
-		got, err := p.PopBestURL(rs.hostname, "test-token")
+	}
+	// RegionSettings returns the list in server order and does not mutate it, so
+	// repeated calls return the same list and only fetch once.
+	for n := 0; n < 2; n++ {
+		settings, err := p.RegionSettings(rs.hostname, "test-token")
 		require.NoError(t, err)
+		var got []string
+		for _, region := range settings.GetRegions() {
+			got = append(got, region.Url)
+		}
 		require.Equal(t, want, got)
 	}
-
-	// once exhausted, PopBestURL errors until RefreshRegionSettings repopulates
-	_, err := p.PopBestURL(rs.hostname, "test-token")
-	require.Error(t, err)
+	require.EqualValues(t, 1, rs.hits.Load(), "should hit /settings/regions once")
 }
 
 func TestRegionURLProvider_CacheAvoidsRefetch(t *testing.T) {
@@ -135,12 +134,9 @@ func TestRegionURLProvider_RefreshRepopulates(t *testing.T) {
 	})
 	p := newTestProvider(rs)
 
-	require.NoError(t, p.RefreshRegionSettings(rs.hostname, "test-token"))
-	got, err := p.PopBestURL(rs.hostname, "test-token")
+	settings, err := p.RegionSettings(rs.hostname, "test-token")
 	require.NoError(t, err)
-	require.Equal(t, "wss://a.example.com", got)
-	_, err = p.PopBestURL(rs.hostname, "test-token")
-	require.Error(t, err, "exhausted")
+	require.Equal(t, "wss://a.example.com", settings.GetRegions()[0].Url)
 
 	// expire the cache and serve a different region list
 	p.mutex.Lock()
@@ -150,11 +146,10 @@ func TestRegionURLProvider_RefreshRepopulates(t *testing.T) {
 		Regions: []*livekit.RegionInfo{{Region: "b", Url: "wss://b.example.com"}},
 	})
 
-	require.NoError(t, p.RefreshRegionSettings(rs.hostname, "test-token"))
-	require.EqualValues(t, 2, rs.hits.Load(), "refresh past TTL must refetch")
-	got, err = p.PopBestURL(rs.hostname, "test-token")
+	settings, err = p.RegionSettings(rs.hostname, "test-token")
 	require.NoError(t, err)
-	require.Equal(t, "wss://b.example.com", got)
+	require.EqualValues(t, 2, rs.hits.Load(), "refresh past TTL must refetch")
+	require.Equal(t, "wss://b.example.com", settings.GetRegions()[0].Url)
 }
 
 func TestRegionURLProvider_FetchError(t *testing.T) {
@@ -164,9 +159,44 @@ func TestRegionURLProvider_FetchError(t *testing.T) {
 	rs.mu.Unlock()
 	p := newTestProvider(rs)
 
-	err := p.RefreshRegionSettings(rs.hostname, "test-token")
-	require.Error(t, err)
-
-	_, err = p.PopBestURL(rs.hostname, "test-token")
+	_, err := p.RegionSettings(rs.hostname, "test-token")
 	require.Error(t, err, "no regions cached after a failed fetch")
+}
+
+// TestRegionURLProvider_SetServerReportedRegions verifies that a server-pushed
+// region list (e.g. from a reconnect LeaveRequest) overrides the cached list and
+// is used without hitting /settings/regions.
+func TestRegionURLProvider_SetServerReportedRegions(t *testing.T) {
+	rs := newRegionSettingsServer(t, &livekit.RegionSettings{
+		Regions: []*livekit.RegionInfo{{Region: "a", Url: "wss://a.example.com"}},
+	})
+	p := newTestProvider(rs)
+
+	p.SetServerReportedRegions(rs.hostname, &livekit.RegionSettings{
+		Regions: []*livekit.RegionInfo{
+			{Region: "b", Url: "wss://b.example.com"},
+			{Region: "c", Url: "wss://c.example.com"},
+		},
+	})
+
+	settings, err := p.RegionSettings(rs.hostname, "test-token")
+	require.NoError(t, err)
+	require.Equal(t, "wss://b.example.com", settings.GetRegions()[0].Url)
+	require.EqualValues(t, 0, rs.hits.Load(), "server-reported regions must not trigger a fetch")
+}
+
+func TestParseRegionSettingsMaxAge(t *testing.T) {
+	cases := map[string]time.Duration{
+		"max-age=60":         60 * time.Second,
+		"public, max-age=30": 30 * time.Second,
+		"public, Max-Age=60": 60 * time.Second, // directive names are case-insensitive
+		"MAX-AGE=90":         90 * time.Second,
+		"no-cache":           0,
+		"":                   0,
+		"max-age=abc":        0,
+		"max-age=0":          0,
+	}
+	for in, want := range cases {
+		require.Equal(t, want, parseRegionSettingsMaxAge(in), "input %q", in)
+	}
 }
