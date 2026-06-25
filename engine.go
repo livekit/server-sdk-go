@@ -914,24 +914,28 @@ func (e *RTCEngine) setRegionConnectInfo(provider *regionURLProvider, originalUR
 }
 
 func (e *RTCEngine) restartConnection() error {
-	return e.connectWithRegionFailover()
+	return e.connectWithRegionFailover(e.attemptJoin)
 }
 
-func (e *RTCEngine) connectWithRegionFailover() error {
-	attempt := func(url string) error {
-		e.cleanupConnection()
-		// bound each candidate so a blackholed endpoint fails fast (otherwise the
-		// signal dial is only capped by the WebSocket handshake timeout, ~45s)
-		timeout := e.joinTimeout
-		if e.connParams != nil && e.connParams.ConnectTimeout > 0 {
-			timeout = e.connParams.ConnectTimeout
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
-		_, err := e.JoinContext(ctx, url, e.token.Load(), e.connParams, nil)
-		return err
+// attemptJoin tears down the current connection and rejoins to a single URL,
+// bounded by a timeout so a blackholed endpoint fails fast (otherwise the signal
+// dial is only capped by the WebSocket handshake timeout, ~45s).
+func (e *RTCEngine) attemptJoin(url string) error {
+	e.cleanupConnection()
+	timeout := e.joinTimeout
+	if e.connParams != nil && e.connParams.ConnectTimeout > 0 {
+		timeout = e.connParams.ConnectTimeout
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	_, err := e.JoinContext(ctx, url, e.token.Load(), e.connParams, nil)
+	return err
+}
 
+// connectWithRegionFailover performs a full reconnect by walking the candidate
+// list and connecting to the first that succeeds. attempt connects to a single
+// URL; it is a parameter so tests can mock per-region success/failure.
+func (e *RTCEngine) connectWithRegionFailover(attempt func(url string) error) error {
 	if e.regionProvider == nil || e.cloudHost == "" {
 		url := e.originalURL
 		if url == "" {
@@ -1337,6 +1341,17 @@ func (e *RTCEngine) Simulate(scenario SimulateScenario) {
 				&livekit.SimulateScenario{
 					Scenario: &livekit.SimulateScenario_NodeFailure{
 						NodeFailure: true,
+					},
+				},
+			),
+		)
+
+	case SimulateLeaveRequestFullReconnect:
+		e.signalTransport.SendMessage(
+			e.signalling.SignalSimulateScenario(
+				&livekit.SimulateScenario{
+					Scenario: &livekit.SimulateScenario_LeaveRequestFullReconnect{
+						LeaveRequestFullReconnect: true,
 					},
 				},
 			),

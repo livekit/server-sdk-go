@@ -61,6 +61,9 @@ const (
 	SimulateMigration
 	SimulateServerLeave
 	SimulateNodeFailure
+	// SimulateLeaveRequestFullReconnect asks the server to send a reconnect
+	// LeaveRequest that drops the current region, exercising region failover.
+	SimulateLeaveRequestFullReconnect
 )
 
 type ConnectionState string
