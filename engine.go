@@ -1341,6 +1341,17 @@ func (e *RTCEngine) Simulate(scenario SimulateScenario) {
 				},
 			),
 		)
+
+	case SimulateLeaveRequestFullReconnect:
+		e.signalTransport.SendMessage(
+			e.signalling.SignalSimulateScenario(
+				&livekit.SimulateScenario{
+					Scenario: &livekit.SimulateScenario_LeaveRequestFullReconnect{
+						LeaveRequestFullReconnect: true,
+					},
+				},
+			),
+		)
 	}
 }
 
