@@ -91,6 +91,13 @@ type ConnectParams struct {
 
 	ICETransportPolicy webrtc.ICETransportPolicy
 
+	// SettingEngineFunc, if set, is invoked with the pion SettingEngine after the
+	// SDK builds it (per PeerConnection) and before the WebRTC API is created. It
+	// lets callers customize ICE behavior the SDK does not otherwise expose — for
+	// example SetInterfaceFilter / SetIPFilter to exclude interfaces or IPs from
+	// candidate gathering. See WithSettingEngineFunc.
+	SettingEngineFunc func(*webrtc.SettingEngine)
+
 	// DisableTURN removes TURN/TURNS URLs from the ICE server list provided by the SFU.
 	// Use this when the client is co-located with the SFU and does not need relay candidates.
 	DisableTURN bool
