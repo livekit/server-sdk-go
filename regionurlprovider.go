@@ -182,7 +182,8 @@ func parseCloudURL(serverURL string) (string, error) {
 	return parsedURL.Hostname(), nil
 }
 
-// isCloud reports whether the hostname belongs to LiveKit Cloud.
+// isCloud reports whether the hostname belongs to a LiveKit Cloud project
+// (a *.livekit.cloud subdomain).
 var isCloud = func(hostname string) bool {
-	return strings.HasSuffix(hostname, "livekit.cloud") || strings.HasSuffix(hostname, "livekit.io")
+	return strings.HasSuffix(hostname, ".livekit.cloud")
 }

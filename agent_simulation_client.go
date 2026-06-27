@@ -16,7 +16,6 @@ package lksdk
 
 import (
 	"context"
-	"net/http"
 
 	"github.com/twitchtv/twirp"
 
@@ -29,7 +28,7 @@ type AgentSimulationClient struct {
 }
 
 func NewAgentSimulationClient(url string, apiKey string, apiSecret string, opts ...twirp.ClientOption) *AgentSimulationClient {
-	client := livekit.NewAgentSimulationProtobufClient(url, &http.Client{}, opts...)
+	client := livekit.NewAgentSimulationProtobufClient(url, newAPIHTTPClient(), opts...)
 	return &AgentSimulationClient{
 		simulationClient: client,
 		authBase:         authBase{apiKey, apiSecret},

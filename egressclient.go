@@ -16,7 +16,6 @@ package lksdk
 
 import (
 	"context"
-	"net/http"
 
 	"github.com/twitchtv/twirp"
 
@@ -33,7 +32,7 @@ type EgressClient struct {
 func NewEgressClient(url string, apiKey string, secretKey string, opts ...twirp.ClientOption) *EgressClient {
 	opts = append(opts, xtwirp.DefaultClientOptions()...)
 	url = signalling.ToHttpURL(url)
-	client := livekit.NewEgressProtobufClient(url, &http.Client{}, opts...)
+	client := livekit.NewEgressProtobufClient(url, newAPIHTTPClient(), opts...)
 	return &EgressClient{
 		egressClient: client,
 		authBase: authBase{

@@ -16,7 +16,6 @@ package lksdk
 
 import (
 	"context"
-	"net/http"
 	"time"
 
 	"github.com/twitchtv/twirp"
@@ -35,7 +34,7 @@ type PhoneNumberClient struct {
 func NewPhoneNumberClient(url string, apiKey string, secretKey string, opts ...twirp.ClientOption) *PhoneNumberClient {
 	opts = append(opts, xtwirp.DefaultClientOptions()...)
 	return &PhoneNumberClient{
-		phoneNumberClient: livekit.NewPhoneNumberServiceProtobufClient(signalling.ToHttpURL(url), &http.Client{}, opts...),
+		phoneNumberClient: livekit.NewPhoneNumberServiceProtobufClient(signalling.ToHttpURL(url), newAPIHTTPClient(), opts...),
 		authBase: authBase{
 			apiKey:    apiKey,
 			apiSecret: secretKey,

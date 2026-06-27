@@ -16,7 +16,6 @@ package lksdk
 
 import (
 	"context"
-	"net/http"
 
 	"github.com/google/uuid"
 	"github.com/twitchtv/twirp"
@@ -35,7 +34,7 @@ type RoomServiceClient struct {
 func NewRoomServiceClient(url string, apiKey string, secretKey string, opts ...twirp.ClientOption) *RoomServiceClient {
 	opts = append(opts, xtwirp.DefaultClientOptions()...)
 	url = signalling.ToHttpURL(url)
-	client := livekit.NewRoomServiceProtobufClient(url, &http.Client{}, opts...)
+	client := livekit.NewRoomServiceProtobufClient(url, newAPIHTTPClient(), opts...)
 	return &RoomServiceClient{
 		roomService: client,
 		authBase: authBase{

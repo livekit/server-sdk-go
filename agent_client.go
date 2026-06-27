@@ -29,7 +29,7 @@ func NewAgentClient(url string, apiKey string, apiSecret string, opts ...AgentCl
 	}
 	c := &AgentClient{
 		authBase:   authBase{apiKey, apiSecret},
-		httpClient: &http.Client{},
+		httpClient: newAPIHTTPClient(),
 	}
 	for _, opt := range opts {
 		opt(c)

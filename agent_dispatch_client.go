@@ -16,7 +16,6 @@ package lksdk
 
 import (
 	"context"
-	"net/http"
 
 	"github.com/twitchtv/twirp"
 
@@ -31,7 +30,7 @@ type AgentDispatchClient struct {
 
 func NewAgentDispatchServiceClient(url string, apiKey string, secretKey string, opts ...twirp.ClientOption) *AgentDispatchClient {
 	url = signalling.ToHttpURL(url)
-	client := livekit.NewAgentDispatchServiceProtobufClient(url, &http.Client{}, opts...)
+	client := livekit.NewAgentDispatchServiceProtobufClient(url, newAPIHTTPClient(), opts...)
 
 	return &AgentDispatchClient{
 		agentDispatchService: client,

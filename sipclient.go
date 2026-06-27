@@ -16,7 +16,6 @@ package lksdk
 
 import (
 	"context"
-	"net/http"
 	"time"
 
 	"github.com/twitchtv/twirp"
@@ -38,7 +37,7 @@ type SIPClient struct {
 func NewSIPClient(url string, apiKey string, secretKey string, opts ...twirp.ClientOption) *SIPClient {
 	opts = append(opts, xtwirp.DefaultClientOptions()...)
 	return &SIPClient{
-		sipClient: livekit.NewSIPProtobufClient(signalling.ToHttpURL(url), &http.Client{}, opts...),
+		sipClient: livekit.NewSIPProtobufClient(signalling.ToHttpURL(url), newAPIHTTPClient(), opts...),
 		authBase: authBase{
 			apiKey:    apiKey,
 			apiSecret: secretKey,
