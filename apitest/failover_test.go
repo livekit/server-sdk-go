@@ -61,7 +61,7 @@ func testServerURL(t *testing.T) string {
 // cloud host) with a tiny backoff, carrying the given X-Lk-Mock-* directives as
 // twirp request headers.
 func failoverCtx(t *testing.T, mode lksdk.FailoverMode, directives map[string]string) context.Context {
-	ctx := lksdk.WithFailoverConfig(context.Background(), lksdk.FailoverConfig{
+	ctx := lksdk.WithFailoverOptions(context.Background(), lksdk.FailoverOptions{
 		Mode:        mode,
 		BackoffBase: time.Millisecond,
 	})

@@ -51,9 +51,9 @@ const (
 	defaultBackoffBase = 200 * time.Millisecond
 )
 
-// FailoverConfig tunes the region-failover retry loop. A zero value is valid
+// FailoverOptions tunes the region-failover retry loop. A zero value is valid
 // and uses the defaults (auto mode, 3 attempts, 200ms base backoff).
-type FailoverConfig struct {
+type FailoverOptions struct {
 	// Mode selects when failover is active. Defaults to FailoverAuto.
 	Mode FailoverMode
 	// MaxAttempts is the total number of attempts including the first, so the
@@ -64,7 +64,7 @@ type FailoverConfig struct {
 	BackoffBase time.Duration
 }
 
-func (c FailoverConfig) withDefaults() FailoverConfig {
+func (c FailoverOptions) withDefaults() FailoverOptions {
 	if c.MaxAttempts <= 0 {
 		c.MaxAttempts = defaultMaxAttempts
 	}
@@ -76,7 +76,7 @@ func (c FailoverConfig) withDefaults() FailoverConfig {
 	return c
 }
 
-func (c FailoverConfig) enabledFor(hostname string) bool {
+func (c FailoverOptions) enabledFor(hostname string) bool {
 	switch c.Mode {
 	case FailoverOff:
 		return false
@@ -89,18 +89,18 @@ func (c FailoverConfig) enabledFor(hostname string) bool {
 
 type failoverConfigKey struct{}
 
-// WithFailoverConfig returns a context that overrides the region-failover
+// WithFailoverOptions returns a context that overrides the region-failover
 // behavior for API requests made with it. Pass the returned context to any
 // service client method.
-func WithFailoverConfig(ctx context.Context, cfg FailoverConfig) context.Context {
+func WithFailoverOptions(ctx context.Context, cfg FailoverOptions) context.Context {
 	return context.WithValue(ctx, failoverConfigKey{}, cfg)
 }
 
-func failoverConfigFromContext(ctx context.Context) FailoverConfig {
-	if cfg, ok := ctx.Value(failoverConfigKey{}).(FailoverConfig); ok {
+func failoverConfigFromContext(ctx context.Context) FailoverOptions {
+	if cfg, ok := ctx.Value(failoverConfigKey{}).(FailoverOptions); ok {
 		return cfg.withDefaults()
 	}
-	return FailoverConfig{}.withDefaults()
+	return FailoverOptions{}.withDefaults()
 }
 
 // newAPIHTTPClient returns the *http.Client used by every API service client.
@@ -186,6 +186,14 @@ func (t *failoverTransport) RoundTrip(req *http.Request) (*http.Response, error)
 			break // no untried region left
 		}
 
+		status := 0
+		if resp != nil {
+			status = resp.StatusCode
+		}
+		logger.Warnw("livekit API request failed, retrying with fallback url", err,
+			"failedUrl", scheme+"://"+host, "fallbackUrl", nextScheme+"://"+nextHost,
+			"attempt", attempt+1, "maxAttempts", maxAttempts, "status", status)
+
 		drainResponse(resp)
 		if !sleepCtx(req.Context(), cfg.BackoffBase<<uint(attempt)) {
 			return resp, err // context cancelled during backoff
@@ -264,7 +272,7 @@ type apiRegionEntry struct {
 
 func newAPIRegionCache() *apiRegionCache {
 	return &apiRegionCache{
-		client: &http.Client{Timeout: 5 * time.Second},
+		client: &http.Client{Timeout: 2 * time.Second},
 		cache:  make(map[string]*apiRegionEntry),
 	}
 }

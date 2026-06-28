@@ -34,7 +34,7 @@ func TestFailoverEnabledFor(t *testing.T) {
 		{FailoverOff, "myproject.livekit.cloud", false},
 	}
 	for _, c := range cases {
-		if got := (FailoverConfig{Mode: c.mode}).enabledFor(c.host); got != c.want {
+		if got := (FailoverOptions{Mode: c.mode}).enabledFor(c.host); got != c.want {
 			t.Errorf("enabledFor(mode=%v, host=%q) = %v, want %v", c.mode, c.host, got, c.want)
 		}
 	}
