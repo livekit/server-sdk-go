@@ -12,16 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package apitest holds black-box API tests that exercise the public server SDK
-// against the shared mock LiveKit API server (livekit/livekit cmd/test-server).
-// Point them at a running instance with LK_TEST_SERVER_URL (default
-// http://127.0.0.1:9999); they skip when no server is reachable. In CI the
-// server is booted as a Docker container.
+// API failover tests that exercise the public server SDK against the shared
+// mock LiveKit API server (livekit/livekit cmd/test-server). Point them at a
+// running instance with LK_TEST_SERVER_URL (default http://127.0.0.1:9999);
+// they skip when no server is reachable. In CI the server is booted as a Docker
+// container.
 //
 // See cmd/test-server/README.md for the X-Lk-Mock-* control protocol. Mock
 // directives are passed to the SDK via twirp request headers, which the
-// failover transport forwards to the discovery fetch and every retry.
-package apitest
+// failover transport forwards to the discovery fetch and every retry. These
+// tests are in-package so they can use the internal test-force hook (the public
+// API only exposes WithFailover(ctx, bool), which is cloud-gated).
+package lksdk
 
 import (
 	"context"
@@ -34,7 +36,6 @@ import (
 	"github.com/twitchtv/twirp"
 
 	"github.com/livekit/protocol/livekit"
-	lksdk "github.com/livekit/server-sdk-go/v2"
 )
 
 const (
@@ -59,12 +60,9 @@ func testServerURL(t *testing.T) string {
 
 // failoverCtx returns a context that forces failover on (the mock is not a
 // cloud host) with a tiny backoff, carrying the given X-Lk-Mock-* directives as
-// twirp request headers.
-func failoverCtx(t *testing.T, mode lksdk.FailoverMode, directives map[string]string) context.Context {
-	ctx := lksdk.WithFailoverOptions(context.Background(), lksdk.FailoverOptions{
-		Mode:        mode,
-		BackoffBase: time.Millisecond,
-	})
+// twirp request headers. force/backoff are internal, test-only knobs.
+func failoverCtx(t *testing.T, directives map[string]string) context.Context {
+	ctx := withFailoverForce(context.Background(), time.Millisecond)
 	if len(directives) > 0 {
 		h := make(http.Header)
 		for k, v := range directives {
@@ -78,37 +76,37 @@ func failoverCtx(t *testing.T, mode lksdk.FailoverMode, directives map[string]st
 }
 
 func TestAPI_Healthy(t *testing.T) {
-	client := lksdk.NewRoomServiceClient(testServerURL(t), "devkey", "secret")
-	room, err := client.CreateRoom(failoverCtx(t, lksdk.FailoverOn, nil), &livekit.CreateRoomRequest{Name: "api-test"})
+	client := NewRoomServiceClient(testServerURL(t), "devkey", "secret")
+	room, err := client.CreateRoom(failoverCtx(t, nil), &livekit.CreateRoomRequest{Name: "api-test"})
 	require.NoError(t, err)
 	require.Equal(t, "api-test", room.Name, "the mock echoes the request name")
 	require.NotEmpty(t, room.Sid)
 }
 
 func TestAPI_PrimaryUnavailable(t *testing.T) {
-	client := lksdk.NewRoomServiceClient(testServerURL(t), "devkey", "secret")
-	ctx := failoverCtx(t, lksdk.FailoverOn, map[string]string{hdrFailRegions: "0"})
+	client := NewRoomServiceClient(testServerURL(t), "devkey", "secret")
+	ctx := failoverCtx(t, map[string]string{hdrFailRegions: "0"})
 	_, err := client.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: "api-test"})
 	require.NoError(t, err, "should fail over to a healthy region")
 }
 
 func TestAPI_TwoRegionsUnavailable(t *testing.T) {
-	client := lksdk.NewRoomServiceClient(testServerURL(t), "devkey", "secret")
-	ctx := failoverCtx(t, lksdk.FailoverOn, map[string]string{hdrFailRegions: "0,1"})
+	client := NewRoomServiceClient(testServerURL(t), "devkey", "secret")
+	ctx := failoverCtx(t, map[string]string{hdrFailRegions: "0,1"})
 	_, err := client.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: "api-test"})
 	require.NoError(t, err, "should fail over to the third region")
 }
 
 func TestAPI_AllUnavailable(t *testing.T) {
-	client := lksdk.NewRoomServiceClient(testServerURL(t), "devkey", "secret")
-	ctx := failoverCtx(t, lksdk.FailoverOn, map[string]string{hdrFailRegions: "0,1,2,3"})
+	client := NewRoomServiceClient(testServerURL(t), "devkey", "secret")
+	ctx := failoverCtx(t, map[string]string{hdrFailRegions: "0,1,2,3"})
 	_, err := client.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: "api-test"})
 	require.Error(t, err)
 }
 
 func TestAPI_ClientErrorNotRetried(t *testing.T) {
-	client := lksdk.NewRoomServiceClient(testServerURL(t), "devkey", "secret")
-	ctx := failoverCtx(t, lksdk.FailoverOn, map[string]string{hdrFailRegions: "0", hdrFailStatus: "400"})
+	client := NewRoomServiceClient(testServerURL(t), "devkey", "secret")
+	ctx := failoverCtx(t, map[string]string{hdrFailRegions: "0", hdrFailStatus: "400"})
 	_, err := client.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: "api-test"})
 	require.Error(t, err)
 	var terr twirp.Error
@@ -117,23 +115,35 @@ func TestAPI_ClientErrorNotRetried(t *testing.T) {
 }
 
 func TestAPI_TransportError(t *testing.T) {
-	client := lksdk.NewRoomServiceClient(testServerURL(t), "devkey", "secret")
-	ctx := failoverCtx(t, lksdk.FailoverOn, map[string]string{hdrFailRegions: "0", hdrFailMode: "drop"})
+	client := NewRoomServiceClient(testServerURL(t), "devkey", "secret")
+	ctx := failoverCtx(t, map[string]string{hdrFailRegions: "0", hdrFailMode: "drop"})
 	_, err := client.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: "api-test"})
 	require.NoError(t, err, "a dropped connection should fail over to a healthy region")
 }
 
 func TestAPI_RegionDiscoveryUnreachable(t *testing.T) {
-	client := lksdk.NewRoomServiceClient(testServerURL(t), "devkey", "secret")
-	ctx := failoverCtx(t, lksdk.FailoverOn, map[string]string{hdrFailRegions: "0", hdrRegionsStat: "500"})
+	client := NewRoomServiceClient(testServerURL(t), "devkey", "secret")
+	ctx := failoverCtx(t, map[string]string{hdrFailRegions: "0", hdrRegionsStat: "500"})
 	_, err := client.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: "api-test"})
 	require.Error(t, err, "no fallback hosts means the original error is surfaced")
 }
 
-func TestAPI_FailoverDisabledForNonCloud(t *testing.T) {
-	client := lksdk.NewRoomServiceClient(testServerURL(t), "devkey", "secret")
-	// Auto mode against 127.0.0.1 (non-cloud) must not fail over.
-	ctx := failoverCtx(t, lksdk.FailoverAuto, map[string]string{hdrFailRegions: "0"})
+func TestAPI_FailoverNotCloudHost(t *testing.T) {
+	client := NewRoomServiceClient(testServerURL(t), "devkey", "secret")
+	// Enabled (the default) but not forced; 127.0.0.1 is not a cloud host, so
+	// failover must not engage.
+	h := make(http.Header)
+	h.Set(hdrFailRegions, "0")
+	ctx, err := twirp.WithHTTPRequestHeaders(context.Background(), h)
+	require.NoError(t, err)
+	_, err = client.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: "api-test"})
+	require.Error(t, err)
+}
+
+func TestAPI_FailoverDisabled(t *testing.T) {
+	client := NewRoomServiceClient(testServerURL(t), "devkey", "secret")
+	// Forced on, but explicitly disabled via WithFailover.
+	ctx := WithFailover(failoverCtx(t, map[string]string{hdrFailRegions: "0"}), false)
 	_, err := client.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: "api-test"})
 	require.Error(t, err)
 }

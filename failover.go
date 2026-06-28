@@ -21,86 +21,68 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
-
-	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/livekit/protocol/livekit"
 
 	"github.com/livekit/server-sdk-go/v2/signalling"
 )
 
-// FailoverMode controls when API requests fail over to alternative LiveKit
-// Cloud regions on a retryable error.
-type FailoverMode int
-
+// Total attempts (the original request plus fallback regions) and the base
+// retry backoff are fixed, not user-configurable, so retries can't be tuned to
+// values that could overwhelm the server.
 const (
-	// FailoverAuto enables region failover only for LiveKit Cloud hosts. This
-	// is the default.
-	FailoverAuto FailoverMode = iota
-	// FailoverOn forces region failover on regardless of host. Primarily for
-	// tests pointing at a non-cloud host (e.g. a local mock server).
-	FailoverOn
-	// FailoverOff disables region failover entirely.
-	FailoverOff
+	failoverMaxAttempts = 3
+	failoverBackoffBase = 200 * time.Millisecond
 )
 
-const (
-	defaultMaxAttempts = 3
-	defaultBackoffBase = 200 * time.Millisecond
-)
-
-// FailoverOptions tunes the region-failover retry loop. A zero value is valid
-// and uses the defaults (auto mode, 3 attempts, 200ms base backoff).
-type FailoverOptions struct {
-	// Mode selects when failover is active. Defaults to FailoverAuto.
-	Mode FailoverMode
-	// MaxAttempts is the total number of attempts including the first, so the
-	// original host plus (MaxAttempts-1) fallback regions. Defaults to 3.
-	MaxAttempts int
-	// BackoffBase is the initial delay before the first retry; each subsequent
-	// retry doubles it. Defaults to 200ms. Set to 0 to retry without delay.
-	BackoffBase time.Duration
+// failoverConfig is the resolved per-request region-failover configuration. The
+// public API exposes only the enabled toggle (default true); force and
+// backoffBase are internal test-only knobs.
+type failoverConfig struct {
+	enabled bool
+	// force bypasses the cloud-host check. Internal testing only.
+	force bool
+	// backoffBase overrides the retry backoff base. Internal testing only.
+	backoffBase time.Duration
 }
 
-func (c FailoverOptions) withDefaults() FailoverOptions {
-	if c.MaxAttempts <= 0 {
-		c.MaxAttempts = defaultMaxAttempts
+// attempts returns the total request attempts for a host; 1 means no failover.
+// Failover only engages when enabled and the host is a LiveKit Cloud domain.
+// force bypasses the cloud-host check and is for internal testing only.
+func (c failoverConfig) attempts(hostname string) int {
+	if c.enabled && (c.force || isCloud(hostname)) {
+		return failoverMaxAttempts
 	}
-	if c.BackoffBase < 0 {
-		c.BackoffBase = 0
-	} else if c.BackoffBase == 0 {
-		c.BackoffBase = defaultBackoffBase
-	}
-	return c
+	return 1
 }
 
-func (c FailoverOptions) enabledFor(hostname string) bool {
-	switch c.Mode {
-	case FailoverOff:
-		return false
-	case FailoverOn:
-		return true
-	default:
-		return isCloud(hostname)
-	}
+type failoverEnabledKey struct{}
+type failoverForceKey struct{}
+
+// WithFailover returns a context that enables or disables region failover for
+// API requests made with it (enabled by default). Failover only engages for
+// LiveKit Cloud hosts. Pass the returned context to any service client method.
+func WithFailover(ctx context.Context, enabled bool) context.Context {
+	return context.WithValue(ctx, failoverEnabledKey{}, enabled)
 }
 
-type failoverConfigKey struct{}
-
-// WithFailoverOptions returns a context that overrides the region-failover
-// behavior for API requests made with it. Pass the returned context to any
-// service client method.
-func WithFailoverOptions(ctx context.Context, cfg FailoverOptions) context.Context {
-	return context.WithValue(ctx, failoverConfigKey{}, cfg)
+// withFailoverForce returns a context that forces failover on regardless of
+// host and overrides the retry backoff. Internal, test-only.
+func withFailoverForce(ctx context.Context, backoff time.Duration) context.Context {
+	return context.WithValue(ctx, failoverForceKey{}, backoff)
 }
 
-func failoverConfigFromContext(ctx context.Context) FailoverOptions {
-	if cfg, ok := ctx.Value(failoverConfigKey{}).(FailoverOptions); ok {
-		return cfg.withDefaults()
+func failoverConfigFromContext(ctx context.Context) failoverConfig {
+	cfg := failoverConfig{enabled: true, backoffBase: failoverBackoffBase}
+	if enabled, ok := ctx.Value(failoverEnabledKey{}).(bool); ok {
+		cfg.enabled = enabled
 	}
-	return FailoverOptions{}.withDefaults()
+	if backoff, ok := ctx.Value(failoverForceKey{}).(time.Duration); ok {
+		cfg.force = true
+		cfg.backoffBase = backoff
+	}
+	return cfg
 }
 
 // newAPIHTTPClient returns the *http.Client used by every API service client.
@@ -118,12 +100,12 @@ func newAPIHTTPClient() *http.Client {
 // responses are returned immediately.
 type failoverTransport struct {
 	base    http.RoundTripper
-	regions *apiRegionCache
+	regions *regionCache
 }
 
 func (t *failoverTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	cfg := failoverConfigFromContext(req.Context())
-	enabled := cfg.enabledFor(req.URL.Hostname())
+	maxAttempts := cfg.attempts(req.URL.Hostname())
 
 	// Buffer the body once so it can be replayed against each region.
 	var body []byte
@@ -138,11 +120,6 @@ func (t *failoverTransport) RoundTrip(req *http.Request) (*http.Response, error)
 
 	originalScheme, originalHost := req.URL.Scheme, req.URL.Host
 	attempted := map[string]struct{}{strings.ToLower(originalHost): {}}
-
-	maxAttempts := cfg.MaxAttempts
-	if !enabled {
-		maxAttempts = 1
-	}
 
 	var (
 		settings       *livekit.RegionSettings
@@ -176,9 +153,11 @@ func (t *failoverTransport) RoundTrip(req *http.Request) (*http.Response, error)
 			break // out of attempts; surface the last result
 		}
 
-		// discover regions lazily
+		// discover regions lazily; honor the request scheme (so it works against
+		// an http mock) and forward the caller's headers to the discovery fetch.
 		if !fetchedRegions {
-			settings = t.regions.get(originalScheme, originalHost, req.Header)
+			discoveryURL := url.URL{Scheme: originalScheme, Host: originalHost, Path: "/settings/regions"}
+			settings, _ = t.regions.get(originalHost, discoveryURL.String(), req.Header, 0)
 			fetchedRegions = true
 		}
 		nextScheme, nextHost, ok := nextRegion(settings, attempted)
@@ -195,7 +174,7 @@ func (t *failoverTransport) RoundTrip(req *http.Request) (*http.Response, error)
 			"attempt", attempt+1, "maxAttempts", maxAttempts, "status", status)
 
 		drainResponse(resp)
-		if !sleepCtx(req.Context(), cfg.BackoffBase<<uint(attempt)) {
+		if !sleepCtx(req.Context(), cfg.backoffBase<<uint(attempt)) {
 			return resp, err // context cancelled during backoff
 		}
 		scheme, host = nextScheme, nextHost
@@ -252,102 +231,10 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 	}
 }
 
-var sharedAPIRegions = newAPIRegionCache()
-
-// apiRegionCache fetches and caches the LiveKit Cloud region list per host for
-// the API failover path. Unlike the signaling regionURLProvider it honors the
-// request scheme (so it works against an http mock server) and forwards the
-// caller's headers (auth plus any custom headers) to the discovery endpoint.
-type apiRegionCache struct {
-	mu     sync.Mutex
-	client *http.Client
-	cache  map[string]*apiRegionEntry
-}
-
-type apiRegionEntry struct {
-	settings  *livekit.RegionSettings
-	fetchedAt time.Time
-	ttl       time.Duration
-}
-
-func newAPIRegionCache() *apiRegionCache {
-	return &apiRegionCache{
-		client: &http.Client{Timeout: 2 * time.Second},
-		cache:  make(map[string]*apiRegionEntry),
-	}
-}
-
-// get returns the region list for host, fetching it if the cache is stale.
-// It is best-effort: on a fetch failure it falls back to a stale cached list,
-// and returns nil if nothing is available (the caller then stops failing over).
-func (c *apiRegionCache) get(scheme, host string, headers http.Header) *livekit.RegionSettings {
-	key := strings.ToLower(host)
-
-	c.mu.Lock()
-	if entry := c.cache[key]; entry != nil && time.Since(entry.fetchedAt) < entry.ttl {
-		defer c.mu.Unlock()
-		return entry.settings
-	}
-	c.mu.Unlock()
-
-	settings, ttl, err := c.fetch(scheme, host, headers)
-	if err != nil {
-		c.mu.Lock()
-		defer c.mu.Unlock()
-		if entry := c.cache[key]; entry != nil {
-			return entry.settings // serve stale on failure
-		}
-		return nil
-	}
-
-	// A zero TTL (e.g. Cache-Control: max-age=0) means "do not cache".
-	if ttl > 0 {
-		c.mu.Lock()
-		c.cache[key] = &apiRegionEntry{settings: settings, fetchedAt: time.Now(), ttl: ttl}
-		c.mu.Unlock()
-	}
-	return settings
-}
-
-func (c *apiRegionCache) fetch(scheme, host string, headers http.Header) (*livekit.RegionSettings, time.Duration, error) {
-	u := url.URL{Scheme: scheme, Host: host, Path: "/settings/regions"}
-	req, err := http.NewRequest(http.MethodGet, u.String(), nil)
-	if err != nil {
-		return nil, 0, err
-	}
-	// Forward the caller's headers (Authorization and any custom headers),
-	// minus body-specific ones, so a validly-signed token reaches the
-	// discovery endpoint and test directives propagate.
-	for k, vv := range headers {
-		switch http.CanonicalHeaderKey(k) {
-		case "Content-Type", "Content-Length":
-			continue
-		}
-		for _, v := range vv {
-			req.Header.Add(k, v)
-		}
-	}
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer drainResponse(resp)
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, 0, &TwirpRegionError{StatusCode: resp.StatusCode}
-	}
-	b, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, 0, err
-	}
-	settings := &livekit.RegionSettings{}
-	if err := protojson.Unmarshal(b, settings); err != nil {
-		return nil, 0, err
-	}
-	ttl := parseRegionSettingsMaxAge(resp.Header.Get("Cache-Control"))
-	return settings, ttl, nil
-}
+// sharedAPIRegions is the process-wide region cache used by the API failover
+// path. The RTC signaling path has its own regionURLProvider over a separate
+// cache, but both share the same regionCache discovery/fetch/TTL logic.
+var sharedAPIRegions = newRegionCache()
 
 // TwirpRegionError indicates the /settings/regions endpoint returned a non-200
 // status while attempting region failover.

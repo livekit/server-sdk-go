@@ -57,4 +57,4 @@ jobs:
           echo "mock server did not become ready" && exit 1
 
       - name: Run API tests
-        run: go test -v -count=1 ./apitest/...
+        run: go test -v -count=1 -run '^TestAPI_' .

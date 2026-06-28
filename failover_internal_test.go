@@ -16,26 +16,27 @@ package lksdk
 
 import "testing"
 
-func TestFailoverEnabledFor(t *testing.T) {
+func TestFailoverAttempts(t *testing.T) {
 	cases := []struct {
-		mode FailoverMode
+		cfg  failoverConfig
 		host string
-		want bool
+		want int
 	}{
-		// Auto: only *.livekit.cloud project domains.
-		{FailoverAuto, "myproject.livekit.cloud", true},
-		{FailoverAuto, "myproject.region.livekit.cloud", true},
-		{FailoverAuto, "myproject.livekit.io", false},
-		{FailoverAuto, "example.com", false},
-		{FailoverAuto, "127.0.0.1", false},
-		{FailoverAuto, "notlivekit.cloud", false},
-		// On/Off override the host check.
-		{FailoverOn, "127.0.0.1", true},
-		{FailoverOff, "myproject.livekit.cloud", false},
+		// Enabled (the default): only *.livekit.cloud project domains fail over.
+		{failoverConfig{enabled: true}, "myproject.livekit.cloud", failoverMaxAttempts},
+		{failoverConfig{enabled: true}, "myproject.region.livekit.cloud", failoverMaxAttempts},
+		{failoverConfig{enabled: true}, "myproject.livekit.io", 1},
+		{failoverConfig{enabled: true}, "example.com", 1},
+		{failoverConfig{enabled: true}, "127.0.0.1", 1},
+		{failoverConfig{enabled: true}, "notlivekit.cloud", 1},
+		// force bypasses the cloud-host check; disabled never fails over.
+		{failoverConfig{enabled: true, force: true}, "127.0.0.1", failoverMaxAttempts},
+		{failoverConfig{enabled: false, force: true}, "myproject.livekit.cloud", 1},
+		{failoverConfig{enabled: false}, "myproject.livekit.cloud", 1},
 	}
 	for _, c := range cases {
-		if got := (FailoverOptions{Mode: c.mode}).enabledFor(c.host); got != c.want {
-			t.Errorf("enabledFor(mode=%v, host=%q) = %v, want %v", c.mode, c.host, got, c.want)
+		if got := c.cfg.attempts(c.host); got != c.want {
+			t.Errorf("attempts(cfg=%+v, host=%q) = %v, want %v", c.cfg, c.host, got, c.want)
 		}
 	}
 }

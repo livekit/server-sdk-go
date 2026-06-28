@@ -80,7 +80,7 @@ func (rs *regionSettingsServer) setRegions(regions *livekit.RegionSettings) {
 func newTestProvider(rs *regionSettingsServer) *regionURLProvider {
 	p := newRegionURLProvider()
 	// trust the httptest TLS certificate
-	p.httpClient = rs.server.Client()
+	p.cache.client = rs.server.Client()
 	return p
 }
 
@@ -139,9 +139,9 @@ func TestRegionURLProvider_RefreshRepopulates(t *testing.T) {
 	require.Equal(t, "wss://a.example.com", settings.GetRegions()[0].Url)
 
 	// expire the cache and serve a different region list
-	p.mutex.Lock()
-	p.hostnameSettingsCache[rs.hostname].updatedAt = time.Now().Add(-2 * regionHostnameProviderSettingsCacheTime)
-	p.mutex.Unlock()
+	p.cache.mu.Lock()
+	p.cache.cache[strings.ToLower(rs.hostname)].fetchedAt = time.Now().Add(-2 * regionHostnameProviderSettingsCacheTime)
+	p.cache.mu.Unlock()
 	rs.setRegions(&livekit.RegionSettings{
 		Regions: []*livekit.RegionInfo{{Region: "b", Url: "wss://b.example.com"}},
 	})
