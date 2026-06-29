@@ -86,3 +86,22 @@ func TestOnSpeakersChanged(t *testing.T) {
 		require.Len(t, speakers, 3)
 	})
 }
+
+func TestOnRoomMovedUpdatesNameAndSID(t *testing.T) {
+	room := NewRoom(nil)
+	room.LocalParticipant.updateInfo(&livekit.ParticipantInfo{Sid: "local", Identity: "local-identity"})
+
+	room.name = "old-room"
+	room.setSid("RM_old", false)
+	require.Equal(t, "old-room", room.Name())
+	require.Equal(t, "RM_old", room.SID())
+
+	room.OnRoomMoved(&livekit.RoomMovedResponse{
+		Room:        &livekit.Room{Name: "new-room", Sid: "RM_new"},
+		Participant: &livekit.ParticipantInfo{Sid: "local", Identity: "local-identity"},
+		Token:       "token",
+	})
+
+	require.Equal(t, "new-room", room.Name())
+	require.Equal(t, "RM_new", room.SID())
+}
