@@ -1303,7 +1303,6 @@ func (r *Room) OnRoomUpdate(room *livekit.Room) {
 		r.activeRecording = room.ActiveRecording
 	}
 	r.lock.Unlock()
-	r.setSid(room.Sid, false)
 	if metadataChanged {
 		go r.callback.OnRoomMetadataChanged(room.Metadata)
 	}
@@ -1315,6 +1314,12 @@ func (r *Room) OnRoomUpdate(room *livekit.Room) {
 func (r *Room) OnRoomMoved(moved *livekit.RoomMovedResponse) {
 	r.log.Infow("room moved", "newRoom", moved.Room.Name)
 	r.OnRoomUpdate(moved.Room)
+
+	// setSid is one-shot; update name/sid directly so the getters report the destination room.
+	r.lock.Lock()
+	r.name = moved.Room.Name
+	r.sid = moved.Room.Sid
+	r.lock.Unlock()
 
 	for _, rp := range r.GetRemoteParticipants() {
 		r.OnParticipantDisconnect(rp, livekit.DisconnectReason_MIGRATION)
