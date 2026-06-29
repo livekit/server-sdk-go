@@ -1321,6 +1321,7 @@ func (r *Room) OnRoomMoved(moved *livekit.RoomMovedResponse) {
 	}
 
 	go r.callback.OnRoomMoved(moved.Room.Name, moved.Token)
+	go r.callback.OnRoomMovedWithSID(moved.Room.Name, moved.Room.Sid, moved.Token)
 
 	infos := make([]*livekit.ParticipantInfo, 0, len(moved.OtherParticipants)+1)
 	infos = append(infos, moved.Participant)
