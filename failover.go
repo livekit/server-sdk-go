@@ -48,6 +48,9 @@ const (
 	// sipDialTimeout is the longer default for calls that dial a phone
 	// (CreateSIPParticipant with WaitUntilAnswered, TransferSIPParticipant).
 	sipDialTimeout = 30 * time.Second
+	// ringingTimeoutMargin keeps a dialing request's deadline above the request's
+	// ringing timeout, so it doesn't abort before the call can be answered.
+	ringingTimeoutMargin = 2 * time.Second
 )
 
 // perAttemptTimeoutKey carries the caller's original timeout budget once its

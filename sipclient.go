@@ -16,14 +16,30 @@ package lksdk
 
 import (
 	"context"
+	"time"
 
 	"github.com/twitchtv/twirp"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/utils/xtwirp"
 	"github.com/livekit/server-sdk-go/v2/signalling"
 )
+
+// sipDialDeadline returns the default deadline for a phone-dialing call: the
+// longer SIP dial timeout, raised to stay at least ringingTimeoutMargin above
+// the request's ringing timeout so the request doesn't abort before the call
+// can be answered.
+func sipDialDeadline(ringingTimeout *durationpb.Duration) time.Duration {
+	timeout := sipDialTimeout
+	if ringingTimeout != nil {
+		if d := ringingTimeout.AsDuration() + ringingTimeoutMargin; d > timeout {
+			timeout = d
+		}
+	}
+	return timeout
+}
 
 //lint:file-ignore SA1019 We still support some deprecated functions for backward compatibility
 
@@ -279,7 +295,7 @@ func (s *SIPClient) CreateSIPParticipant(ctx context.Context, in *livekit.Create
 	// detaches it for failover). Set it before auth so failover sees the budget.
 	if _, ok := ctx.Deadline(); !ok && in.WaitUntilAnswered {
 		var cancel func()
-		ctx, cancel = context.WithTimeout(ctx, sipDialTimeout)
+		ctx, cancel = context.WithTimeout(ctx, sipDialDeadline(in.GetRingingTimeout()))
 		defer cancel()
 	}
 
@@ -300,7 +316,7 @@ func (s *SIPClient) TransferSIPParticipant(ctx context.Context, in *livekit.Tran
 	// default deadline (before prepareContext, which detaches it for failover).
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel func()
-		ctx, cancel = context.WithTimeout(ctx, sipDialTimeout)
+		ctx, cancel = context.WithTimeout(ctx, sipDialDeadline(in.GetRingingTimeout()))
 		defer cancel()
 	}
 
