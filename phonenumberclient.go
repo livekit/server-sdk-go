@@ -16,7 +16,6 @@ package lksdk
 
 import (
 	"context"
-	"net/http"
 	"time"
 
 	"github.com/twitchtv/twirp"
@@ -35,7 +34,7 @@ type PhoneNumberClient struct {
 func NewPhoneNumberClient(url string, apiKey string, secretKey string, opts ...twirp.ClientOption) *PhoneNumberClient {
 	opts = append(opts, xtwirp.DefaultClientOptions()...)
 	return &PhoneNumberClient{
-		phoneNumberClient: livekit.NewPhoneNumberServiceProtobufClient(signalling.ToHttpURL(url), &http.Client{}, opts...),
+		phoneNumberClient: livekit.NewPhoneNumberServiceProtobufClient(signalling.ToHttpURL(url), newAPIHTTPClient(), opts...),
 		authBase: authBase{
 			apiKey:    apiKey,
 			apiSecret: secretKey,
@@ -49,7 +48,7 @@ func (p *PhoneNumberClient) SearchPhoneNumbers(ctx context.Context, in *livekit.
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := p.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := p.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +66,7 @@ func (p *PhoneNumberClient) PurchasePhoneNumber(ctx context.Context, in *livekit
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := p.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := p.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +79,7 @@ func (p *PhoneNumberClient) ListPhoneNumbers(ctx context.Context, in *livekit.Li
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := p.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := p.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +92,7 @@ func (p *PhoneNumberClient) GetPhoneNumber(ctx context.Context, in *livekit.GetP
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := p.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := p.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +105,7 @@ func (p *PhoneNumberClient) UpdatePhoneNumber(ctx context.Context, in *livekit.U
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := p.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := p.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +118,7 @@ func (p *PhoneNumberClient) ReleasePhoneNumbers(ctx context.Context, in *livekit
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := p.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := p.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}

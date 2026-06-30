@@ -16,8 +16,6 @@ package lksdk
 
 import (
 	"context"
-	"net/http"
-	"time"
 
 	"github.com/twitchtv/twirp"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -38,7 +36,7 @@ type SIPClient struct {
 func NewSIPClient(url string, apiKey string, secretKey string, opts ...twirp.ClientOption) *SIPClient {
 	opts = append(opts, xtwirp.DefaultClientOptions()...)
 	return &SIPClient{
-		sipClient: livekit.NewSIPProtobufClient(signalling.ToHttpURL(url), &http.Client{}, opts...),
+		sipClient: livekit.NewSIPProtobufClient(signalling.ToHttpURL(url), newAPIHTTPClient(), opts...),
 		authBase: authBase{
 			apiKey:    apiKey,
 			apiSecret: secretKey,
@@ -52,7 +50,7 @@ func (s *SIPClient) CreateSIPInboundTrunk(ctx context.Context, in *livekit.Creat
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +63,7 @@ func (s *SIPClient) CreateSIPOutboundTrunk(ctx context.Context, in *livekit.Crea
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +76,7 @@ func (s *SIPClient) UpdateSIPInboundTrunk(ctx context.Context, in *livekit.Updat
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +89,7 @@ func (s *SIPClient) UpdateSIPOutboundTrunk(ctx context.Context, in *livekit.Upda
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +103,7 @@ func (s *SIPClient) GetSIPInboundTrunksByIDs(ctx context.Context, ids []string) 
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +125,7 @@ func (s *SIPClient) GetSIPOutboundTrunksByIDs(ctx context.Context, ids []string)
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +148,7 @@ func (s *SIPClient) ListSIPTrunk(ctx context.Context, in *livekit.ListSIPTrunkRe
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -163,7 +161,7 @@ func (s *SIPClient) ListSIPInboundTrunk(ctx context.Context, in *livekit.ListSIP
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +174,7 @@ func (s *SIPClient) ListSIPOutboundTrunk(ctx context.Context, in *livekit.ListSI
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -189,7 +187,7 @@ func (s *SIPClient) DeleteSIPTrunk(ctx context.Context, in *livekit.DeleteSIPTru
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +200,7 @@ func (s *SIPClient) CreateSIPDispatchRule(ctx context.Context, in *livekit.Creat
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -215,7 +213,7 @@ func (s *SIPClient) UpdateSIPDispatchRule(ctx context.Context, in *livekit.Updat
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -229,7 +227,7 @@ func (s *SIPClient) GetSIPDispatchRulesByIDs(ctx context.Context, ids []string) 
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -250,7 +248,7 @@ func (s *SIPClient) ListSIPDispatchRule(ctx context.Context, in *livekit.ListSIP
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -263,7 +261,7 @@ func (s *SIPClient) DeleteSIPDispatchRule(ctx context.Context, in *livekit.Delet
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -276,19 +274,19 @@ func (s *SIPClient) CreateSIPParticipant(ctx context.Context, in *livekit.Create
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Call: true})
-	if err != nil {
-		return nil, err
-	}
-
-	// CreateSIPParticipant will wait for LiveKit Participant to be created and that can take some time.
-	// Default deadline is too short, thus, we must set a higher deadline for it (if not specified by the user).
-	if _, ok := ctx.Deadline(); !ok {
+	// Dialing a phone and waiting for an answer takes longer than a normal
+	// request, so apply a longer default deadline (before prepareContext, which
+	// detaches it for failover). Set it before auth so failover sees the budget.
+	if _, ok := ctx.Deadline(); !ok && in.WaitUntilAnswered {
 		var cancel func()
-		ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
+		ctx, cancel = context.WithTimeout(ctx, sipDialTimeout)
 		defer cancel()
 	}
 
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Call: true})
+	if err != nil {
+		return nil, err
+	}
 	return s.sipClient.CreateSIPParticipant(ctx, in)
 }
 
@@ -298,19 +296,18 @@ func (s *SIPClient) TransferSIPParticipant(ctx context.Context, in *livekit.Tran
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Call: true}, withVideoGrant{RoomAdmin: true, Room: in.RoomName})
-	if err != nil {
-		return nil, err
-	}
-
-	// TransferSIPParticipant will wait for call to be transferred and that can take some time.
-	// Default deadline is too short, thus, we must set a higher deadline for it (if not specified by the user).
+	// Transferring a call dials a phone and can take a while, so apply a longer
+	// default deadline (before prepareContext, which detaches it for failover).
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel func()
-		ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
+		ctx, cancel = context.WithTimeout(ctx, sipDialTimeout)
 		defer cancel()
 	}
 
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Call: true}, withVideoGrant{RoomAdmin: true, Room: in.RoomName})
+	if err != nil {
+		return nil, err
+	}
 	return s.sipClient.TransferSIPParticipant(ctx, in)
 }
 

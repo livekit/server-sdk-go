@@ -16,7 +16,6 @@ package lksdk
 
 import (
 	"context"
-	"net/http"
 
 	"github.com/twitchtv/twirp"
 
@@ -33,7 +32,7 @@ type IngressClient struct {
 func NewIngressClient(url string, apiKey string, secretKey string, opts ...twirp.ClientOption) *IngressClient {
 	opts = append(opts, xtwirp.DefaultClientOptions()...)
 	url = signalling.ToHttpURL(url)
-	client := livekit.NewIngressProtobufClient(url, &http.Client{}, opts...)
+	client := livekit.NewIngressProtobufClient(url, newAPIHTTPClient(), opts...)
 	return &IngressClient{
 		ingressClient: client,
 		authBase: authBase{
@@ -48,7 +47,7 @@ func (c *IngressClient) CreateIngress(ctx context.Context, in *livekit.CreateIng
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := c.withAuth(ctx, withVideoGrant{IngressAdmin: true})
+	ctx, err := c.prepareContext(ctx, withVideoGrant{IngressAdmin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +59,7 @@ func (c *IngressClient) UpdateIngress(ctx context.Context, in *livekit.UpdateIng
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := c.withAuth(ctx, withVideoGrant{IngressAdmin: true})
+	ctx, err := c.prepareContext(ctx, withVideoGrant{IngressAdmin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +71,7 @@ func (c *IngressClient) ListIngress(ctx context.Context, in *livekit.ListIngress
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := c.withAuth(ctx, withVideoGrant{IngressAdmin: true})
+	ctx, err := c.prepareContext(ctx, withVideoGrant{IngressAdmin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +83,7 @@ func (c *IngressClient) DeleteIngress(ctx context.Context, in *livekit.DeleteIng
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := c.withAuth(ctx, withVideoGrant{IngressAdmin: true})
+	ctx, err := c.prepareContext(ctx, withVideoGrant{IngressAdmin: true})
 	if err != nil {
 		return nil, err
 	}

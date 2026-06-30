@@ -16,7 +16,6 @@ package lksdk
 
 import (
 	"context"
-	"net/http"
 
 	"github.com/twitchtv/twirp"
 
@@ -31,7 +30,7 @@ type AgentDispatchClient struct {
 
 func NewAgentDispatchServiceClient(url string, apiKey string, secretKey string, opts ...twirp.ClientOption) *AgentDispatchClient {
 	url = signalling.ToHttpURL(url)
-	client := livekit.NewAgentDispatchServiceProtobufClient(url, &http.Client{}, opts...)
+	client := livekit.NewAgentDispatchServiceProtobufClient(url, newAPIHTTPClient(), opts...)
 
 	return &AgentDispatchClient{
 		agentDispatchService: client,
@@ -43,7 +42,7 @@ func NewAgentDispatchServiceClient(url string, apiKey string, secretKey string, 
 }
 
 func (c *AgentDispatchClient) CreateDispatch(ctx context.Context, req *livekit.CreateAgentDispatchRequest) (*livekit.AgentDispatch, error) {
-	ctx, err := c.withAuth(ctx, withVideoGrant{RoomAdmin: true, Room: req.Room})
+	ctx, err := c.prepareContext(ctx, withVideoGrant{RoomAdmin: true, Room: req.Room})
 	if err != nil {
 		return nil, err
 	}
@@ -52,7 +51,7 @@ func (c *AgentDispatchClient) CreateDispatch(ctx context.Context, req *livekit.C
 }
 
 func (c *AgentDispatchClient) DeleteDispatch(ctx context.Context, req *livekit.DeleteAgentDispatchRequest) (*livekit.AgentDispatch, error) {
-	ctx, err := c.withAuth(ctx, withVideoGrant{RoomAdmin: true, Room: req.Room})
+	ctx, err := c.prepareContext(ctx, withVideoGrant{RoomAdmin: true, Room: req.Room})
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +60,7 @@ func (c *AgentDispatchClient) DeleteDispatch(ctx context.Context, req *livekit.D
 }
 
 func (c *AgentDispatchClient) ListDispatch(ctx context.Context, req *livekit.ListAgentDispatchRequest) (*livekit.ListAgentDispatchResponse, error) {
-	ctx, err := c.withAuth(ctx, withVideoGrant{RoomAdmin: true, Room: req.Room})
+	ctx, err := c.prepareContext(ctx, withVideoGrant{RoomAdmin: true, Room: req.Room})
 	if err != nil {
 		return nil, err
 	}
