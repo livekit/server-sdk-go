@@ -39,8 +39,16 @@ const (
 
 // minFailoverTimeout gates failover on the request timeout: a shorter budget
 // gets a single attempt, since a retry is unlikely to help and risks
-// thundering-herd retries across regions. Deadline-free requests are exempt.
+// thundering-herd retries across regions.
 var minFailoverTimeout = 5 * time.Second
+
+const (
+	// defaultRequestTimeout bounds a request when the caller sets no deadline.
+	defaultRequestTimeout = 10 * time.Second
+	// sipDialTimeout is the longer default for calls that dial a phone
+	// (CreateSIPParticipant with WaitUntilAnswered, TransferSIPParticipant).
+	sipDialTimeout = 30 * time.Second
+)
 
 // perAttemptTimeoutKey carries the caller's original timeout budget once its
 // deadline has been detached (see withFailoverTimeout), so the transport can
@@ -134,8 +142,8 @@ func detachDeadline(parent context.Context) context.Context {
 }
 
 // perAttemptBudget is the per-attempt timeout for a request: the budget stashed
-// by withFailoverTimeout, or the remaining time on a raw deadline (e.g. when the
-// transport is exercised directly). Zero means no timeout.
+// by withFailoverTimeout, the remaining time on a raw deadline (e.g. when the
+// transport is exercised directly), or the default when the caller set neither.
 func perAttemptBudget(ctx context.Context) time.Duration {
 	if d, ok := ctx.Value(perAttemptTimeoutKey{}).(time.Duration); ok {
 		return d
@@ -143,7 +151,7 @@ func perAttemptBudget(ctx context.Context) time.Duration {
 	if deadline, ok := ctx.Deadline(); ok {
 		return time.Until(deadline)
 	}
-	return 0
+	return defaultRequestTimeout
 }
 
 // hasPerAttemptTimeout reports whether withFailoverTimeout already detached the
