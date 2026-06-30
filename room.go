@@ -1303,6 +1303,7 @@ func (r *Room) OnRoomUpdate(room *livekit.Room) {
 		r.activeRecording = room.ActiveRecording
 	}
 	r.lock.Unlock()
+	r.setSid(room.Sid, false)
 	if metadataChanged {
 		go r.callback.OnRoomMetadataChanged(room.Metadata)
 	}
