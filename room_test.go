@@ -2,6 +2,7 @@ package lksdk
 
 import (
 	"testing"
+	"time"
 
 	"github.com/livekit/protocol/livekit"
 	"github.com/stretchr/testify/require"
@@ -104,4 +105,14 @@ func TestOnRoomMovedUpdatesNameAndSID(t *testing.T) {
 
 	require.Equal(t, "new-room", room.Name())
 	require.Equal(t, "RM_new", room.SID())
+}
+
+func TestOnRoomUpdateDeliversLateSID(t *testing.T) {
+	room := NewRoom(nil)
+
+	room.OnRoomUpdate(&livekit.Room{Sid: "RM_late"})
+
+	require.Eventually(t, func() bool {
+		return room.SID() == "RM_late"
+	}, time.Second, 10*time.Millisecond, "SID() never returned the SID delivered via OnRoomUpdate")
 }
