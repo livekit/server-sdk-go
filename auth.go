@@ -52,7 +52,11 @@ func (g withAgentGrant) Apply(t *auth.AccessToken) {
 	t.SetAgentGrant((*auth.AgentGrant)(&g))
 }
 
-func (b authBase) withAuth(ctx context.Context, opt authOption, options ...authOption) (context.Context, error) {
+// prepareContext builds the context for an outgoing API request: it signs an
+// access token for the given grants and attaches it as a request header, then
+// detaches a long-enough deadline so failover can reset it per attempt (see
+// withFailoverTimeout).
+func (b authBase) prepareContext(ctx context.Context, opt authOption, options ...authOption) (context.Context, error) {
 	at := auth.NewAccessToken(b.apiKey, b.apiSecret)
 	opt.Apply(at)
 	for _, opt := range options {
@@ -77,6 +81,11 @@ func (b authBase) withAuth(ctx context.Context, opt authOption, options ...authO
 			ctxH.Add(k, v)
 		}
 	}
+
+	// Detach a long-enough deadline so it isn't enforced across failover retries
+	// (twirp re-checks the context after each request); the transport re-applies
+	// the budget per attempt. A no-op for short or deadline-free requests.
+	ctx = withFailoverTimeout(ctx)
 
 	return twirp.WithHTTPRequestHeaders(ctx, ctxH)
 }

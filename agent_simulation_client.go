@@ -36,7 +36,7 @@ func NewAgentSimulationClient(url string, apiKey string, apiSecret string, opts 
 }
 
 func (c *AgentSimulationClient) CreateSimulationRun(ctx context.Context, req *livekit.SimulationRun_Create_Request) (*livekit.SimulationRun_Create_Response, error) {
-	ctx, err := c.withAuth(ctx, withAgentGrant{SimulationAdmin: true})
+	ctx, err := c.prepareContext(ctx, withAgentGrant{SimulationAdmin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +44,7 @@ func (c *AgentSimulationClient) CreateSimulationRun(ctx context.Context, req *li
 }
 
 func (c *AgentSimulationClient) ConfirmSimulationSourceUpload(ctx context.Context, req *livekit.SimulationRun_ConfirmSourceUpload_Request) (*livekit.SimulationRun_ConfirmSourceUpload_Response, error) {
-	ctx, err := c.withAuth(ctx, withAgentGrant{SimulationAdmin: true})
+	ctx, err := c.prepareContext(ctx, withAgentGrant{SimulationAdmin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -52,7 +52,7 @@ func (c *AgentSimulationClient) ConfirmSimulationSourceUpload(ctx context.Contex
 }
 
 func (c *AgentSimulationClient) GetSimulationRun(ctx context.Context, req *livekit.SimulationRun_Get_Request) (*livekit.SimulationRun_Get_Response, error) {
-	ctx, err := c.withAuth(ctx, withAgentGrant{SimulationAdmin: true})
+	ctx, err := c.prepareContext(ctx, withAgentGrant{SimulationAdmin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +60,7 @@ func (c *AgentSimulationClient) GetSimulationRun(ctx context.Context, req *livek
 }
 
 func (c *AgentSimulationClient) ListSimulationRuns(ctx context.Context, req *livekit.SimulationRun_List_Request) (*livekit.SimulationRun_List_Response, error) {
-	ctx, err := c.withAuth(ctx, withAgentGrant{SimulationAdmin: true})
+	ctx, err := c.prepareContext(ctx, withAgentGrant{SimulationAdmin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +68,7 @@ func (c *AgentSimulationClient) ListSimulationRuns(ctx context.Context, req *liv
 }
 
 func (c *AgentSimulationClient) CancelSimulationRun(ctx context.Context, req *livekit.SimulationRun_Cancel_Request) (*livekit.SimulationRun_Cancel_Response, error) {
-	ctx, err := c.withAuth(ctx, withAgentGrant{SimulationAdmin: true})
+	ctx, err := c.prepareContext(ctx, withAgentGrant{SimulationAdmin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +76,7 @@ func (c *AgentSimulationClient) CancelSimulationRun(ctx context.Context, req *li
 }
 
 func (c *AgentSimulationClient) CreateScenarioFromSession(ctx context.Context, req *livekit.Scenario_CreateFromSession_Request) (*livekit.Scenario_CreateFromSession_Response, error) {
-	ctx, err := c.withAuth(ctx, withAgentGrant{SimulationAdmin: true})
+	ctx, err := c.prepareContext(ctx, withAgentGrant{SimulationAdmin: true})
 	if err != nil {
 		return nil, err
 	}

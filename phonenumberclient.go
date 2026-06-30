@@ -48,7 +48,7 @@ func (p *PhoneNumberClient) SearchPhoneNumbers(ctx context.Context, in *livekit.
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := p.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := p.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +66,7 @@ func (p *PhoneNumberClient) PurchasePhoneNumber(ctx context.Context, in *livekit
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := p.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := p.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +79,7 @@ func (p *PhoneNumberClient) ListPhoneNumbers(ctx context.Context, in *livekit.Li
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := p.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := p.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +92,7 @@ func (p *PhoneNumberClient) GetPhoneNumber(ctx context.Context, in *livekit.GetP
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := p.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := p.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +105,7 @@ func (p *PhoneNumberClient) UpdatePhoneNumber(ctx context.Context, in *livekit.U
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := p.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := p.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -118,7 +118,7 @@ func (p *PhoneNumberClient) ReleasePhoneNumbers(ctx context.Context, in *livekit
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := p.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := p.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}

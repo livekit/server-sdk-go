@@ -45,7 +45,7 @@ func NewRoomServiceClient(url string, apiKey string, secretKey string, opts ...t
 }
 
 func (c *RoomServiceClient) CreateRoom(ctx context.Context, req *livekit.CreateRoomRequest) (*livekit.Room, error) {
-	ctx, err := c.withAuth(ctx, withVideoGrant{RoomCreate: true})
+	ctx, err := c.prepareContext(ctx, withVideoGrant{RoomCreate: true})
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +54,7 @@ func (c *RoomServiceClient) CreateRoom(ctx context.Context, req *livekit.CreateR
 }
 
 func (c *RoomServiceClient) ListRooms(ctx context.Context, req *livekit.ListRoomsRequest) (*livekit.ListRoomsResponse, error) {
-	ctx, err := c.withAuth(ctx, withVideoGrant{RoomList: true})
+	ctx, err := c.prepareContext(ctx, withVideoGrant{RoomList: true})
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +63,7 @@ func (c *RoomServiceClient) ListRooms(ctx context.Context, req *livekit.ListRoom
 }
 
 func (c *RoomServiceClient) DeleteRoom(ctx context.Context, req *livekit.DeleteRoomRequest) (*livekit.DeleteRoomResponse, error) {
-	ctx, err := c.withAuth(ctx, withVideoGrant{RoomCreate: true})
+	ctx, err := c.prepareContext(ctx, withVideoGrant{RoomCreate: true})
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +72,7 @@ func (c *RoomServiceClient) DeleteRoom(ctx context.Context, req *livekit.DeleteR
 }
 
 func (c *RoomServiceClient) ListParticipants(ctx context.Context, req *livekit.ListParticipantsRequest) (*livekit.ListParticipantsResponse, error) {
-	ctx, err := c.withAuth(ctx, withVideoGrant{RoomAdmin: true, Room: req.Room})
+	ctx, err := c.prepareContext(ctx, withVideoGrant{RoomAdmin: true, Room: req.Room})
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +81,7 @@ func (c *RoomServiceClient) ListParticipants(ctx context.Context, req *livekit.L
 }
 
 func (c *RoomServiceClient) GetParticipant(ctx context.Context, req *livekit.RoomParticipantIdentity) (*livekit.ParticipantInfo, error) {
-	ctx, err := c.withAuth(ctx, withVideoGrant{RoomAdmin: true, Room: req.Room})
+	ctx, err := c.prepareContext(ctx, withVideoGrant{RoomAdmin: true, Room: req.Room})
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +90,7 @@ func (c *RoomServiceClient) GetParticipant(ctx context.Context, req *livekit.Roo
 }
 
 func (c *RoomServiceClient) RemoveParticipant(ctx context.Context, req *livekit.RoomParticipantIdentity) (*livekit.RemoveParticipantResponse, error) {
-	ctx, err := c.withAuth(ctx, withVideoGrant{RoomAdmin: true, Room: req.Room})
+	ctx, err := c.prepareContext(ctx, withVideoGrant{RoomAdmin: true, Room: req.Room})
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +102,7 @@ func (c *RoomServiceClient) RemoveParticipant(ctx context.Context, req *livekit.
 // stop when the participant leaves the room or `RemoveParticipant` has been called in the destination room.
 // A participant can be forwarded to multiple rooms. The destination room will be created if it does not exist.
 func (c *RoomServiceClient) ForwardParticipant(ctx context.Context, req *livekit.ForwardParticipantRequest) (*livekit.ForwardParticipantResponse, error) {
-	ctx, err := c.withAuth(ctx, withVideoGrant{RoomAdmin: true, Room: req.Room, DestinationRoom: req.DestinationRoom})
+	ctx, err := c.prepareContext(ctx, withVideoGrant{RoomAdmin: true, Room: req.Room, DestinationRoom: req.DestinationRoom})
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +113,7 @@ func (c *RoomServiceClient) ForwardParticipant(ctx context.Context, req *livekit
 // The participant will be removed from the current room and added to the destination room.
 // From other observers' perspective, the participant would've disconnected from the previous room and joined the new one.
 func (c *RoomServiceClient) MoveParticipant(ctx context.Context, req *livekit.MoveParticipantRequest) (*livekit.MoveParticipantResponse, error) {
-	ctx, err := c.withAuth(ctx, withVideoGrant{RoomAdmin: true, Room: req.Room, DestinationRoom: req.DestinationRoom})
+	ctx, err := c.prepareContext(ctx, withVideoGrant{RoomAdmin: true, Room: req.Room, DestinationRoom: req.DestinationRoom})
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +121,7 @@ func (c *RoomServiceClient) MoveParticipant(ctx context.Context, req *livekit.Mo
 }
 
 func (c *RoomServiceClient) MutePublishedTrack(ctx context.Context, req *livekit.MuteRoomTrackRequest) (*livekit.MuteRoomTrackResponse, error) {
-	ctx, err := c.withAuth(ctx, withVideoGrant{RoomAdmin: true, Room: req.Room})
+	ctx, err := c.prepareContext(ctx, withVideoGrant{RoomAdmin: true, Room: req.Room})
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +130,7 @@ func (c *RoomServiceClient) MutePublishedTrack(ctx context.Context, req *livekit
 }
 
 func (c *RoomServiceClient) UpdateParticipant(ctx context.Context, req *livekit.UpdateParticipantRequest) (*livekit.ParticipantInfo, error) {
-	ctx, err := c.withAuth(ctx, withVideoGrant{RoomAdmin: true, Room: req.Room})
+	ctx, err := c.prepareContext(ctx, withVideoGrant{RoomAdmin: true, Room: req.Room})
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +138,7 @@ func (c *RoomServiceClient) UpdateParticipant(ctx context.Context, req *livekit.
 }
 
 func (c *RoomServiceClient) UpdateSubscriptions(ctx context.Context, req *livekit.UpdateSubscriptionsRequest) (*livekit.UpdateSubscriptionsResponse, error) {
-	ctx, err := c.withAuth(ctx, withVideoGrant{RoomAdmin: true, Room: req.Room})
+	ctx, err := c.prepareContext(ctx, withVideoGrant{RoomAdmin: true, Room: req.Room})
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +146,7 @@ func (c *RoomServiceClient) UpdateSubscriptions(ctx context.Context, req *liveki
 }
 
 func (c *RoomServiceClient) UpdateRoomMetadata(ctx context.Context, req *livekit.UpdateRoomMetadataRequest) (*livekit.Room, error) {
-	ctx, err := c.withAuth(ctx, withVideoGrant{RoomAdmin: true, Room: req.Room})
+	ctx, err := c.prepareContext(ctx, withVideoGrant{RoomAdmin: true, Room: req.Room})
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +154,7 @@ func (c *RoomServiceClient) UpdateRoomMetadata(ctx context.Context, req *livekit
 }
 
 func (c *RoomServiceClient) SendData(ctx context.Context, req *livekit.SendDataRequest) (*livekit.SendDataResponse, error) {
-	ctx, err := c.withAuth(ctx, withVideoGrant{RoomAdmin: true, Room: req.Room})
+	ctx, err := c.prepareContext(ctx, withVideoGrant{RoomAdmin: true, Room: req.Room})
 	if err != nil {
 		return nil, err
 	}

@@ -51,7 +51,7 @@ func (s *SIPClient) CreateSIPInboundTrunk(ctx context.Context, in *livekit.Creat
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +64,7 @@ func (s *SIPClient) CreateSIPOutboundTrunk(ctx context.Context, in *livekit.Crea
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +77,7 @@ func (s *SIPClient) UpdateSIPInboundTrunk(ctx context.Context, in *livekit.Updat
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +90,7 @@ func (s *SIPClient) UpdateSIPOutboundTrunk(ctx context.Context, in *livekit.Upda
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +104,7 @@ func (s *SIPClient) GetSIPInboundTrunksByIDs(ctx context.Context, ids []string) 
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +126,7 @@ func (s *SIPClient) GetSIPOutboundTrunksByIDs(ctx context.Context, ids []string)
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +149,7 @@ func (s *SIPClient) ListSIPTrunk(ctx context.Context, in *livekit.ListSIPTrunkRe
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +162,7 @@ func (s *SIPClient) ListSIPInboundTrunk(ctx context.Context, in *livekit.ListSIP
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -175,7 +175,7 @@ func (s *SIPClient) ListSIPOutboundTrunk(ctx context.Context, in *livekit.ListSI
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +188,7 @@ func (s *SIPClient) DeleteSIPTrunk(ctx context.Context, in *livekit.DeleteSIPTru
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -201,7 +201,7 @@ func (s *SIPClient) CreateSIPDispatchRule(ctx context.Context, in *livekit.Creat
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +214,7 @@ func (s *SIPClient) UpdateSIPDispatchRule(ctx context.Context, in *livekit.Updat
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -228,7 +228,7 @@ func (s *SIPClient) GetSIPDispatchRulesByIDs(ctx context.Context, ids []string) 
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -249,7 +249,7 @@ func (s *SIPClient) ListSIPDispatchRule(ctx context.Context, in *livekit.ListSIP
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -262,7 +262,7 @@ func (s *SIPClient) DeleteSIPDispatchRule(ctx context.Context, in *livekit.Delet
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Admin: true})
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Admin: true})
 	if err != nil {
 		return nil, err
 	}
@@ -275,7 +275,7 @@ func (s *SIPClient) CreateSIPParticipant(ctx context.Context, in *livekit.Create
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Call: true})
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Call: true})
 	if err != nil {
 		return nil, err
 	}
@@ -297,7 +297,7 @@ func (s *SIPClient) TransferSIPParticipant(ctx context.Context, in *livekit.Tran
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.withAuth(ctx, withSIPGrant{Call: true}, withVideoGrant{RoomAdmin: true, Room: in.RoomName})
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Call: true}, withVideoGrant{RoomAdmin: true, Room: in.RoomName})
 	if err != nil {
 		return nil, err
 	}

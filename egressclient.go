@@ -43,7 +43,7 @@ func NewEgressClient(url string, apiKey string, secretKey string, opts ...twirp.
 }
 
 func (c *EgressClient) StartRoomCompositeEgress(ctx context.Context, req *livekit.RoomCompositeEgressRequest) (*livekit.EgressInfo, error) {
-	ctx, err := c.withAuth(ctx, withVideoGrant{RoomRecord: true})
+	ctx, err := c.prepareContext(ctx, withVideoGrant{RoomRecord: true})
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +51,7 @@ func (c *EgressClient) StartRoomCompositeEgress(ctx context.Context, req *liveki
 }
 
 func (c *EgressClient) StartParticipantEgress(ctx context.Context, req *livekit.ParticipantEgressRequest) (*livekit.EgressInfo, error) {
-	ctx, err := c.withAuth(ctx, withVideoGrant{RoomRecord: true})
+	ctx, err := c.prepareContext(ctx, withVideoGrant{RoomRecord: true})
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +59,7 @@ func (c *EgressClient) StartParticipantEgress(ctx context.Context, req *livekit.
 }
 
 func (c *EgressClient) StartTrackCompositeEgress(ctx context.Context, req *livekit.TrackCompositeEgressRequest) (*livekit.EgressInfo, error) {
-	ctx, err := c.withAuth(ctx, withVideoGrant{RoomRecord: true})
+	ctx, err := c.prepareContext(ctx, withVideoGrant{RoomRecord: true})
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +67,7 @@ func (c *EgressClient) StartTrackCompositeEgress(ctx context.Context, req *livek
 }
 
 func (c *EgressClient) StartTrackEgress(ctx context.Context, req *livekit.TrackEgressRequest) (*livekit.EgressInfo, error) {
-	ctx, err := c.withAuth(ctx, withVideoGrant{RoomRecord: true})
+	ctx, err := c.prepareContext(ctx, withVideoGrant{RoomRecord: true})
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +75,7 @@ func (c *EgressClient) StartTrackEgress(ctx context.Context, req *livekit.TrackE
 }
 
 func (c *EgressClient) StartWebEgress(ctx context.Context, req *livekit.WebEgressRequest) (*livekit.EgressInfo, error) {
-	ctx, err := c.withAuth(ctx, withVideoGrant{RoomRecord: true})
+	ctx, err := c.prepareContext(ctx, withVideoGrant{RoomRecord: true})
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +83,7 @@ func (c *EgressClient) StartWebEgress(ctx context.Context, req *livekit.WebEgres
 }
 
 func (c *EgressClient) UpdateLayout(ctx context.Context, req *livekit.UpdateLayoutRequest) (*livekit.EgressInfo, error) {
-	ctx, err := c.withAuth(ctx, withVideoGrant{RoomRecord: true})
+	ctx, err := c.prepareContext(ctx, withVideoGrant{RoomRecord: true})
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +91,7 @@ func (c *EgressClient) UpdateLayout(ctx context.Context, req *livekit.UpdateLayo
 }
 
 func (c *EgressClient) UpdateStream(ctx context.Context, req *livekit.UpdateStreamRequest) (*livekit.EgressInfo, error) {
-	ctx, err := c.withAuth(ctx, withVideoGrant{RoomRecord: true})
+	ctx, err := c.prepareContext(ctx, withVideoGrant{RoomRecord: true})
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +99,7 @@ func (c *EgressClient) UpdateStream(ctx context.Context, req *livekit.UpdateStre
 }
 
 func (c *EgressClient) ListEgress(ctx context.Context, req *livekit.ListEgressRequest) (*livekit.ListEgressResponse, error) {
-	ctx, err := c.withAuth(ctx, withVideoGrant{RoomRecord: true})
+	ctx, err := c.prepareContext(ctx, withVideoGrant{RoomRecord: true})
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +107,7 @@ func (c *EgressClient) ListEgress(ctx context.Context, req *livekit.ListEgressRe
 }
 
 func (c *EgressClient) StopEgress(ctx context.Context, req *livekit.StopEgressRequest) (*livekit.EgressInfo, error) {
-	ctx, err := c.withAuth(ctx, withVideoGrant{RoomRecord: true})
+	ctx, err := c.prepareContext(ctx, withVideoGrant{RoomRecord: true})
 	if err != nil {
 		return nil, err
 	}

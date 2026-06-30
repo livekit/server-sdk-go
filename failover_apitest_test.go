@@ -147,3 +147,36 @@ func TestAPI_FailoverDisabled(t *testing.T) {
 	_, err := client.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: "api-test"})
 	require.Error(t, err)
 }
+
+// An unresponsive region (per-attempt timeout) should fail over to a healthy
+// region, with the deadline reset so the retry has its full budget.
+func TestAPI_TimeoutFailsOver(t *testing.T) {
+	setMinFailoverTimeout(t, 50*time.Millisecond) // let a short test timeout fail over
+	client := NewRoomServiceClient(testServerURL(t), "devkey", "secret")
+	// Region 0 stalls well past the deadline; regions 1+ are healthy.
+	ctx := failoverCtx(t, map[string]string{
+		hdrFailRegions:       "0",
+		hdrFailMode:          "delay",
+		"X-Lk-Mock-Delay-Ms": "5000",
+	})
+	ctx, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
+	defer cancel()
+	_, err := client.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: "api-test"})
+	require.NoError(t, err, "an unresponsive region should fail over to a healthy one")
+}
+
+// A request whose timeout is below the thundering-herd threshold must not fail
+// over: a stalled region surfaces the timeout instead of retrying elsewhere.
+func TestAPI_ShortTimeoutNotRetried(t *testing.T) {
+	setMinFailoverTimeout(t, 5*time.Second)
+	client := NewRoomServiceClient(testServerURL(t), "devkey", "secret")
+	ctx := failoverCtx(t, map[string]string{
+		hdrFailRegions:       "0",
+		hdrFailMode:          "delay",
+		"X-Lk-Mock-Delay-Ms": "5000",
+	})
+	ctx, cancel := context.WithTimeout(ctx, 300*time.Millisecond) // < threshold
+	defer cancel()
+	_, err := client.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: "api-test"})
+	require.Error(t, err, "a short-timeout request must not fail over to another region")
+}
