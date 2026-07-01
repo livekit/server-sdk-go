@@ -58,6 +58,15 @@ func (c *ConnectorClient) DialWhatsAppCall(ctx context.Context, req *livekit.Dia
 }
 
 func (c *ConnectorClient) AcceptWhatsAppCall(ctx context.Context, req *livekit.AcceptWhatsAppCallRequest) (*livekit.AcceptWhatsAppCallResponse, error) {
+	// Waiting for the call to be answered dials a phone, which takes longer than a
+	// normal request and must outlast ringing, so give it a long-enough deadline
+	// even if the caller's is shorter (or absent).
+	if req.WaitUntilAnswered {
+		var cancel context.CancelFunc
+		ctx, cancel = dialContext(ctx, req.GetRingingTimeout())
+		defer cancel()
+	}
+
 	ctx, err := c.prepareContext(ctx, withVideoGrant{RoomCreate: true, Room: req.RoomName})
 	if err != nil {
 		return nil, err

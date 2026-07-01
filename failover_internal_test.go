@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/livekit/protocol/livekit"
+	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 func TestFailoverAttempts(t *testing.T) {
@@ -50,6 +51,70 @@ func TestFailoverAttempts(t *testing.T) {
 			t.Errorf("attempts(cfg=%+v, host=%q) = %v, want %v", c.cfg, c.host, got, c.want)
 		}
 	}
+}
+
+func TestDialContext(t *testing.T) {
+	ring := func(d time.Duration) *durationpb.Duration { return durationpb.New(d) }
+
+	assertBudget := func(t *testing.T, ctx context.Context, want time.Duration) {
+		t.Helper()
+		dl, ok := ctx.Deadline()
+		if !ok {
+			t.Fatal("expected a deadline")
+		}
+		// time.Until is at most want (a little elapsed); allow slack for scheduling.
+		if got := time.Until(dl); got > want || got < want-time.Second {
+			t.Errorf("budget = %v, want ~%v", got, want)
+		}
+	}
+
+	// No caller deadline and no ringing_timeout: fall back to the default ring
+	// window plus the margin (so the request outlasts the default ring too).
+	t.Run("no deadline uses default ringing plus margin", func(t *testing.T) {
+		ctx, cancel := dialContext(context.Background(), nil)
+		defer cancel()
+		assertBudget(t, ctx, defaultRingingTimeout+ringingTimeoutMargin)
+	})
+	t.Run("no deadline raised above ringing", func(t *testing.T) {
+		ctx, cancel := dialContext(context.Background(), ring(40*time.Second))
+		defer cancel()
+		assertBudget(t, ctx, 40*time.Second+ringingTimeoutMargin)
+	})
+
+	// A caller deadline shorter than the dial budget is extended (the fix): a
+	// too-short deadline must not abort the request before the call is answered.
+	t.Run("short caller deadline is extended", func(t *testing.T) {
+		parent, pcancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer pcancel()
+		ctx, cancel := dialContext(parent, ring(40*time.Second))
+		defer cancel()
+		assertBudget(t, ctx, 40*time.Second+ringingTimeoutMargin)
+	})
+
+	// A caller deadline longer than the dial budget is honored as-is.
+	t.Run("long caller deadline is honored", func(t *testing.T) {
+		parent, pcancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer pcancel()
+		ctx, cancel := dialContext(parent, ring(40*time.Second))
+		defer cancel()
+		assertBudget(t, ctx, 90*time.Second)
+	})
+
+	// Even when the deadline is extended, explicit caller cancellation propagates.
+	t.Run("extended context still forwards cancellation", func(t *testing.T) {
+		parent, pcancel := context.WithCancel(context.Background())
+		ctx, cancel := dialContext(parent, ring(40*time.Second))
+		defer cancel()
+		pcancel()
+		select {
+		case <-ctx.Done():
+			if !errors.Is(context.Cause(ctx), context.Canceled) {
+				t.Errorf("cause = %v, want context.Canceled", context.Cause(ctx))
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("caller cancellation was not forwarded to the extended context")
+		}
+	})
 }
 
 type stubAttempt struct {
