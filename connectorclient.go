@@ -58,14 +58,13 @@ func (c *ConnectorClient) DialWhatsAppCall(ctx context.Context, req *livekit.Dia
 }
 
 func (c *ConnectorClient) AcceptWhatsAppCall(ctx context.Context, req *livekit.AcceptWhatsAppCallRequest) (*livekit.AcceptWhatsAppCallResponse, error) {
-	// Waiting for the call to be answered dials a phone, which takes longer than a
-	// normal request and must outlast ringing, so give it a long-enough deadline
-	// even if the caller's is shorter (or absent). Pin the ring window explicitly
-	// so the deadline doesn't depend on the server's default (which could change).
-	if req.WaitUntilAnswered {
-		req.RingingTimeout = pinRingingTimeout(req.RingingTimeout)
+	// Accept can block until the call is answered, so default the request deadline
+	// to the standard ring window when the caller set none. The caller overrides
+	// via the context deadline and should set it above the ringing_timeout passed
+	// to DialWhatsAppCall (the two calls are separate, so we can't derive it).
+	if _, ok := ctx.Deadline(); !ok && req.WaitUntilAnswered {
 		var cancel context.CancelFunc
-		ctx, cancel = dialContext(ctx, req.RingingTimeout)
+		ctx, cancel = context.WithTimeout(ctx, defaultRingingTimeout)
 		defer cancel()
 	}
 
