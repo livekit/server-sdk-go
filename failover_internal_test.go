@@ -53,6 +53,19 @@ func TestFailoverAttempts(t *testing.T) {
 	}
 }
 
+func TestPinRingingTimeout(t *testing.T) {
+	// Unset falls back to the default ring window, so the request carries an
+	// explicit value rather than relying on the server default.
+	if got := pinRingingTimeout(nil); got == nil || got.AsDuration() != defaultRingingTimeout {
+		t.Errorf("pinRingingTimeout(nil) = %v, want %v", got, defaultRingingTimeout)
+	}
+	// A caller-supplied value is preserved as-is.
+	set := durationpb.New(15 * time.Second)
+	if got := pinRingingTimeout(set); got != set {
+		t.Errorf("pinRingingTimeout(set) = %v, want the caller value", got)
+	}
+}
+
 func TestDialContext(t *testing.T) {
 	ring := func(d time.Duration) *durationpb.Duration { return durationpb.New(d) }
 

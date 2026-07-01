@@ -53,6 +53,17 @@ func dialContext(ctx context.Context, ringingTimeout *durationpb.Duration) (cont
 	return context.WithTimeout(detachDeadline(ctx), budget)
 }
 
+// pinRingingTimeout returns ringingTimeout when set, else the default ring window
+// (defaultRingingTimeout). Callers set it back on the request so the ring window
+// sent to the server — which the dial deadline is derived from — is explicit and
+// doesn't depend on the server's default (which could change).
+func pinRingingTimeout(ringingTimeout *durationpb.Duration) *durationpb.Duration {
+	if ringingTimeout == nil {
+		return durationpb.New(defaultRingingTimeout)
+	}
+	return ringingTimeout
+}
+
 //lint:file-ignore SA1019 We still support some deprecated functions for backward compatibility
 
 type SIPClient struct {
@@ -304,10 +315,12 @@ func (s *SIPClient) CreateSIPParticipant(ctx context.Context, in *livekit.Create
 
 	// Dialing a phone and waiting for an answer takes longer than a normal
 	// request and must outlast ringing, so give it a long-enough deadline even if
-	// the caller's is shorter (or absent).
+	// the caller's is shorter (or absent). Pin the ring window explicitly so the
+	// deadline doesn't depend on the server's default (which could change).
 	if in.WaitUntilAnswered {
+		in.RingingTimeout = pinRingingTimeout(in.RingingTimeout)
 		var cancel context.CancelFunc
-		ctx, cancel = dialContext(ctx, in.GetRingingTimeout())
+		ctx, cancel = dialContext(ctx, in.RingingTimeout)
 		defer cancel()
 	}
 
@@ -325,9 +338,11 @@ func (s *SIPClient) TransferSIPParticipant(ctx context.Context, in *livekit.Tran
 	}
 
 	// Transferring a call dials a phone and must outlast ringing, so give it a
-	// long-enough deadline even if the caller's is shorter (or absent).
+	// long-enough deadline even if the caller's is shorter (or absent). Pin the
+	// ring window explicitly so the deadline doesn't depend on the server default.
+	in.RingingTimeout = pinRingingTimeout(in.RingingTimeout)
 	var cancel context.CancelFunc
-	ctx, cancel = dialContext(ctx, in.GetRingingTimeout())
+	ctx, cancel = dialContext(ctx, in.RingingTimeout)
 	defer cancel()
 
 	ctx, err := s.prepareContext(ctx, withSIPGrant{Call: true}, withVideoGrant{RoomAdmin: true, Room: in.RoomName})
