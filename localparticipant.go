@@ -780,7 +780,7 @@ func (p *LocalParticipant) updateSubscriptionPermissionLocked() {
 	}
 
 	if err := p.engine.SendSubscriptionPermission(p.subscriptionPermission); err != nil {
-		logger.Errorw(
+		p.log.Errorw(
 			"could not send subscription permission", err,
 			"participant", p.identity,
 			"participantID", p.sid,
