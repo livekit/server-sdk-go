@@ -217,16 +217,16 @@ func (c *connectionManager) setResuming(regionSettigs *livekit.RegionSettings) b
 		return false
 	}
 
-	// if not connected, cannot resume, so no-op
-	if c.state != connectionManagerStateConnected {
-		return false
-	}
-
 	// if already resuming, do not take settings that are nil as some internal paths might do a resume without regions
 	if c.state == connectionManagerStateResuming {
 		if regionSettigs != nil {
 			c.regionSettings = utils.CloneProto(regionSettigs)
 		}
+		return false
+	}
+
+	// if not connected, cannot resume, so no-op
+	if c.state != connectionManagerStateConnected {
 		return false
 	}
 
