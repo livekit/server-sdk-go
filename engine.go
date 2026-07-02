@@ -409,6 +409,7 @@ func (e *RTCEngine) createPublisherPCLocked(configuration webrtc.Configuration) 
 		OnRTTUpdate:                e.setRTT,
 		IsSender:                   true,
 		DTLSEllipticCurves:         e.connParams.DTLSEllipticCurves,
+		NetworkTypes:               e.connParams.NetworkTypes,
 	}); err != nil {
 		return err
 	}
@@ -519,6 +520,7 @@ func (e *RTCEngine) createSubscriberPCLocked(configuration webrtc.Configuration)
 		Interceptors:               e.connParams.Interceptors,
 		IncludeDefaultInterceptors: e.connParams.IncludeDefaultInterceptors,
 		DTLSEllipticCurves:         e.connParams.DTLSEllipticCurves,
+		NetworkTypes:               e.connParams.NetworkTypes,
 	}); err != nil {
 		return err
 	}
