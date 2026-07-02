@@ -301,9 +301,7 @@ func (c *connectionManager) getConnectionPlanInitial() ([]connectionAttemptParam
 		if cloudHostname != "" {
 			settings, err := c.regionProvider.RegionSettings(cloudHostname, c.token)
 			if err == nil {
-				for _, region := range settings.Regions {
-					regionsToTry = append(regionsToTry, region)
-				}
+				regionsToTry = append(regionsToTry, settings.GetRegions()...)
 			}
 		}
 	}
@@ -358,9 +356,7 @@ func (c *connectionManager) getConnectionPlanReconnecting() ([]connectionAttempt
 	var regionsToTry []*livekit.RegionInfo
 	if c.regionSettings != nil {
 		// server sent list via LeaveRequest, try those
-		for _, region := range c.regionSettings.GetRegions() {
-			regionsToTry = append(regionsToTry, region)
-		}
+		regionsToTry = append(regionsToTry, c.regionSettings.GetRegions()...)
 	}
 
 	// layer on region provider regions if enabled
@@ -369,9 +365,7 @@ func (c *connectionManager) getConnectionPlanReconnecting() ([]connectionAttempt
 		if cloudHostname != "" {
 			settings, err := c.regionProvider.RegionSettings(cloudHostname, c.token)
 			if err == nil {
-				for _, region := range settings.Regions {
-					regionsToTry = append(regionsToTry, region)
-				}
+				regionsToTry = append(regionsToTry, settings.GetRegions()...)
 			}
 		}
 	}
