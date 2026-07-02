@@ -274,6 +274,13 @@ func (c *connectionManager) updateState(state connectionManagerState) {
 	c.state = state
 }
 
+func (c *connectionManager) currentState() connectionManagerState {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.state
+}
+
 func (c *connectionManager) getConnectionPlan() ([]connectionAttemptParams, error) {
 	c.mu.RLock()
 	if c.incomingRequestParams.url == "" {
@@ -282,46 +289,52 @@ func (c *connectionManager) getConnectionPlan() ([]connectionAttemptParams, erro
 	}
 
 	state := c.state
-	incomingRequestParams := c.incomingRequestParams
-	regionSettings := c.regionSettings
-	connectedRegion := c.connectedRegion
-	token := c.token
+	params := connectionPlanParams{
+		incomingRequestParams: c.incomingRequestParams,
+		regionSettings:        c.regionSettings,
+		connectedRegion:       c.connectedRegion,
+		token:                 c.token,
+		regionURLProvider:     c.regionProvider,
+		log:                   c.log,
+	}
 	c.mu.RUnlock()
 
-	var planner func(
-		incomingRequestParams connectionRequestParams,
-		regionSettings *livekit.RegionSettings,
-		connectedRegion *livekit.RegionInfo,
-		token string,
-	) ([]connectionAttemptParams, error)
+	var planner func(params connectionPlanParams) ([]connectionAttemptParams, error)
 
 	switch state {
 	case connectionManagerStateInitial:
-		planner = c.getConnectionPlanInitial
+		planner = getConnectionPlanInitial
 	case connectionManagerStateResuming:
-		planner = c.getConnectionPlanResuming
+		planner = getConnectionPlanResuming
 	case connectionManagerStateReconnecting:
-		planner = c.getConnectionPlanReconnecting
+		planner = getConnectionPlanReconnecting
 	}
 
 	if planner == nil {
 		return nil, errors.New("invalid state")
 	}
 
-	return planner(incomingRequestParams, regionSettings, connectedRegion, token)
+	return planner(params)
 }
 
-func (c *connectionManager) getConnectionPlanInitial(
-	incomingRequestParams connectionRequestParams,
-	regionSettings *livekit.RegionSettings,
-	connectedRegion *livekit.RegionInfo,
-	token string,
-) ([]connectionAttemptParams, error) {
+// -------------------------------------------------------------
+
+type connectionPlanParams struct {
+	incomingRequestParams connectionRequestParams
+	regionSettings        *livekit.RegionSettings
+	connectedRegion       *livekit.RegionInfo
+	token                 string
+
+	regionURLProvider *regionURLProvider
+	log               protoLogger.Logger
+}
+
+func getConnectionPlanInitial(params connectionPlanParams) ([]connectionAttemptParams, error) {
 	var regionsToTry []*livekit.RegionInfo
-	if !incomingRequestParams.disableRegionDiscovery {
-		cloudHostname, _ := parseCloudURL(incomingRequestParams.url)
+	if !params.incomingRequestParams.disableRegionDiscovery {
+		cloudHostname, _ := parseCloudURL(params.incomingRequestParams.url)
 		if cloudHostname != "" {
-			settings, err := c.regionProvider.RegionSettings(cloudHostname, token)
+			settings, err := params.regionURLProvider.RegionSettings(cloudHostname, params.token)
 			if err == nil {
 				regionsToTry = append(regionsToTry, settings.GetRegions()...)
 			}
@@ -331,74 +344,64 @@ func (c *connectionManager) getConnectionPlanInitial(
 	// add the incoming request URL (i. e. original URL) just in case the region specific options did not work
 	regionsToTry = append(regionsToTry, &livekit.RegionInfo{
 		Region:   "original",
-		Url:      incomingRequestParams.url,
+		Url:      params.incomingRequestParams.url,
 		Distance: -1,
 	})
 
-	return c.buildConnectionPlan(incomingRequestParams.ctx, regionsToTry, token)
+	return buildConnectionPlan(params.incomingRequestParams.ctx, regionsToTry, params.token)
 }
 
-func (c *connectionManager) getConnectionPlanResuming(
-	incomingRequestParams connectionRequestParams,
-	regionSettings *livekit.RegionSettings,
-	connectedRegion *livekit.RegionInfo,
-	token string,
-) ([]connectionAttemptParams, error) {
+func getConnectionPlanResuming(params connectionPlanParams) ([]connectionAttemptParams, error) {
 	var regionsToTry []*livekit.RegionInfo
-	if regionSettings != nil {
+	if params.regionSettings != nil {
 		// server sent list if available, the first entry should match the connected region
-		if connectedRegion != nil {
-			regions := regionSettings.GetRegions()
-			if len(regions) > 0 && regions[0].Url != connectedRegion.Url {
-				c.log.Infow(
+		if params.connectedRegion != nil {
+			regions := params.regionSettings.GetRegions()
+			if len(regions) > 0 && regions[0].Url != params.connectedRegion.Url {
+				params.log.Infow(
 					"first region in settings does not match connected region for resume",
 					"firstRegion", protoLogger.Proto(regions[0]),
-					"connectedRegion", protoLogger.Proto(connectedRegion),
+					"connectedRegion", protoLogger.Proto(params.connectedRegion),
 				)
 			}
 		}
 
 		// server sent list via LeaveRequest, try those
-		regionsToTry = append(regionsToTry, regionSettings.GetRegions()...)
+		regionsToTry = append(regionsToTry, params.regionSettings.GetRegions()...)
 	} else {
 		// no server sent list, try the connected url again
-		if connectedRegion != nil {
-			regionsToTry = append(regionsToTry, connectedRegion)
+		if params.connectedRegion != nil {
+			regionsToTry = append(regionsToTry, params.connectedRegion)
 		}
 	}
 
 	// add the incoming request URL (i. e. original URL) just in case the region specific options did not work
 	regionsToTry = append(regionsToTry, &livekit.RegionInfo{
 		Region:   "original",
-		Url:      incomingRequestParams.url,
+		Url:      params.incomingRequestParams.url,
 		Distance: -1,
 	})
 
-	return c.buildConnectionPlan(context.Background(), regionsToTry, token)
+	return buildConnectionPlan(context.Background(), regionsToTry, params.token)
 }
 
-func (c *connectionManager) getConnectionPlanReconnecting(
-	incomingRequestParams connectionRequestParams,
-	regionSettings *livekit.RegionSettings,
-	connectedRegion *livekit.RegionInfo,
-	token string,
-) ([]connectionAttemptParams, error) {
+func getConnectionPlanReconnecting(params connectionPlanParams) ([]connectionAttemptParams, error) {
 	var regionsToTry []*livekit.RegionInfo
-	if regionSettings != nil {
+	if params.regionSettings != nil {
 		// server sent list via LeaveRequest, try those
-		regionsToTry = append(regionsToTry, regionSettings.GetRegions()...)
+		regionsToTry = append(regionsToTry, params.regionSettings.GetRegions()...)
 	} else {
 		// no server sent list, try the connected url again
-		if connectedRegion != nil {
-			regionsToTry = append(regionsToTry, connectedRegion)
+		if params.connectedRegion != nil {
+			regionsToTry = append(regionsToTry, params.connectedRegion)
 		}
 	}
 
 	// layer on region provider regions if enabled
-	if !incomingRequestParams.disableRegionDiscovery {
-		cloudHostname, _ := parseCloudURL(incomingRequestParams.url)
+	if !params.incomingRequestParams.disableRegionDiscovery {
+		cloudHostname, _ := parseCloudURL(params.incomingRequestParams.url)
 		if cloudHostname != "" {
-			settings, err := c.regionProvider.RegionSettings(cloudHostname, token)
+			settings, err := params.regionURLProvider.RegionSettings(cloudHostname, params.token)
 			if err == nil {
 				regionsToTry = append(regionsToTry, settings.GetRegions()...)
 			}
@@ -408,14 +411,14 @@ func (c *connectionManager) getConnectionPlanReconnecting(
 	// add the incoming request URL (i. e. original URL) just in case the region specific options did not work
 	regionsToTry = append(regionsToTry, &livekit.RegionInfo{
 		Region:   "original",
-		Url:      incomingRequestParams.url,
+		Url:      params.incomingRequestParams.url,
 		Distance: -1,
 	})
 
-	return c.buildConnectionPlan(context.Background(), regionsToTry, token)
+	return buildConnectionPlan(context.Background(), regionsToTry, params.token)
 }
 
-func (c *connectionManager) buildConnectionPlan(ctx context.Context, regionsToTry []*livekit.RegionInfo, token string) ([]connectionAttemptParams, error) {
+func buildConnectionPlan(ctx context.Context, regionsToTry []*livekit.RegionInfo, token string) ([]connectionAttemptParams, error) {
 	seen := make(map[string]bool, len(regionsToTry))
 	dedupedRegions := make([]*livekit.RegionInfo, 0, len(regionsToTry))
 	for _, region := range regionsToTry {
@@ -441,11 +444,4 @@ func (c *connectionManager) buildConnectionPlan(ctx context.Context, regionsToTr
 		})
 	}
 	return plan, nil
-}
-
-func (c *connectionManager) currentState() connectionManagerState {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	return c.state
 }

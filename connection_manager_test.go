@@ -359,10 +359,7 @@ func TestConnectionManager_ConsecutiveResumesWithoutRestoreKeepsStaleRegions(t *
 // TestConnectionManager_BuildConnectionPlan_Dedup verifies regions are deduped
 // by region name, keeping first occurrence order.
 func TestConnectionManager_BuildConnectionPlan_Dedup(t *testing.T) {
-	cm := newConnectionManager(newRegionURLProvider())
-	cm.setToken("tok")
-
-	plan, err := cm.buildConnectionPlan(context.Background(), []*livekit.RegionInfo{
+	plan, err := buildConnectionPlan(context.Background(), []*livekit.RegionInfo{
 		{Region: "a", Url: "wss://a1.example.com"},
 		{Region: "b", Url: "wss://b.example.com"},
 		{Region: "a", Url: "wss://a2.example.com"}, // duplicate name, dropped
@@ -379,8 +376,6 @@ func TestConnectionManager_BuildConnectionPlan_Dedup(t *testing.T) {
 // TestConnectionManager_BuildConnectionPlan_Backoff verifies the exponential
 // backoff schedule and its 6.4s cap.
 func TestConnectionManager_BuildConnectionPlan_Backoff(t *testing.T) {
-	cm := newConnectionManager(newRegionURLProvider())
-
 	var regions []*livekit.RegionInfo
 	for i := 0; i < 10; i++ {
 		regions = append(regions, &livekit.RegionInfo{
@@ -389,7 +384,7 @@ func TestConnectionManager_BuildConnectionPlan_Backoff(t *testing.T) {
 		})
 	}
 
-	plan, err := cm.buildConnectionPlan(context.Background(), regions, "tok")
+	plan, err := buildConnectionPlan(context.Background(), regions, "tok")
 	require.NoError(t, err)
 	require.Len(t, plan, 10)
 
