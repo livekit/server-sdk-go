@@ -227,6 +227,9 @@ func (p *LocalParticipant) prepareSimulcastTrackPublication(tracks []*LocalTrack
 		if track.videoLayer == nil || track.RID() == "" {
 			return nil, nil, nil, ErrInvalidSimulcastTrack
 		}
+
+		// disable dynacast on a re-publication
+		track.setDisabled(false)
 	}
 
 	pubOptions := &LocalTrackPublishOptions{}
@@ -318,6 +321,11 @@ func (p *LocalParticipant) prepareSimulcastTrackPublication(tracks []*LocalTrack
 		},
 	}
 	if len(pubOptions.backupCodecTracks) > 0 {
+		for _, track := range pubOptions.backupCodecTracks {
+			// disable dynacast on a re-publication
+			track.setDisabled(false)
+		}
+
 		backupTracksCopy := make([]*LocalTrack, len(pubOptions.backupCodecTracks))
 		copy(backupTracksCopy, pubOptions.backupCodecTracks)
 

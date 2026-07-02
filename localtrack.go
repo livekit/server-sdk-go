@@ -83,6 +83,7 @@ type LocalTrack struct {
 	onRTCP                   func(rtcp.Packet)
 
 	muted          atomic.Bool
+	disabled       atomic.Bool
 	disconnected   atomic.Bool
 	cancelWrite    func()
 	writeClosed    chan struct{}
@@ -584,6 +585,10 @@ func (s *LocalTrack) setMuted(muted bool) {
 	s.muted.Store(muted)
 }
 
+func (s *LocalTrack) setDisabled(disabled bool) {
+	s.disabled.Store(disabled)
+}
+
 func (s *LocalTrack) setDisconnected(disconnected bool) {
 	s.disconnected.Store(disconnected)
 }
@@ -671,7 +676,7 @@ func (s *LocalTrack) writeWorker(provider SampleProvider, onComplete func()) {
 			return
 		}
 
-		if !s.muted.Load() {
+		if !s.muted.Load() && !s.disabled.Load() {
 			var opts *SampleWriteOptions
 			if isAudioProvider {
 				level := audioProvider.CurrentAudioLevel()
