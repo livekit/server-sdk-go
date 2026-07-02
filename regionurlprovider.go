@@ -62,13 +62,6 @@ func (r *regionURLProvider) RegionSettings(cloudHostname, token string) (*liveki
 	return settings, nil
 }
 
-// SetServerReportedRegions stores a region list pushed by the server (e.g. on a
-// reconnect LeaveRequest), overriding the cached /settings/regions list and
-// resetting the cache TTL so the next failover uses it without re-fetching.
-func (r *regionURLProvider) SetServerReportedRegions(cloudHostname string, regions *livekit.RegionSettings) {
-	r.cache.set(cloudHostname, regions, regionHostnameProviderSettingsCacheTime)
-}
-
 // regionCache fetches and caches the LiveKit Cloud region list per host. It is
 // shared by the API failover path (which honors the request scheme and forwards
 // the caller's headers) and the RTC signaling path (which fetches over https

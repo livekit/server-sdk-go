@@ -229,6 +229,12 @@ func NewPCTransport(params PCTransportParams) (*PCTransport, error) {
 	t.pc = pc
 
 	pc.OnICEGatheringStateChange(t.onICEGatheringStateChange)
+	pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
+		t.log.Debugw("ICE connection state changed", "state", state)
+	})
+	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
+		t.log.Debugw("peer connection state changed", "state", state)
+	})
 
 	return t, nil
 }

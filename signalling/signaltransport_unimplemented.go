@@ -49,6 +49,7 @@ func (s *signalTransportUnimplemented) Join(
 }
 
 func (s *signalTransportUnimplemented) Reconnect(
+	ctx context.Context,
 	url string,
 	token string,
 	connectParams ConnectParams,

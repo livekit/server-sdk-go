@@ -163,28 +163,6 @@ func TestRegionURLProvider_FetchError(t *testing.T) {
 	require.Error(t, err, "no regions cached after a failed fetch")
 }
 
-// TestRegionURLProvider_SetServerReportedRegions verifies that a server-pushed
-// region list (e.g. from a reconnect LeaveRequest) overrides the cached list and
-// is used without hitting /settings/regions.
-func TestRegionURLProvider_SetServerReportedRegions(t *testing.T) {
-	rs := newRegionSettingsServer(t, &livekit.RegionSettings{
-		Regions: []*livekit.RegionInfo{{Region: "a", Url: "wss://a.example.com"}},
-	})
-	p := newTestProvider(rs)
-
-	p.SetServerReportedRegions(rs.hostname, &livekit.RegionSettings{
-		Regions: []*livekit.RegionInfo{
-			{Region: "b", Url: "wss://b.example.com"},
-			{Region: "c", Url: "wss://c.example.com"},
-		},
-	})
-
-	settings, err := p.RegionSettings(rs.hostname, "test-token")
-	require.NoError(t, err)
-	require.Equal(t, "wss://b.example.com", settings.GetRegions()[0].Url)
-	require.EqualValues(t, 0, rs.hits.Load(), "server-reported regions must not trigger a fetch")
-}
-
 func TestParseRegionSettingsMaxAge(t *testing.T) {
 	cases := map[string]time.Duration{
 		"max-age=60":         60 * time.Second,
