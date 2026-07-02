@@ -358,6 +358,8 @@ func (e *RTCEngine) Close() {
 		return
 	}
 
+	e.connectionManager.setDisconnected()
+
 	e.pclock.Lock()
 	e.pendingPublisherOffer = webrtc.SessionDescription{}
 	e.pclock.Unlock()
@@ -384,7 +386,6 @@ func (e *RTCEngine) Close() {
 		}
 
 		e.signalTransport.Close()
-		e.connectionManager.setDisconnected()
 	}()
 }
 

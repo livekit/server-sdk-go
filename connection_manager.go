@@ -179,6 +179,11 @@ func (c *connectionManager) setConnected(region *livekit.RegionInfo) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Disconnected is terminal; never transition out of it
+	if c.state == connectionManagerStateDisconnected {
+		return false
+	}
+
 	// reset on connection establishment to ensure region settings in leave request from a
 	// previously connected server is not used past its validity,
 	//
@@ -198,6 +203,11 @@ func (c *connectionManager) setResumed(region *livekit.RegionInfo) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Disconnected is terminal; never transition out of it
+	if c.state == connectionManagerStateDisconnected {
+		return false
+	}
+
 	if c.state != connectionManagerStateResuming {
 		return false
 	}
@@ -211,6 +221,11 @@ func (c *connectionManager) setResumed(region *livekit.RegionInfo) bool {
 func (c *connectionManager) setResuming(regionSettings *livekit.RegionSettings) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	// Disconnected is terminal; never transition out of it
+	if c.state == connectionManagerStateDisconnected {
+		return false
+	}
 
 	// if already reconnecting, resuming is a no-op till the reconnect finishes
 	if c.state == connectionManagerStateReconnecting {
@@ -238,6 +253,11 @@ func (c *connectionManager) setResuming(regionSettings *livekit.RegionSettings) 
 func (c *connectionManager) setReconnecting(regionSettings *livekit.RegionSettings) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	// Disconnected is terminal; never transition out of it
+	if c.state == connectionManagerStateDisconnected {
+		return false
+	}
 
 	// reconnecting can trigger internally when a resume fails and that would not have regions,
 	// so don't clobber regions list if one was received via leave reconnect

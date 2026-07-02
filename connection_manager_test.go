@@ -262,6 +262,39 @@ func TestConnectionManager_SetResumingIgnoredWhileReconnecting(t *testing.T) {
 	require.Equal(t, "reconnect", cm.regionSettings.GetRegions()[0].Region, "reconnect region settings must be preserved")
 }
 
+// TestConnectionManager_DisconnectedIsTerminal verifies that once Disconnected,
+// no set* transition can move the state away from it. This guards against an
+// in-flight reconnect (setConnected/setResuming/setReconnecting/setResumed)
+// resurrecting a closed connection after Close() has marked it disconnected.
+func TestConnectionManager_DisconnectedIsTerminal(t *testing.T) {
+	region := &livekit.RegionInfo{Region: "us-east", Url: "wss://us-east.example.com"}
+	settings := &livekit.RegionSettings{Regions: []*livekit.RegionInfo{{Region: "a", Url: "wss://a"}}}
+
+	newDisconnected := func() *connectionManager {
+		cm := newTestConnectionManager("wss://original.example.com", true)
+		cm.setConnected(region)
+		cm.setDisconnected()
+		require.Equal(t, connectionManagerStateDisconnected, cm.state)
+		return cm
+	}
+
+	cm := newDisconnected()
+	require.False(t, cm.setConnected(region))
+	require.Equal(t, connectionManagerStateDisconnected, cm.state)
+
+	cm = newDisconnected()
+	require.False(t, cm.setResuming(settings))
+	require.Equal(t, connectionManagerStateDisconnected, cm.state)
+
+	cm = newDisconnected()
+	require.False(t, cm.setReconnecting(settings))
+	require.Equal(t, connectionManagerStateDisconnected, cm.state)
+
+	cm = newDisconnected()
+	require.False(t, cm.setResumed(region))
+	require.Equal(t, connectionManagerStateDisconnected, cm.state)
+}
+
 // TestConnectionManager_SetResumingRequiresConnected verifies resume is a no-op
 // unless the manager is currently Connected.
 func TestConnectionManager_SetResumingRequiresConnected(t *testing.T) {
@@ -281,10 +314,9 @@ func TestConnectionManager_SetResumingRequiresConnected(t *testing.T) {
 	require.Equal(t, connectionManagerStateDisconnected, cm.state)
 }
 
-// TestConnectionManager_ConsecutiveResumesUseFreshRegions verifies the state
-// machine the engine drives: because a successful resume restores Connected
-// (engine calls setConnected), the next resume starts from Connected and picks
-// up the fresh server-provided region list rather than reusing the previous one.
+// TestConnectionManager_ConsecutiveResumesUseFreshRegions verifies that once a
+// successful resume restores the Connected state (via setResumed), the next
+// resume starts from Connected and adopts the fresh server-provided region list.
 func TestConnectionManager_ConsecutiveResumesUseFreshRegions(t *testing.T) {
 	regionsA := &livekit.RegionSettings{Regions: []*livekit.RegionInfo{{Region: "a", Url: "wss://a"}}}
 	regionsB := &livekit.RegionSettings{Regions: []*livekit.RegionInfo{{Region: "b", Url: "wss://b"}}}
@@ -298,7 +330,7 @@ func TestConnectionManager_ConsecutiveResumesUseFreshRegions(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"a", "original"}, planRegionNames(plan))
 
-	// resume succeeds -> engine restores Connected via setResumed (the fix under test)
+	// a successful resume restores the Connected state via setResumed
 	cm.setResumed(&livekit.RegionInfo{Region: "a", Url: "wss://a"})
 	require.Equal(t, connectionManagerStateConnected, cm.state)
 	require.Equal(t, "a", cm.connectedRegion.Region, "connectedRegion tracks the resumed region")
@@ -336,24 +368,38 @@ func TestConnectionManager_SetResumedIgnoredWhenReconnectPending(t *testing.T) {
 	require.Equal(t, "reconnect", cm.regionSettings.GetRegions()[0].Region, "reconnect region settings preserved")
 }
 
-// TestConnectionManager_ConsecutiveResumesWithoutRestoreKeepsStaleRegions
-// documents why the engine must restore Connected after a successful resume:
-// if it does not (state stuck at Resuming), the second resume's region list is
-// silently dropped and the stale list is reused.
-func TestConnectionManager_ConsecutiveResumesWithoutRestoreKeepsStaleRegions(t *testing.T) {
+// TestConnectionManager_SetResumingWhileResumingUpdatesRegions verifies that a
+// resume request arriving while already Resuming keeps the state Resuming but
+// adopts the newer server-provided region list, and that a nil list is ignored
+// (some internal resumes carry no regions) so the list already in effect is not
+// wiped.
+func TestConnectionManager_SetResumingWhileResumingUpdatesRegions(t *testing.T) {
 	regionsA := &livekit.RegionSettings{Regions: []*livekit.RegionInfo{{Region: "a", Url: "wss://a"}}}
 	regionsB := &livekit.RegionSettings{Regions: []*livekit.RegionInfo{{Region: "b", Url: "wss://b"}}}
 
 	cm := newTestConnectionManager("wss://original.example.com", true)
 	cm.setConnected(&livekit.RegionInfo{Region: "init", Url: "wss://init"})
 
-	cm.setResuming(regionsA)
-	// NOTE: no setConnected here (simulating the pre-fix engine behavior)
-	cm.setResuming(regionsB) // no-op: state is Resuming, not Connected
+	// first resume transitions Connected -> Resuming and adopts list A
+	require.True(t, cm.setResuming(regionsA))
+	require.Equal(t, connectionManagerStateResuming, cm.state)
+
+	// a second resume while still Resuming does not re-trigger a state change but
+	// consumes the newer non-nil region list
+	require.False(t, cm.setResuming(regionsB))
+	require.Equal(t, connectionManagerStateResuming, cm.state)
 
 	plan, err := cm.getConnectionPlan()
 	require.NoError(t, err)
-	require.Equal(t, []string{"a", "original"}, planRegionNames(plan), "stale region list is reused without a Connected restore")
+	require.Equal(t, []string{"b", "original"}, planRegionNames(plan), "newer region list must be consumed while resuming")
+
+	// a nil list while resuming is ignored, preserving the list already in effect
+	require.False(t, cm.setResuming(nil))
+	require.Equal(t, connectionManagerStateResuming, cm.state)
+
+	plan, err = cm.getConnectionPlan()
+	require.NoError(t, err)
+	require.Equal(t, []string{"b", "original"}, planRegionNames(plan), "nil list must not wipe the region list in effect")
 }
 
 // TestConnectionManager_BuildConnectionPlan_Dedup verifies regions are deduped
