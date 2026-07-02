@@ -367,7 +367,7 @@ func TestConnectionManager_BuildConnectionPlan_Dedup(t *testing.T) {
 		{Region: "b", Url: "wss://b.example.com"},
 		{Region: "a", Url: "wss://a2.example.com"}, // duplicate name, dropped
 		{Region: "c", Url: "wss://c.example.com"},
-	})
+	}, "tok")
 	require.NoError(t, err)
 	require.Equal(t, []string{"a", "b", "c"}, planRegionNames(plan))
 	require.Equal(t, []string{"wss://a1.example.com", "wss://b.example.com", "wss://c.example.com"}, planRegionURLs(plan))
@@ -389,7 +389,7 @@ func TestConnectionManager_BuildConnectionPlan_Backoff(t *testing.T) {
 		})
 	}
 
-	plan, err := cm.buildConnectionPlan(context.Background(), regions)
+	plan, err := cm.buildConnectionPlan(context.Background(), regions, "tok")
 	require.NoError(t, err)
 	require.Len(t, plan, 10)
 
