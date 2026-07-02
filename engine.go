@@ -384,6 +384,7 @@ func (e *RTCEngine) Close() {
 		}
 
 		e.signalTransport.Close()
+		e.connectionManager.setDisconnected()
 	}()
 }
 
@@ -1628,7 +1629,6 @@ func (e *RTCEngine) OnLeave(leave *livekit.LeaveRequest) {
 
 	switch leave.GetAction() {
 	case livekit.LeaveRequest_DISCONNECT:
-		e.connectionManager.setDisconnected()
 		e.Close()
 		reason := leave.GetReason()
 		e.log.Infow("server initiated leave", "reason", reason)
