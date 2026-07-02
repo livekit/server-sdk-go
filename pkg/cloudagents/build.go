@@ -30,12 +30,20 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func (c *Client) build(ctx context.Context, id string, agentDeployment string, writer io.Writer) error {
+func (c *Client) build(ctx context.Context, id string, attributes map[string]string, agentDeployment string, writer io.Writer) error {
 	params := url.Values{}
 	params.Add("agent_id", id)
 	if agentDeployment != "" {
 		params.Add("deployment", agentDeployment)
 	}
+	if len(attributes) > 0 {
+		encoded, err := json.Marshal(attributes)
+		if err != nil {
+			return fmt.Errorf("failed to encode attributes: %w", err)
+		}
+		params.Add("attributes", string(encoded))
+	}
+
 	fullUrl := fmt.Sprintf("%s/build?%s", c.agentsURL, params.Encode())
 	req, err := c.newRequestWithContext(ctx, "POST", fullUrl, nil)
 	if err != nil {
