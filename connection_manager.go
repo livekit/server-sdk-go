@@ -235,11 +235,16 @@ func (c *connectionManager) setResuming(regionSettings *livekit.RegionSettings) 
 	return true
 }
 
-func (c *connectionManager) setReconnecting(regionSettigs *livekit.RegionSettings) bool {
+func (c *connectionManager) setReconnecting(regionSettings *livekit.RegionSettings) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.regionSettings = utils.CloneProto(regionSettigs)
+	// reconnecting can trigger internally when a resume fails and that would not have regions,
+	// so don't clobber regions list if one was received via leave reconnect
+	if c.state == connectionManagerStateReconnecting && regionSettings == nil {
+		return false
+	}
+	c.regionSettings = utils.CloneProto(regionSettings)
 	c.updateState(connectionManagerStateReconnecting)
 	return true
 }
