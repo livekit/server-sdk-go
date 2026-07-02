@@ -1068,3 +1068,132 @@ func TestE2EE_H264RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, dec)
 }
+
+// TestDynacastRepublish exercises two behaviours around simulcast dynacast:
+//
+//  1. Dynacast: a SubscribedQualityUpdate from the server disables the simulcast
+//     layers no subscriber needs. A disabled layer's LocalTrack stops writing
+//     samples (LocalTrack.disabled gates the write worker).
+//  2. Re-publish reset: when tracks are re-published (e.g. on a full reconnect,
+//     which reuses the same *LocalTrack objects via republishTracks), the
+//     per-layer disabled flag is reset so every layer resumes publishing until
+//     the new SFU issues its own dynacast update. Without the reset, a layer
+//     disabled before the reconnect would stay dark forever.
+//
+// The dynacast update is injected through handleSubscribedQualityUpdate, which
+// is exactly the path Room.OnSubscribedQualityUpdate drives for a real server
+// message, so the layer-disabling wiring is covered end-to-end. The re-publish
+// is driven by a real full reconnect.
+func TestDynacastRepublish(t *testing.T) {
+	if apiKey == "" || apiSecret == "" {
+		t.Skip("no LIVEKIT_KEYS; requires a running livekit-server")
+	}
+
+	videoCodec := webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP8, ClockRate: 90000}
+	const videoName = "dynacast_video"
+
+	var subVideoRTP atomic.Int32
+	subCB := &RoomCallback{
+		ParticipantCallback: ParticipantCallback{
+			OnTrackSubscribed: func(track *webrtc.TrackRemote, publication *RemoteTrackPublication, _ *RemoteParticipant) {
+				if publication.Name() != videoName {
+					return
+				}
+				go func() {
+					for {
+						if _, _, err := track.ReadRTP(); err != nil {
+							return
+						}
+						subVideoRTP.Add(1)
+					}
+				}()
+			},
+		},
+	}
+	sub, err := createAgent(t.Name(), subCB, "subscriber-dynacast")
+	require.NoError(t, err)
+	defer sub.Disconnect()
+
+	// simTracks is ordered [LOW, MEDIUM, HIGH]; republishTracks reuses these
+	// same objects, so they remain the canonical layer handles across reconnect.
+	simTracks := newSimulcastSampleTracks(t, videoCodec, "SC_"+videoName)
+	require.Len(t, simTracks, 3)
+	layerOf := map[livekit.VideoQuality]*LocalTrack{
+		livekit.VideoQuality_LOW:    simTracks[0],
+		livekit.VideoQuality_MEDIUM: simTracks[1],
+		livekit.VideoQuality_HIGH:   simTracks[2],
+	}
+
+	// OnReconnected fires right after OnRestarted -> republishTracks (which resets
+	// the disabled flags) and before the new SFU issues its own dynacast update.
+	// Snapshot the flags here so the "re-enabled" assertion is race-free against a
+	// later server update that could re-disable unwatched layers.
+	var reconnected, allEnabledAfterRepublish atomic.Bool
+	pubCB := &RoomCallback{
+		OnReconnected: func() {
+			allEnabled := true
+			for _, tr := range simTracks {
+				if tr.disabled.Load() {
+					allEnabled = false
+				}
+			}
+			allEnabledAfterRepublish.Store(allEnabled)
+			reconnected.Store(true)
+		},
+	}
+	pub, err := createAgent(t.Name(), pubCB, "publisher-dynacast")
+	require.NoError(t, err)
+	defer pub.Disconnect()
+
+	videoPub, err := pub.LocalParticipant.PublishSimulcastTrack(simTracks, &TrackPublicationOptions{Name: videoName})
+	require.NoError(t, err)
+	require.NotNil(t, videoPub)
+	require.NotEmpty(t, videoPub.SID())
+
+	// end-to-end: the subscriber receives video RTP
+	require.Eventually(t, func() bool {
+		return subVideoRTP.Load() > 0
+	}, 15*time.Second, 100*time.Millisecond, "subscriber should receive simulcast video RTP")
+
+	// all layers start enabled (not disabled)
+	for q, tr := range layerOf {
+		require.False(t, tr.disabled.Load(), "layer %s should start enabled", q)
+	}
+
+	// (1) dynacast: server reports only HIGH is needed -> LOW and MEDIUM disabled.
+	// handleSubscribedQualityUpdate applies the layer flags synchronously.
+	pub.LocalParticipant.handleSubscribedQualityUpdate(&livekit.SubscribedQualityUpdate{
+		TrackSid: videoPub.SID(),
+		SubscribedCodecs: []*livekit.SubscribedCodec{
+			{
+				Codec: "vp8",
+				Qualities: []*livekit.SubscribedQuality{
+					{Quality: livekit.VideoQuality_LOW, Enabled: false},
+					{Quality: livekit.VideoQuality_MEDIUM, Enabled: false},
+					{Quality: livekit.VideoQuality_HIGH, Enabled: true},
+				},
+			},
+		},
+	})
+	require.True(t, layerOf[livekit.VideoQuality_LOW].disabled.Load(), "LOW must be disabled by dynacast")
+	require.True(t, layerOf[livekit.VideoQuality_MEDIUM].disabled.Load(), "MEDIUM must be disabled by dynacast")
+	require.False(t, layerOf[livekit.VideoQuality_HIGH].disabled.Load(), "HIGH must stay enabled")
+
+	// (2) re-publish reset via a full reconnect: OnRestarted -> republishTracks
+	// re-publishes these same tracks, which must clear the disabled flags.
+	reconnected.Store(false)
+	pub.Simulate(SimulateNodeFailure)
+	require.Eventually(t, func() bool {
+		return reconnected.Load()
+	}, 20*time.Second, 100*time.Millisecond, "publisher should complete a full reconnect")
+
+	// the fix under test: re-publishing the (previously dynacast-disabled) tracks
+	// reset every layer's disabled flag to false, captured at reconnect time.
+	require.True(t, allEnabledAfterRepublish.Load(), "re-published layers must reset disabled to false")
+
+	// end-to-end: video RTP resumes after the re-publish
+	baseline := subVideoRTP.Load()
+	require.Eventually(t, func() bool {
+		return subVideoRTP.Load() > baseline
+	}, 20*time.Second, 100*time.Millisecond, "subscriber should receive video RTP again after re-publish")
+}

@@ -490,7 +490,7 @@ func (p *LocalTrackPublication) setPublishingCodecsQuality(subscribedCodecs []*l
 			for _, subscribedQuality := range subscribedCodec.Qualities {
 				track := p.GetSimulcastTrack(subscribedQuality.Quality)
 				if track != nil {
-					track.setMuted(!subscribedQuality.Enabled)
+					track.setDisabled(!subscribedQuality.Enabled)
 					p.log.Infow(
 						"updating layer enable",
 						"trackID", p.SID(),
@@ -544,7 +544,7 @@ func (p *LocalTrackPublication) setPublishingCodecsQuality(subscribedCodecs []*l
 		for _, subscribedQuality := range subscribedCodec.Qualities {
 			track := backupCodecTracksForSimulcast[subscribedQuality.Quality]
 			if track != nil {
-				track.setMuted(!subscribedQuality.Enabled)
+				track.setDisabled(!subscribedQuality.Enabled)
 				p.log.Infow(
 					"updating layer enable",
 					"trackID", p.SID(),
