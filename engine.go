@@ -984,20 +984,16 @@ func (e *RTCEngine) resumeConnection() error {
 		e.signalTransport.Start()
 
 		// send offer if publisher enabled
-		e.log.Infow("checking resending offer") // REMOVE
 		e.pclock.Lock()
 		sendOffer := !e.subscriberPrimary || e.hasPublish.Load()
 		publisher := e.publisher
 		e.pclock.Unlock()
-		e.log.Infow("checked resending offer") // REMOVE
 		if sendOffer && publisher != nil {
-			e.log.Infow("resending offer") // REMOVE
 			if err := publisher.createAndSendOffer(&webrtc.OfferOptions{
 				ICERestart: true,
 			}); err != nil {
 				return err
 			}
-			e.log.Infow("resent offer") // REMOVE
 		}
 
 		// use left over time after signal transport connection to wait for peer connection to establish
