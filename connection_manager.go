@@ -332,9 +332,7 @@ func (c *connectionManager) getConnectionPlanResuming() ([]connectionAttemptPara
 		}
 
 		// server sent list via LeaveRequest, try those
-		for _, region := range c.regionSettings.GetRegions() {
-			regionsToTry = append(regionsToTry, region)
-		}
+		regionsToTry = append(regionsToTry, c.regionSettings.GetRegions()...)
 	} else {
 		// no server sent list, try the connected url again
 		if c.connectedRegion != nil {
