@@ -526,7 +526,7 @@ func (r *Room) ConnectionState() ConnectionState {
 	defer r.lock.RUnlock()
 
 	switch r.engine.currentState() {
-	case connectionManagerStateInitial, connectionManagerStateDisconnected:
+	case connectionManagerStateInitial, connectionManagerStateClosed:
 		return ConnectionStateDisconnected
 	case connectionManagerStateResuming, connectionManagerStateReconnecting:
 		return ConnectionStateReconnecting

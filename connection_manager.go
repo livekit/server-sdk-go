@@ -43,7 +43,7 @@ const (
 	connectionManagerStateConnected
 	connectionManagerStateResuming
 	connectionManagerStateReconnecting
-	connectionManagerStateDisconnected
+	connectionManagerStateClosed
 )
 
 func (c connectionManagerState) String() string {
@@ -56,8 +56,8 @@ func (c connectionManagerState) String() string {
 		return "RESUMING"
 	case connectionManagerStateReconnecting:
 		return "RECONNECTING"
-	case connectionManagerStateDisconnected:
-		return "DISCONNECTED"
+	case connectionManagerStateClosed:
+		return "CLOSED"
 	default:
 		return fmt.Sprintf("UNKNOWN (%d)", c)
 	}
@@ -180,7 +180,7 @@ func (c *connectionManager) setConnected(region *livekit.RegionInfo) bool {
 	defer c.mu.Unlock()
 
 	// Disconnected is terminal; never transition out of it
-	if c.state == connectionManagerStateDisconnected {
+	if c.state == connectionManagerStateClosed {
 		return false
 	}
 
@@ -204,7 +204,7 @@ func (c *connectionManager) setResumed(region *livekit.RegionInfo) bool {
 	defer c.mu.Unlock()
 
 	// Disconnected is terminal; never transition out of it
-	if c.state == connectionManagerStateDisconnected {
+	if c.state == connectionManagerStateClosed {
 		return false
 	}
 
@@ -223,7 +223,7 @@ func (c *connectionManager) setResuming(regionSettings *livekit.RegionSettings) 
 	defer c.mu.Unlock()
 
 	// Disconnected is terminal; never transition out of it
-	if c.state == connectionManagerStateDisconnected {
+	if c.state == connectionManagerStateClosed {
 		return false
 	}
 
@@ -255,7 +255,22 @@ func (c *connectionManager) setReconnecting(regionSettings *livekit.RegionSettin
 	defer c.mu.Unlock()
 
 	// Disconnected is terminal; never transition out of it
-	if c.state == connectionManagerStateDisconnected {
+	if c.state == connectionManagerStateClosed {
+		return false
+	}
+
+	// during initial connection, a reconnection cannot trigger the reconnect loop
+	// to prevent reconnect and initial join running in parallel.
+	//
+	// POSSIBLE IDEA: record regions if reconnect provided one and reload initial plan and execute,
+	// that would need `regionSettings` to be included in the initial plan. One implementation would be something like
+	//   - initial plan loaded
+	//   - execute plan
+	//   - a reconnect with regions happens while executing the plan, regions gets recorded
+	//   - if the first plan fails, reload plan with reconnect regions included
+	//   - re-execute the new plan
+	//   - limit to one reload potentially to keep the initial attempt bounded
+	if c.state == connectionManagerStateInitial {
 		return false
 	}
 
@@ -276,12 +291,12 @@ func (c *connectionManager) isReconnectingState() bool {
 	return c.state == connectionManagerStateReconnecting
 }
 
-func (c *connectionManager) setDisconnected() {
+func (c *connectionManager) setClosed() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	c.regionSettings = nil
-	c.updateState(connectionManagerStateDisconnected)
+	c.updateState(connectionManagerStateClosed)
 }
 
 func (c *connectionManager) updateState(state connectionManagerState) {

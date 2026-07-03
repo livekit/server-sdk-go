@@ -84,8 +84,8 @@ func TestConnectionManager_StateTransitions(t *testing.T) {
 	require.Equal(t, connectionManagerStateReconnecting, cm.state)
 	require.True(t, cm.isReconnectingState())
 
-	cm.setDisconnected()
-	require.Equal(t, connectionManagerStateDisconnected, cm.state)
+	cm.setClosed()
+	require.Equal(t, connectionManagerStateClosed, cm.state)
 	require.Nil(t, cm.regionSettings)
 	require.False(t, cm.isReconnectingState())
 }
@@ -273,26 +273,26 @@ func TestConnectionManager_DisconnectedIsTerminal(t *testing.T) {
 	newDisconnected := func() *connectionManager {
 		cm := newTestConnectionManager("wss://original.example.com", true)
 		cm.setConnected(region)
-		cm.setDisconnected()
-		require.Equal(t, connectionManagerStateDisconnected, cm.state)
+		cm.setClosed()
+		require.Equal(t, connectionManagerStateClosed, cm.state)
 		return cm
 	}
 
 	cm := newDisconnected()
 	require.False(t, cm.setConnected(region))
-	require.Equal(t, connectionManagerStateDisconnected, cm.state)
+	require.Equal(t, connectionManagerStateClosed, cm.state)
 
 	cm = newDisconnected()
 	require.False(t, cm.setResuming(settings))
-	require.Equal(t, connectionManagerStateDisconnected, cm.state)
+	require.Equal(t, connectionManagerStateClosed, cm.state)
 
 	cm = newDisconnected()
 	require.False(t, cm.setReconnecting(settings))
-	require.Equal(t, connectionManagerStateDisconnected, cm.state)
+	require.Equal(t, connectionManagerStateClosed, cm.state)
 
 	cm = newDisconnected()
 	require.False(t, cm.setResumed(region))
-	require.Equal(t, connectionManagerStateDisconnected, cm.state)
+	require.Equal(t, connectionManagerStateClosed, cm.state)
 }
 
 // TestConnectionManager_SetResumingRequiresConnected verifies resume is a no-op
@@ -309,9 +309,9 @@ func TestConnectionManager_SetResumingRequiresConnected(t *testing.T) {
 	// from Disconnected
 	cm = newTestConnectionManager("wss://original.example.com", true)
 	cm.setConnected(&livekit.RegionInfo{Region: "us-east", Url: "wss://us-east.example.com"})
-	cm.setDisconnected()
+	cm.setClosed()
 	cm.setResuming(settings)
-	require.Equal(t, connectionManagerStateDisconnected, cm.state)
+	require.Equal(t, connectionManagerStateClosed, cm.state)
 }
 
 // TestConnectionManager_ConsecutiveResumesUseFreshRegions verifies that once a
