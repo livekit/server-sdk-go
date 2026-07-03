@@ -113,6 +113,13 @@ type connectionManager struct {
 	regionSettings *livekit.RegionSettings
 
 	state connectionManagerState
+
+	// recovering reports whether a recovery (resume/reconnect) worker is currently
+	// running. It is guarded by mu, the same lock as state, so that applying a
+	// recovery transition and starting/stopping the worker are decided together in
+	// a single critical section. The invariant this maintains is: a worker is
+	// running if and only if state requires recovery.
+	recovering bool
 }
 
 func newConnectionManager(regionProvider *regionURLProvider) *connectionManager {
@@ -175,13 +182,13 @@ func (c *connectionManager) setToken(token string) {
 	c.token = token
 }
 
-func (c *connectionManager) setConnected(region *livekit.RegionInfo) bool {
+func (c *connectionManager) setConnected(region *livekit.RegionInfo) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	// Closed is terminal; never transition out of it
 	if c.state == connectionManagerStateClosed {
-		return false
+		return
 	}
 
 	// reset on connection establishment to ensure region settings in leave request from a
@@ -192,44 +199,46 @@ func (c *connectionManager) setConnected(region *livekit.RegionInfo) bool {
 	c.regionSettings = nil
 	c.connectedRegion = utils.CloneProto(region)
 	c.updateState(connectionManagerStateConnected)
-	return true
 }
 
 // setResumed restores the Connected state after a successful resume so the next
 // resume starts fresh. It is a no-op unless still Resuming: if a reconnect was
 // requested while the resume was in progress, the state is left Reconnecting so
 // the pending full reconnect proceeds rather than being clobbered.
-func (c *connectionManager) setResumed(region *livekit.RegionInfo) bool {
+func (c *connectionManager) setResumed(region *livekit.RegionInfo) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	// Closed is terminal; never transition out of it
 	if c.state == connectionManagerStateClosed {
-		return false
+		return
 	}
 
 	if c.state != connectionManagerStateResuming {
-		return false
+		return
 	}
 
 	c.regionSettings = nil
 	c.connectedRegion = utils.CloneProto(region)
 	c.updateState(connectionManagerStateConnected)
-	return true
 }
 
-func (c *connectionManager) setResuming(regionSettings *livekit.RegionSettings) bool {
+func (c *connectionManager) setResuming(regionSettings *livekit.RegionSettings) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	c.setResumingLocked(regionSettings)
+}
+
+func (c *connectionManager) setResumingLocked(regionSettings *livekit.RegionSettings) {
 	// Closed is terminal; never transition out of it
 	if c.state == connectionManagerStateClosed {
-		return false
+		return
 	}
 
 	// if already reconnecting, resuming is a no-op till the reconnect finishes
 	if c.state == connectionManagerStateReconnecting {
-		return false
+		return
 	}
 
 	// if already resuming, do not take settings that are nil as some internal paths might do a resume without regions
@@ -237,26 +246,29 @@ func (c *connectionManager) setResuming(regionSettings *livekit.RegionSettings) 
 		if regionSettings != nil {
 			c.regionSettings = utils.CloneProto(regionSettings)
 		}
-		return false
+		return
 	}
 
 	// if not connected, cannot resume, so no-op
 	if c.state != connectionManagerStateConnected {
-		return false
+		return
 	}
 
 	c.regionSettings = utils.CloneProto(regionSettings)
 	c.updateState(connectionManagerStateResuming)
-	return true
 }
 
-func (c *connectionManager) setReconnecting(regionSettings *livekit.RegionSettings) bool {
+func (c *connectionManager) setReconnecting(regionSettings *livekit.RegionSettings) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	c.setReconnectingLocked(regionSettings)
+}
+
+func (c *connectionManager) setReconnectingLocked(regionSettings *livekit.RegionSettings) {
 	// Closed is terminal; never transition out of it
 	if c.state == connectionManagerStateClosed {
-		return false
+		return
 	}
 
 	// during initial connection, a reconnection cannot trigger the reconnect loop
@@ -271,17 +283,16 @@ func (c *connectionManager) setReconnecting(regionSettings *livekit.RegionSettin
 	//   - re-execute the new plan
 	//   - limit to one reload potentially to keep the initial attempt bounded
 	if c.state == connectionManagerStateInitial {
-		return false
+		return
 	}
 
 	// reconnecting can trigger internally when a resume fails and that would not have regions,
 	// so don't clobber regions list if one was received via leave reconnect
 	if c.state == connectionManagerStateReconnecting && regionSettings == nil {
-		return false
+		return
 	}
 	c.regionSettings = utils.CloneProto(regionSettings)
 	c.updateState(connectionManagerStateReconnecting)
-	return true
 }
 
 func (c *connectionManager) isReconnectingState() bool {
@@ -289,6 +300,67 @@ func (c *connectionManager) isReconnectingState() bool {
 	defer c.mu.RUnlock()
 
 	return c.state == connectionManagerStateReconnecting
+}
+
+// needsRecoveryLocked reports whether the current state requires a recovery
+// worker (i.e. a resume or full reconnect is pending). Caller must hold mu.
+func (c *connectionManager) needsRecoveryLocked() bool {
+	return c.state == connectionManagerStateResuming || c.state == connectionManagerStateReconnecting
+}
+
+// requestRecovery applies the requested recovery transition (resume or full
+// reconnect) and reports whether the caller must start a recovery worker. A
+// worker is needed only when the resulting state requires recovery and none is
+// already running; when one is already running it will act on the updated state.
+// The transition and the worker-slot claim are performed under a single lock.
+func (c *connectionManager) requestRecovery(fullReconnect bool, regionSettings *livekit.RegionSettings) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if fullReconnect {
+		c.setReconnectingLocked(regionSettings)
+	} else {
+		c.setResumingLocked(regionSettings)
+	}
+
+	if !c.needsRecoveryLocked() || c.recovering {
+		return false
+	}
+	c.recovering = true
+	return true
+}
+
+// recoveryWorkerShouldContinue is called by the recovery worker once it has
+// settled the connection (state back to Connected). If the state still requires
+// recovery it returns true so the worker keeps running; otherwise it releases the
+// worker slot and returns false so the worker exits. The state check and the slot
+// release are performed under a single lock.
+func (c *connectionManager) recoveryWorkerShouldContinue() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.needsRecoveryLocked() {
+		return true
+	}
+	c.recovering = false
+	return false
+}
+
+// stopRecoveryWorker releases the worker slot unconditionally. Used when the
+// worker gives up; a later disconnect can start a new worker via requestRecovery.
+func (c *connectionManager) stopRecoveryWorker() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.recovering = false
+}
+
+// isRecovering reports whether a recovery worker is currently running.
+func (c *connectionManager) isRecovering() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.recovering
 }
 
 func (c *connectionManager) setClosed() {

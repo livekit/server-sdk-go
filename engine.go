@@ -132,7 +132,6 @@ type RTCEngine struct {
 	subscriberPrimary bool
 	hasPublish        atomic.Bool
 	closed            atomic.Bool
-	reconnecting      atomic.Bool
 
 	dataCryptor *e2ee.DataCryptor // E2EE data channel encryption (nil = disabled)
 
@@ -365,7 +364,7 @@ func (e *RTCEngine) Close() {
 	e.pclock.Unlock()
 
 	go func() {
-		for e.reconnecting.Load() {
+		for e.connectionManager.isRecovering() {
 			time.Sleep(50 * time.Millisecond)
 		}
 
@@ -857,22 +856,13 @@ func (e *RTCEngine) handleDisconnect(reason string, fullReconnect bool, regionSe
 		return
 	}
 
-	if fullReconnect {
-		if !e.connectionManager.setReconnecting(regionSettings) {
-			return
-		}
-	} else {
-		if !e.connectionManager.setResuming(regionSettings) {
-			return
-		}
-	}
-
-	if !e.reconnecting.CompareAndSwap(false, true) {
+	// requestRecovery applies the transition and reports whether this call must
+	// start the worker; if one is already running it will act on the new state.
+	if !e.connectionManager.requestRecovery(fullReconnect, regionSettings) {
 		return
 	}
 
 	go func() {
-		defer e.reconnecting.Store(false)
 		for reconnectCount := 0; reconnectCount < maxReconnectCount && !e.closed.Load(); reconnectCount++ {
 			if e.connectionManager.isReconnectingState() {
 				if reconnectCount == 0 {
@@ -881,6 +871,12 @@ func (e *RTCEngine) handleDisconnect(reason string, fullReconnect bool, regionSe
 				e.log.Infow("restarting connection...", "reconnectCount", reconnectCount)
 				err := e.restartConnection()
 				if err == nil {
+					// a new disconnect may have arrived while settling; if so,
+					// keep the worker running
+					if e.connectionManager.recoveryWorkerShouldContinue() {
+						reconnectCount = 0
+						continue
+					}
 					return
 				}
 				e.log.Errorw("restart connection failed", err)
@@ -891,8 +887,9 @@ func (e *RTCEngine) handleDisconnect(reason string, fullReconnect bool, regionSe
 				e.log.Infow("resuming connection...", "reconnectCount", reconnectCount)
 				err := e.resumeConnection()
 				if err == nil {
-					if e.connectionManager.isReconnectingState() {
-						// a reconnect leave request happened while resume was in progress
+					// a reconnect leave (or another disconnect) may have arrived
+					// while resume was settling; if so, keep the worker running
+					if e.connectionManager.recoveryWorkerShouldContinue() {
 						reconnectCount = 0
 						continue
 					}
@@ -917,6 +914,9 @@ func (e *RTCEngine) handleDisconnect(reason string, fullReconnect bool, regionSe
 			}
 		}
 
+		// gave up (or closed): release the worker slot so a later disconnect can
+		// re-arm recovery, then report the disconnect
+		e.connectionManager.stopRecoveryWorker()
 		e.engineHandler.OnDisconnected(livekit.DisconnectReason_SIGNAL_CLOSE)
 	}()
 }

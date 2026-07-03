@@ -74,7 +74,7 @@ func TestConnectionManager_StateTransitions(t *testing.T) {
 
 	// a reconnect must not start from the initial state (it cannot race the
 	// initial join), so setReconnecting is ignored and the state stays Initial
-	require.False(t, cm.setReconnecting(settings))
+	cm.setReconnecting(settings)
 	require.Equal(t, connectionManagerStateInitial, cm.state)
 	require.Nil(t, cm.regionSettings)
 	require.False(t, cm.isReconnectingState())
@@ -287,20 +287,79 @@ func TestConnectionManager_ClosedIsTerminal(t *testing.T) {
 	}
 
 	cm := newClosed()
-	require.False(t, cm.setConnected(region))
+	cm.setConnected(region)
 	require.Equal(t, connectionManagerStateClosed, cm.state)
 
 	cm = newClosed()
-	require.False(t, cm.setResuming(settings))
+	cm.setResuming(settings)
 	require.Equal(t, connectionManagerStateClosed, cm.state)
 
 	cm = newClosed()
-	require.False(t, cm.setReconnecting(settings))
+	cm.setReconnecting(settings)
 	require.Equal(t, connectionManagerStateClosed, cm.state)
 
 	cm = newClosed()
-	require.False(t, cm.setResumed(region))
+	cm.setResumed(region)
 	require.Equal(t, connectionManagerStateClosed, cm.state)
+}
+
+// TestConnectionManager_RequestRecoveryStartsSingleWorker verifies that only the
+// first requestRecovery for an idle manager claims the worker slot; while a
+// worker is running, further requests apply the state but do not start a second
+// worker.
+func TestConnectionManager_RequestRecoveryStartsSingleWorker(t *testing.T) {
+	regions := &livekit.RegionSettings{Regions: []*livekit.RegionInfo{{Region: "a", Url: "wss://a"}}}
+
+	cm := newTestConnectionManager("wss://original.example.com", true)
+	cm.setConnected(&livekit.RegionInfo{Region: "init", Url: "wss://init"})
+
+	require.True(t, cm.requestRecovery(true /* fullReconnect */, regions), "first request must start a worker")
+	require.True(t, cm.isRecovering())
+	require.Equal(t, connectionManagerStateReconnecting, cm.state)
+
+	require.False(t, cm.requestRecovery(true, regions), "worker already running, must not start a second")
+	require.True(t, cm.isRecovering())
+
+	// a reconnect requested from the initial state cannot start a worker
+	cmInit := newTestConnectionManager("wss://original.example.com", true)
+	require.False(t, cmInit.requestRecovery(true, regions))
+	require.False(t, cmInit.isRecovering())
+	require.Equal(t, connectionManagerStateInitial, cmInit.state)
+}
+
+// TestConnectionManager_RecoveryWorkerNotOrphaned verifies that a recovery state
+// transition is never left without a worker to act on it, regardless of whether a
+// new disconnect lands before or after the worker re-checks on settling.
+func TestConnectionManager_RecoveryWorkerNotOrphaned(t *testing.T) {
+	regions := &livekit.RegionSettings{Regions: []*livekit.RegionInfo{{Region: "a", Url: "wss://a"}}}
+	region := &livekit.RegionInfo{Region: "a", Url: "wss://a"}
+
+	// Ordering A: a new disconnect arrives after the worker settled the state to
+	// Connected but before it reconciles. requestRecovery finds a worker still
+	// running (no second worker), and the worker's reconcile sees pending work and
+	// keeps running.
+	cm := newTestConnectionManager("wss://original.example.com", true)
+	cm.setConnected(&livekit.RegionInfo{Region: "init", Url: "wss://init"})
+	require.True(t, cm.requestRecovery(false /* resume */, regions))
+
+	cm.setResumed(region) // worker resumed successfully -> Connected
+	require.False(t, cm.requestRecovery(false, nil), "worker still running; no second worker")
+	require.Equal(t, connectionManagerStateResuming, cm.state)
+	require.True(t, cm.recoveryWorkerShouldContinue(), "pending work -> worker keeps running")
+	require.True(t, cm.isRecovering())
+
+	// Ordering B: the worker reconciles first (settles, releasing the slot), then
+	// the new disconnect arrives and must start a fresh worker.
+	cm = newTestConnectionManager("wss://original.example.com", true)
+	cm.setConnected(&livekit.RegionInfo{Region: "init", Url: "wss://init"})
+	require.True(t, cm.requestRecovery(false, regions))
+
+	cm.setResumed(region) // -> Connected
+	require.False(t, cm.recoveryWorkerShouldContinue(), "settled -> worker exits")
+	require.False(t, cm.isRecovering())
+	require.True(t, cm.requestRecovery(false, nil), "new disconnect must re-arm a worker")
+	require.True(t, cm.isRecovering())
+	require.Equal(t, connectionManagerStateResuming, cm.state)
 }
 
 // TestConnectionManager_SetResumingRequiresConnected verifies resume is a no-op
@@ -389,12 +448,12 @@ func TestConnectionManager_SetResumingWhileResumingUpdatesRegions(t *testing.T) 
 	cm.setConnected(&livekit.RegionInfo{Region: "init", Url: "wss://init"})
 
 	// first resume transitions Connected -> Resuming and adopts list A
-	require.True(t, cm.setResuming(regionsA))
+	cm.setResuming(regionsA)
 	require.Equal(t, connectionManagerStateResuming, cm.state)
 
-	// a second resume while still Resuming does not re-trigger a state change but
-	// consumes the newer non-nil region list
-	require.False(t, cm.setResuming(regionsB))
+	// a second resume while still Resuming keeps the state Resuming but consumes
+	// the newer non-nil region list
+	cm.setResuming(regionsB)
 	require.Equal(t, connectionManagerStateResuming, cm.state)
 
 	plan, err := cm.getConnectionPlan()
@@ -402,7 +461,7 @@ func TestConnectionManager_SetResumingWhileResumingUpdatesRegions(t *testing.T) 
 	require.Equal(t, []string{"b", "original"}, planRegionNames(plan), "newer region list must be consumed while resuming")
 
 	// a nil list while resuming is ignored, preserving the list already in effect
-	require.False(t, cm.setResuming(nil))
+	cm.setResuming(nil)
 	require.Equal(t, connectionManagerStateResuming, cm.state)
 
 	plan, err = cm.getConnectionPlan()
