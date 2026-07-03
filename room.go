@@ -175,6 +175,17 @@ func WithICETransportPolicy(iceTransportPolicy webrtc.ICETransportPolicy) Connec
 	}
 }
 
+// WithSettingEngineFunc customizes the pion SettingEngine (ICE interface/IP
+// filters, NAT1To1 mappings, timeouts) before the WebRTC API is constructed.
+// fn is invoked for every PeerConnection the SDK creates (publisher and
+// subscriber). Use it when the host has interfaces or IPs that must be excluded
+// from ICE candidate gathering and the existing options are insufficient.
+func WithSettingEngineFunc(fn func(*webrtc.SettingEngine)) ConnectOption {
+	return func(p *connParams) {
+		p.SettingEngineFunc = fn
+	}
+}
+
 // WithDisableTURN removes TURN/TURNS URLs from the ICE server configuration
 // provided by the SFU. Use this when the client is co-located with the SFU
 // and does not need relay candidates.
