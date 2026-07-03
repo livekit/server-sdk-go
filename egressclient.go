@@ -30,15 +30,16 @@ type EgressClient struct {
 }
 
 func NewEgressClient(url string, apiKey string, secretKey string, opts ...twirp.ClientOption) *EgressClient {
+	return newEgressClient(url, authBase{apiKey: apiKey, apiSecret: secretKey}, opts...)
+}
+
+func newEgressClient(url string, auth authBase, opts ...twirp.ClientOption) *EgressClient {
 	opts = append(opts, xtwirp.DefaultClientOptions()...)
 	url = signalling.ToHttpURL(url)
 	client := livekit.NewEgressProtobufClient(url, newAPIHTTPClient(), opts...)
 	return &EgressClient{
 		egressClient: client,
-		authBase: authBase{
-			apiKey:    apiKey,
-			apiSecret: secretKey,
-		},
+		authBase:     auth,
 	}
 }
 

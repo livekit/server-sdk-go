@@ -28,7 +28,7 @@ func NewAgentClient(url string, apiKey string, apiSecret string, opts ...AgentCl
 		serverUrl = re.ReplaceAllString(url, "https://agents.")
 	}
 	c := &AgentClient{
-		authBase:   authBase{apiKey, apiSecret},
+		authBase:   authBase{apiKey: apiKey, apiSecret: apiSecret},
 		httpClient: newAPIHTTPClient(),
 	}
 	for _, opt := range opts {

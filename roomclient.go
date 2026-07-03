@@ -32,15 +32,16 @@ type RoomServiceClient struct {
 }
 
 func NewRoomServiceClient(url string, apiKey string, secretKey string, opts ...twirp.ClientOption) *RoomServiceClient {
+	return newRoomServiceClient(url, authBase{apiKey: apiKey, apiSecret: secretKey}, opts...)
+}
+
+func newRoomServiceClient(url string, auth authBase, opts ...twirp.ClientOption) *RoomServiceClient {
 	opts = append(opts, xtwirp.DefaultClientOptions()...)
 	url = signalling.ToHttpURL(url)
 	client := livekit.NewRoomServiceProtobufClient(url, newAPIHTTPClient(), opts...)
 	return &RoomServiceClient{
 		roomService: client,
-		authBase: authBase{
-			apiKey:    apiKey,
-			apiSecret: secretKey,
-		},
+		authBase:    auth,
 	}
 }
 

@@ -29,15 +29,16 @@ type AgentDispatchClient struct {
 }
 
 func NewAgentDispatchServiceClient(url string, apiKey string, secretKey string, opts ...twirp.ClientOption) *AgentDispatchClient {
+	return newAgentDispatchServiceClient(url, authBase{apiKey: apiKey, apiSecret: secretKey}, opts...)
+}
+
+func newAgentDispatchServiceClient(url string, auth authBase, opts ...twirp.ClientOption) *AgentDispatchClient {
 	url = signalling.ToHttpURL(url)
 	client := livekit.NewAgentDispatchServiceProtobufClient(url, newAPIHTTPClient(), opts...)
 
 	return &AgentDispatchClient{
 		agentDispatchService: client,
-		authBase: authBase{
-			apiKey:    apiKey,
-			apiSecret: secretKey,
-		},
+		authBase:             auth,
 	}
 }
 

@@ -73,13 +73,14 @@ type SIPClient struct {
 
 // NewSIPClient creates a LiveKit SIP client.
 func NewSIPClient(url string, apiKey string, secretKey string, opts ...twirp.ClientOption) *SIPClient {
+	return newSIPClient(url, authBase{apiKey: apiKey, apiSecret: secretKey}, opts...)
+}
+
+func newSIPClient(url string, auth authBase, opts ...twirp.ClientOption) *SIPClient {
 	opts = append(opts, xtwirp.DefaultClientOptions()...)
 	return &SIPClient{
 		sipClient: livekit.NewSIPProtobufClient(signalling.ToHttpURL(url), newAPIHTTPClient(), opts...),
-		authBase: authBase{
-			apiKey:    apiKey,
-			apiSecret: secretKey,
-		},
+		authBase:  auth,
 	}
 }
 

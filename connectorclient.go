@@ -29,15 +29,16 @@ type ConnectorClient struct {
 }
 
 func NewConnectorClient(url string, apiKey string, secretKey string, opts ...twirp.ClientOption) *ConnectorClient {
+	return newConnectorClient(url, authBase{apiKey: apiKey, apiSecret: secretKey}, opts...)
+}
+
+func newConnectorClient(url string, auth authBase, opts ...twirp.ClientOption) *ConnectorClient {
 	opts = append(opts, xtwirp.DefaultClientOptions()...)
 	url = signalling.ToHttpURL(url)
 	client := livekit.NewConnectorProtobufClient(url, newAPIHTTPClient(), opts...)
 	return &ConnectorClient{
 		connector: client,
-		authBase: authBase{
-			apiKey:    apiKey,
-			apiSecret: secretKey,
-		},
+		authBase:  auth,
 	}
 }
 

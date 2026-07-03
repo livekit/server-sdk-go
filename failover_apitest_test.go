@@ -18,11 +18,11 @@
 // they skip when no server is reachable. In CI the server is booted as a Docker
 // container.
 //
-// See cmd/test-server/README.md for the X-Lk-Mock-* control protocol. Mock
-// directives are passed to the SDK via twirp request headers, which the
-// failover transport forwards to the discovery fetch and every retry. These
-// tests are in-package so they can use the internal test-force hook (the public
-// API only exposes WithFailover(ctx, bool), which is cloud-gated).
+// See cmd/test-server/README.md for the X-Lk-Mock JSON control protocol. Mock
+// directives are passed to the SDK as a twirp request header (see mockControl),
+// which the failover transport forwards to the discovery fetch and every retry.
+// These tests are in-package so they can use the internal test-force hook (the
+// public API only exposes WithFailover(ctx, bool), which is cloud-gated).
 package lksdk
 
 import (
@@ -36,13 +36,6 @@ import (
 	"github.com/twitchtv/twirp"
 
 	"github.com/livekit/protocol/livekit"
-)
-
-const (
-	hdrFailRegions = "X-Lk-Mock-Fail-Regions"
-	hdrFailMode    = "X-Lk-Mock-Fail-Mode"
-	hdrFailStatus  = "X-Lk-Mock-Fail-Status"
-	hdrRegionsStat = "X-Lk-Mock-Regions-Status"
 )
 
 func testServerURL(t *testing.T) string {
@@ -59,25 +52,15 @@ func testServerURL(t *testing.T) string {
 }
 
 // failoverCtx returns a context that forces failover on (the mock is not a
-// cloud host) with a tiny backoff, carrying the given X-Lk-Mock-* directives as
-// twirp request headers. force/backoff are internal, test-only knobs.
-func failoverCtx(t *testing.T, directives map[string]string) context.Context {
-	ctx := withFailoverForce(context.Background(), time.Millisecond)
-	if len(directives) > 0 {
-		h := make(http.Header)
-		for k, v := range directives {
-			h.Set(k, v)
-		}
-		var err error
-		ctx, err = twirp.WithHTTPRequestHeaders(ctx, h)
-		require.NoError(t, err)
-	}
-	return ctx
+// cloud host) with a tiny backoff, carrying the given mock directives as an
+// X-Lk-Mock request header. force/backoff are internal, test-only knobs.
+func failoverCtx(t *testing.T, m mockControl) context.Context {
+	return withMock(withFailoverForce(context.Background(), time.Millisecond), t, m)
 }
 
 func TestAPI_Healthy(t *testing.T) {
 	client := NewRoomServiceClient(testServerURL(t), "devkey", "secret")
-	room, err := client.CreateRoom(failoverCtx(t, nil), &livekit.CreateRoomRequest{Name: "api-test"})
+	room, err := client.CreateRoom(failoverCtx(t, mockControl{}), &livekit.CreateRoomRequest{Name: "api-test"})
 	require.NoError(t, err)
 	require.Equal(t, "api-test", room.Name, "the mock echoes the request name")
 	require.NotEmpty(t, room.Sid)
@@ -85,28 +68,28 @@ func TestAPI_Healthy(t *testing.T) {
 
 func TestAPI_PrimaryUnavailable(t *testing.T) {
 	client := NewRoomServiceClient(testServerURL(t), "devkey", "secret")
-	ctx := failoverCtx(t, map[string]string{hdrFailRegions: "0"})
+	ctx := failoverCtx(t, mockControl{FailRegions: []int{0}})
 	_, err := client.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: "api-test"})
 	require.NoError(t, err, "should fail over to a healthy region")
 }
 
 func TestAPI_TwoRegionsUnavailable(t *testing.T) {
 	client := NewRoomServiceClient(testServerURL(t), "devkey", "secret")
-	ctx := failoverCtx(t, map[string]string{hdrFailRegions: "0,1"})
+	ctx := failoverCtx(t, mockControl{FailRegions: []int{0, 1}})
 	_, err := client.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: "api-test"})
 	require.NoError(t, err, "should fail over to the third region")
 }
 
 func TestAPI_AllUnavailable(t *testing.T) {
 	client := NewRoomServiceClient(testServerURL(t), "devkey", "secret")
-	ctx := failoverCtx(t, map[string]string{hdrFailRegions: "0,1,2,3"})
+	ctx := failoverCtx(t, mockControl{FailRegions: []int{0, 1, 2, 3}})
 	_, err := client.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: "api-test"})
 	require.Error(t, err)
 }
 
 func TestAPI_ClientErrorNotRetried(t *testing.T) {
 	client := NewRoomServiceClient(testServerURL(t), "devkey", "secret")
-	ctx := failoverCtx(t, map[string]string{hdrFailRegions: "0", hdrFailStatus: "400"})
+	ctx := failoverCtx(t, mockControl{FailRegions: []int{0}, FailStatus: 400})
 	_, err := client.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: "api-test"})
 	require.Error(t, err)
 	var terr twirp.Error
@@ -116,14 +99,14 @@ func TestAPI_ClientErrorNotRetried(t *testing.T) {
 
 func TestAPI_TransportError(t *testing.T) {
 	client := NewRoomServiceClient(testServerURL(t), "devkey", "secret")
-	ctx := failoverCtx(t, map[string]string{hdrFailRegions: "0", hdrFailMode: "drop"})
+	ctx := failoverCtx(t, mockControl{FailRegions: []int{0}, FailMode: "drop"})
 	_, err := client.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: "api-test"})
 	require.NoError(t, err, "a dropped connection should fail over to a healthy region")
 }
 
 func TestAPI_RegionDiscoveryUnreachable(t *testing.T) {
 	client := NewRoomServiceClient(testServerURL(t), "devkey", "secret")
-	ctx := failoverCtx(t, map[string]string{hdrFailRegions: "0", hdrRegionsStat: "500"})
+	ctx := failoverCtx(t, mockControl{FailRegions: []int{0}, RegionsStatus: 500})
 	_, err := client.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: "api-test"})
 	require.Error(t, err, "no fallback hosts means the original error is surfaced")
 }
@@ -132,33 +115,26 @@ func TestAPI_FailoverNotCloudHost(t *testing.T) {
 	client := NewRoomServiceClient(testServerURL(t), "devkey", "secret")
 	// Enabled (the default) but not forced; 127.0.0.1 is not a cloud host, so
 	// failover must not engage.
-	h := make(http.Header)
-	h.Set(hdrFailRegions, "0")
-	ctx, err := twirp.WithHTTPRequestHeaders(context.Background(), h)
-	require.NoError(t, err)
-	_, err = client.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: "api-test"})
+	ctx := withMock(context.Background(), t, mockControl{FailRegions: []int{0}})
+	_, err := client.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: "api-test"})
 	require.Error(t, err)
 }
 
 func TestAPI_FailoverDisabled(t *testing.T) {
 	client := NewRoomServiceClient(testServerURL(t), "devkey", "secret")
 	// Forced on, but explicitly disabled via WithFailover.
-	ctx := WithFailover(failoverCtx(t, map[string]string{hdrFailRegions: "0"}), false)
+	ctx := WithFailover(failoverCtx(t, mockControl{FailRegions: []int{0}}), false)
 	_, err := client.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: "api-test"})
 	require.Error(t, err)
 }
 
 // An unresponsive region (per-attempt timeout) should fail over to a healthy
-// region, with the deadline reset so the retry has its full budget.
+// region, with the deadline reset so the retry has its full budget. "delay" fail
+// mode stalls only the failing region, unlike DelayMs which delays every region.
 func TestAPI_TimeoutFailsOver(t *testing.T) {
 	setMinFailoverTimeout(t, 50*time.Millisecond) // let a short test timeout fail over
 	client := NewRoomServiceClient(testServerURL(t), "devkey", "secret")
-	// Region 0 stalls well past the deadline; regions 1+ are healthy.
-	ctx := failoverCtx(t, map[string]string{
-		hdrFailRegions:       "0",
-		hdrFailMode:          "delay",
-		"X-Lk-Mock-Delay-Ms": "5000",
-	})
+	ctx := failoverCtx(t, mockControl{FailRegions: []int{0}, FailMode: "delay"})
 	ctx, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
 	defer cancel()
 	_, err := client.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: "api-test"})
@@ -170,11 +146,7 @@ func TestAPI_TimeoutFailsOver(t *testing.T) {
 func TestAPI_ShortTimeoutNotRetried(t *testing.T) {
 	setMinFailoverTimeout(t, 5*time.Second)
 	client := NewRoomServiceClient(testServerURL(t), "devkey", "secret")
-	ctx := failoverCtx(t, map[string]string{
-		hdrFailRegions:       "0",
-		hdrFailMode:          "delay",
-		"X-Lk-Mock-Delay-Ms": "5000",
-	})
+	ctx := failoverCtx(t, mockControl{FailRegions: []int{0}, FailMode: "delay"})
 	ctx, cancel := context.WithTimeout(ctx, 300*time.Millisecond) // < threshold
 	defer cancel()
 	_, err := client.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: "api-test"})

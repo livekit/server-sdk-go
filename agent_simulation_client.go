@@ -31,7 +31,7 @@ func NewAgentSimulationClient(url string, apiKey string, apiSecret string, opts 
 	client := livekit.NewAgentSimulationProtobufClient(url, newAPIHTTPClient(), opts...)
 	return &AgentSimulationClient{
 		simulationClient: client,
-		authBase:         authBase{apiKey, apiSecret},
+		authBase:         authBase{apiKey: apiKey, apiSecret: apiSecret},
 	}
 }
 
