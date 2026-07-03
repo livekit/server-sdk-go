@@ -27,18 +27,41 @@ import (
 	"github.com/livekit/server-sdk-go/v2/signalling"
 )
 
-// sipDialDeadline returns the default deadline for a phone-dialing call: the
-// longer SIP dial timeout, raised to stay at least ringingTimeoutMargin above
-// the request's ringing timeout so the request doesn't abort before the call
-// can be answered.
-func sipDialDeadline(ringingTimeout *durationpb.Duration) time.Duration {
-	timeout := sipDialTimeout
+// dialDeadline returns how long a phone-dialing call (SIP or WhatsApp) may run:
+// the ring window plus a margin, so the request doesn't abort before the call can
+// be answered. The request's ringing_timeout is used when set; otherwise it falls
+// back to defaultRingingTimeout (the server default), which also gets the margin.
+func dialDeadline(ringingTimeout *durationpb.Duration) time.Duration {
+	ring := defaultRingingTimeout
 	if ringingTimeout != nil {
-		if d := ringingTimeout.AsDuration() + ringingTimeoutMargin; d > timeout {
-			timeout = d
-		}
+		ring = ringingTimeout.AsDuration()
 	}
-	return timeout
+	return ring + ringingTimeoutMargin
+}
+
+// dialContext returns a context whose deadline is long enough to outlast ringing
+// for a call that waits for an answer. It uses the longer of the caller's own
+// deadline and the dial budget (dialDeadline); when the caller's deadline is
+// shorter or absent it detaches that deadline — still forwarding explicit
+// cancellation — so a too-short deadline can't abort the request before the call
+// is answered. Call before prepareContext so failover sees the budget.
+func dialContext(ctx context.Context, ringingTimeout *durationpb.Duration) (context.Context, context.CancelFunc) {
+	budget := dialDeadline(ringingTimeout)
+	if dl, ok := ctx.Deadline(); ok && time.Until(dl) >= budget {
+		return ctx, func() {} // the caller's deadline already outlasts ringing
+	}
+	return context.WithTimeout(detachDeadline(ctx), budget)
+}
+
+// pinRingingTimeout returns ringingTimeout when set, else the default ring window
+// (defaultRingingTimeout). Callers set it back on the request so the ring window
+// sent to the server — which the dial deadline is derived from — is explicit and
+// doesn't depend on the server's default (which could change).
+func pinRingingTimeout(ringingTimeout *durationpb.Duration) *durationpb.Duration {
+	if ringingTimeout == nil {
+		return durationpb.New(defaultRingingTimeout)
+	}
+	return ringingTimeout
 }
 
 //lint:file-ignore SA1019 We still support some deprecated functions for backward compatibility
@@ -291,11 +314,13 @@ func (s *SIPClient) CreateSIPParticipant(ctx context.Context, in *livekit.Create
 	}
 
 	// Dialing a phone and waiting for an answer takes longer than a normal
-	// request, so apply a longer default deadline (before prepareContext, which
-	// detaches it for failover). Set it before auth so failover sees the budget.
-	if _, ok := ctx.Deadline(); !ok && in.WaitUntilAnswered {
-		var cancel func()
-		ctx, cancel = context.WithTimeout(ctx, sipDialDeadline(in.GetRingingTimeout()))
+	// request and must outlast ringing, so give it a long-enough deadline even if
+	// the caller's is shorter (or absent). Pin the ring window explicitly so the
+	// deadline doesn't depend on the server's default (which could change).
+	if in.WaitUntilAnswered {
+		in.RingingTimeout = pinRingingTimeout(in.RingingTimeout)
+		var cancel context.CancelFunc
+		ctx, cancel = dialContext(ctx, in.RingingTimeout)
 		defer cancel()
 	}
 
@@ -312,13 +337,13 @@ func (s *SIPClient) TransferSIPParticipant(ctx context.Context, in *livekit.Tran
 		return nil, ErrInvalidParameter
 	}
 
-	// Transferring a call dials a phone and can take a while, so apply a longer
-	// default deadline (before prepareContext, which detaches it for failover).
-	if _, ok := ctx.Deadline(); !ok {
-		var cancel func()
-		ctx, cancel = context.WithTimeout(ctx, sipDialDeadline(in.GetRingingTimeout()))
-		defer cancel()
-	}
+	// Transferring a call dials a phone and must outlast ringing, so give it a
+	// long-enough deadline even if the caller's is shorter (or absent). Pin the
+	// ring window explicitly so the deadline doesn't depend on the server default.
+	in.RingingTimeout = pinRingingTimeout(in.RingingTimeout)
+	var cancel context.CancelFunc
+	ctx, cancel = dialContext(ctx, in.RingingTimeout)
+	defer cancel()
 
 	ctx, err := s.prepareContext(ctx, withSIPGrant{Call: true}, withVideoGrant{RoomAdmin: true, Room: in.RoomName})
 	if err != nil {

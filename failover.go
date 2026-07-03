@@ -45,11 +45,13 @@ var minFailoverTimeout = 5 * time.Second
 const (
 	// defaultRequestTimeout bounds a request when the caller sets no deadline.
 	defaultRequestTimeout = 10 * time.Second
-	// sipDialTimeout is the longer default for calls that dial a phone
-	// (CreateSIPParticipant with WaitUntilAnswered, TransferSIPParticipant).
-	sipDialTimeout = 30 * time.Second
-	// ringingTimeoutMargin keeps a dialing request's deadline above the request's
-	// ringing timeout, so it doesn't abort before the call can be answered.
+	// defaultRingingTimeout is the ring window assumed for a phone-dialing call
+	// (CreateSIPParticipant with WaitUntilAnswered, TransferSIPParticipant,
+	// AcceptWhatsAppCall) when the request doesn't set ringing_timeout; it matches
+	// the server default.
+	defaultRingingTimeout = 30 * time.Second
+	// ringingTimeoutMargin keeps a dialing request's deadline above the ringing
+	// timeout, so it doesn't abort before the call can be answered.
 	ringingTimeoutMargin = 2 * time.Second
 )
 
