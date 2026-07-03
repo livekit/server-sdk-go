@@ -179,7 +179,7 @@ func (c *connectionManager) setConnected(region *livekit.RegionInfo) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Disconnected is terminal; never transition out of it
+	// Closed is terminal; never transition out of it
 	if c.state == connectionManagerStateClosed {
 		return false
 	}
@@ -203,7 +203,7 @@ func (c *connectionManager) setResumed(region *livekit.RegionInfo) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Disconnected is terminal; never transition out of it
+	// Closed is terminal; never transition out of it
 	if c.state == connectionManagerStateClosed {
 		return false
 	}
@@ -222,7 +222,7 @@ func (c *connectionManager) setResuming(regionSettings *livekit.RegionSettings) 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Disconnected is terminal; never transition out of it
+	// Closed is terminal; never transition out of it
 	if c.state == connectionManagerStateClosed {
 		return false
 	}
@@ -254,7 +254,7 @@ func (c *connectionManager) setReconnecting(regionSettings *livekit.RegionSettin
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Disconnected is terminal; never transition out of it
+	// Closed is terminal; never transition out of it
 	if c.state == connectionManagerStateClosed {
 		return false
 	}
