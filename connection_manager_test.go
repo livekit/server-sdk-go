@@ -68,14 +68,22 @@ func TestConnectionManager_InitialState(t *testing.T) {
 func TestConnectionManager_StateTransitions(t *testing.T) {
 	cm := newConnectionManager(newRegionURLProvider())
 
+	settings := &livekit.RegionSettings{
+		Regions: []*livekit.RegionInfo{{Region: "us-west", Url: "wss://us-west.example.com"}},
+	}
+
+	// a reconnect must not start from the initial state (it cannot race the
+	// initial join), so setReconnecting is ignored and the state stays Initial
+	require.False(t, cm.setReconnecting(settings))
+	require.Equal(t, connectionManagerStateInitial, cm.state)
+	require.Nil(t, cm.regionSettings)
+	require.False(t, cm.isReconnectingState())
+
 	region := &livekit.RegionInfo{Region: "us-east", Url: "wss://us-east.example.com"}
 	cm.setConnected(region)
 	require.Equal(t, connectionManagerStateConnected, cm.state)
 	require.False(t, cm.isReconnectingState())
 
-	settings := &livekit.RegionSettings{
-		Regions: []*livekit.RegionInfo{{Region: "us-west", Url: "wss://us-west.example.com"}},
-	}
 	cm.setResuming(settings)
 	require.Equal(t, connectionManagerStateResuming, cm.state)
 	require.False(t, cm.isReconnectingState())
@@ -262,15 +270,15 @@ func TestConnectionManager_SetResumingIgnoredWhileReconnecting(t *testing.T) {
 	require.Equal(t, "reconnect", cm.regionSettings.GetRegions()[0].Region, "reconnect region settings must be preserved")
 }
 
-// TestConnectionManager_DisconnectedIsTerminal verifies that once Disconnected,
-// no set* transition can move the state away from it. This guards against an
-// in-flight reconnect (setConnected/setResuming/setReconnecting/setResumed)
-// resurrecting a closed connection after Close() has marked it disconnected.
-func TestConnectionManager_DisconnectedIsTerminal(t *testing.T) {
+// TestConnectionManager_ClosedIsTerminal verifies that once Closed, no set*
+// transition can move the state away from it. This guards against an in-flight
+// reconnect (setConnected/setResuming/setReconnecting/setResumed) resurrecting a
+// connection after Close() has marked it closed.
+func TestConnectionManager_ClosedIsTerminal(t *testing.T) {
 	region := &livekit.RegionInfo{Region: "us-east", Url: "wss://us-east.example.com"}
 	settings := &livekit.RegionSettings{Regions: []*livekit.RegionInfo{{Region: "a", Url: "wss://a"}}}
 
-	newDisconnected := func() *connectionManager {
+	newClosed := func() *connectionManager {
 		cm := newTestConnectionManager("wss://original.example.com", true)
 		cm.setConnected(region)
 		cm.setClosed()
@@ -278,19 +286,19 @@ func TestConnectionManager_DisconnectedIsTerminal(t *testing.T) {
 		return cm
 	}
 
-	cm := newDisconnected()
+	cm := newClosed()
 	require.False(t, cm.setConnected(region))
 	require.Equal(t, connectionManagerStateClosed, cm.state)
 
-	cm = newDisconnected()
+	cm = newClosed()
 	require.False(t, cm.setResuming(settings))
 	require.Equal(t, connectionManagerStateClosed, cm.state)
 
-	cm = newDisconnected()
+	cm = newClosed()
 	require.False(t, cm.setReconnecting(settings))
 	require.Equal(t, connectionManagerStateClosed, cm.state)
 
-	cm = newDisconnected()
+	cm = newClosed()
 	require.False(t, cm.setResumed(region))
 	require.Equal(t, connectionManagerStateClosed, cm.state)
 }
@@ -306,7 +314,7 @@ func TestConnectionManager_SetResumingRequiresConnected(t *testing.T) {
 	require.Equal(t, connectionManagerStateInitial, cm.state)
 	require.Nil(t, cm.regionSettings)
 
-	// from Disconnected
+	// from Closed
 	cm = newTestConnectionManager("wss://original.example.com", true)
 	cm.setConnected(&livekit.RegionInfo{Region: "us-east", Url: "wss://us-east.example.com"})
 	cm.setClosed()
