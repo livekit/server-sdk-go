@@ -94,7 +94,7 @@ func TestDialContext(t *testing.T) {
 		assertBudget(t, ctx, 40*time.Second+ringingTimeoutMargin)
 	})
 
-	// A caller deadline shorter than the dial budget is extended (the fix): a
+	// A caller deadline shorter than the dial budget is extended: a
 	// too-short deadline must not abort the request before the call is answered.
 	t.Run("short caller deadline is extended", func(t *testing.T) {
 		parent, pcancel := context.WithTimeout(context.Background(), 3*time.Second)
