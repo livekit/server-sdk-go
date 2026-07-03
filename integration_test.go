@@ -1187,9 +1187,8 @@ func TestDynacastRepublish(t *testing.T) {
 		return reconnected.Load()
 	}, 20*time.Second, 100*time.Millisecond, "publisher should complete a full reconnect")
 
-	// re-publishing the tracks on a full reconnect resets every layer's disabled
-	// flag to false; captured at reconnect time before the new SFU can re-issue a
-	// dynacast update.
+	// re-publishing the (previously dynacast-disabled) tracks reset every layer's
+	// disabled flag to false, captured at reconnect time.
 	require.True(t, allEnabledAfterRepublish.Load(), "re-published layers must reset disabled to false")
 
 	// end-to-end: video RTP resumes after the re-publish
