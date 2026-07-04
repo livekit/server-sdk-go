@@ -184,6 +184,17 @@ func WithDisableTURN() ConnectOption {
 	}
 }
 
+// WithIPv6Only restricts ICE negotiation to IPv6. Only IPv6 local candidates
+// are gathered and sent to the server, and any IPv4 candidates advertised by
+// the server are rejected before being added to the ICE agent. Note that IPv4
+// TURN relay candidates can still appear; combine with WithDisableTURN for a
+// strictly IPv6 path.
+func WithIPv6Only() ConnectOption {
+	return func(p *connParams) {
+		p.IPv6Only = true
+	}
+}
+
 // WithDisableRegionDiscovery disables automatic region discovery for LiveKit Cloud.
 func WithDisableRegionDiscovery() ConnectOption {
 	return func(p *connParams) {
