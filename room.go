@@ -322,7 +322,6 @@ type Room struct {
 	name                    string
 	LocalParticipant        *LocalParticipant
 	callback                *RoomCallback
-	connectionState         ConnectionState
 	sidReady                chan struct{}
 	disconnectReason        livekit.DisconnectReason
 
@@ -355,7 +354,6 @@ func NewRoom(callback *RoomCallback) *Room {
 		sidDefers:          make(map[livekit.ParticipantID]map[livekit.TrackID]func(*RemoteParticipant)),
 		callback:           NewRoomCallback(),
 		sidReady:           make(chan struct{}),
-		connectionState:    ConnectionStateDisconnected,
 		regionURLProvider:  newRegionURLProvider(),
 		byteStreamHandlers: &sync.Map{},
 		byteStreamReaders:  &sync.Map{},
@@ -365,7 +363,7 @@ func NewRoom(callback *RoomCallback) *Room {
 	}
 	r.callback.Merge(callback)
 
-	r.engine = NewRTCEngine(r.useSinglePeerConnection, r, r.getLocalParticipantSID)
+	r.engine = NewRTCEngine(r.useSinglePeerConnection, r, r.getLocalParticipantSID, r.regionURLProvider)
 	r.LocalParticipant = newLocalParticipant(r.engine, r.callback, r.serverInfo, r.log)
 	return r
 }
@@ -474,6 +472,8 @@ func (r *Room) JoinWithContextAndToken(ctx context.Context, url, token string, o
 		opt(params)
 	}
 
+	r.engine.setIncomingRequestParams(ctx, url, token, params.ConnectParams, params.DisableRegionDiscovery)
+
 	if params.Logger != nil {
 		r.SetLogger(params.Logger)
 	}
@@ -509,56 +509,8 @@ func (r *Room) JoinWithContextAndToken(ctx context.Context, url, token string, o
 		trackPubs = nil
 	}
 
-	isSuccess := false
-	cloudHostname, _ := parseCloudURL(url)
-	regionHost := cloudHostname
-	if params.DisableRegionDiscovery {
-		regionHost = ""
-	}
-	// wire the original URL + region provider into the engine so the reconnect
-	// path can fail over across regions, not just the initial connect
-	r.engine.setRegionConnectInfo(r.regionURLProvider, url, regionHost)
-	if regionHost != "" {
-		settings, err := r.regionURLProvider.RegionSettings(regionHost, token)
-		if err != nil {
-			r.log.Errorw("failed to get region settings", err)
-		} else {
-			for i, region := range settings.GetRegions() {
-				if ctx.Err() != nil {
-					return ctx.Err()
-				}
-				bestURL := region.Url
-
-				r.log.Debugw("RTC engine joining room", "url", bestURL, "connectTimeout", params.ConnectTimeout)
-				callCtx, cancelCallCtx := context.WithTimeout(ctx, params.ConnectTimeout)
-				isSuccess, err = r.engine.JoinContext(callCtx, bestURL, token, params.ConnectParams, pubFunc)
-				cancelCallCtx()
-				if err == nil {
-					break
-				}
-
-				cleanPubReg()
-				// try the next URL with exponential backoff
-				d := time.Duration(1<<min(uint(i), 6)) * 100 * time.Millisecond // max 6.4 seconds
-				r.log.Errorw(
-					"failed to join room", err,
-					"retrying in", d,
-					"url", bestURL,
-				)
-				select {
-				case <-time.After(d):
-				case <-ctx.Done():
-					return ctx.Err()
-				}
-			}
-		}
-	}
-
-	if !isSuccess {
-		if _, err := r.engine.JoinContext(ctx, url, token, params.ConnectParams, pubFunc); err != nil {
-			cleanPubReg()
-			return err
-		}
+	if err := r.engine.join(pubFunc, cleanPubReg); err != nil {
+		return err
 	}
 
 	if err := r.completePublishWithJoin(ctx, trackPubs); err != nil {
@@ -583,13 +535,17 @@ func (r *Room) DisconnectWithReason(reason livekit.DisconnectReason) {
 func (r *Room) ConnectionState() ConnectionState {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
-	return r.connectionState
-}
 
-func (r *Room) setConnectionState(cs ConnectionState) {
-	r.lock.Lock()
-	r.connectionState = cs
-	r.lock.Unlock()
+	switch r.engine.currentState() {
+	case connectionManagerStateInitial, connectionManagerStateClosed:
+		return ConnectionStateDisconnected
+	case connectionManagerStateResuming, connectionManagerStateReconnecting:
+		return ConnectionStateReconnecting
+	case connectionManagerStateConnected:
+		return ConnectionStateConnected
+	}
+
+	return ConnectionStateDisconnected
 }
 
 func (r *Room) deferParticipantUpdate(sid livekit.ParticipantID, trackID livekit.TrackID, fnc func(p *RemoteParticipant)) {
@@ -770,7 +726,7 @@ func (r *Room) sendSyncState() {
 
 	var trackSids []string
 	var trackSidsDisabled []string
-	sendUnsub := r.engine.connParams.AutoSubscribe
+	sendUnsub := r.engine.getConnectParams().AutoSubscribe
 	for _, rp := range r.GetRemoteParticipants() {
 		for _, t := range rp.TrackPublications() {
 			if t.IsSubscribed() != sendUnsub {
@@ -826,7 +782,6 @@ func (r *Room) sendSyncState() {
 }
 
 func (r *Room) cleanup() {
-	r.setConnectionState(ConnectionStateDisconnected)
 	r.engine.Close()
 	r.LocalParticipant.closeTracks()
 	r.setSid("", true)
@@ -1089,7 +1044,6 @@ func (r *Room) OnRoomJoined(
 	r.metadata = room.Metadata
 	r.activeRecording = room.ActiveRecording
 	r.serverInfo = serverInfo
-	r.connectionState = ConnectionStateConnected
 	r.sifTrailer = make([]byte, len(sifTrailer))
 	copy(r.sifTrailer, sifTrailer)
 	r.lock.Unlock()
@@ -1129,7 +1083,6 @@ func (r *Room) DisconnectReason() livekit.DisconnectReason {
 }
 
 func (r *Room) OnRestarting() {
-	r.setConnectionState(ConnectionStateReconnecting)
 	r.callback.OnReconnecting()
 
 	for _, rp := range r.GetRemoteParticipants() {
@@ -1151,17 +1104,14 @@ func (r *Room) OnRestarted(
 
 	r.LocalParticipant.republishTracks()
 
-	r.setConnectionState(ConnectionStateConnected)
 	r.callback.OnReconnected()
 }
 
 func (r *Room) OnResuming() {
-	r.setConnectionState(ConnectionStateReconnecting)
 	r.callback.OnReconnecting()
 }
 
 func (r *Room) OnResumed() {
-	r.setConnectionState(ConnectionStateConnected)
 	r.callback.OnReconnected()
 	r.sendSyncState()
 	r.LocalParticipant.updateSubscriptionPermission()

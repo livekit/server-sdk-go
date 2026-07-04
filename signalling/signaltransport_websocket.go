@@ -110,6 +110,7 @@ func (s *signalTransportWebSocket) Join(
 // when successful, it'll return a ReconnectResponse;
 // older versions of the server will not send back a ReconnectResponse
 func (s *signalTransportWebSocket) Reconnect(
+	ctx context.Context,
 	url string,
 	token string,
 	connectParams ConnectParams,
@@ -117,7 +118,7 @@ func (s *signalTransportWebSocket) Reconnect(
 ) error {
 	connectParams.Reconnect = true
 	msg, err := s.connect(
-		context.TODO(),
+		ctx,
 		url,
 		token,
 		connectParams,
@@ -150,7 +151,7 @@ func (s *signalTransportWebSocket) Reconnect(
 		case *livekit.SignalResponse_Leave:
 			s.lock.Unlock()
 			s.params.SignalHandler.HandleMessage(msg)
-			return fmt.Errorf("reconnect received left, reason: %s", payload.Leave.GetReason())
+			return fmt.Errorf("reconnect received leave, reason: %s", payload.Leave.GetReason())
 		}
 
 		s.pendingResponse = res

@@ -26,6 +26,7 @@ import (
 	dtlsElliptic "github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/interceptor"
 	"github.com/pion/webrtc/v4"
+	"go.uber.org/zap/zapcore"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -115,6 +116,17 @@ type ConnectParams struct {
 	Logger logger.Logger
 }
 
+func (c ConnectParams) MarshalLogObject(e zapcore.ObjectEncoder) error {
+	e.AddBool("AutoSubscribe", c.AutoSubscribe)
+	e.AddBool("Reconnect", c.Reconnect)
+	e.AddBool("DisableRegionDiscovery", c.DisableRegionDiscovery)
+	e.AddDuration("ConnectTimeout", c.ConnectTimeout)
+	e.AddUint16("RetransmitBufferSize", c.RetransmitBufferSize)
+	e.AddBool("DisableTURN", c.DisableTURN)
+	e.AddBool("UseSinglePeerConnection", c.UseSinglePeerConnection)
+	return nil
+}
+
 type SignalTransport interface {
 	SetLogger(l logger.Logger)
 
@@ -130,6 +142,7 @@ type SignalTransport interface {
 		publisherOffer webrtc.SessionDescription,
 	) error
 	Reconnect(
+		ctx context.Context,
 		url string,
 		token string,
 		connectParams ConnectParams,

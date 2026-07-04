@@ -56,12 +56,12 @@ const (
 
 // syncEngineTrack implements TrackSync for a single track within a SyncEngine.
 type syncEngineTrack struct {
-	engine    *SyncEngine
-	track     TrackRemote
-	participantID  string
-	logger    logger.Logger
-	converter *rtputil.RTPConverter
-	startGate startGate // from start_gate.go, nil if not enabled
+	engine        *SyncEngine
+	track         TrackRemote
+	participantID string
+	logger        logger.Logger
+	converter     *rtputil.RTPConverter
+	startGate     startGate // from start_gate.go, nil if not enabled
 
 	mu              sync.Mutex
 	startTime       time.Time
