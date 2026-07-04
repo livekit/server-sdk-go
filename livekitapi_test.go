@@ -31,6 +31,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/twitchtv/twirp"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 
@@ -61,6 +63,13 @@ type mockControl struct {
 	RegionsStatus int             `json:"regionsStatus,omitempty"`
 	Response      json.RawMessage `json:"response,omitempty"`
 	SkipAuth      bool            `json:"skipAuth,omitempty"`
+	SIPStatus     *sipStatus      `json:"sipStatus,omitempty"`
+}
+
+// sipStatus fails a SIP dial method with a SIP response (code + optional reason).
+type sipStatus struct {
+	Code   int    `json:"code"`
+	Status string `json:"status,omitempty"`
 }
 
 // withMock attaches the X-Lk-Mock control header to ctx as a twirp request
@@ -501,7 +510,7 @@ func TestAPI_SIPParticipant(t *testing.T) {
 			SipCallTo:         "+15105550100",
 			RoomName:          "test-room",
 			WaitUntilAnswered: true,
-			RingingTimeout:    durationpb.New(20 * time.Second),
+			RingingTimeout:    durationpb.New(2 * time.Second),
 		})
 		require.NoError(t, err)
 	})
@@ -512,7 +521,7 @@ func TestAPI_SIPParticipant(t *testing.T) {
 			ParticipantIdentity: "sip-caller",
 			TransferTo:          "tel:+15559876543",
 			PlayDialtone:        true,
-			RingingTimeout:      durationpb.New(20 * time.Second),
+			RingingTimeout:      durationpb.New(2 * time.Second),
 		})
 		require.NoError(t, err)
 	})
@@ -614,21 +623,23 @@ func TestAPI_TokenAuth(t *testing.T) {
 	require.Equal(t, "token-room", room.Name)
 }
 
-// SIP dialing must outlast ringing: a ringing timeout shorter than the mock's
-// answer latency aborts, while the default budget lets the answer through.
+// SIP dialing must outlast ringing: when the answer takes longer than the dial
+// budget (ringing timeout + margin) the call times out with a deadline error,
+// while a prompt answer within the budget succeeds.
 func TestAPI_SIPDialTimeout(t *testing.T) {
 	api := newTestAPI(t)
 
-	t.Run("aborts when the ring budget is too short", func(t *testing.T) {
-		// ringing 1s -> ~3s dial budget, below the mock's ~11s answer latency.
-		_, err := api.SIP().CreateSIPParticipant(context.Background(), &livekit.CreateSIPParticipantRequest{
+	t.Run("times out when the answer exceeds the dial budget", func(t *testing.T) {
+		// ringing 1s -> ~3s dial budget; the mock delays the answer past it.
+		ctx := mockCtx(t, mockControl{DelayMs: intPtr(4000)})
+		_, err := api.SIP().CreateSIPParticipant(ctx, &livekit.CreateSIPParticipantRequest{
 			SipTrunkId:        "ST_abc123",
 			SipCallTo:         "+15105550100",
 			RoomName:          "test-room",
 			WaitUntilAnswered: true,
 			RingingTimeout:    durationpb.New(time.Second),
 		})
-		require.Error(t, err)
+		require.ErrorIs(t, err, context.DeadlineExceeded)
 	})
 
 	t.Run("succeeds within the dial budget", func(t *testing.T) {
@@ -641,4 +652,62 @@ func TestAPI_SIPDialTimeout(t *testing.T) {
 		})
 		require.NoError(t, err)
 	})
+}
+
+// A failed SIP dial returns a SIP status. The SIP client surfaces it as a gRPC
+// status error with the mapped code, and the underlying SIP status (code + reason)
+// is recoverable via SIPStatusFrom.
+func TestAPI_SIPCallErrors(t *testing.T) {
+	api := newTestAPI(t)
+
+	cases := []struct {
+		name     string
+		sip      sipStatus
+		grpcCode codes.Code
+		sipCode  livekit.SIPStatusCode
+	}{
+		{"busy", sipStatus{Code: 486, Status: "Busy Here"}, codes.ResourceExhausted, livekit.SIPStatusCode_SIP_STATUS_BUSY_HERE},
+		{"declined", sipStatus{Code: 603, Status: "Decline"}, codes.PermissionDenied, livekit.SIPStatusCode_SIP_STATUS_GLOBAL_DECLINE},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sip := tc.sip
+			// delayMs:0 returns the SIP verdict immediately rather than blocking.
+			ctx := mockCtx(t, mockControl{DelayMs: intPtr(0), SIPStatus: &sip})
+			_, err := api.SIP().CreateSIPParticipant(ctx, &livekit.CreateSIPParticipantRequest{
+				SipTrunkId: "ST_abc123",
+				SipCallTo:  "+15105550100",
+				RoomName:   "test-room",
+			})
+			require.Error(t, err)
+			require.Equal(t, tc.grpcCode, status.Code(err))
+
+			st := SIPStatusFrom(err)
+			require.NotNil(t, st, "SIP status should be recoverable from the error")
+			require.Equal(t, tc.sipCode, st.Code)
+			require.Equal(t, tc.sip.Status, st.Status)
+		})
+	}
+}
+
+// When the callee doesn't answer within ringing_timeout, the server returns SIP
+// 408 Request Timeout, surfaced as a DeadlineExceeded error.
+func TestAPI_SIPNoAnswer(t *testing.T) {
+	api := newTestAPI(t)
+	// delayMs:0 stands in for the server enforcing ringing_timeout and returning
+	// the no-answer verdict, rather than the mock blocking for the full window.
+	ctx := mockCtx(t, mockControl{DelayMs: intPtr(0), SIPStatus: &sipStatus{Code: 408, Status: "Request Timeout"}})
+	_, err := api.SIP().CreateSIPParticipant(ctx, &livekit.CreateSIPParticipantRequest{
+		SipTrunkId:        "ST_abc123",
+		SipCallTo:         "+15105550100",
+		RoomName:          "test-room",
+		WaitUntilAnswered: true,
+		RingingTimeout:    durationpb.New(2 * time.Second),
+	})
+	require.Error(t, err)
+	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
+
+	st := SIPStatusFrom(err)
+	require.NotNil(t, st, "SIP status should be recoverable from the error")
+	require.Equal(t, livekit.SIPStatusCode_SIP_STATUS_REQUEST_TIMEOUT, st.Code)
 }
