@@ -96,6 +96,11 @@ type ConnectParams struct {
 	// Use this when the client is co-located with the SFU and does not need relay candidates.
 	DisableTURN bool
 
+	// IPv6Only restricts ICE to IPv6. Only IPv6 local candidates are gathered
+	// (and sent to the server), and any IPv4 remote candidates from the server
+	// are rejected before being added to the ICE agent.
+	IPv6Only bool
+
 	DTLSEllipticCurves []dtlsElliptic.Curve // FIPS 140: override default DTLS curves
 
 	// DataEncryptionKeyProvider enables data channel E2EE when set.

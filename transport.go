@@ -17,6 +17,7 @@ package lksdk
 import (
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -47,6 +48,12 @@ const (
 	iceFailedTimeout           = 5 * time.Second
 	iceKeepaliveInterval       = 2 * time.Second
 )
+
+// isIPv6 reports whether ip is an IPv6 address (i.e. not IPv4). Used to keep
+// only IPv6 candidates when IPv6Only is enabled.
+func isIPv6(ip net.IP) bool {
+	return ip.To4() == nil
+}
 
 // PCTransport is a wrapper around PeerConnection, with some helper methods
 type PCTransport struct {
@@ -81,6 +88,7 @@ type PCTransportParams struct {
 	OnRTTUpdate                func(rtt uint32)
 	IsSender                   bool
 	DTLSEllipticCurves         []dtlsElliptic.Curve
+	IPv6Only                   bool
 }
 
 func (t *PCTransport) registerDefaultInterceptors(params PCTransportParams, i *interceptor.Registry) error {
@@ -215,6 +223,12 @@ func NewPCTransport(params PCTransportParams) (*PCTransport, error) {
 	}
 	se.SetDTLSRetransmissionInterval(dtlsRetransmissionInterval)
 	se.SetICETimeouts(iceDisconnectedTimeout, iceFailedTimeout, iceKeepaliveInterval)
+	if params.IPv6Only {
+		// Only gather IPv6 local candidates (so only IPv6 is sent to the server)
+		// and reject any IPv4 remote candidates advertised by the server.
+		se.SetIPFilter(isIPv6)
+		se.SetRemoteIPFilter(isIPv6)
+	}
 	lf := pionlogger.NewLoggerFactory(logger)
 	if lf != nil {
 		se.LoggerFactory = lf
