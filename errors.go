@@ -18,7 +18,13 @@ import (
 	"errors"
 
 	"github.com/livekit/server-sdk-go/v2/signalling"
+	"github.com/twitchtv/twirp"
 )
+
+// ServerError is returned when a server API call fails. It exposes the error
+// code, message, and any metadata the server attached. Use errors.As to extract
+// it from a returned error.
+type ServerError = twirp.Error
 
 var (
 	ErrConnectionTimeout        = errors.New("could not connect after timeout")

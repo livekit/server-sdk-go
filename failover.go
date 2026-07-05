@@ -185,6 +185,8 @@ type failoverTransport struct {
 }
 
 func (t *failoverTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req.Header.Set("User-Agent", userAgent)
+
 	cfg := failoverConfigFromContext(req.Context())
 	maxAttempts := cfg.attempts(req.URL.Hostname())
 
