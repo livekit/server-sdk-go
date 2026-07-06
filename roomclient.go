@@ -167,6 +167,13 @@ func (c *RoomServiceClient) SendData(ctx context.Context, req *livekit.SendDataR
 	return c.roomService.SendData(ctx, req)
 }
 
+// CreateToken returns an AccessToken seeded with this client's API key and
+// secret, ready for you to add grants and call ToJWT.
+//
+// This requires API key/secret authentication (NewRoomServiceClient, or
+// NewLiveKitAPI with WithAPIKey). If the client was created with token-based
+// auth (WithToken) there is no secret to sign with, so the returned token's
+// ToJWT reports auth.ErrKeysMissing ("missing API key or secret key").
 func (c *RoomServiceClient) CreateToken() *auth.AccessToken {
 	return auth.NewAccessToken(c.apiKey, c.apiSecret)
 }
