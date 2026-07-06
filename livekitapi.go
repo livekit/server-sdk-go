@@ -94,13 +94,16 @@ func NewLiveKitAPI(opts ...LiveKitAPIOption) (*LiveKitAPI, error) {
 	}
 
 	ab := authBase{apiKey: o.apiKey, apiSecret: o.apiSecret, token: o.token}
+	// Share one HTTP client (and its connection pool) across every service
+	// rather than letting each open its own.
+	httpClient := newAPIHTTPClient()
 	return &LiveKitAPI{
-		room:          newRoomServiceClient(url, ab),
-		egress:        newEgressClient(url, ab),
-		ingress:       newIngressClient(url, ab),
-		sip:           newSIPClient(url, ab),
-		agentDispatch: newAgentDispatchServiceClient(url, ab),
-		connector:     newConnectorClient(url, ab),
+		room:          newRoomServiceClient(url, ab, httpClient),
+		egress:        newEgressClient(url, ab, httpClient),
+		ingress:       newIngressClient(url, ab, httpClient),
+		sip:           newSIPClient(url, ab, httpClient),
+		agentDispatch: newAgentDispatchServiceClient(url, ab, httpClient),
+		connector:     newConnectorClient(url, ab, httpClient),
 	}, nil
 }
 

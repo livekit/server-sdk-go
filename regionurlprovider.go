@@ -169,7 +169,7 @@ func (c *regionCache) fetch(discoveryURL string, headers http.Header) (*livekit.
 	defer drainResponse(resp)
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, 0, &TwirpRegionError{StatusCode: resp.StatusCode}
+		return nil, 0, &RegionError{StatusCode: resp.StatusCode}
 	}
 	b, err := io.ReadAll(resp.Body)
 	if err != nil {

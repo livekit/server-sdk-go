@@ -16,6 +16,7 @@ package lksdk
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/utils/xtwirp"
@@ -29,13 +30,13 @@ type ConnectorClient struct {
 }
 
 func NewConnectorClient(url string, apiKey string, secretKey string, opts ...twirp.ClientOption) *ConnectorClient {
-	return newConnectorClient(url, authBase{apiKey: apiKey, apiSecret: secretKey}, opts...)
+	return newConnectorClient(url, authBase{apiKey: apiKey, apiSecret: secretKey}, newAPIHTTPClient(), opts...)
 }
 
-func newConnectorClient(url string, auth authBase, opts ...twirp.ClientOption) *ConnectorClient {
+func newConnectorClient(url string, auth authBase, httpClient *http.Client, opts ...twirp.ClientOption) *ConnectorClient {
 	opts = append(opts, xtwirp.DefaultClientOptions()...)
 	url = signalling.ToHttpURL(url)
-	client := livekit.NewConnectorProtobufClient(url, newAPIHTTPClient(), opts...)
+	client := livekit.NewConnectorProtobufClient(url, httpClient, opts...)
 	return &ConnectorClient{
 		connector: client,
 		authBase:  auth,

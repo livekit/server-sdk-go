@@ -377,12 +377,17 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 // cache, but both share the same regionCache discovery/fetch/TTL logic.
 var sharedAPIRegions = newRegionCache()
 
-// TwirpRegionError indicates the /settings/regions endpoint returned a non-200
+// RegionError indicates the /settings/regions endpoint returned a non-200
 // status while attempting region failover.
-type TwirpRegionError struct {
+type RegionError struct {
 	StatusCode int
 }
 
-func (e *TwirpRegionError) Error() string {
+func (e *RegionError) Error() string {
 	return "failed to fetch region settings: status " + http.StatusText(e.StatusCode)
 }
+
+// TwirpRegionError is a deprecated alias for [RegionError].
+//
+// Deprecated: use RegionError.
+type TwirpRegionError = RegionError
