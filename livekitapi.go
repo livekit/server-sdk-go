@@ -79,7 +79,10 @@ func NewLiveKitAPI(opts ...LiveKitAPIOption) (*LiveKitAPI, error) {
 	if url == "" {
 		return nil, errors.New("url is required (use WithURL or set LIVEKIT_URL)")
 	}
-	if o.token == "" {
+	// Only fall back to environment credentials when none were provided
+	// explicitly, so an ambient LIVEKIT_TOKEN can't silently override an
+	// explicit WithAPIKey (or vice versa).
+	if o.token == "" && o.apiKey == "" && o.apiSecret == "" {
 		o.token = os.Getenv("LIVEKIT_TOKEN")
 	}
 	if o.token == "" && o.apiKey == "" && o.apiSecret == "" {

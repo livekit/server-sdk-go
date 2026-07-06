@@ -20,6 +20,7 @@ import (
 	"github.com/twitchtv/twirp"
 
 	"github.com/livekit/protocol/livekit"
+	"github.com/livekit/protocol/utils/xtwirp"
 	"github.com/livekit/server-sdk-go/v2/signalling"
 )
 
@@ -33,6 +34,7 @@ func NewAgentDispatchServiceClient(url string, apiKey string, secretKey string, 
 }
 
 func newAgentDispatchServiceClient(url string, auth authBase, opts ...twirp.ClientOption) *AgentDispatchClient {
+	opts = append(opts, xtwirp.DefaultClientOptions()...)
 	url = signalling.ToHttpURL(url)
 	client := livekit.NewAgentDispatchServiceProtobufClient(url, newAPIHTTPClient(), opts...)
 

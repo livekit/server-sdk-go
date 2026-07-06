@@ -627,6 +627,26 @@ func TestAPI_TokenAuth(t *testing.T) {
 	require.Equal(t, "token-room", room.Name)
 }
 
+// Explicitly provided credentials must win over ambient environment variables:
+// an env LIVEKIT_TOKEN must not hijack a WithAPIKey caller. The env fallback
+// applies only when no auth was passed. No server needed—this checks resolution.
+func TestAPI_ExplicitCredsBeatEnvToken(t *testing.T) {
+	const url = "http://localhost:7880"
+	t.Setenv("LIVEKIT_TOKEN", "ambient-token")
+
+	// Explicit key/secret: the env token must be ignored.
+	keyAPI, err := NewLiveKitAPI(WithURL(url), WithAPIKey(testAPIKey, testAPISecret))
+	require.NoError(t, err)
+	require.Equal(t, testAPIKey, keyAPI.Room().apiKey)
+	require.Equal(t, testAPISecret, keyAPI.Room().apiSecret)
+	require.Empty(t, keyAPI.Room().token)
+
+	// No explicit auth: the env token is used.
+	envAPI, err := NewLiveKitAPI(WithURL(url))
+	require.NoError(t, err)
+	require.Equal(t, "ambient-token", envAPI.Room().token)
+}
+
 // SIP dialing must outlast ringing: when the answer takes longer than the dial
 // budget (ringing timeout + margin) the call times out with a deadline error,
 // while a prompt answer within the budget succeeds.
