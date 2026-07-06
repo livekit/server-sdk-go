@@ -32,6 +32,7 @@ type LiveKitAPI struct {
 }
 
 type liveKitAPIOptions struct {
+	url       string
 	apiKey    string
 	apiSecret string
 	token     string
@@ -39,6 +40,12 @@ type liveKitAPIOptions struct {
 
 // LiveKitAPIOption configures NewLiveKitAPI.
 type LiveKitAPIOption func(*liveKitAPIOptions)
+
+// WithURL sets the LiveKit server URL. If omitted, it falls back to the
+// LIVEKIT_URL environment variable.
+func WithURL(url string) LiveKitAPIOption {
+	return func(o *liveKitAPIOptions) { o.url = url }
+}
 
 // WithAPIKey authenticates by signing a token per request from the key and secret.
 func WithAPIKey(apiKey, apiSecret string) LiveKitAPIOption {
@@ -55,20 +62,22 @@ func WithToken(token string) LiveKitAPIOption {
 	return func(o *liveKitAPIOptions) { o.token = token }
 }
 
-// NewLiveKitAPI creates a client for all LiveKit server APIs. url and
+// NewLiveKitAPI creates a client for all LiveKit server APIs. The URL and
 // credentials fall back to the LIVEKIT_URL, LIVEKIT_TOKEN, LIVEKIT_API_KEY, and
-// LIVEKIT_API_SECRET environment variables. Provide either an API key and secret
-// (WithAPIKey) or a pre-signed token (WithToken).
-func NewLiveKitAPI(url string, opts ...LiveKitAPIOption) (*LiveKitAPI, error) {
+// LIVEKIT_API_SECRET environment variables, so with those set it can be called
+// with no arguments. Otherwise provide the URL (WithURL) and either an API key
+// and secret (WithAPIKey) or a pre-signed token (WithToken).
+func NewLiveKitAPI(opts ...LiveKitAPIOption) (*LiveKitAPI, error) {
 	o := &liveKitAPIOptions{}
 	for _, opt := range opts {
 		opt(o)
 	}
+	url := o.url
 	if url == "" {
 		url = os.Getenv("LIVEKIT_URL")
 	}
 	if url == "" {
-		return nil, errors.New("url is required (pass it or set LIVEKIT_URL)")
+		return nil, errors.New("url is required (use WithURL or set LIVEKIT_URL)")
 	}
 	if o.token == "" {
 		o.token = os.Getenv("LIVEKIT_TOKEN")

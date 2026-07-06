@@ -46,7 +46,7 @@ const (
 )
 
 func newTestAPI(t *testing.T) *LiveKitAPI {
-	api, err := NewLiveKitAPI(testServerURL(t), WithAPIKey(testAPIKey, testAPISecret))
+	api, err := NewLiveKitAPI(WithURL(testServerURL(t)), WithAPIKey(testAPIKey, testAPISecret))
 	require.NoError(t, err)
 	return api
 }
@@ -620,7 +620,7 @@ func TestAPI_TokenAuth(t *testing.T) {
 		ToJWT()
 	require.NoError(t, err)
 
-	api, err := NewLiveKitAPI(url, WithToken(token))
+	api, err := NewLiveKitAPI(WithURL(url), WithToken(token))
 	require.NoError(t, err)
 	room, err := api.Room().CreateRoom(context.Background(), &livekit.CreateRoomRequest{Name: "token-room"})
 	require.NoError(t, err)
