@@ -68,3 +68,16 @@ func (c *AgentDispatchClient) ListDispatch(ctx context.Context, req *livekit.Lis
 
 	return c.agentDispatchService.ListDispatch(ctx, req)
 }
+
+// GetDispatch returns the agent dispatch with the given ID in the room, or nil
+// if no matching dispatch exists.
+func (c *AgentDispatchClient) GetDispatch(ctx context.Context, dispatchID string, room string) (*livekit.AgentDispatch, error) {
+	res, err := c.ListDispatch(ctx, &livekit.ListAgentDispatchRequest{DispatchId: dispatchID, Room: room})
+	if err != nil {
+		return nil, err
+	}
+	if len(res.AgentDispatches) == 0 {
+		return nil, nil
+	}
+	return res.AgentDispatches[0], nil
+}

@@ -604,6 +604,10 @@ func TestAPI_AgentDispatchSmoke(t *testing.T) {
 			_, e := api.AgentDispatch().ListDispatch(ctx, &livekit.ListAgentDispatchRequest{Room: room, DispatchId: "AD_abc123"})
 			return e
 		},
+		"GetDispatch": func() error {
+			_, e := api.AgentDispatch().GetDispatch(ctx, "AD_abc123", room)
+			return e
+		},
 	})
 }
 
