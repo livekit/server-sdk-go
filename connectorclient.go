@@ -16,6 +16,7 @@ package lksdk
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/utils/xtwirp"
@@ -29,15 +30,16 @@ type ConnectorClient struct {
 }
 
 func NewConnectorClient(url string, apiKey string, secretKey string, opts ...twirp.ClientOption) *ConnectorClient {
+	return newConnectorClient(url, authBase{apiKey: apiKey, apiSecret: secretKey}, newAPIHTTPClient(), opts...)
+}
+
+func newConnectorClient(url string, auth authBase, httpClient *http.Client, opts ...twirp.ClientOption) *ConnectorClient {
 	opts = append(opts, xtwirp.DefaultClientOptions()...)
 	url = signalling.ToHttpURL(url)
-	client := livekit.NewConnectorProtobufClient(url, newAPIHTTPClient(), opts...)
+	client := livekit.NewConnectorProtobufClient(url, httpClient, opts...)
 	return &ConnectorClient{
 		connector: client,
-		authBase: authBase{
-			apiKey:    apiKey,
-			apiSecret: secretKey,
-		},
+		authBase:  auth,
 	}
 }
 
@@ -58,10 +60,8 @@ func (c *ConnectorClient) DialWhatsAppCall(ctx context.Context, req *livekit.Dia
 }
 
 func (c *ConnectorClient) AcceptWhatsAppCall(ctx context.Context, req *livekit.AcceptWhatsAppCallRequest) (*livekit.AcceptWhatsAppCallResponse, error) {
-	// Accept can block until the call is answered, so default the request deadline
-	// to the standard ring window when the caller set none. The caller overrides
-	// via the context deadline and should set it above the ringing_timeout passed
-	// to DialWhatsAppCall (the two calls are separate, so we can't derive it).
+	// When waiting for the inbound party to join, the request can block, so default
+	// the deadline to the standard ring window when the caller set none.
 	if _, ok := ctx.Deadline(); !ok && req.WaitUntilAnswered {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, defaultRingingTimeout)

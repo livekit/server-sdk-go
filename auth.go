@@ -28,6 +28,8 @@ import (
 type authBase struct {
 	apiKey    string
 	apiSecret string
+	// token, when set, is sent verbatim and per-call grant signing is skipped.
+	token string
 }
 
 type authOption interface {
@@ -57,14 +59,17 @@ func (g withAgentGrant) Apply(t *auth.AccessToken) {
 // detaches a long-enough deadline so failover can reset it per attempt (see
 // withFailoverTimeout).
 func (b authBase) prepareContext(ctx context.Context, opt authOption, options ...authOption) (context.Context, error) {
-	at := auth.NewAccessToken(b.apiKey, b.apiSecret)
-	opt.Apply(at)
-	for _, opt := range options {
+	token := b.token
+	if token == "" {
+		at := auth.NewAccessToken(b.apiKey, b.apiSecret)
 		opt.Apply(at)
-	}
-	token, err := at.ToJWT()
-	if err != nil {
-		return nil, err
+		for _, opt := range options {
+			opt.Apply(at)
+		}
+		var err error
+		if token, err = at.ToJWT(); err != nil {
+			return nil, err
+		}
 	}
 
 	h := signalling.NewHTTPHeaderWithToken(token)

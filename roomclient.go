@@ -16,6 +16,7 @@ package lksdk
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/google/uuid"
 	"github.com/twitchtv/twirp"
@@ -32,15 +33,16 @@ type RoomServiceClient struct {
 }
 
 func NewRoomServiceClient(url string, apiKey string, secretKey string, opts ...twirp.ClientOption) *RoomServiceClient {
+	return newRoomServiceClient(url, authBase{apiKey: apiKey, apiSecret: secretKey}, newAPIHTTPClient(), opts...)
+}
+
+func newRoomServiceClient(url string, auth authBase, httpClient *http.Client, opts ...twirp.ClientOption) *RoomServiceClient {
 	opts = append(opts, xtwirp.DefaultClientOptions()...)
 	url = signalling.ToHttpURL(url)
-	client := livekit.NewRoomServiceProtobufClient(url, newAPIHTTPClient(), opts...)
+	client := livekit.NewRoomServiceProtobufClient(url, httpClient, opts...)
 	return &RoomServiceClient{
 		roomService: client,
-		authBase: authBase{
-			apiKey:    apiKey,
-			apiSecret: secretKey,
-		},
+		authBase:    auth,
 	}
 }
 
@@ -166,6 +168,13 @@ func (c *RoomServiceClient) SendData(ctx context.Context, req *livekit.SendDataR
 	return c.roomService.SendData(ctx, req)
 }
 
+// CreateToken returns an AccessToken seeded with this client's API key and
+// secret, ready for you to add grants and call ToJWT.
+//
+// This requires API key/secret authentication (NewRoomServiceClient, or
+// NewLiveKitAPI with WithAPIKey). If the client was created with token-based
+// auth (WithToken) there is no secret to sign with, so the returned token's
+// ToJWT reports auth.ErrKeysMissing ("missing API key or secret key").
 func (c *RoomServiceClient) CreateToken() *auth.AccessToken {
 	return auth.NewAccessToken(c.apiKey, c.apiSecret)
 }

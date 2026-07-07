@@ -16,10 +16,12 @@ package lksdk
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/twitchtv/twirp"
 
 	"github.com/livekit/protocol/livekit"
+	"github.com/livekit/protocol/utils/xtwirp"
 	"github.com/livekit/server-sdk-go/v2/signalling"
 )
 
@@ -29,15 +31,17 @@ type AgentDispatchClient struct {
 }
 
 func NewAgentDispatchServiceClient(url string, apiKey string, secretKey string, opts ...twirp.ClientOption) *AgentDispatchClient {
+	return newAgentDispatchServiceClient(url, authBase{apiKey: apiKey, apiSecret: secretKey}, newAPIHTTPClient(), opts...)
+}
+
+func newAgentDispatchServiceClient(url string, auth authBase, httpClient *http.Client, opts ...twirp.ClientOption) *AgentDispatchClient {
+	opts = append(opts, xtwirp.DefaultClientOptions()...)
 	url = signalling.ToHttpURL(url)
-	client := livekit.NewAgentDispatchServiceProtobufClient(url, newAPIHTTPClient(), opts...)
+	client := livekit.NewAgentDispatchServiceProtobufClient(url, httpClient, opts...)
 
 	return &AgentDispatchClient{
 		agentDispatchService: client,
-		authBase: authBase{
-			apiKey:    apiKey,
-			apiSecret: secretKey,
-		},
+		authBase:             auth,
 	}
 }
 
@@ -66,4 +70,17 @@ func (c *AgentDispatchClient) ListDispatch(ctx context.Context, req *livekit.Lis
 	}
 
 	return c.agentDispatchService.ListDispatch(ctx, req)
+}
+
+// GetDispatch returns the agent dispatch with the given ID in the room, or nil
+// if no matching dispatch exists.
+func (c *AgentDispatchClient) GetDispatch(ctx context.Context, dispatchID string, room string) (*livekit.AgentDispatch, error) {
+	res, err := c.ListDispatch(ctx, &livekit.ListAgentDispatchRequest{DispatchId: dispatchID, Room: room})
+	if err != nil {
+		return nil, err
+	}
+	if len(res.AgentDispatches) == 0 {
+		return nil, nil
+	}
+	return res.AgentDispatches[0], nil
 }

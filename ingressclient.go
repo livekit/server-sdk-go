@@ -16,6 +16,7 @@ package lksdk
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/twitchtv/twirp"
 
@@ -30,15 +31,16 @@ type IngressClient struct {
 }
 
 func NewIngressClient(url string, apiKey string, secretKey string, opts ...twirp.ClientOption) *IngressClient {
+	return newIngressClient(url, authBase{apiKey: apiKey, apiSecret: secretKey}, newAPIHTTPClient(), opts...)
+}
+
+func newIngressClient(url string, auth authBase, httpClient *http.Client, opts ...twirp.ClientOption) *IngressClient {
 	opts = append(opts, xtwirp.DefaultClientOptions()...)
 	url = signalling.ToHttpURL(url)
-	client := livekit.NewIngressProtobufClient(url, newAPIHTTPClient(), opts...)
+	client := livekit.NewIngressProtobufClient(url, httpClient, opts...)
 	return &IngressClient{
 		ingressClient: client,
-		authBase: authBase{
-			apiKey:    apiKey,
-			apiSecret: secretKey,
-		},
+		authBase:      auth,
 	}
 }
 
