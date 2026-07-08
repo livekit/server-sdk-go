@@ -52,6 +52,9 @@ const (
 
 	// deadbandThreshold is the minimum |correction| before slew smoothing kicks in.
 	deadbandThreshold = 5 * time.Millisecond
+
+	// wallSlewAlpha bounds publisher sample-clock skew: steady-state |drift| = R·δ·(1-α)/α ≈ 10ms for R=20ms, δ=±500ppm, α=0.01.
+	wallSlewAlpha = 0.01
 )
 
 // syncEngineTrack implements TrackSync for a single track within a SyncEngine.
@@ -425,6 +428,8 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 					"deadline", deadline,
 					"behindBy", limit-oldPTS,
 				)
+				// Reset timeliness clock so a lingering transient deficit doesn't fire force-correction on every subsequent packet, collapsing them into the same newPTS at the mixer.
+				st.lastTimelyPacket = time.Now()
 			}
 		} else {
 			st.lastTimelyPacket = time.Now()
@@ -489,43 +494,33 @@ func (st *syncEngineTrack) wallClockPTSForRTP(ts uint32, receivedAt time.Time) (
 // wallClockPTSForRTPLocked is the lock-held implementation of wall-clock PTS
 // computation. Caller must hold st.mu.
 func (st *syncEngineTrack) wallClockPTSForRTPLocked(ts uint32, receivedAt time.Time) time.Duration {
-	// Defense in depth: if receivedAt is the zero time.Time, wallElapsed
-	// below would be a ~63-billion-second negative duration, the sanity
-	// threshold would reject rtpDerived, and the function would return 0
-	// regardless of sessionOffset — locking the trust-threshold clamp onto
-	// a bogus baseline. initializeLocked already substitutes time.Now() for
-	// zero ReceivedAt on the first packet; do the same here in case a later
-	// caller (e.g., OnRTCP using sr.RTPTime + an unset receivedAt) misses it.
+	// A zero receivedAt would make wallElapsed hugely negative and lock every downstream clamp onto a bogus baseline.
 	if receivedAt.IsZero() {
 		receivedAt = time.Now()
 	}
 
-	// Wall-clock elapsed since this track started, plus session offset
 	wallElapsed := receivedAt.Sub(st.startTime) + st.sessionOffset
-
-	// If we have processed at least one packet, use RTP delta from the previous
-	// pure-wall-clock baseline for more precision (immune to receivedAt jitter).
-	// uint32 subtraction wraps for backward RTP timestamps; the sanity check
-	// below catches the resulting huge positive delta and falls back to wall clock.
-	if st.initialized {
-		rtpDelta := ts - st.lastTS
-		rtpDerived := st.lastWallPTS + st.converter.ToDuration(rtpDelta)
-
-		// Sanity check: if RTP-derived PTS diverges from wall-clock by > 5s, use wall clock.
-		diff := rtpDerived - wallElapsed
-		if diff < 0 {
-			diff = -diff
-		}
-		if diff <= wallClockSanityThreshold {
-			return rtpDerived
-		}
-	}
-
-	// Use wall-clock elapsed, ensuring non-negative.
 	if wallElapsed < 0 {
 		wallElapsed = 0
 	}
-	return wallElapsed
+
+	if !st.initialized {
+		return wallElapsed
+	}
+
+	// uint32 subtraction wraps for backward RTP timestamps; the sanity check
+	// below catches the resulting huge positive delta and falls back to wall clock.
+	rtpDelta := ts - st.lastTS
+	rtpDerived := st.lastWallPTS + st.converter.ToDuration(rtpDelta)
+	diff := rtpDerived - wallElapsed
+
+	if diff > wallClockSanityThreshold || diff < -wallClockSanityThreshold {
+		return wallElapsed
+	}
+
+	// Slew rtpDerived toward wallElapsed each packet so publisher sample-clock skew stops accumulating across the sanity band; see wallSlewAlpha for the steady-state math.
+	absorbed := time.Duration(float64(diff) * wallSlewAlpha)
+	return rtpDerived - absorbed
 }
 
 // OnSenderReport implements TrackSync. It stores a callback invoked on sender reports.

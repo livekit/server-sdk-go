@@ -122,8 +122,10 @@ func (e *NtpEstimator) Reset() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.resetLocked()
+	e.owdEstimator = latency.NewOWDEstimator(latency.OWDEstimatorParamsDefault)
 }
 
+// resetLocked clears regression state only; OWD is kept because outlier-triggered rebuilds are residual-pattern changes, not network changes — resetting OWD would shift sessionPTS by the reconvergence delta and thrash the tempo controller.
 func (e *NtpEstimator) resetLocked() {
 	e.samples = [maxSRSamples]srSample{}
 	e.sampleLen = 0
@@ -137,10 +139,6 @@ func (e *NtpEstimator) resetLocked() {
 	e.residStd = 0
 	e.ready = false
 	e.consecutiveOutliers = 0
-	// Reset OWD: a sender NTP step that triggered the regression rebuild also
-	// invalidates the previously-measured clock offset, so the estimator must
-	// re-converge from the new sender state.
-	e.owdEstimator = latency.NewOWDEstimator(latency.OWDEstimatorParamsDefault)
 }
 
 // SRResult indicates the outcome of processing a sender report.
