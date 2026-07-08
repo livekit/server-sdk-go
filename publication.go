@@ -178,11 +178,9 @@ func (p *RemoteTrackPublication) Receiver() *webrtc.RTPReceiver {
 // On success the intent is recorded and re-asserted by the room until the
 // subscription state converges, surviving lost signal messages and
 // reconnects. On error the request is abandoned and previously recorded
-// intent is left as it was: retrying remains the caller's responsibility.
+// intent is untouched: retrying remains the caller's responsibility.
 func (p *RemoteTrackPublication) SetSubscribed(subscribed bool) error {
 	trackSID := p.sid.Load()
-	prevSubscribe, hadPrev := p.engine.subscriptionDesires.desired(trackSID)
-	p.engine.subscriptionDesires.set(trackSID, subscribed)
 	err := p.engine.SendUpdateSubscription(
 		&livekit.UpdateSubscription{
 			Subscribe: subscribed,
@@ -195,13 +193,10 @@ func (p *RemoteTrackPublication) SetSubscribed(subscribed bool) error {
 		},
 	)
 	if err != nil {
-		if hadPrev {
-			p.engine.subscriptionDesires.set(trackSID, prevSubscribe)
-		} else {
-			p.engine.subscriptionDesires.clear(trackSID)
-		}
+		return err
 	}
-	return err
+	p.engine.subscriptionDesires.set(trackSID, subscribed)
+	return nil
 }
 
 // IsEnabled returns whether the track is enabled (not disabled).
