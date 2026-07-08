@@ -50,57 +50,130 @@ func getJoinToken(apiKey, apiSecret, room, identity string) (string, error) {
 }
 ```
 
-## RoomService API
+## Authentication
 
-RoomService gives you complete control over rooms and participants within them. It includes selective track subscriptions as well as moderation capabilities.
+Every request to the server APIs is authenticated. `LiveKitAPI` (and each service client) supports two modes:
+
+- **API key & secret** — recommended for backend use. The SDK signs a short-lived token per request from your key and secret. Keep your API secret on the server; never ship it to a client.
+- **Access token** — for frontend / client-side use, where the API secret must not be exposed. Pass a pre-signed [access token](https://docs.livekit.io/frontends/reference/tokens-grants/) that already carries the grants for the operations you'll perform; the SDK sends it verbatim. Mint it on your backend and hand it to the client.
+
+```go
+// backend: API key & secret
+api, _ := lksdk.NewLiveKitAPI(lksdk.WithURL(hostURL), lksdk.WithAPIKey("api-key", "api-secret"))
+
+// frontend: a pre-signed access token
+api, _ := lksdk.NewLiveKitAPI(lksdk.WithURL(hostURL), lksdk.WithToken("token"))
+```
+
+## Server APIs
+
+`LiveKitAPI` is a single entry point to every server API, exposing each service through an accessor: `Room()`, `Egress()`, `Ingress()`, `SIP()`, `AgentDispatch()`, and `Connector()`. Construct it with your credentials (see [Authentication](#authentication)); the url and credentials fall back to the `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, and `LIVEKIT_TOKEN` environment variables.
+
+RoomService, reached via `api.Room()`, gives you complete control over rooms and participants within them, including selective track subscriptions and moderation capabilities.
 
 ```go
 import (
+	"context"
+
 	lksdk "github.com/livekit/server-sdk-go/v2"
 	livekit "github.com/livekit/protocol/livekit"
 )
 
 func main() {
-	hostURL := "host-url"  // ex: https://project-123456.livekit.cloud
-	apiKey := "api-key"
-	apiSecret := "api-secret"
-
+	hostURL := "host-url" // ex: https://project-123456.livekit.cloud
 	roomName := "myroom"
 	identity := "participantIdentity"
 
-    roomClient := lksdk.NewRoomServiceClient(hostURL, apiKey, apiSecret)
+	// authenticate with an API key and secret, or lksdk.WithToken("token") for a pre-signed token
+	api, err := lksdk.NewLiveKitAPI(lksdk.WithURL(hostURL), lksdk.WithAPIKey("api-key", "api-secret"))
+	if err != nil {
+		panic(err)
+	}
 
-    // create a new room
-    room, _ := roomClient.CreateRoom(context.Background(), &livekit.CreateRoomRequest{
+	// create a new room
+	room, _ := api.Room().CreateRoom(context.Background(), &livekit.CreateRoomRequest{
 		Name: roomName,
 	})
 
-    // list rooms
-    res, _ := roomClient.ListRooms(context.Background(), &livekit.ListRoomsRequest{})
+	// list rooms
+	rooms, _ := api.Room().ListRooms(context.Background(), &livekit.ListRoomsRequest{})
 
-    // terminate a room and cause participants to leave
-    roomClient.DeleteRoom(context.Background(), &livekit.DeleteRoomRequest{
+	// terminate a room and cause participants to leave
+	api.Room().DeleteRoom(context.Background(), &livekit.DeleteRoomRequest{
 		Room: roomName,
 	})
 
-    // list participants in a room
-    res, _ := roomClient.ListParticipants(context.Background(), &livekit.ListParticipantsRequest{
+	// list participants in a room
+	participants, _ := api.Room().ListParticipants(context.Background(), &livekit.ListParticipantsRequest{
 		Room: roomName,
 	})
 
-    // disconnect a participant from room
-    roomClient.RemoveParticipant(context.Background(), &livekit.RoomParticipantIdentity{
+	// disconnect a participant from room
+	api.Room().RemoveParticipant(context.Background(), &livekit.RoomParticipantIdentity{
 		Room:     roomName,
 		Identity: identity,
 	})
 
-    // mute/unmute participant's tracks
-    roomClient.MutePublishedTrack(context.Background(), &livekit.MuteRoomTrackRequest{
+	// mute/unmute a participant's track
+	api.Room().MutePublishedTrack(context.Background(), &livekit.MuteRoomTrackRequest{
 		Room:     roomName,
 		Identity: identity,
 		TrackSid: "track_sid",
 		Muted:    true,
 	})
+
+	// other services are reached the same way, e.g. api.Egress(), api.SIP()
+	_, _ = api.Egress().ListEgress(context.Background(), &livekit.ListEgressRequest{})
+
+	_, _, _ = room, rooms, participants
+}
+```
+
+### Agent dispatch
+
+[Agent dispatch](https://docs.livekit.io/agents/server/agent-dispatch/) assigns an agent to a room. Explicit dispatch, via `api.AgentDispatch()`, gives you full control over when and how agents join and lets you pass job-specific metadata. The target agent is selected by its `agent_name`, and the room is created if it doesn't exist.
+
+```go
+// dispatch an agent into a room
+dispatch, _ := api.AgentDispatch().CreateDispatch(context.Background(), &livekit.CreateAgentDispatchRequest{
+	Room:      "myroom",
+	AgentName: "my-agent",
+	Metadata:  "{}",
+})
+
+// list dispatches in a room
+dispatches, _ := api.AgentDispatch().ListDispatch(context.Background(), &livekit.ListAgentDispatchRequest{
+	Room: "myroom",
+})
+
+// delete a dispatch
+api.AgentDispatch().DeleteDispatch(context.Background(), &livekit.DeleteAgentDispatchRequest{
+	DispatchId: dispatch.Id,
+	Room:       "myroom",
+})
+
+_ = dispatches
+```
+
+### Error handling
+
+A failed server API call returns a `lksdk.ServerError`, which exposes the error code, message, and any server-provided metadata. Use `errors.As` to extract it. SIP dialing calls can fail with a SIP response status; `lksdk.SIPStatusFrom` extracts it from the returned error:
+
+```go
+_, err := api.SIP().CreateSIPParticipant(context.Background(), &livekit.CreateSIPParticipantRequest{
+	SipTrunkId:        "trunk-id",
+	SipCallTo:         "+15105550100",
+	RoomName:          "my-room",
+	WaitUntilAnswered: true,
+})
+if err != nil {
+	if status := lksdk.SIPStatusFrom(err); status != nil {
+		fmt.Println(status.Code, status.Status) // e.g. 486 "Busy Here"
+	}
+	var se lksdk.ServerError
+	if errors.As(err, &se) {
+		fmt.Println(se.Code(), se.Msg())
+	}
 }
 ```
 

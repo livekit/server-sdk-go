@@ -14,7 +14,7 @@
 
 package lksdk
 
-const Version = "2.17.0"
+const Version = "2.18.0"
 
 // userAgent identifies the SDK and version to the server on every request.
 const userAgent = "livekit-server-sdk-go/" + Version
