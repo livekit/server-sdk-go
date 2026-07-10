@@ -58,16 +58,20 @@ Every request to the server APIs is authenticated. `LiveKitAPI` (and each servic
 - **Access token** — for frontend / client-side use, where the API secret must not be exposed. Pass a pre-signed [access token](https://docs.livekit.io/frontends/reference/tokens-grants/) that already carries the grants for the operations you'll perform; the SDK sends it verbatim. Mint it on your backend and hand it to the client.
 
 ```go
-// backend: API key & secret
+// Backend (API key & secret): set LIVEKIT_URL, LIVEKIT_API_KEY, and
+// LIVEKIT_API_SECRET, then construct with no options...
+api, _ := lksdk.NewLiveKitAPI()
+
+// ...or pass any of them explicitly to override the corresponding env var:
 api, _ := lksdk.NewLiveKitAPI(lksdk.WithURL(hostURL), lksdk.WithAPIKey("api-key", "api-secret"))
 
-// frontend: a pre-signed access token
-api, _ := lksdk.NewLiveKitAPI(lksdk.WithURL(hostURL), lksdk.WithToken("token"))
+// Frontend (pre-signed access token): with LIVEKIT_URL set, pass just the token:
+api, _ := lksdk.NewLiveKitAPI(lksdk.WithToken("token"))
 ```
 
 ## Server APIs
 
-`LiveKitAPI` is a single entry point to every server API, exposing each service through an accessor: `Room()`, `Egress()`, `Ingress()`, `SIP()`, `AgentDispatch()`, and `Connector()`. Construct it with your credentials (see [Authentication](#authentication)); the url and credentials fall back to the `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, and `LIVEKIT_TOKEN` environment variables.
+`LiveKitAPI` is a single entry point to every server API, exposing each service through an accessor: `Room()`, `Egress()`, `Ingress()`, `SIP()`, `AgentDispatch()`, and `Connector()`. Construct it with your credentials (see [Authentication](#authentication)); the url and credentials fall back to the `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, and `LIVEKIT_TOKEN` environment variables. Values you pass explicitly take precedence; the environment variables are used only as a fallback for arguments you omit — an ambient `LIVEKIT_TOKEN`, for example, won't override an explicitly-provided API key and secret.
 
 RoomService, reached via `api.Room()`, gives you complete control over rooms and participants within them, including selective track subscriptions and moderation capabilities.
 
