@@ -60,6 +60,14 @@ func (c *AgentSimulationClient) GetSimulationRun(ctx context.Context, req *livek
 	return c.simulationClient.GetSimulationRun(ctx, req)
 }
 
+func (c *AgentSimulationClient) GetSimulationRunEvents(ctx context.Context, req *livekit.SimulationRun_GetEvents_Request) (*livekit.SimulationRun_GetEvents_Response, error) {
+	ctx, err := c.withAuth(ctx, withAgentGrant{SimulationAdmin: true})
+	if err != nil {
+		return nil, err
+	}
+	return c.simulationClient.GetSimulationRunEvents(ctx, req)
+}
+
 func (c *AgentSimulationClient) ListSimulationRuns(ctx context.Context, req *livekit.SimulationRun_List_Request) (*livekit.SimulationRun_List_Response, error) {
 	ctx, err := c.withAuth(ctx, withAgentGrant{SimulationAdmin: true})
 	if err != nil {
