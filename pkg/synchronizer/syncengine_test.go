@@ -221,17 +221,19 @@ func TestSyncEngineTrack_wallClockPTSForRTP_UsesRTPDelta(t *testing.T) {
 	st.mu.Lock()
 	st.startTime = startTime
 	st.lastTS = 48000 // 1s at 48kHz
-	st.lastWallPTS = time.Second
+	st.lastWallPTSSlewed = time.Second
+	st.lastWallPTSUnslewed = time.Second
 	st.initialized = true
 	st.mu.Unlock()
 
-	// SR RTPTime is 1s ahead of lastTS, wallElapsed matches → returns rtpDerived.
+	// SR RTPTime is 1s ahead of lastTS → sensor returns unslewed baseline + rtpDelta = 2s.
 	wallPTS, ok := st.wallClockPTSForRTP(96000, startTime.Add(2*time.Second))
 	require.True(t, ok)
 	require.Equal(t, 2*time.Second, wallPTS)
 }
 
-func TestSyncEngineTrack_wallClockPTSForRTP_BackwardRTPFallsBackToWallClock(t *testing.T) {
+func TestSyncEngineTrack_wallClockPTSForRTP_BackwardRTPReportsNotOk(t *testing.T) {
+	// Backward RTP would wrap uint32 into a huge unslewed delta — sensor must skip
 	engine := NewSyncEngine()
 	track := newMockAudioTrack("audio-1", 1000)
 	st := engine.AddTrack(track, "alice").(*syncEngineTrack)
@@ -240,15 +242,33 @@ func TestSyncEngineTrack_wallClockPTSForRTP_BackwardRTPFallsBackToWallClock(t *t
 	st.mu.Lock()
 	st.startTime = startTime
 	st.lastTS = 48000 * 100 // 100s of media already
-	st.lastWallPTS = 100 * time.Second
+	st.lastWallPTSSlewed = 100 * time.Second
+	st.lastWallPTSUnslewed = 100 * time.Second
 	st.initialized = true
 	st.mu.Unlock()
 
-	// RTPTime behind lastTS: uint32 wrap → huge rtpDerived → sanity check fails
-	// → falls back to wall-clock elapsed.
-	wallPTS, ok := st.wallClockPTSForRTP(48000, startTime.Add(time.Second))
-	require.True(t, ok)
-	require.Equal(t, time.Second, wallPTS)
+	_, ok := st.wallClockPTSForRTP(48000, startTime.Add(time.Second))
+	require.False(t, ok, "backward RTP (reorder or uint32 wrap) must not produce a sensor value")
+}
+
+func TestSyncEngineTrack_wallClockPTSForRTP_HugeForwardJumpReportsNotOk(t *testing.T) {
+	// 30s+ forward rtpDelta = stream restart before GetPTS re-anchored; sensor must skip
+	engine := NewSyncEngine()
+	track := newMockAudioTrack("audio-1", 1000)
+	st := engine.AddTrack(track, "alice").(*syncEngineTrack)
+
+	startTime := time.Now()
+	st.mu.Lock()
+	st.startTime = startTime
+	st.lastTS = 48000
+	st.lastWallPTSSlewed = time.Second
+	st.lastWallPTSUnslewed = time.Second
+	st.initialized = true
+	st.mu.Unlock()
+
+	// 31s of forward RTP (48000Hz × 31s).
+	_, ok := st.wallClockPTSForRTP(48000+48000*31, startTime.Add(31*time.Second))
+	require.False(t, ok, "30s+ forward RTP jump must not produce a sensor value")
 }
 
 // driftScenario runs N packets and SRs through an engine and returns the
@@ -384,7 +404,8 @@ func TestSyncEngine_BackwardRTPDoesNotResetNTPState(t *testing.T) {
 	initialLastNtpPTS := tr.lastNtpPTS
 	initialTransitionSlew := tr.transitionSlew
 	initialLastTS := tr.lastTS
-	initialLastWallPTS := tr.lastWallPTS
+	initialLastWallPTSSlewed := tr.lastWallPTSSlewed
+	initialLastWallPTSUnslewed := tr.lastWallPTSUnslewed
 	initialLastSlewPTS := tr.lastSlewPTS
 	tr.mu.Unlock()
 	require.Greater(t, int64(initialLastNtpPTS), int64(0), "lastNtpPTS should be populated by the prime sequence")
@@ -406,7 +427,8 @@ func TestSyncEngine_BackwardRTPDoesNotResetNTPState(t *testing.T) {
 	// RTP/wall/slew baselines must stay anchored to the last forward packet so
 	// the next forward packet's expected-extrapolation baselines line up.
 	require.Equal(t, initialLastTS, tr.lastTS, "lastTS must not shift backward on reorder")
-	require.Equal(t, initialLastWallPTS, tr.lastWallPTS, "lastWallPTS must not shift backward on reorder")
+	require.Equal(t, initialLastWallPTSSlewed, tr.lastWallPTSSlewed, "lastWallPTSSlewed must not shift backward on reorder")
+	require.Equal(t, initialLastWallPTSUnslewed, tr.lastWallPTSUnslewed, "lastWallPTSUnslewed must not shift backward on reorder")
 	require.Equal(t, initialLastSlewPTS, tr.lastSlewPTS, "lastSlewPTS must not shift backward on reorder")
 }
 
@@ -436,6 +458,105 @@ func TestSyncEngine_ForwardDiscontinuityStillResetsNTPState(t *testing.T) {
 	require.Equal(t, time.Duration(0), tr.lastNtpPTS, "lastNtpPTS must be reset on forward discontinuity")
 	require.Equal(t, time.Duration(0), tr.transitionSlew, "transitionSlew must be reset on forward discontinuity")
 	require.False(t, tr.ntpTransitioned, "ntpTransitioned must be reset on forward discontinuity")
+}
+
+func TestSyncEngine_LatePacketDoesNotPerturbDriftSensor(t *testing.T) {
+	// Late packet must bump slewed (cliff protection) but not unslewed (sensor)
+	engine := NewSyncEngine(WithSyncEngineAudioDriftCompensated())
+	track := newMockAudioTrack("audio-1", 1000)
+	tr := engine.AddTrack(track, "alice").(*syncEngineTrack)
+
+	now := time.Now()
+	tr.PrimeForStart(makeExtPacket(0, 0, now))
+	tr.GetPTS(makeExtPacket(0, 0, now))
+	for i := 1; i <= 10; i++ {
+		tr.GetPTS(makeExtPacket(uint32(i)*960, uint16(i), now.Add(time.Duration(i)*20*time.Millisecond)))
+	}
+	tr.mu.Lock()
+	baseSlewed := tr.lastWallPTSSlewed
+	baseUnslewed := tr.lastWallPTSUnslewed
+	tr.mu.Unlock()
+
+	// Packet 11: nominal ts, receivedAt +200ms late → slew absorbs 200ms·α = 2ms.
+	tr.GetPTS(makeExtPacket(11*960, 11, now.Add(11*20*time.Millisecond+200*time.Millisecond)))
+
+	tr.mu.Lock()
+	slewedGain := tr.lastWallPTSSlewed - baseSlewed
+	unslewedGain := tr.lastWallPTSUnslewed - baseUnslewed
+	tr.mu.Unlock()
+
+	require.InDelta(t, float64(20*time.Millisecond), float64(unslewedGain), float64(200*time.Microsecond),
+		"unslewed baseline must not absorb receivedAt jitter; got gain %v", unslewedGain)
+	require.InDelta(t, float64(22*time.Millisecond), float64(slewedGain), float64(500*time.Microsecond),
+		"slewed baseline should gain rtpDelta + slew absorption (~22ms); got %v", slewedGain)
+	require.Greater(t, slewedGain-unslewedGain, time.Millisecond,
+		"slewed must move measurably above unslewed on late-packet injection; slewed=%v unslewed=%v",
+		slewedGain, unslewedGain)
+}
+
+func TestSyncEngine_PublisherSkewVisibleToDriftSensor(t *testing.T) {
+	// Slew leaking into the sensor would blind tempo to publisher skew in steady state
+	engine := NewSyncEngine(WithSyncEngineAudioDriftCompensated())
+	track := newMockAudioTrack("audio-1", 1000)
+	tr := engine.AddTrack(track, "alice").(*syncEngineTrack)
+
+	now := time.Now()
+	tr.PrimeForStart(makeExtPacket(0, 0, now))
+	tr.GetPTS(makeExtPacket(0, 0, now))
+
+	const packets = 500
+	const walltickMs = 20
+	const rtpSamplesPerPacket = 970 // 970/48000 ≈ 20.208ms → ~1% publisher-fast
+	var lastReceivedAt time.Time
+	var lastRTP uint32
+	for i := 1; i <= packets; i++ {
+		lastReceivedAt = now.Add(time.Duration(i*walltickMs) * time.Millisecond)
+		lastRTP = uint32(i) * rtpSamplesPerPacket
+		tr.GetPTS(makeExtPacket(lastRTP, uint16(i), lastReceivedAt))
+	}
+
+	tr.mu.Lock()
+	slewedOverWall := tr.lastWallPTSSlewed - time.Duration(packets*walltickMs)*time.Millisecond
+	unslewedOverWall := tr.lastWallPTSUnslewed - time.Duration(packets*walltickMs)*time.Millisecond
+	tr.mu.Unlock()
+
+	// Slewed steady state ≈ R·δ·(1-α)/α — bounded, not linear.
+	require.Less(t, slewedOverWall, 100*time.Millisecond,
+		"slewed baseline must stay bounded near wallElapsed; got %v", slewedOverWall)
+	// Unslewed grows linearly: 500 × ~0.208ms ≈ 104ms.
+	require.Greater(t, unslewedOverWall, 90*time.Millisecond,
+		"unslewed baseline must track publisher-skew accumulation; got %v", unslewedOverWall)
+
+	sensor, ok := tr.wallClockPTSForRTP(lastRTP, lastReceivedAt)
+	require.True(t, ok)
+	tr.mu.Lock()
+	require.Equal(t, tr.lastWallPTSUnslewed, sensor,
+		"sensor value must equal lastWallPTSUnslewed when SR RTPTime matches lastTS")
+	tr.mu.Unlock()
+}
+
+func TestSyncEngine_DiscontinuityReAnchorsUnslewedBaseline(t *testing.T) {
+	// 30s+ jump with wallclock unchanged must snap both baselines; otherwise unslewed carries phantom drift
+	engine := NewSyncEngine()
+	track := newMockAudioTrack("audio-1", 1000)
+	tr := engine.AddTrack(track, "alice").(*syncEngineTrack)
+
+	now := time.Now()
+	lastRecv := primeNTPReady(t, engine, tr, "alice", "audio-1", now)
+
+	tr.mu.Lock()
+	lastTS := tr.lastTS
+	tr.mu.Unlock()
+
+	bigJumpTS := lastTS + uint32(48000*60)
+	tr.GetPTS(makeExtPacket(bigJumpTS, 200, lastRecv.Add(20*time.Millisecond)))
+
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	require.Equal(t, tr.lastWallPTSSlewed, tr.lastWallPTSUnslewed,
+		"post-discontinuity, both wall baselines must be re-anchored to the same wallElapsed")
+	require.Less(t, tr.lastWallPTSUnslewed, 30*time.Second,
+		"unslewed baseline must NOT carry the 60s rtpDelta jump forward; got %v", tr.lastWallPTSUnslewed)
 }
 
 func TestSyncEngine_OnSR_NotCalledAfterRemoveTrack(t *testing.T) {
