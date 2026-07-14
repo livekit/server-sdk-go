@@ -423,12 +423,18 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 			if time.Since(st.lastTimelyPacket) > maxTimelyPacketAge {
 				oldPTS := pts
 				pts = deadline - st.engine.maxMediaRunningTimeDelay/2
+				correction := pts - oldPTS
 				st.logger.Warnw("force-correcting PTS forward, track behind pipeline deadline", nil,
 					"oldPTS", oldPTS,
 					"newPTS", pts,
 					"deadline", deadline,
 					"behindBy", limit-oldPTS,
+					"correction", correction,
 				)
+				// Emission-side only: lastWallPTSUnslewed and NTP state must keep seeing true media-vs-wall skew, not our synthetic catch-up
+				st.sessionOffset += correction
+				st.lastWallPTSSlewed += correction
+				preSlewPTS += correction
 				// Reset timeliness clock so a lingering transient deficit doesn't fire force-correction on every subsequent packet, collapsing them into the same newPTS at the mixer.
 				st.lastTimelyPacket = time.Now()
 			}
