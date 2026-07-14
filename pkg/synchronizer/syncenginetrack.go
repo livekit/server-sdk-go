@@ -431,9 +431,10 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 					"behindBy", limit-oldPTS,
 					"correction", correction,
 				)
-				// Emission-side only: lastWallPTSUnslewed and NTP state must keep seeing true media-vs-wall skew, not our synthetic catch-up
+				// Emission-side only: lastWallPTSUnslewed and NTP state must keep seeing true media-vs-wall skew, not our synthetic catch-up.
+				// wallPTS was captured pre-correction and is stored back into lastWallPTSSlewed below, so shift the local too or the bump is lost.
 				st.sessionOffset += correction
-				st.lastWallPTSSlewed += correction
+				wallPTS += correction
 				preSlewPTS += correction
 				// Reset timeliness clock so a lingering transient deficit doesn't fire force-correction on every subsequent packet, collapsing them into the same newPTS at the mixer.
 				st.lastTimelyPacket = time.Now()
