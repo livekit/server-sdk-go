@@ -23,6 +23,11 @@ import (
 	"net/url"
 )
 
+// attributesHeader carries base64-encoded JSON deploy attributes on prebuilt-image
+// (BYOC) pushes. cloud-agents reads it on the manifest PUT and persists the attributes
+// on the AgentVersion. Must match the header name expected by the cloud-agents proxy.
+const attributesHeader = "X-LIVEKIT-AGENT-VERSION-ATTRIBUTES"
+
 // PushTarget describes where and how the CLI should push a prebuilt image.
 type PushTarget struct {
 	// ProxyHost is the OCI registry host exposed by cloud-agents (e.g. "agents.livekit.io").
@@ -41,7 +46,7 @@ func (c *Client) GetPushTarget(ctx context.Context, agentID string) (*PushTarget
 	params.Add("agent_id", agentID)
 	fullURL := fmt.Sprintf("%s/push-target?%s", c.agentsURL, params.Encode())
 
-	req, err := c.newRequestWithContext(ctx, http.MethodGet, fullURL, nil)
+	req, err := c.newRequestWithContext(ctx, http.MethodGet, fullURL, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -63,16 +68,18 @@ func (c *Client) GetPushTarget(ctx context.Context, agentID string) (*PushTarget
 
 // NewRegistryTransport returns an http.RoundTripper that injects the LiveKit JWT on every
 // request. Pass this to crane via crane.WithTransport when pushing to the cloud-agents
-// OCI proxy so the proxy's auth middleware accepts the requests.
-func (c *Client) NewRegistryTransport() http.RoundTripper {
-	return &lkRegistryTransport{base: http.DefaultTransport, client: c}
+// OCI proxy so the proxy's auth middleware accepts the requests. Any attributes are
+// forwarded to cloud-agents so they can be recorded on the resulting AgentVersion.
+func (c *Client) NewRegistryTransport(attributes map[string]string) http.RoundTripper {
+	return &lkRegistryTransport{base: http.DefaultTransport, client: c, attributes: attributes}
 }
 
 // lkRegistryTransport injects LK auth headers on every HTTP request, allowing crane
 // to push through the cloud-agents OCI proxy without doing OCI token negotiation.
 type lkRegistryTransport struct {
-	base   http.RoundTripper
-	client *Client
+	base       http.RoundTripper
+	client     *Client
+	attributes map[string]string
 }
 
 func (t *lkRegistryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -80,6 +87,8 @@ func (t *lkRegistryTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	if err := t.client.setAuthToken(req); err != nil {
 		return nil, err
 	}
-	t.client.setLivekitHeaders(req)
+	if err := t.client.setLivekitHeaders(req, t.attributes); err != nil {
+		return nil, err
+	}
 	return t.base.RoundTrip(req)
 }

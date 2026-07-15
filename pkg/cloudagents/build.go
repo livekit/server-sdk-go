@@ -36,16 +36,12 @@ func (c *Client) build(ctx context.Context, id string, attributes map[string]str
 	if agentDeployment != "" {
 		params.Add("deployment", agentDeployment)
 	}
-	if len(attributes) > 0 {
-		encoded, err := json.Marshal(attributes)
-		if err != nil {
-			return fmt.Errorf("failed to encode attributes: %w", err)
-		}
-		params.Add("attributes", string(encoded))
-	}
 
+	// Attributes travel in the X-LIVEKIT-AGENT-VERSION-ATTRIBUTES header (set by
+	// newRequestWithContext), the same channel BYOC pushes use. cloud-agents still
+	// accepts the legacy `attributes` query param from older CLI versions.
 	fullUrl := fmt.Sprintf("%s/build?%s", c.agentsURL, params.Encode())
-	req, err := c.newRequestWithContext(ctx, "POST", fullUrl, nil)
+	req, err := c.newRequestWithContext(ctx, "POST", fullUrl, nil, attributes)
 	if err != nil {
 		return err
 	}
