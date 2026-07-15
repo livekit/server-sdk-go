@@ -63,7 +63,9 @@ func New(opts ...ClientOption) (*Client, error) {
 		lksdk.WithTwirpClientOptions(
 			twirp.WithClientHooks(&twirp.ClientHooks{
 				RequestPrepared: func(ctx context.Context, req *http.Request) (context.Context, error) {
-					client.setLivekitHeaders(req)
+					if err := client.setLivekitHeaders(req, nil); err != nil {
+						return ctx, err
+					}
 					return ctx, nil
 				},
 			})))

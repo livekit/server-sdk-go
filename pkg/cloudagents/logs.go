@@ -42,7 +42,7 @@ func (c *Client) StreamLogs(ctx context.Context, logType, agentID, agentDeployme
 		params.Add("deployment", agentDeployment)
 	}
 	fullUrl := fmt.Sprintf("%s/logs?%s", c.getAgentsURL(serverRegion), params.Encode())
-	req, err := c.newRequestWithContext(ctx, "GET", fullUrl, nil)
+	req, err := c.newRequestWithContext(ctx, "GET", fullUrl, nil, nil)
 	if err != nil {
 		return err
 	}
