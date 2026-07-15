@@ -26,7 +26,7 @@ import (
 // attributesHeader carries base64-encoded JSON deploy attributes on prebuilt-image
 // (BYOC) pushes. cloud-agents reads it on the manifest PUT and persists the attributes
 // on the AgentVersion. Must match the header name expected by the cloud-agents proxy.
-const attributesHeader = "X-LIVEKIT-AGENT-ATTRIBUTES"
+const attributesHeader = "X-LIVEKIT-AGENT-VERSION-ATTRIBUTES"
 
 // PushTarget describes where and how the CLI should push a prebuilt image.
 type PushTarget struct {

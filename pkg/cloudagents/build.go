@@ -37,7 +37,7 @@ func (c *Client) build(ctx context.Context, id string, attributes map[string]str
 		params.Add("deployment", agentDeployment)
 	}
 
-	// Attributes travel in the X-LIVEKIT-AGENT-ATTRIBUTES header (set by
+	// Attributes travel in the X-LIVEKIT-AGENT-VERSION-ATTRIBUTES header (set by
 	// newRequestWithContext), the same channel BYOC pushes use. cloud-agents still
 	// accepts the legacy `attributes` query param from older CLI versions.
 	fullUrl := fmt.Sprintf("%s/build?%s", c.agentsURL, params.Encode())
