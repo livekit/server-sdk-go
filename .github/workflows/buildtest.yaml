@@ -14,6 +14,9 @@
 
 name: Test
 
+permissions:
+  contents: read
+
 on:
   schedule:
     - cron: '0 3 * * 1,5' # 03:00 each Mon and Fri
