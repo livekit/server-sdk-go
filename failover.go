@@ -188,32 +188,40 @@ func (t *failoverTransport) RoundTrip(req *http.Request) (*http.Response, error)
 	req.Header.Set("User-Agent", userAgent)
 
 	cfg := failoverConfigFromContext(req.Context())
-	maxAttempts := cfg.attempts(req.URL.Hostname())
+	hostname := req.URL.Hostname()
+	cloud := cfg.force || isCloud(hostname)
+
+	// attempts() reflects general failover (5xx / transport errors): > 1 only when
+	// failover is enabled for a cloud host.
+	maxAttempts := cfg.attempts(hostname)
 
 	// Each attempt gets the caller's full timeout budget, reset per attempt. A
-	// budget shorter than minFailoverTimeout skips failover (thundering-herd
-	// guard); a disabled or non-cloud host already has maxAttempts == 1.
+	// budget shorter than minFailoverTimeout skips general failover (thundering-herd
+	// guard).
 	timeout := perAttemptBudget(req.Context())
 	if timeout > 0 && timeout < minFailoverTimeout {
 		maxAttempts = 1
 	}
 
-	// No failover: a single attempt. Re-apply the budget in case
-	// withFailoverTimeout detached the deadline upstream (it can't know the host
-	// is non-cloud), so the lone attempt is still bounded.
-	if maxAttempts == 1 {
+	// A non-cloud host has nowhere to redirect: a single attempt. A cloud host
+	// always goes through the failover loop, even when general failover is off, so a
+	// 451 region-pin rejection can still be redirected.
+	if maxAttempts == 1 && !cloud {
 		ctx, cancel := withOptionalTimeout(req.Context(), timeout)
 		resp, err := t.base.RoundTrip(req.WithContext(ctx))
 		return terminate(resp, err, cancel)
 	}
 
-	return t.failover(req, maxAttempts, timeout, cfg.backoffBase)
+	return t.failover(req, maxAttempts > 1, timeout, cfg.backoffBase)
 }
 
 // failover replays the request against successive regions, each with a fresh
-// timeout budget and exponential backoff, until success, a non-retryable error,
-// caller cancellation, or the attempts/regions are exhausted.
-func (t *failoverTransport) failover(req *http.Request, maxAttempts int, timeout, backoffBase time.Duration) (*http.Response, error) {
+// timeout budget, until success, a non-retryable result, caller cancellation, or
+// the regions/attempts are exhausted. A 451 region-pin rejection always triggers a
+// redirect (the project can only be served by an allowed region); other retryable
+// failures (5xx, transport errors, per-attempt timeouts) trigger one only when
+// failoverEnabled.
+func (t *failoverTransport) failover(req *http.Request, failoverEnabled bool, timeout, backoffBase time.Duration) (*http.Response, error) {
 	// Buffer the body so it can be re-sent to each region.
 	var body []byte
 	if req.Body != nil {
@@ -241,7 +249,7 @@ func (t *failoverTransport) failover(req *http.Request, maxAttempts int, timeout
 
 	var resp *http.Response
 	var err error
-	for attempt := 0; attempt < maxAttempts; attempt++ {
+	for attempt := 0; attempt < failoverMaxAttempts; attempt++ {
 		attemptCtx, cancel := withOptionalTimeout(base, timeout)
 
 		r := req.Clone(attemptCtx)
@@ -253,9 +261,13 @@ func (t *failoverTransport) failover(req *http.Request, maxAttempts int, timeout
 		}
 		resp, err = t.base.RoundTrip(r)
 
-		// Stop on success, a non-retryable 4xx, caller cancellation, or the last
-		// attempt. terminate defers the per-attempt cancel to the body's Close.
-		if !isRetryable(resp, err) || attempt == maxAttempts-1 {
+		// A 451 region-pin rejection always redirects; other failures redirect only
+		// when general failover is enabled. Stop on success, a non-retryable result,
+		// caller cancellation, or the last attempt. terminate defers the per-attempt
+		// cancel to the body's Close.
+		regionPin := isRegionPin(resp)
+		retry := regionPin || (failoverEnabled && isRetryable(resp, err))
+		if !retry || attempt == failoverMaxAttempts-1 {
 			return terminate(resp, err, cancel)
 		}
 
@@ -272,13 +284,19 @@ func (t *failoverTransport) failover(req *http.Request, maxAttempts int, timeout
 		if resp != nil {
 			status = resp.StatusCode
 		}
-		logger.Warnw("livekit API request failed, retrying with fallback url", err,
-			"failedUrl", scheme+"://"+host, "fallbackUrl", nextScheme+"://"+nextHost,
-			"attempt", attempt+1, "maxAttempts", maxAttempts, "status", status)
+		reason := "unhealthy region"
+		if regionPin {
+			reason = "region pin"
+		}
+		logger.Warnw("livekit API request rejected, retrying with fallback url", err,
+			"reason", reason, "failedUrl", scheme+"://"+host, "fallbackUrl", nextScheme+"://"+nextHost,
+			"attempt", attempt+1, "maxAttempts", failoverMaxAttempts, "status", status)
 
 		drainResponse(resp)
 		cancel() // this attempt's body is drained; release its timer
-		if !sleepCtx(base, backoffBase<<uint(attempt)) {
+		// A region-pin redirect goes straight to the allowed region — there's no
+		// overload to back off from — so back off only between failover retries.
+		if !regionPin && !sleepCtx(base, backoffBase<<uint(attempt)) {
 			return nil, base.Err() // caller cancelled during backoff
 		}
 		scheme, host = nextScheme, nextHost
@@ -331,6 +349,19 @@ func isRetryable(resp *http.Response, err error) bool {
 		return !errors.Is(err, context.Canceled)
 	}
 	return resp != nil && resp.StatusCode >= 500
+}
+
+// regionPinStatus is the HTTP status LiveKit Cloud middleware returns when a
+// project is pinned to a region other than the one that received the API request
+// (451 Unavailable For Legal Reasons). Unlike a 5xx — a transient failure worth
+// retrying anywhere — a 451 is definitive: the request can only succeed against an
+// allowed region, so the SDK rediscovers regions and retries there even when
+// general failover is disabled.
+const regionPinStatus = http.StatusUnavailableForLegalReasons
+
+// isRegionPin reports whether resp is a region-pin rejection (see regionPinStatus).
+func isRegionPin(resp *http.Response) bool {
+	return resp != nil && resp.StatusCode == regionPinStatus
 }
 
 // nextRegion returns the first region whose host has not yet been attempted.
