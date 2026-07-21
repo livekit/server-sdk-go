@@ -150,6 +150,7 @@ func (p *RemoteParticipant) unpublishTrack(sid string, sendUnpublish bool) {
 		p.videoTracks.Delete(sid)
 	}
 	p.tracks.Delete(sid)
+	p.engine.subscriptionDesires.clear(sid)
 
 	track := pub.TrackRemote()
 	if track != nil {
