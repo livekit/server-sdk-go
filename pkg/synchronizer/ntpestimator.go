@@ -115,15 +115,15 @@ func NewNtpEstimator(clockRate uint32) *NtpEstimator {
 	}
 }
 
-// Reset clears all state, returning the estimator to its initial condition.
-// Used when a stream discontinuity is detected (e.g., stream restart with a new
-// RTP offset) and the old regression is no longer valid.
+// Reset clears all state including OWD. Called via SessionTimeline.ResetTrack for true stream discontinuities where every prior sample is stale.
 func (e *NtpEstimator) Reset() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.resetLocked()
+	e.owdEstimator = latency.NewOWDEstimator(latency.OWDEstimatorParamsDefault)
 }
 
+// resetLocked clears the regression only; OWD is preserved because outlier-triggered rebuilds don't imply a network change and re-converging OWD would thrash the tempo controller.
 func (e *NtpEstimator) resetLocked() {
 	e.samples = [maxSRSamples]srSample{}
 	e.sampleLen = 0
@@ -137,10 +137,6 @@ func (e *NtpEstimator) resetLocked() {
 	e.residStd = 0
 	e.ready = false
 	e.consecutiveOutliers = 0
-	// Reset OWD: a sender NTP step that triggered the regression rebuild also
-	// invalidates the previously-measured clock offset, so the estimator must
-	// re-converge from the new sender state.
-	e.owdEstimator = latency.NewOWDEstimator(latency.OWDEstimatorParamsDefault)
 }
 
 // SRResult indicates the outcome of processing a sender report.

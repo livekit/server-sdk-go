@@ -52,6 +52,9 @@ const (
 
 	// deadbandThreshold is the minimum |correction| before slew smoothing kicks in.
 	deadbandThreshold = 5 * time.Millisecond
+
+	// wallSlewAlpha bounds publisher sample-clock skew: steady-state |drift| = R·δ·(1-α)/α ≈ 10ms for R=20ms, δ=±500ppm, α=0.01.
+	wallSlewAlpha = 0.01
 )
 
 // syncEngineTrack implements TrackSync for a single track within a SyncEngine.
@@ -63,11 +66,14 @@ type syncEngineTrack struct {
 	converter     *rtputil.RTPConverter
 	startGate     startGate // from start_gate.go, nil if not enabled
 
-	mu              sync.Mutex
-	startTime       time.Time
-	sessionOffset   time.Duration // offset from session start to this track's start
-	lastTS          uint32
-	lastWallPTS     time.Duration // last pure wall-clock-derived PTS, independent of NTP corrections; used as the baseline for wallClockPTSForRTPLocked
+	mu            sync.Mutex
+	startTime     time.Time
+	sessionOffset time.Duration // offset from session start to this track's start
+	lastTS        uint32
+
+	lastWallPTSSlewed   time.Duration // emission baseline: slew-adjusted, sanity-clamped
+	lastWallPTSUnslewed time.Duration // drift-sensor baseline: pure rtpDerived
+
 	lastPTSAdjusted time.Duration // last emitted PTS (post-NTP-correction, post-slew, post-monotonicity)
 	initialized     bool          // initializeLocked has run (startTime/sessionOffset/lastTS are set)
 	hasEmitted      bool          // GetPTS has returned at least one PTS; used to distinguish "no prior emission" from "prior emission was zero-valued"
@@ -155,13 +161,9 @@ func (st *syncEngineTrack) initializeLocked(pkt jitter.ExtPacket) func() {
 	// Initialize the engine's session start time.
 	sessionStart, onStarted := st.engine.initializeIfNeeded(receivedAt)
 	st.sessionOffset = time.Duration(receivedAt.UnixNano() - sessionStart)
-	// Seed lastWallPTS to sessionOffset so wallClockPTSForRTPLocked returns
-	// sessionOffset (not 0) for the first packet's RTP-delta extrapolation.
-	// Without this, late-joining tracks would have lastWallPTS=0 and emit
-	// wallPTS starting at 0 instead of sessionOffset, then the NTP trust
-	// threshold clamp (500ms) would lock pts to the wrong wallPTS for any
-	// sessionOffset between ~20ms and 5s (the sanity-fallback range).
-	st.lastWallPTS = st.sessionOffset
+	// Seed to sessionOffset, not 0: late-joining tracks would else emit wallPTS from 0 and get NTP-trust-clamped to the wrong baseline
+	st.lastWallPTSSlewed = st.sessionOffset
+	st.lastWallPTSUnslewed = st.sessionOffset
 
 	st.logger.Infow("initialized track",
 		"startTime", st.startTime,
@@ -219,7 +221,7 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 	// Step 1: Try NTP-grounded PTS from SessionTimeline.
 	rawNtpPTS, ntpErr := st.engine.timeline.GetSessionPTS(st.participantID, st.track.ID(), ts)
 
-	wallPTS := st.wallClockPTS(pkt)
+	wallPTS, wallPTSUnslewed := st.wallClockPTS(pkt)
 
 	// Audio tracks with external drift compensation (e.g., tempo controller) skip
 	// NTP PTS corrections — drift is handled by resampling, not PTS adjustment.
@@ -263,6 +265,8 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 		// to be cleared: the end-of-iter update overwrites it with the
 		// pre-slew PTS for this packet, providing a valid baseline for the
 		// next iteration's slewPTSDelta.
+		// Re-anchor unslewed; the 30s+ delta would otherwise persist as phantom drift
+		wallPTSUnslewed = wallPTS
 		st.logger.Warnw("stream discontinuity detected, resetting NTP state", nil,
 			"rtpDelta", rtpDelta,
 			"rtpDeltaDuration", rtpDeltaDuration,
@@ -419,12 +423,21 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 			if time.Since(st.lastTimelyPacket) > maxTimelyPacketAge {
 				oldPTS := pts
 				pts = deadline - st.engine.maxMediaRunningTimeDelay/2
+				correction := pts - oldPTS
 				st.logger.Warnw("force-correcting PTS forward, track behind pipeline deadline", nil,
 					"oldPTS", oldPTS,
 					"newPTS", pts,
 					"deadline", deadline,
 					"behindBy", limit-oldPTS,
+					"correction", correction,
 				)
+				// Emission-side only: lastWallPTSUnslewed and NTP state must keep seeing true media-vs-wall skew, not our synthetic catch-up.
+				// wallPTS was captured pre-correction and is stored back into lastWallPTSSlewed below, so shift the local too or the bump is lost.
+				st.sessionOffset += correction
+				wallPTS += correction
+				preSlewPTS += correction
+				// Reset timeliness clock so a lingering transient deficit doesn't fire force-correction on every subsequent packet, collapsing them into the same newPTS at the mixer.
+				st.lastTimelyPacket = time.Now()
 			}
 		} else {
 			st.lastTimelyPacket = time.Now()
@@ -443,24 +456,11 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 		return 0, io.EOF
 	}
 
-	// Update state. lastWallPTS captures the pre-adjustment wall-clock-derived
-	// PTS for this packet so that wallClockPTSForRTPLocked has an NTP-independent
-	// baseline for the next packet's RTP-delta extrapolation. lastSlewPTS holds
-	// the pre-slew/pre-force-correction PTS (captured as preSlewPTS above) so
-	// the next iteration's slewPTSDelta tracks media-time progression rather
-	// than output-space movement — see preSlewPTS comment for why.
-	//
-	// Anchor lastTS / lastWallPTS / lastSlewPTS on forward (signedRTPDelta >= 0)
-	// progression only — matches the lastNtpPTS guard above. A backward
-	// (reordered) packet would otherwise leave the next iteration's
-	// expectedRawNtpPTS (uses lastNtpPTS + (ts - lastTS) extrapolation) reading
-	// from mismatched baselines, and would feed a large positive slewPTSDelta
-	// into the decay loop on the next forward packet — burning slew far faster
-	// than intended. lastPTSAdjusted updates unconditionally so monotonicity
-	// always sees the most recently emitted PTS.
+	// Anchor forward-only: backward packets would mismatch the next iter's expected-jump baselines and burn slew via a bogus slewPTSDelta
 	if signedRTPDelta >= 0 {
 		st.lastTS = ts
-		st.lastWallPTS = wallPTS
+		st.lastWallPTSSlewed = wallPTS
+		st.lastWallPTSUnslewed = wallPTSUnslewed
 		st.lastSlewPTS = preSlewPTS
 	}
 	st.lastPTSAdjusted = pts
@@ -469,63 +469,58 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 	return pts, nil
 }
 
-// wallClockPTS computes a PTS based on wall-clock timing and RTP deltas.
-// Independent of NTP corrections — used as a sanity reference for NTP-derived PTS.
-func (st *syncEngineTrack) wallClockPTS(pkt jitter.ExtPacket) time.Duration {
+func (st *syncEngineTrack) wallClockPTS(pkt jitter.ExtPacket) (slewed, unslewed time.Duration) {
 	return st.wallClockPTSForRTPLocked(pkt.Timestamp, pkt.ReceivedAt)
 }
 
-// wallClockPTSForRTP returns the PTS that would be assigned to an SR's RTP timestamp without emitting it.
+// wallClockPTSForRTP returns the sensor-side wall PTS for OnRTCP; !ok when the value would be a phantom (uninit, backward RTP, or 30s+ jump)
 func (st *syncEngineTrack) wallClockPTSForRTP(ts uint32, receivedAt time.Time) (time.Duration, bool) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	// closed: closeLocked may have run between OnRTCP releasing st.mu and us reacquiring it; a phantom wallPTS here would arm a tempo correction against audio that is already gone.
 	if !st.initialized || st.closed {
 		return 0, false
 	}
-	return st.wallClockPTSForRTPLocked(ts, receivedAt), true
+	signedDelta := int32(ts - st.lastTS)
+	if signedDelta < 0 {
+		return 0, false
+	}
+	if st.converter.ToDuration(uint32(signedDelta)) >= 30*time.Second {
+		return 0, false
+	}
+	_, unslewed := st.wallClockPTSForRTPLocked(ts, receivedAt)
+	return unslewed, true
 }
 
-// wallClockPTSForRTPLocked is the lock-held implementation of wall-clock PTS
-// computation. Caller must hold st.mu.
-func (st *syncEngineTrack) wallClockPTSForRTPLocked(ts uint32, receivedAt time.Time) time.Duration {
-	// Defense in depth: if receivedAt is the zero time.Time, wallElapsed
-	// below would be a ~63-billion-second negative duration, the sanity
-	// threshold would reject rtpDerived, and the function would return 0
-	// regardless of sessionOffset — locking the trust-threshold clamp onto
-	// a bogus baseline. initializeLocked already substitutes time.Now() for
-	// zero ReceivedAt on the first packet; do the same here in case a later
-	// caller (e.g., OnRTCP using sr.RTPTime + an unset receivedAt) misses it.
+// wallClockPTSForRTPLocked returns (slewed for emission, unslewed for drift sensor); slewing both would hide publisher skew from the tempo controller
+func (st *syncEngineTrack) wallClockPTSForRTPLocked(ts uint32, receivedAt time.Time) (slewed, unslewed time.Duration) {
+	// A zero receivedAt would make wallElapsed hugely negative and lock every downstream clamp onto a bogus baseline.
 	if receivedAt.IsZero() {
 		receivedAt = time.Now()
 	}
 
-	// Wall-clock elapsed since this track started, plus session offset
 	wallElapsed := receivedAt.Sub(st.startTime) + st.sessionOffset
-
-	// If we have processed at least one packet, use RTP delta from the previous
-	// pure-wall-clock baseline for more precision (immune to receivedAt jitter).
-	// uint32 subtraction wraps for backward RTP timestamps; the sanity check
-	// below catches the resulting huge positive delta and falls back to wall clock.
-	if st.initialized {
-		rtpDelta := ts - st.lastTS
-		rtpDerived := st.lastWallPTS + st.converter.ToDuration(rtpDelta)
-
-		// Sanity check: if RTP-derived PTS diverges from wall-clock by > 5s, use wall clock.
-		diff := rtpDerived - wallElapsed
-		if diff < 0 {
-			diff = -diff
-		}
-		if diff <= wallClockSanityThreshold {
-			return rtpDerived
-		}
-	}
-
-	// Use wall-clock elapsed, ensuring non-negative.
 	if wallElapsed < 0 {
 		wallElapsed = 0
 	}
-	return wallElapsed
+
+	if !st.initialized {
+		return wallElapsed, wallElapsed
+	}
+
+	// uint32 wraps for backward RTP; slewed path catches it via the 5s clamp, unslewed relies on caller-side filtering
+	rtpDelta := ts - st.lastTS
+	rtpDur := st.converter.ToDuration(rtpDelta)
+	unslewed = st.lastWallPTSUnslewed + rtpDur
+
+	slewedRTP := st.lastWallPTSSlewed + rtpDur
+	diff := slewedRTP - wallElapsed
+	if diff > wallClockSanityThreshold || diff < -wallClockSanityThreshold {
+		return wallElapsed, unslewed
+	}
+
+	// Slew keeps emitted PTS near wallElapsed across the sanity band; see wallSlewAlpha for the steady-state math
+	absorbed := time.Duration(float64(diff) * wallSlewAlpha)
+	return slewedRTP - absorbed, unslewed
 }
 
 // OnSenderReport implements TrackSync. It stores a callback invoked on sender reports.
