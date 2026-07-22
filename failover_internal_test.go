@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/livekit/protocol/livekit"
+	"github.com/twitchtv/twirp"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
@@ -183,6 +184,90 @@ func stubRequest(ctx context.Context, host string) *http.Request {
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost,
 		"http://"+host+"/twirp/livekit.RoomService/CreateRoom", strings.NewReader("{}"))
 	return req
+}
+
+// headerRecordingRoundTripper records the request-id header seen on each attempt.
+type headerRecordingRoundTripper struct {
+	mu     sync.Mutex
+	ids    []string
+	behave func(attempt int) (*http.Response, error)
+}
+
+func (h *headerRecordingRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
+	h.mu.Lock()
+	i := len(h.ids)
+	h.ids = append(h.ids, r.Header.Get(requestIDHeader))
+	h.mu.Unlock()
+	return h.behave(i)
+}
+
+// prepareContext must stamp a request id so the server can dedup retries.
+func TestPrepareContextSetsRequestID(t *testing.T) {
+	ab := authBase{token: "tok"}
+	ctx, err := ab.prepareContext(context.Background(), withVideoGrant{RoomCreate: true})
+	if err != nil {
+		t.Fatalf("prepareContext: %v", err)
+	}
+	h, ok := twirp.HTTPRequestHeaders(ctx)
+	if !ok {
+		t.Fatal("no twirp headers on context")
+	}
+	if h.Get(requestIDHeader) == "" {
+		t.Fatal("request id header not set")
+	}
+}
+
+// A caller-supplied request id must be preserved (their higher-level retries
+// should dedup too).
+func TestPrepareContextRespectsCallerRequestID(t *testing.T) {
+	ab := authBase{token: "tok"}
+	inCtx, err := twirp.WithHTTPRequestHeaders(context.Background(),
+		http.Header{requestIDHeader: []string{"caller-123"}})
+	if err != nil {
+		t.Fatalf("WithHTTPRequestHeaders: %v", err)
+	}
+	ctx, err := ab.prepareContext(inCtx, withVideoGrant{RoomCreate: true})
+	if err != nil {
+		t.Fatalf("prepareContext: %v", err)
+	}
+	h, _ := twirp.HTTPRequestHeaders(ctx)
+	if got := h.Get(requestIDHeader); got != "caller-123" {
+		t.Fatalf("caller request id overwritten: got %q", got)
+	}
+}
+
+// The id is generated once per logical call, so every failover attempt must
+// carry the same value — never regenerated per attempt in the transport.
+func TestFailoverPreservesRequestIDAcrossAttempts(t *testing.T) {
+	const host = "primary.example.com"
+	setMinFailoverTimeout(t, time.Millisecond)
+
+	rt := &headerRecordingRoundTripper{behave: func(attempt int) (*http.Response, error) {
+		if attempt < 2 {
+			return stubResponse(http.StatusServiceUnavailable), nil // 5xx -> fail over
+		}
+		return stubResponse(http.StatusOK), nil
+	}}
+	tr := newStubTransport(rt, host)
+
+	ctx := withFailoverForce(context.Background(), time.Millisecond)
+	req := stubRequest(ctx, host)
+	req.Header.Set(requestIDHeader, "req_fixed")
+
+	resp, err := tr.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip: %v", err)
+	}
+	resp.Body.Close()
+
+	if len(rt.ids) != 3 {
+		t.Fatalf("expected 3 attempts, got %d", len(rt.ids))
+	}
+	for i, id := range rt.ids {
+		if id != "req_fixed" {
+			t.Errorf("attempt %d: request id = %q, want req_fixed", i, id)
+		}
+	}
 }
 
 // setMinFailoverTimeout lowers the thundering-herd threshold so tests can use
