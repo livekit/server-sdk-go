@@ -395,7 +395,7 @@ func TestConnectionManager_ConsecutiveResumesUseFreshRegions(t *testing.T) {
 	cm.setResuming(regionsA)
 	plan, err := cm.getConnectionPlan()
 	require.NoError(t, err)
-	require.Equal(t, []string{"a", "original"}, planRegionNames(plan))
+	require.Equal(t, []string{"a", cOriginalRegion}, planRegionNames(plan))
 
 	// a successful resume restores the Connected state via setResumed
 	cm.setResumed(&livekit.RegionInfo{Region: "a", Url: "wss://a"})
@@ -407,7 +407,7 @@ func TestConnectionManager_ConsecutiveResumesUseFreshRegions(t *testing.T) {
 	cm.setResuming(regionsB)
 	plan, err = cm.getConnectionPlan()
 	require.NoError(t, err)
-	require.Equal(t, []string{"b", "original"}, planRegionNames(plan))
+	require.Equal(t, []string{"b", cOriginalRegion}, planRegionNames(plan))
 }
 
 // TestConnectionManager_SetResumedIgnoredWhenReconnectPending verifies that if a
@@ -458,7 +458,7 @@ func TestConnectionManager_SetResumingWhileResumingUpdatesRegions(t *testing.T) 
 
 	plan, err := cm.getConnectionPlan()
 	require.NoError(t, err)
-	require.Equal(t, []string{"b", "original"}, planRegionNames(plan), "newer region list must be consumed while resuming")
+	require.Equal(t, []string{"b", cOriginalRegion}, planRegionNames(plan), "newer region list must be consumed while resuming")
 
 	// a nil list while resuming is ignored, preserving the list already in effect
 	cm.setResuming(nil)
@@ -466,7 +466,7 @@ func TestConnectionManager_SetResumingWhileResumingUpdatesRegions(t *testing.T) 
 
 	plan, err = cm.getConnectionPlan()
 	require.NoError(t, err)
-	require.Equal(t, []string{"b", "original"}, planRegionNames(plan), "nil list must not wipe the region list in effect")
+	require.Equal(t, []string{"b", cOriginalRegion}, planRegionNames(plan), "nil list must not wipe the region list in effect")
 }
 
 // TestConnectionManager_BuildConnectionPlan_Dedup verifies regions are deduped
