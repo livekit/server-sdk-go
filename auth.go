@@ -18,12 +18,17 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/twitchtv/twirp"
 
 	"github.com/livekit/protocol/auth"
 
 	"github.com/livekit/server-sdk-go/v2/signalling"
 )
+
+// requestIDHeader carries a per-request idempotency key. SDK auto-retries (see failoverTransport) will
+// keep the same key across attempts, so the server can identify and deduplicate repeated requests.
+const requestIDHeader = "X-Livekit-Request-Id"
 
 type authBase struct {
 	apiKey    string
@@ -85,6 +90,13 @@ func (b authBase) prepareContext(ctx context.Context, opt authOption, options ..
 		for _, v := range vv {
 			ctxH.Add(k, v)
 		}
+	}
+
+	// Attach a stable idempotency key once per logical call, unless the caller
+	// already supplied one. failoverTransport replays the same headers on each
+	// retry, so every attempt carries this id and the server can dedup on it.
+	if ctxH.Get(requestIDHeader) == "" {
+		ctxH.Set(requestIDHeader, uuid.NewString())
 	}
 
 	// Detach a long-enough deadline so it isn't enforced across failover retries
