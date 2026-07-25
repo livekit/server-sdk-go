@@ -44,6 +44,14 @@ func newEgressClient(url string, auth authBase, httpClient *http.Client, opts ..
 	}
 }
 
+func (c *EgressClient) StartEgress(ctx context.Context, req *livekit.StartEgressRequest) (*livekit.EgressInfo, error) {
+	ctx, err := c.prepareContext(ctx, withVideoGrant{RoomRecord: true})
+	if err != nil {
+		return nil, err
+	}
+	return c.egressClient.StartEgress(ctx, req)
+}
+
 func (c *EgressClient) StartRoomCompositeEgress(ctx context.Context, req *livekit.RoomCompositeEgressRequest) (*livekit.EgressInfo, error) {
 	ctx, err := c.prepareContext(ctx, withVideoGrant{RoomRecord: true})
 	if err != nil {
