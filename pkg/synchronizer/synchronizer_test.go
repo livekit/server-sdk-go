@@ -333,10 +333,6 @@ func TestEnd_RemovedTracks_StillContributeDuration(t *testing.T) {
 		"duration must reflect removed track's PTS; got %v", duration)
 }
 
-// Regression: End() holds the synchronizer lock while calling into participant
-// synchronizers, while sender report processing holds the participant lock and
-// reads the external media deadline from the synchronizer — an ABBA deadlock if
-// either side nests the other's lock.
 func TestEnd_NoDeadlockWithConcurrentSenderReports(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
