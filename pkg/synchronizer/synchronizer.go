@@ -16,6 +16,7 @@ package synchronizer
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pion/rtcp"
@@ -227,8 +228,10 @@ type Synchronizer struct {
 	psBySSRC     map[uint32]*participantSynchronizer
 	ssrcByID     map[string]uint32
 
-	// start time of the external live media (if used, 0 otherwise)
-	externalMediaStartTime time.Time
+	// lock-free: read by track/participant code that may run under child locks
+	mediaRunningTime atomic.Pointer[func() (time.Duration, bool)]
+	// start time of the external live media (if used, nil otherwise)
+	externalMediaStartTime atomic.Pointer[time.Time]
 }
 
 func NewSynchronizer(onStarted func()) *Synchronizer {
@@ -266,13 +269,15 @@ func NewSynchronizerWithOptions(opts ...SynchronizerOption) *Synchronizer {
 	}
 	config.normalizeLegacySenderReportSyncMode()
 
-	return &Synchronizer{
+	s := &Synchronizer{
 		onStarted:    config.OnStarted,
 		psByIdentity: make(map[string]*participantSynchronizer),
 		psBySSRC:     make(map[uint32]*participantSynchronizer),
 		ssrcByID:     make(map[string]uint32),
 		config:       config,
 	}
+	s.SetMediaRunningTime(config.MediaRunningTime)
+	return s
 }
 
 func (s *Synchronizer) AddTrack(track TrackRemote, participantID string) *TrackSynchronizer {
@@ -320,9 +325,11 @@ func (s *Synchronizer) GetStartedAt() int64 {
 // SetMediaRunningTime updates the external media running time provider after the synchronizer has been created.
 // Passing a nil provider clears the configuration.
 func (s *Synchronizer) SetMediaRunningTime(mediaRunningTime func() (time.Duration, bool)) {
-	s.Lock()
-	s.config.MediaRunningTime = mediaRunningTime
-	s.Unlock()
+	if mediaRunningTime == nil {
+		s.mediaRunningTime.Store(nil)
+	} else {
+		s.mediaRunningTime.Store(&mediaRunningTime)
+	}
 }
 
 func (s *Synchronizer) getOrSetStartedAt(now int64) int64 {
@@ -403,28 +410,25 @@ func (s *Synchronizer) AsSyncInterface() Sync {
 }
 
 func (s *Synchronizer) getExternalMediaDeadline() (time.Duration, bool) {
-	s.RLock()
-	startTime := s.externalMediaStartTime
-	cb := s.config.MediaRunningTime
-	maxDelay := s.config.MaxMediaRunningTimeDelay
-	s.RUnlock()
-
 	now := time.Now()
 
-	if startTime.IsZero() && cb != nil {
-		if mediaRunningTime, ok := cb(); ok {
-			startTime = now.Add(-mediaRunningTime)
-			s.Lock()
-			if s.externalMediaStartTime.IsZero() {
-				s.externalMediaStartTime = startTime
-			}
-			s.Unlock()
+	startTime := s.externalMediaStartTime.Load()
+	if startTime == nil {
+		cb := s.mediaRunningTime.Load()
+		if cb == nil {
+			return 0, false
+		}
+		mediaRunningTime, ok := (*cb)()
+		if !ok {
+			return 0, false
+		}
+		st := now.Add(-mediaRunningTime)
+		if !s.externalMediaStartTime.CompareAndSwap(nil, &st) {
+			startTime = s.externalMediaStartTime.Load()
+		} else {
+			startTime = &st
 		}
 	}
 
-	if startTime.IsZero() {
-		return 0, false
-	}
-
-	return now.Sub(startTime) - maxDelay, true
+	return now.Sub(*startTime) - s.config.MaxMediaRunningTimeDelay, true
 }
