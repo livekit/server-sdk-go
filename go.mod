@@ -9,8 +9,8 @@ require (
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/livekit/mageutil v0.0.0-20250511045019-0f1ff63f7731
 	github.com/livekit/media-sdk v0.0.0-20260605212526-4c11a51d3c97
-	github.com/livekit/mediatransportutil v0.0.0-20260605212259-862d4a7bcb1e
-	github.com/livekit/protocol v1.50.1
+	github.com/livekit/mediatransportutil v0.0.0-20260727210231-81a5287a7109
+	github.com/livekit/protocol v1.50.4
 	github.com/magefile/mage v1.17.2
 	github.com/moby/buildkit v0.30.0
 	github.com/moby/patternmatcher v0.6.1
