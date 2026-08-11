@@ -33,6 +33,13 @@
       "minimumReleaseAge": null
     },
     {
+      "matchManagers": ["gomod"],
+      "groupName": "pion deps",
+      "matchPackageNames": [
+        "github.com/pion{/,}**"
+      ]
+    },
+    {
       "description": "Never bump the go/toolchain directives in go.mod: the go directive is the module minimum and must stay at the lowest version our dependencies require.",
       "matchManagers": ["gomod"],
       "matchDepTypes": ["golang", "toolchain"],
