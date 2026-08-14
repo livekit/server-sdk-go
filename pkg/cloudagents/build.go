@@ -93,9 +93,24 @@ func (c *Client) build(ctx context.Context, id string, attributes map[string]str
 		forward := make(chan *bkclient.SolveStatus)
 		go func() {
 			defer close(forward)
-			forward <- first
+			// Guard every send with ctx.Done() so the relay can't block forever if the
+			// display stops reading (e.g. UpdateFrom returned an error): the errgroup
+			// cancels ctx on that error, which unblocks and drains this goroutine.
+			send := func(s *bkclient.SolveStatus) bool {
+				select {
+				case forward <- s:
+					return true
+				case <-ctx.Done():
+					return false
+				}
+			}
+			if !send(first) {
+				return
+			}
 			for s := range ch {
-				forward <- s
+				if !send(s) {
+					return
+				}
 			}
 		}()
 		_, err = display.UpdateFrom(context.Background(), forward)
@@ -112,14 +127,21 @@ func (c *Client) build(ctx context.Context, id string, attributes map[string]str
 				return errors.New(strings.TrimPrefix(scanner.Text(), "BUILD ERROR: "))
 			}
 
-			// A queue event carries an lkQueue field; a build update does not. Render the
-			// queue line directly (not through the progress display) so it does not start
-			// the build clock, and de-dupe so a repeated heartbeat prints once.
+			// A queue event carries an lkQueue field; a build update does not. It bypasses the
+			// progress display so it does not start the build clock, and is de-duped so a
+			// repeated heartbeat is emitted once. In JSON-log mode the stream must stay valid
+			// JSON for machine consumers, so pass the raw lkQueue line through (it decodes to
+			// an empty SolveStatus, harmless) instead of writing the human-readable text.
 			var env queueEnvelope
 			if json.Unmarshal(line, &env) == nil && env.LkQueue != nil {
 				if msg := env.LkQueue.Message; msg != "" && msg != lastQueue {
-					fmt.Fprintln(writer, msg)
 					lastQueue = msg
+					if c.jsonLogStream {
+						_, _ = writer.Write(line)
+						_, _ = io.WriteString(writer, "\n")
+					} else {
+						fmt.Fprintln(writer, msg)
+					}
 				}
 				continue
 			}
