@@ -60,7 +60,7 @@ func (c *Client) build(ctx context.Context, id string, attributes map[string]str
 	// Tell the server we can render queue events ourselves (lkQueue lines), so the queue
 	// wait is shown separately and does not count toward the build clock. Old servers
 	// ignore the header and send the queue wait as buildkit vertices, which still work.
-	req.Header.Set("X-LK-Build-Protocol", "v2")
+	req.Header.Set("X-LIVEKIT-BUILD-PROTOCOL", "v2")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return err
