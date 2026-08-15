@@ -84,9 +84,20 @@ func (pc *ParticipantClock) OnSenderReport(trackID string, clockRate uint32, ntp
 				"outliersTotal", pc.outliers[trackID],
 			)
 		}
+		delete(pc.outliers, trackID)
 		// A rebuild starts a new regression — the next SR is effectively a first.
 		delete(pc.seenFirstSR, trackID)
 	case SRAccepted:
+		if n := pc.outliers[trackID]; n > 0 {
+			if pc.logger != nil {
+				pc.logger.Infow("sender report accepted after outliers",
+					"participantID", pc.participantID,
+					"trackID", trackID,
+					"rejected", n,
+				)
+			}
+			delete(pc.outliers, trackID)
+		}
 		if !pc.seenFirstSR[trackID] {
 			pc.seenFirstSR[trackID] = true
 			if pc.logger != nil {
@@ -138,14 +149,6 @@ func (pc *ParticipantClock) ResetTrack(trackID string) {
 func (pc *ParticipantClock) RemoveTrack(trackID string) {
 	pc.mu.Lock()
 	defer pc.mu.Unlock()
-
-	if n := pc.outliers[trackID]; n > 1 && pc.logger != nil {
-		pc.logger.Infow("track sender report outlier summary",
-			"participantID", pc.participantID,
-			"trackID", trackID,
-			"outliersTotal", n,
-		)
-	}
 
 	delete(pc.tracks, trackID)
 	delete(pc.seenFirstSR, trackID)
