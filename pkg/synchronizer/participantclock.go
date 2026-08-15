@@ -142,6 +142,7 @@ func (pc *ParticipantClock) ResetTrack(trackID string) {
 
 	if est, ok := pc.tracks[trackID]; ok {
 		est.Reset()
+		delete(pc.outliers, trackID)
 	}
 }
 
