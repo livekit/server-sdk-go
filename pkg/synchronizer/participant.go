@@ -37,9 +37,10 @@ func newParticipantSynchronizer() *participantSynchronizer {
 
 func (p *participantSynchronizer) onSenderReport(pkt *rtcp.SenderReport) {
 	p.Lock()
-	defer p.Unlock()
+	t := p.tracks[pkt.SSRC]
+	p.Unlock()
 
-	if t := p.tracks[pkt.SSRC]; t != nil {
+	if t != nil {
 		t.onSenderReport(pkt)
 	}
 }

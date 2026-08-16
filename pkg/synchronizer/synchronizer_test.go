@@ -1,6 +1,7 @@
 package synchronizer_test
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -330,4 +331,57 @@ func TestEnd_RemovedTracks_StillContributeDuration(t *testing.T) {
 	duration := time.Duration(s.GetEndedAt() - s.GetStartedAt())
 	require.Greater(t, duration, time.Second,
 		"duration must reflect removed track's PTS; got %v", duration)
+}
+
+func TestEnd_NoDeadlockWithConcurrentSenderReports(t *testing.T) {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 200; i++ {
+			s := synchronizer.NewSynchronizerWithOptions(
+				synchronizer.WithRTCPSenderReportRebaseEnabled(),
+				synchronizer.WithMediaRunningTime(func() (time.Duration, bool) {
+					return time.Second, true
+				}, time.Second),
+			)
+
+			const ssrc = uint32(0xA001)
+			tr := fakeAudio48k(ssrc)
+			tsync := s.AddTrack(tr, "p1")
+			tsync.Initialize(pkt(1000).Packet)
+			_, _ = tsync.GetPTS(pkt(1000))
+
+			stop := make(chan struct{})
+			var wg sync.WaitGroup
+			for g := 0; g < 4; g++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					for {
+						select {
+						case <-stop:
+							return
+						default:
+							s.OnRTCP(&rtcp.SenderReport{
+								SSRC:    ssrc,
+								NTPTime: uint64(mediatransportutil.ToNtpTime(time.Now())),
+								RTPTime: 1000,
+							})
+						}
+					}
+				}()
+			}
+
+			time.Sleep(time.Millisecond)
+			s.End()
+			close(stop)
+			wg.Wait()
+		}
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("deadlock between End() and concurrent sender report processing")
+	}
 }

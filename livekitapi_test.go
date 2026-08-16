@@ -261,6 +261,19 @@ func TestAPI_EgressStartSmoke(t *testing.T) {
 		return []*livekit.EncodedFileOutput{{FileType: livekit.EncodedFileType_MP4, Filepath: path}}
 	}
 	runCalls(t, map[string]func() error{
+		"Unified": func() error {
+			_, e := api.Egress().StartEgress(ctx, &livekit.StartEgressRequest{
+				RoomName: "test-room",
+				Source:   &livekit.StartEgressRequest_Web{Web: &livekit.WebSource{Url: "https://example.com/scene"}},
+				Outputs: []*livekit.Output{
+					{Config: &livekit.Output_Stream{Stream: &livekit.StreamOutput{
+						Protocol: livekit.StreamProtocol_RTMP,
+						Urls:     []string{"rtmps://a.example.com/live/key"},
+					}}},
+				},
+			})
+			return e
+		},
 		"RoomComposite": func() error {
 			_, e := api.Egress().StartRoomCompositeEgress(ctx, &livekit.RoomCompositeEgressRequest{
 				RoomName:    "test-room",

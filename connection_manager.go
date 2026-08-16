@@ -32,6 +32,7 @@ import (
 const (
 	cConnectTimeoutDefault = 15 * time.Second
 	cValidateTimeout       = 3 * time.Second
+	cOriginalRegion        = "__original__"
 )
 
 // -------------------------------------------
@@ -455,7 +456,7 @@ func getConnectionPlanInitial(params connectionPlanParams) ([]connectionAttemptP
 
 	// add the incoming request URL (i. e. original URL) just in case the region specific options did not work
 	regionsToTry = append(regionsToTry, &livekit.RegionInfo{
-		Region:   "original",
+		Region:   cOriginalRegion,
 		Url:      params.incomingRequestParams.url,
 		Distance: -1,
 	})
@@ -489,7 +490,7 @@ func getConnectionPlanResuming(params connectionPlanParams) ([]connectionAttempt
 
 	// add the incoming request URL (i. e. original URL) just in case the region specific options did not work
 	regionsToTry = append(regionsToTry, &livekit.RegionInfo{
-		Region:   "original",
+		Region:   cOriginalRegion,
 		Url:      params.incomingRequestParams.url,
 		Distance: -1,
 	})
@@ -522,7 +523,7 @@ func getConnectionPlanReconnecting(params connectionPlanParams) ([]connectionAtt
 
 	// add the incoming request URL (i. e. original URL) just in case the region specific options did not work
 	regionsToTry = append(regionsToTry, &livekit.RegionInfo{
-		Region:   "original",
+		Region:   cOriginalRegion,
 		Url:      params.incomingRequestParams.url,
 		Distance: -1,
 	})

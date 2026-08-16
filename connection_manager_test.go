@@ -157,7 +157,7 @@ func TestConnectionManager_GetConnectionPlanInitial_NoDiscovery(t *testing.T) {
 	plan, err := cm.getConnectionPlan()
 	require.NoError(t, err)
 	require.Len(t, plan, 1)
-	require.Equal(t, "original", plan[0].region.Region)
+	require.Equal(t, cOriginalRegion, plan[0].region.Region)
 	require.Equal(t, "wss://example.com", plan[0].region.Url)
 	require.EqualValues(t, -1, plan[0].region.Distance)
 	require.Equal(t, time.Duration(0), plan[0].backoffWait)
@@ -173,7 +173,7 @@ func TestConnectionManager_GetConnectionPlanInitial_NonCloudURL(t *testing.T) {
 
 	plan, err := cm.getConnectionPlan()
 	require.NoError(t, err)
-	require.Equal(t, []string{"original"}, planRegionNames(plan))
+	require.Equal(t, []string{cOriginalRegion}, planRegionNames(plan))
 }
 
 func TestConnectionManager_GetConnectionPlanInitial_WithDiscovery(t *testing.T) {
@@ -187,7 +187,7 @@ func TestConnectionManager_GetConnectionPlanInitial_WithDiscovery(t *testing.T) 
 
 	plan, err := cm.getConnectionPlan()
 	require.NoError(t, err)
-	require.Equal(t, []string{"us-east", "us-west", "original"}, planRegionNames(plan))
+	require.Equal(t, []string{"us-east", "us-west", cOriginalRegion}, planRegionNames(plan))
 	require.Equal(t, "wss://test.livekit.cloud", plan[2].region.Url)
 
 	// backoff schedule: first attempt has no wait, subsequent ones grow exponentially
@@ -208,7 +208,7 @@ func TestConnectionManager_GetConnectionPlanResuming_WithRegionSettings(t *testi
 
 	plan, err := cm.getConnectionPlan()
 	require.NoError(t, err)
-	require.Equal(t, []string{"us-east", "us-west", "original"}, planRegionNames(plan))
+	require.Equal(t, []string{"us-east", "us-west", cOriginalRegion}, planRegionNames(plan))
 }
 
 // TestConnectionManager_GetConnectionPlanResuming_NoRegionSettings: without a
@@ -223,7 +223,7 @@ func TestConnectionManager_GetConnectionPlanResuming_NoRegionSettings(t *testing
 
 	plan, err := cm.getConnectionPlan()
 	require.NoError(t, err)
-	require.Equal(t, []string{"us-east", "original"}, planRegionNames(plan))
+	require.Equal(t, []string{"us-east", cOriginalRegion}, planRegionNames(plan))
 	require.Equal(t, "wss://us-east.livekit.cloud", plan[0].region.Url)
 }
 
@@ -246,7 +246,7 @@ func TestConnectionManager_GetConnectionPlanReconnecting_MergesSources(t *testin
 	plan, err := cm.getConnectionPlan()
 	require.NoError(t, err)
 	// server-sent list first, then discovery regions, then original; deduped by region name
-	require.Equal(t, []string{"us-east", "us-west", "eu", "original"}, planRegionNames(plan))
+	require.Equal(t, []string{"us-east", "us-west", "eu", cOriginalRegion}, planRegionNames(plan))
 }
 
 // TestConnectionManager_SetResumingIgnoredWhileReconnecting verifies a resume
@@ -395,7 +395,7 @@ func TestConnectionManager_ConsecutiveResumesUseFreshRegions(t *testing.T) {
 	cm.setResuming(regionsA)
 	plan, err := cm.getConnectionPlan()
 	require.NoError(t, err)
-	require.Equal(t, []string{"a", "original"}, planRegionNames(plan))
+	require.Equal(t, []string{"a", cOriginalRegion}, planRegionNames(plan))
 
 	// a successful resume restores the Connected state via setResumed
 	cm.setResumed(&livekit.RegionInfo{Region: "a", Url: "wss://a"})
@@ -407,7 +407,7 @@ func TestConnectionManager_ConsecutiveResumesUseFreshRegions(t *testing.T) {
 	cm.setResuming(regionsB)
 	plan, err = cm.getConnectionPlan()
 	require.NoError(t, err)
-	require.Equal(t, []string{"b", "original"}, planRegionNames(plan))
+	require.Equal(t, []string{"b", cOriginalRegion}, planRegionNames(plan))
 }
 
 // TestConnectionManager_SetResumedIgnoredWhenReconnectPending verifies that if a
@@ -458,7 +458,7 @@ func TestConnectionManager_SetResumingWhileResumingUpdatesRegions(t *testing.T) 
 
 	plan, err := cm.getConnectionPlan()
 	require.NoError(t, err)
-	require.Equal(t, []string{"b", "original"}, planRegionNames(plan), "newer region list must be consumed while resuming")
+	require.Equal(t, []string{"b", cOriginalRegion}, planRegionNames(plan), "newer region list must be consumed while resuming")
 
 	// a nil list while resuming is ignored, preserving the list already in effect
 	cm.setResuming(nil)
@@ -466,7 +466,7 @@ func TestConnectionManager_SetResumingWhileResumingUpdatesRegions(t *testing.T) 
 
 	plan, err = cm.getConnectionPlan()
 	require.NoError(t, err)
-	require.Equal(t, []string{"b", "original"}, planRegionNames(plan), "nil list must not wipe the region list in effect")
+	require.Equal(t, []string{"b", cOriginalRegion}, planRegionNames(plan), "nil list must not wipe the region list in effect")
 }
 
 // TestConnectionManager_BuildConnectionPlan_Dedup verifies regions are deduped
