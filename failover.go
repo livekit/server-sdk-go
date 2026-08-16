@@ -206,7 +206,7 @@ func (t *failoverTransport) RoundTrip(req *http.Request) (*http.Response, error)
 	// A non-cloud host has nowhere to redirect: a single attempt. A cloud host
 	// always goes through the failover loop, even when general failover is off, so a
 	// 451 region-pin rejection can still be redirected.
-	if maxAttempts == 1 && !cloud {
+	if !cloud {
 		ctx, cancel := withOptionalTimeout(req.Context(), timeout)
 		resp, err := t.base.RoundTrip(req.WithContext(ctx))
 		return terminate(resp, err, cancel)
