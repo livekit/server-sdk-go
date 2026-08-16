@@ -236,8 +236,13 @@ func (t *failoverTransport) failover(req *http.Request, failoverEnabled bool, ti
 	// Attempts run on a deadline-free context (the deadline is reset per attempt).
 	// withFailoverTimeout normally detaches it upstream; detach a raw deadline
 	// that reaches the transport directly (e.g. in tests) too.
+	//
+	// Only when general failover is on. A request that reaches this loop solely to
+	// allow a region-pin redirect (failover disabled, or a budget below
+	// minFailoverTimeout) keeps the caller's deadline, so the redirect happens but
+	// the call still returns within the time the caller allowed.
 	base := req.Context()
-	if !hasPerAttemptTimeout(base) {
+	if failoverEnabled && !hasPerAttemptTimeout(base) {
 		if _, ok := base.Deadline(); ok {
 			base = detachDeadline(base)
 		}
