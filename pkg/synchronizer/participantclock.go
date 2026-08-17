@@ -31,6 +31,7 @@ type ParticipantClock struct {
 	participantID string
 	tracks        map[string]*NtpEstimator
 	seenFirstSR   map[string]bool
+	outliers      map[string]int
 }
 
 // NewParticipantClock creates a new ParticipantClock.
@@ -40,6 +41,7 @@ func NewParticipantClock(l logger.Logger, participantID string) *ParticipantCloc
 		participantID: participantID,
 		tracks:        make(map[string]*NtpEstimator),
 		seenFirstSR:   make(map[string]bool),
+		outliers:      make(map[string]int),
 	}
 }
 
@@ -59,23 +61,43 @@ func (pc *ParticipantClock) OnSenderReport(trackID string, clockRate uint32, ntp
 	result := est.OnSenderReport(ntpTime, rtpTimestamp, receivedAt)
 	switch result {
 	case SROutlier:
+		pc.outliers[trackID]++
 		if pc.logger != nil {
-			pc.logger.Warnw("sender report rejected as outlier", nil,
-				"trackID", trackID,
-				"rtpTimestamp", rtpTimestamp,
-				"ntpTime", ntpTime,
-			)
+			if pc.outliers[trackID] == 1 {
+				pc.logger.Warnw("sender report rejected as outlier", nil,
+					"trackID", trackID,
+					"rtpTimestamp", rtpTimestamp,
+					"ntpTime", ntpTime,
+				)
+			} else {
+				pc.logger.Debugw("sender report rejected as outlier (suppressed)",
+					"trackID", trackID,
+					"outliersTotal", pc.outliers[trackID],
+				)
+			}
 		}
 	case SRRebuilt:
 		if pc.logger != nil {
 			pc.logger.Infow("NTP estimator rebuilt after persistent outliers",
 				"participantID", pc.participantID,
 				"trackID", trackID,
+				"outliersTotal", pc.outliers[trackID],
 			)
 		}
+		delete(pc.outliers, trackID)
 		// A rebuild starts a new regression — the next SR is effectively a first.
 		delete(pc.seenFirstSR, trackID)
 	case SRAccepted:
+		if n := pc.outliers[trackID]; n > 0 {
+			if pc.logger != nil {
+				pc.logger.Infow("sender report accepted after outliers",
+					"participantID", pc.participantID,
+					"trackID", trackID,
+					"rejected", n,
+				)
+			}
+			delete(pc.outliers, trackID)
+		}
 		if !pc.seenFirstSR[trackID] {
 			pc.seenFirstSR[trackID] = true
 			if pc.logger != nil {
@@ -120,6 +142,7 @@ func (pc *ParticipantClock) ResetTrack(trackID string) {
 
 	if est, ok := pc.tracks[trackID]; ok {
 		est.Reset()
+		delete(pc.outliers, trackID)
 	}
 }
 
@@ -130,6 +153,7 @@ func (pc *ParticipantClock) RemoveTrack(trackID string) {
 
 	delete(pc.tracks, trackID)
 	delete(pc.seenFirstSR, trackID)
+	delete(pc.outliers, trackID)
 }
 
 // HasTrack returns true if the participant has a track with the given ID.
