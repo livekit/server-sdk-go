@@ -8,11 +8,11 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/livekit/mageutil v0.0.0-20250511045019-0f1ff63f7731
-	github.com/livekit/media-sdk v0.0.0-20260605212526-4c11a51d3c97
-	github.com/livekit/mediatransportutil v0.0.0-20260605212259-862d4a7bcb1e
-	github.com/livekit/protocol v1.50.1
+	github.com/livekit/media-sdk v0.0.0-20260812193843-5a5218b19550
+	github.com/livekit/mediatransportutil v0.0.0-20260727210231-81a5287a7109
+	github.com/livekit/protocol v1.50.4
 	github.com/magefile/mage v1.17.2
-	github.com/moby/buildkit v0.32.0
+	github.com/moby/buildkit v0.32.2
 	github.com/moby/patternmatcher v0.6.1
 	github.com/pion/dtls/v3 v3.1.5
 	github.com/pion/interceptor v0.1.47
@@ -23,8 +23,8 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/twitchtv/twirp v8.1.3+incompatible
 	go.uber.org/atomic v1.11.0
-	golang.org/x/crypto v0.54.0
-	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af
+	golang.org/x/crypto v0.55.0
+	google.golang.org/protobuf v1.36.12
 )
 
 require (
@@ -132,12 +132,12 @@ require (
 	golang.org/x/net v0.57.0 // indirect
 	golang.org/x/sync v0.22.0
 	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.40.0 // indirect
+	golang.org/x/text v0.41.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
-	golang.org/x/tools v0.47.0 // indirect
+	golang.org/x/tools v0.48.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260526163538-3dc84a4a5aaa // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
-	google.golang.org/grpc v1.82.1
+	google.golang.org/grpc v1.83.0
 	gopkg.in/hraban/opus.v2 v2.0.0-20230925203106-0188a62cb302 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

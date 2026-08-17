@@ -64,6 +64,7 @@ type mockControl struct {
 	Response      json.RawMessage `json:"response,omitempty"`
 	SkipAuth      bool            `json:"skipAuth,omitempty"`
 	SIPStatus     *sipStatus      `json:"sipStatus,omitempty"`
+	PinnedRegions []string        `json:"pinnedRegions,omitempty"`
 }
 
 // sipStatus fails a SIP dial method with a SIP response (code + optional reason).

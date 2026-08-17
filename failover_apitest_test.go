@@ -128,6 +128,43 @@ func TestAPI_FailoverDisabled(t *testing.T) {
 	require.Error(t, err)
 }
 
+// A project pinned to a region other than the one it reaches gets a 451; the
+// client re-fetches /settings/regions (which returns only the pinned region) and
+// retries there. The entry point in these tests is region 0.
+func TestAPI_RegionPinRedirects(t *testing.T) {
+	client := NewRoomServiceClient(testServerURL(t), "devkey", "secret")
+	ctx := failoverCtx(t, mockControl{PinnedRegions: []string{"region-1"}})
+	_, err := client.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: "api-test"})
+	require.NoError(t, err, "a 451 should redirect to the pinned region from /settings/regions")
+}
+
+// The pinned region need not be the next one; discovery returns it directly, so
+// the client redirects straight to it.
+func TestAPI_RegionPinRedirectsToDistantRegion(t *testing.T) {
+	client := NewRoomServiceClient(testServerURL(t), "devkey", "secret")
+	ctx := failoverCtx(t, mockControl{PinnedRegions: []string{"region-2"}})
+	_, err := client.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: "api-test"})
+	require.NoError(t, err, "should redirect to the pinned region even when it isn't the next one")
+}
+
+// When the pinned region is unreachable (nothing in /settings/regions matches),
+// the 451 is surfaced rather than retried forever.
+func TestAPI_RegionPinNoReachableRegion(t *testing.T) {
+	client := NewRoomServiceClient(testServerURL(t), "devkey", "secret")
+	ctx := failoverCtx(t, mockControl{PinnedRegions: []string{"region-99"}})
+	_, err := client.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: "api-test"})
+	require.Error(t, err, "no reachable pinned region means the 451 is surfaced")
+}
+
+// The region-pin redirect is always active — a correctness requirement, not
+// resilience — so it engages even when the caller disables general failover.
+func TestAPI_RegionPinRedirectCannotBeDisabled(t *testing.T) {
+	client := NewRoomServiceClient(testServerURL(t), "devkey", "secret")
+	ctx := WithFailover(failoverCtx(t, mockControl{PinnedRegions: []string{"region-1"}}), false)
+	_, err := client.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: "api-test"})
+	require.NoError(t, err, "region-pin redirect must work even with failover disabled")
+}
+
 // An unresponsive region (per-attempt timeout) should fail over to a healthy
 // region, with the deadline reset so the retry has its full budget. "delay" fail
 // mode stalls only the failing region, unlike DelayMs which delays every region.
