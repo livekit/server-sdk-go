@@ -36,13 +36,6 @@ const (
 	// and wall-clock PTS before falling back to wall clock in wallClockPTS().
 	wallClockSanityThreshold = 5 * time.Second
 
-	// ntpTrustThreshold is the maximum allowed divergence between NTP-derived PTS
-	// and wall-clock PTS. If NTP disagrees with wall clock by more than this,
-	// the NTP data is suspect (bad SRs, clock jumps, nonsensical timing) and
-	// we clamp to wall clock. This prevents bad publishers from dragging PTS far
-	// from reality.
-	ntpTrustThreshold = 500 * time.Millisecond
-
 	// maxTimelyPacketAge is how long a track can be behind the pipeline deadline
 	// before its PTS is force-corrected forward.
 	maxTimelyPacketAge = 10 * time.Second
@@ -338,7 +331,7 @@ func (st *syncEngineTrack) GetPTS(pkt jitter.ExtPacket) (time.Duration, error) {
 		// Clamp corrected PTS to within trust threshold of wall clock.
 		clamped := false
 		diff := pts - wallPTS
-		if diff > ntpTrustThreshold || diff < -ntpTrustThreshold {
+		if diff > st.engine.ntpTrustThreshold || diff < -st.engine.ntpTrustThreshold {
 			if st.noteClampLocked(diff, wallPTS) {
 				st.logger.Warnw("NTP PTS exceeds trust threshold, clamping to wall clock", nil,
 					"rawNtpPTS", rawNtpPTS,

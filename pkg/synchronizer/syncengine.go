@@ -29,6 +29,13 @@ import (
 const (
 	// defaultOldPacketThreshold is the default age after which packets are dropped.
 	defaultOldPacketThreshold = 500 * time.Millisecond
+
+	// defaultNtpTrustThreshold is the maximum allowed divergence between NTP-derived PTS
+	// and wall-clock PTS. If NTP disagrees with wall clock by more than this,
+	// the NTP data is suspect (bad SRs, clock jumps, nonsensical timing) and
+	// we clamp to wall clock. This prevents bad publishers from dragging PTS far
+	// from reality.
+	defaultNtpTrustThreshold = 500 * time.Millisecond
 )
 
 // SyncEngineOption configures a SyncEngine.
@@ -53,6 +60,14 @@ func WithSyncEngineStartGate() SyncEngineOption {
 func WithSyncEngineOldPacketThreshold(d time.Duration) SyncEngineOption {
 	return func(e *SyncEngine) {
 		e.oldPacketThreshold = d
+	}
+}
+
+// WithSyncEngineNtpTrustThreshold sets the max divergence between NTP-derived
+// PTS and wall-clock PTS before clamping to wall clock.
+func WithSyncEngineNtpTrustThreshold(d time.Duration) SyncEngineOption {
+	return func(e *SyncEngine) {
+		e.ntpTrustThreshold = d
 	}
 }
 
@@ -106,7 +121,8 @@ type SyncEngine struct {
 	logger                logger.Logger
 	enableStartGate       bool
 	oldPacketThreshold    time.Duration
-	audioDriftCompensated bool // audio drift handled externally (e.g., tempo controller)
+	ntpTrustThreshold     time.Duration // max NTP-vs-wall divergence before clamping to wall clock
+	audioDriftCompensated bool          // audio drift handled externally (e.g., tempo controller)
 	onStarted             func()
 
 	mediaRunningTime         func() (time.Duration, bool)
@@ -120,6 +136,7 @@ func NewSyncEngine(opts ...SyncEngineOption) *SyncEngine {
 		tracks:             make(map[uint32]*syncEngineTrack),
 		trackIDs:           make(map[string]*syncEngineTrack),
 		oldPacketThreshold: defaultOldPacketThreshold,
+		ntpTrustThreshold:  defaultNtpTrustThreshold,
 	}
 	for _, opt := range opts {
 		opt(e)
