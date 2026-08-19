@@ -132,6 +132,14 @@ func ReaderTrackWithRTCPHandler(f func(rtcp.Packet)) func(provider *ReaderSample
 	}
 }
 
+// ReaderTrackWithSampleObserver observes sample reads, writes, and pacing lag.
+// The observer is invoked synchronously and must not block.
+func ReaderTrackWithSampleObserver(observer SampleObserver) func(provider *ReaderSampleProvider) {
+	return func(provider *ReaderSampleProvider) {
+		provider.trackOpts = append(provider.trackOpts, WithSampleObserver(observer))
+	}
+}
+
 func ReaderTrackWithSampleOptions(opts ...LocalTrackOptions) func(provider *ReaderSampleProvider) {
 	return func(provider *ReaderSampleProvider) {
 		provider.trackOpts = append(provider.trackOpts, opts...)
