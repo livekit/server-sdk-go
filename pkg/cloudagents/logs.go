@@ -61,6 +61,7 @@ func (c *Client) StreamLogs(ctx context.Context, logType, agentID, agentDeployme
 		return fmt.Errorf("failed to get logs: %s - %v", errorResponse.Message, errorResponse.Meta)
 	}
 	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, bufio.MaxScanTokenSize), 4*1024*1024)
 	for {
 		select {
 		case <-ctx.Done():
