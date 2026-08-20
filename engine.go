@@ -76,13 +76,15 @@ type engineHandler interface {
 	OnSubscribedQualityUpdate(subscribedQualityUpdate *livekit.SubscribedQualityUpdate)
 	OnSubscribedAudioCodecUpdate(subscribedAudioCodecUpdate *livekit.SubscribedAudioCodecUpdate)
 	OnMediaSectionsRequirement(mediaSectionsRequirement *livekit.MediaSectionsRequirement)
+	OnSubscriptionResponse(subscriptionResponse *livekit.SubscriptionResponse)
 }
 
 // -------------------------------------------
 
 var (
-	_ signalling.SignalTransportHandler = (*RTCEngine)(nil)
-	_ signalling.SignalProcessor        = (*RTCEngine)(nil)
+	_ signalling.SignalTransportHandler        = (*RTCEngine)(nil)
+	_ signalling.SignalProcessor               = (*RTCEngine)(nil)
+	_ signalling.SubscriptionResponseProcessor = (*RTCEngine)(nil)
 )
 
 // -------------------------------------------
@@ -129,6 +131,8 @@ type RTCEngine struct {
 	trackPublishedListenersLock sync.Mutex
 	trackPublishedListeners     map[string]chan *livekit.TrackPublishedResponse
 
+	subscriptionDesires *subscriptionDesireStore
+
 	subscriberPrimary bool
 	hasPublish        atomic.Bool
 	closed            atomic.Bool
@@ -155,6 +159,7 @@ func NewRTCEngine(
 		trackPublishedListeners:  make(map[string]chan *livekit.TrackPublishedResponse),
 		reliableMsgSeq:           1,
 		connectionManager:        newConnectionManager(regionProvider),
+		subscriptionDesires:      newSubscriptionDesireStore(),
 	}
 	e.signalHandler = signalling.NewSignalHandler(signalling.SignalHandlerParams{
 		Logger:    e.log,
@@ -1661,6 +1666,10 @@ func (e *RTCEngine) OnSubscribedAudioCodecUpdate(subscribedAudioCodecUpdate *liv
 
 func (e *RTCEngine) OnMediaSectionsRequirement(mediaSectionsRequirement *livekit.MediaSectionsRequirement) {
 	e.engineHandler.OnMediaSectionsRequirement(mediaSectionsRequirement)
+}
+
+func (e *RTCEngine) OnSubscriptionResponse(subscriptionResponse *livekit.SubscriptionResponse) {
+	e.engineHandler.OnSubscriptionResponse(subscriptionResponse)
 }
 
 // ------------------------------------

@@ -121,6 +121,11 @@ func (s *signalhandler) HandleMessage(msg proto.Message) error {
 
 	case *livekit.SignalResponse_MediaSectionsRequirement:
 		s.params.Processor.OnMediaSectionsRequirement(payload.MediaSectionsRequirement)
+
+	case *livekit.SignalResponse_SubscriptionResponse:
+		if p, ok := s.params.Processor.(SubscriptionResponseProcessor); ok {
+			p.OnSubscriptionResponse(payload.SubscriptionResponse)
+		}
 	}
 
 	return nil
