@@ -21,7 +21,6 @@ import (
 
 	"github.com/twitchtv/twirp"
 	"google.golang.org/protobuf/types/known/durationpb"
-	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/utils/xtwirp"
@@ -334,7 +333,7 @@ func (s *SIPClient) CreateSIPParticipant(ctx context.Context, in *livekit.Create
 }
 
 // TransferSIPParticipant transfer an existing SIP participant to an outside SIP endpoint.
-func (s *SIPClient) TransferSIPParticipant(ctx context.Context, in *livekit.TransferSIPParticipantRequest) (*emptypb.Empty, error) {
+func (s *SIPClient) TransferSIPParticipant(ctx context.Context, in *livekit.TransferSIPParticipantRequest) (*livekit.TransferSIPParticipantResponse, error) {
 	if in == nil {
 		return nil, ErrInvalidParameter
 	}
