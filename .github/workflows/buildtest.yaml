@@ -31,14 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/go/bin
-            ~/.cache
-          key: server-sdk-go
-      
+
       - name: Set up SoX resampler and Opus
         run: |
           sudo apt-get update
@@ -49,6 +42,23 @@ jobs:
         with:
           # Test against the module minimum declared in go.mod, never a newer toolchain
           go-version-file: go.mod
+          # setup-go's own cache restores on an exact key only, so any go.sum
+          # change is a full cold build. Restored below instead.
+          cache: false
+
+      # The run_id suffix never pre-exists, so a push always writes a fresh
+      # entry rather than one frozen at the go.sum that first created it.
+      - name: Restore Go caches
+        id: go-cache
+        uses: actions/cache/restore@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.run_id }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+            go-${{ runner.os }}-
 
       - name: Set up gotestfmt
         run: go install github.com/gotesttools/gotestfmt/v2/cmd/gotestfmt@latest
@@ -81,3 +91,14 @@ jobs:
           args: test
         env:
           TestFlags: "-v"
+
+      # Only main writes. Pull requests read main's entry, which keeps ~1 GB
+      # per PR run out of the repo's 10 GB cache budget.
+      - name: Save Go caches
+        if: github.event_name == 'push'
+        uses: actions/cache/save@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ steps.go-cache.outputs.cache-primary-key }}
