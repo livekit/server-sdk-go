@@ -8,9 +8,9 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/livekit/mageutil v0.0.0-20250511045019-0f1ff63f7731
-	github.com/livekit/media-sdk v0.0.0-20260812193843-5a5218b19550
-	github.com/livekit/mediatransportutil v0.0.0-20260727210231-81a5287a7109
-	github.com/livekit/protocol v1.50.5-0.20260821144838-17c16cf496fd
+	github.com/livekit/media-sdk v0.0.0-20260821230919-443f401e89b8
+	github.com/livekit/mediatransportutil v0.0.0-20260821083140-f234b534b095
+	github.com/livekit/protocol v1.50.5-0.20260822094129-d74e7cdb9835
 	github.com/magefile/mage v1.17.2
 	github.com/moby/buildkit v0.32.0
 	github.com/moby/patternmatcher v0.6.1
