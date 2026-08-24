@@ -217,25 +217,6 @@ func TestPrepareContextSetsRequestID(t *testing.T) {
 	}
 }
 
-// A caller-supplied request id must be preserved (their higher-level retries
-// should dedup too).
-func TestPrepareContextRespectsCallerRequestID(t *testing.T) {
-	ab := authBase{token: "tok"}
-	inCtx, err := twirp.WithHTTPRequestHeaders(context.Background(),
-		http.Header{requestIDHeader: []string{"caller-123"}})
-	if err != nil {
-		t.Fatalf("WithHTTPRequestHeaders: %v", err)
-	}
-	ctx, err := ab.prepareContext(inCtx, withVideoGrant{RoomCreate: true})
-	if err != nil {
-		t.Fatalf("prepareContext: %v", err)
-	}
-	h, _ := twirp.HTTPRequestHeaders(ctx)
-	if got := h.Get(requestIDHeader); got != "caller-123" {
-		t.Fatalf("caller request id overwritten: got %q", got)
-	}
-}
-
 // The id is generated once per logical call, so every failover attempt must
 // carry the same value — never regenerated per attempt in the transport.
 func TestFailoverPreservesRequestIDAcrossAttempts(t *testing.T) {

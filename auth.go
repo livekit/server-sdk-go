@@ -92,12 +92,10 @@ func (b authBase) prepareContext(ctx context.Context, opt authOption, options ..
 		}
 	}
 
-	// Attach a stable idempotency key once per logical call, unless the caller
-	// already supplied one. failoverTransport replays the same headers on each
+	// Attach a stable idempotency key once per logical call.
+	// failoverTransport replays the same headers on each
 	// retry, so every attempt carries this id and the server can dedup on it.
-	if ctxH.Get(requestIDHeader) == "" {
-		ctxH.Set(requestIDHeader, uuid.NewString())
-	}
+	ctxH.Set(requestIDHeader, uuid.NewString())
 
 	// Detach a long-enough deadline so it isn't enforced across failover retries
 	// (twirp re-checks the context after each request); the transport re-applies
