@@ -83,6 +83,7 @@ func (c *Client) CreateAgent(
 	source fs.FS,
 	secrets []*lkproto.AgentSecret,
 	regions []string,
+	attributes map[string]string,
 	excludeFiles []string,
 	buildLogStreamWriter io.Writer,
 ) (*lkproto.CreateAgentResponse, error) {
@@ -98,8 +99,8 @@ func (c *Client) CreateAgent(
 		resp.PresignedUrl,
 		resp.PresignedPostRequest,
 		source,
-		nil, // no attributes on create
-		"",  // production (create always targets production)
+		attributes,
+		"", // production (create always targets production)
 		excludeFiles,
 		buildLogStreamWriter,
 	); err != nil {
