@@ -536,6 +536,10 @@ func (r *Room) ConnectionState() ConnectionState {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 
+	if r.engine == nil {
+		return ConnectionStateDisconnected
+	}
+
 	switch r.engine.currentState() {
 	case connectionManagerStateInitial, connectionManagerStateClosed:
 		return ConnectionStateDisconnected

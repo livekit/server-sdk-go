@@ -116,3 +116,9 @@ func TestOnRoomUpdateDeliversLateSID(t *testing.T) {
 		return room.SID() == "RM_late"
 	}, time.Second, 10*time.Millisecond, "SID() never returned the SID delivered via OnRoomUpdate")
 }
+
+func TestConnectionStateWithoutEngine(t *testing.T) {
+	room := Room{}
+
+	require.Equal(t, ConnectionStateDisconnected, room.ConnectionState())
+}
