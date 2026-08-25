@@ -119,5 +119,6 @@ func TestOnRoomUpdateDeliversLateSID(t *testing.T) {
 
 func TestConnectionStateWithoutEngine(t *testing.T) {
 	room := NewRoom(nil)
+	room.engine = nil
 	require.Equal(t, ConnectionStateDisconnected, room.ConnectionState())
 }
