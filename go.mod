@@ -8,9 +8,9 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/livekit/mageutil v0.0.0-20250511045019-0f1ff63f7731
-	github.com/livekit/media-sdk v0.0.0-20260821230919-443f401e89b8
+	github.com/livekit/media-sdk v0.0.0-20260828235137-cb2363a4cb4f
 	github.com/livekit/mediatransportutil v0.0.0-20260821083140-f234b534b095
-	github.com/livekit/protocol v1.50.5-0.20260822094129-d74e7cdb9835
+	github.com/livekit/protocol v1.50.5-0.20260829123501-a469dd43727b
 	github.com/magefile/mage v1.17.2
 	github.com/moby/buildkit v0.32.2
 	github.com/moby/patternmatcher v0.6.1
@@ -24,7 +24,7 @@ require (
 	github.com/twitchtv/twirp v8.1.3+incompatible
 	go.uber.org/atomic v1.11.0
 	golang.org/x/crypto v0.55.0
-	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af
+	google.golang.org/protobuf v1.36.12
 )
 
 require (
@@ -82,7 +82,7 @@ require (
 	github.com/klauspost/compress v1.19.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/lithammer/shortuuid/v4 v4.2.0 // indirect
-	github.com/livekit/psrpc v0.7.3 // indirect
+	github.com/livekit/psrpc v0.7.5 // indirect
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.12.2 // indirect
 	github.com/moby/locker v1.0.1 // indirect
 	github.com/moby/sys/signal v0.7.1 // indirect
