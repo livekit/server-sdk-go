@@ -447,8 +447,14 @@ func getConnectionPlanInitial(params connectionPlanParams) ([]connectionAttemptP
 	if !params.incomingRequestParams.disableRegionDiscovery {
 		cloudHostname, _ := parseCloudURL(params.incomingRequestParams.url)
 		if cloudHostname != "" {
+			start := time.Now()
 			settings, err := params.regionURLProvider.RegionSettings(cloudHostname, params.token)
-			if err == nil {
+			if err != nil {
+				// Discovery is best effort. Fall back to the original URL, but make
+				// the cost visible: a timeout here adds 2s to the join.
+				params.log.Warnw("region discovery failed, using original url", err,
+					"cloudHostname", cloudHostname, "duration", time.Since(start))
+			} else {
 				regionsToTry = append(regionsToTry, settings.GetRegions()...)
 			}
 		}
@@ -514,8 +520,14 @@ func getConnectionPlanReconnecting(params connectionPlanParams) ([]connectionAtt
 	if !params.incomingRequestParams.disableRegionDiscovery {
 		cloudHostname, _ := parseCloudURL(params.incomingRequestParams.url)
 		if cloudHostname != "" {
+			start := time.Now()
 			settings, err := params.regionURLProvider.RegionSettings(cloudHostname, params.token)
-			if err == nil {
+			if err != nil {
+				// Discovery is best effort. Fall back to the regions already
+				// collected, but make a slow or failed fetch visible.
+				params.log.Warnw("region discovery failed, using known regions", err,
+					"cloudHostname", cloudHostname, "duration", time.Since(start))
+			} else {
 				regionsToTry = append(regionsToTry, settings.GetRegions()...)
 			}
 		}
