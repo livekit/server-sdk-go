@@ -276,7 +276,9 @@ func (p *ReaderSampleProvider) OnBind() error {
 			p.h264reader, err = h264reader.NewReaderWithOptions(p.reader, h264reader.WithIncludeSEI(true))
 		}
 	case webrtc.MimeTypeH265:
-		p.h265reader, err = h265reader.NewReaderWithOptions(p.reader, h265reader.WithIncludeSEI(true))
+		if p.h26xStreamingFormat == H26xStreamingFormatAnnexB {
+			p.h265reader, err = h265reader.NewReaderWithOptions(p.reader, h265reader.WithIncludeSEI(true))
+		}
 	case webrtc.MimeTypeVP8, webrtc.MimeTypeVP9, webrtc.MimeTypeAV1:
 		var ivfHeader *ivfreader.IVFFileHeader
 		p.ivfReader, ivfHeader, err = ivfreader.NewWith(p.reader)
@@ -677,24 +679,54 @@ func (w *wavReader) readFrame() ([]byte, error) {
 	return buf[:n], nil
 }
 
-// minimal length-prefixed NAL reeader
-func nextNALH264LengthPrefixed(r io.Reader) (h264reader.NalUnitType, []byte, error) {
+// minimal length-prefixed NAL reeader, 4-byte big-endian length prefix
+func nextNALLengthPrefixed(r io.Reader) ([]byte, error) {
 	var hdr [4]byte
 	if _, err := io.ReadFull(r, hdr[:]); err != nil {
-		return 0, nil, err
+		return nil, err
 	}
 
 	n := int(binary.BigEndian.Uint32(hdr[:]))
 	if n <= 0 {
-		return 0, nil, io.ErrUnexpectedEOF
+		return nil, io.ErrUnexpectedEOF
 	}
 
 	buf := make([]byte, n)
 	if _, err := io.ReadFull(r, buf); err != nil {
+		return nil, err
+	}
+
+	return buf, nil
+}
+
+func nextNALH264LengthPrefixed(r io.Reader) (h264reader.NalUnitType, []byte, error) {
+	buf, err := nextNALLengthPrefixed(r)
+	if err != nil {
 		return 0, nil, err
 	}
 
 	return h264reader.NalUnitType(buf[0] & 0x1F), buf, nil
+}
+
+func nextNALH265LengthPrefixed(r io.Reader) (*h265reader.NAL, error) {
+	buf, err := nextNALLengthPrefixed(r)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(buf) < 2 {
+		// the H265 NAL header is two bytes, anything shorter cannot be parsed
+		return nil, io.ErrUnexpectedEOF
+	}
+
+	// mirrors h265reader's header parse, access unit assembly relies on these fields
+	return &h265reader.NAL{
+		ForbiddenZeroBit: (buf[0] & 0x80) != 0,
+		NalUnitType:      h265reader.NalUnitType((buf[0] & 0x7E) >> 1),
+		LayerID:          ((buf[0] & 0x01) << 5) | ((buf[1] & 0xF8) >> 3),
+		TemporalIDPlus1:  buf[1] & 0x07,
+		Data:             buf,
+	}, nil
 }
 
 func detectWavFormat(r io.Reader) (*wavReader, string, error) {
@@ -714,6 +746,10 @@ func (p *ReaderSampleProvider) nextH265NAL() (*h265reader.NAL, error) {
 		nal := p.h265PendingNAL
 		p.h265PendingNAL = nil
 		return nal, nil
+	}
+
+	if p.h26xStreamingFormat == H26xStreamingFormatLengthPrefixed {
+		return nextNALH265LengthPrefixed(p.reader)
 	}
 	return p.h265reader.NextNAL()
 }
