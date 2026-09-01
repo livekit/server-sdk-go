@@ -32,6 +32,13 @@ type ParticipantClock struct {
 	tracks        map[string]*NtpEstimator
 	seenFirstSR   map[string]bool
 	outliers      map[string]int
+	abnormalPTS   map[string]*abnormalPTSEpisode
+}
+
+type abnormalPTSEpisode struct {
+	count int
+	first time.Duration
+	worst time.Duration
 }
 
 // NewParticipantClock creates a new ParticipantClock.
@@ -42,6 +49,7 @@ func NewParticipantClock(l logger.Logger, participantID string) *ParticipantCloc
 		tracks:        make(map[string]*NtpEstimator),
 		seenFirstSR:   make(map[string]bool),
 		outliers:      make(map[string]int),
+		abnormalPTS:   make(map[string]*abnormalPTSEpisode),
 	}
 }
 
@@ -134,6 +142,59 @@ func (pc *ParticipantClock) RtpToReceiverClock(trackID string, rtpTimestamp uint
 	return ntpTime.Add(est.EstimatedOWD()), nil
 }
 
+// NoteSessionPTS returns the session PTS for a track and whether it is abnormal.
+// Sustained abnormal values are logged once per episode, not once per packet.
+func (pc *ParticipantClock) NoteSessionPTS(trackID string, rtpTimestamp uint32, receiverTime, sessionStart time.Time) (time.Duration, bool) {
+	pc.mu.Lock()
+	defer pc.mu.Unlock()
+
+	sessionPTS := receiverTime.Sub(sessionStart)
+	if sessionPTS >= -maxNegativeSessionPTS && sessionPTS <= 24*time.Hour {
+		pc.endAbnormalEpisodeLocked(trackID)
+		return sessionPTS, false
+	}
+
+	ep, ok := pc.abnormalPTS[trackID]
+	if !ok {
+		pc.abnormalPTS[trackID] = &abnormalPTSEpisode{count: 1, first: sessionPTS, worst: sessionPTS}
+		if pc.logger != nil {
+			pc.logger.Warnw("GetSessionPTS: abnormal result", nil,
+				"participantID", pc.participantID,
+				"trackID", trackID,
+				"rtpTimestamp", rtpTimestamp,
+				"receiverTime", receiverTime,
+				"sessionStart", sessionStart,
+				"sessionPTS", sessionPTS,
+			)
+		}
+		return sessionPTS, true
+	}
+
+	ep.count++
+	if sessionPTS.Abs() > ep.worst.Abs() {
+		ep.worst = sessionPTS
+	}
+	return sessionPTS, true
+}
+
+func (pc *ParticipantClock) endAbnormalEpisodeLocked(trackID string) {
+	ep, ok := pc.abnormalPTS[trackID]
+	if !ok {
+		return
+	}
+
+	if pc.logger != nil {
+		pc.logger.Infow("abnormal session PTS episode ended",
+			"participantID", pc.participantID,
+			"trackID", trackID,
+			"abnormalPackets", ep.count,
+			"first", ep.first,
+			"worst", ep.worst,
+		)
+	}
+	delete(pc.abnormalPTS, trackID)
+}
+
 // ResetTrack clears the NTP estimator for a track, forcing it to rebuild
 // from new sender reports. Used when a stream discontinuity is detected.
 func (pc *ParticipantClock) ResetTrack(trackID string) {
@@ -143,6 +204,7 @@ func (pc *ParticipantClock) ResetTrack(trackID string) {
 	if est, ok := pc.tracks[trackID]; ok {
 		est.Reset()
 		delete(pc.outliers, trackID)
+		pc.endAbnormalEpisodeLocked(trackID)
 	}
 }
 
@@ -154,6 +216,7 @@ func (pc *ParticipantClock) RemoveTrack(trackID string) {
 	delete(pc.tracks, trackID)
 	delete(pc.seenFirstSR, trackID)
 	delete(pc.outliers, trackID)
+	delete(pc.abnormalPTS, trackID)
 }
 
 // HasTrack returns true if the participant has a track with the given ID.

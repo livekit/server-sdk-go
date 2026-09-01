@@ -24,9 +24,13 @@ import (
 )
 
 var (
-	errNoSenderReports = errors.New("SessionTimeline: no sender reports received for track")
-	errNoSessionStart  = errors.New("SessionTimeline: session start time not set")
+	errNoSenderReports    = errors.New("SessionTimeline: no sender reports received for track")
+	errNoSessionStart     = errors.New("SessionTimeline: session start time not set")
+	errAbnormalSessionPTS = errors.New("SessionTimeline: session PTS outside plausible range")
 )
+
+// OWD and regression noise put a participant's first frames slightly before a session start set by another track
+const maxNegativeSessionPTS = time.Second
 
 // SessionTimeline establishes a shared recording timeline and maps each
 // participant's NTP clock domain onto it using OWD (one-way delay)
@@ -168,7 +172,8 @@ func (st *SessionTimeline) OnSenderReport(participantID, trackID string, clockRa
 }
 
 // GetSessionPTS maps an RTP timestamp for a participant's track to a position
-// on the shared session timeline.
+// on the shared session timeline. It returns errAbnormalSessionPTS when the
+// result falls outside the plausible range.
 //
 // The formula is: sessionPTS = ntpTime + estimatedOWD - sessionStart
 func (st *SessionTimeline) GetSessionPTS(participantID, trackID string, rtpTimestamp uint32) (time.Duration, error) {
@@ -190,18 +195,9 @@ func (st *SessionTimeline) GetSessionPTS(participantID, trackID string, rtpTimes
 		return 0, err
 	}
 
-	sessionPTS := receiverTime.Sub(sessionStart)
-
-	if (sessionPTS < 0 || sessionPTS > 24*time.Hour) && st.logger != nil {
-		st.logger.Warnw("GetSessionPTS: abnormal result",
-			nil,
-			"participantID", participantID,
-			"trackID", trackID,
-			"rtpTimestamp", rtpTimestamp,
-			"receiverTime", receiverTime,
-			"sessionStart", sessionStart,
-			"sessionPTS", sessionPTS,
-		)
+	sessionPTS, abnormal := pc.NoteSessionPTS(trackID, rtpTimestamp, receiverTime, sessionStart)
+	if abnormal {
+		return 0, errAbnormalSessionPTS
 	}
 
 	return sessionPTS, nil

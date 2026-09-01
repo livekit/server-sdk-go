@@ -134,6 +134,9 @@ func TestSyncEngine_TransitionsToNTPAfterSRs(t *testing.T) {
 		engine.OnRTCP(sr)
 	}
 
+	// without this, a tightened SR domain threshold would starve the regression and the PTS check alone would still pass
+	require.True(t, estimatorReady(engine, "alice", "audio-1"), "NTP regression should be ready")
+
 	// Get PTS after NTP transition - should still be valid and advancing.
 	pkt2 := makeExtPacket(48000, 2, now.Add(time.Second))
 	pts2, err := ts.GetPTS(pkt2)
@@ -353,6 +356,8 @@ func TestSyncEngine_OnRTCP_DriftCallback_NotCalledBeforeTrackInitialized(t *test
 	}
 
 	require.False(t, fired, "onSR must not fire before any packets have initialized the track")
+	require.True(t, estimatorReady(engine, "alice", "audio-1"),
+		"SRs arriving before the first media packet must not be judged against the media domain")
 }
 
 // primeNTPReady drives enough SRs and forward packets through the track to
@@ -585,4 +590,78 @@ func TestSyncEngine_OnSR_NotCalledAfterRemoveTrack(t *testing.T) {
 	tr.mu.Unlock()
 
 	require.False(t, fired, "no callback should have fired during Close")
+}
+
+// parks the media head at RTP 48000 so sender reports can be aimed at a chosen offset from it
+func primeGuardTrack(t *testing.T, engine *SyncEngine, receivedAt time.Time) (TrackSync, *syncEngineTrack) {
+	t.Helper()
+	track := newMockAudioTrack("audio-1", 1000)
+	ts := engine.AddTrack(track, "alice")
+	pkt := makeExtPacket(48000, 0, receivedAt)
+	ts.PrimeForStart(pkt)
+	ts.GetPTS(pkt)
+	return ts, ts.(*syncEngineTrack)
+}
+
+func srDomainRejectCount(st *syncEngineTrack) int {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return st.srRejected
+}
+
+// GetSessionPTS is not a substitute: synthetic SR NTP ahead of receivedAt gives a negative OWD that trips the deadband
+func estimatorReady(engine *SyncEngine, participantID, trackID string) bool {
+	pc := engine.timeline.GetParticipantClock(participantID)
+	if pc == nil {
+		return false
+	}
+
+	pc.mu.Lock()
+	defer pc.mu.Unlock()
+	est, ok := pc.tracks[trackID]
+	return ok && est.IsReady()
+}
+
+func TestSyncEngine_OnRTCP_RejectsWrongDomainSR(t *testing.T) {
+	// the CS-2011 reference track, and the smaller EG_d9sUZVjEHmuD magnitude that a 60s bound accepts
+	for _, tc := range []struct {
+		name   string
+		offset uint32
+	}{
+		{"10098s", 484740415},
+		{"37.9s", 1819200},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			engine := NewSyncEngine(WithSyncEngineOldPacketThreshold(0))
+			ts, st := primeGuardTrack(t, engine, time.Now())
+
+			fired := false
+			ts.OnSenderReport(func(time.Duration) { fired = true })
+
+			now := time.Now()
+			for i := 1; i <= 6; i++ {
+				engine.OnRTCP(makeSenderReport(1000, ntpToUint64(now.Add(time.Duration(i)*time.Second)), 48000+tc.offset+uint32(i)*48000))
+			}
+
+			require.Equal(t, 6, srDomainRejectCount(st), "every wrong-domain SR should be rejected")
+			require.False(t, fired, "a rejected SR must not produce a drift sample")
+			require.False(t, estimatorReady(engine, "alice", "audio-1"), "no SR should have reached the estimator")
+
+			engine.OnRTCP(makeSenderReport(1000, ntpToUint64(now), 48000))
+			require.Zero(t, srDomainRejectCount(st), "an in-domain SR ends the episode")
+		})
+	}
+}
+
+func TestSyncEngine_OnRTCP_AcceptsSRAcrossMediaGap(t *testing.T) {
+	// silence suppression freezes the media head while sender reports keep advancing
+	engine := NewSyncEngine(WithSyncEngineOldPacketThreshold(0))
+	_, st := primeGuardTrack(t, engine, time.Now().Add(-10*time.Second))
+
+	for i := 1; i <= 5; i++ {
+		engine.OnRTCP(makeSenderReport(1000, ntpToUint64(time.Now()), 48000+10*48000+uint32(i)*960))
+	}
+
+	require.Zero(t, srDomainRejectCount(st), "a 10s media gap must not read as a domain mismatch")
+	require.True(t, estimatorReady(engine, "alice", "audio-1"))
 }

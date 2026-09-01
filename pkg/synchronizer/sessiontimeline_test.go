@@ -221,3 +221,41 @@ func TestSessionTimeline_FallbackBeforeSRs(t *testing.T) {
 	_, err = st.GetSessionPTS("unknown", "track-x", 1000)
 	require.Error(t, err)
 }
+
+func TestSessionTimeline_AbnormalSessionPTS(t *testing.T) {
+	const clockRate = 48000
+
+	// session start sits offset after the participant's NTP epoch, so RTP 0 maps to -offset;
+	// 3ms is CS-2011's observed legitimate negative, from OWD and regression noise
+	for _, tc := range []struct {
+		name     string
+		offset   time.Duration
+		abnormal bool
+	}{
+		{"negative beyond deadband", 5 * time.Second, true},
+		{"negative within deadband", 3 * time.Millisecond, false},
+		{"beyond 24h", -25 * time.Hour, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := NewSessionTimeline(nil)
+			baseNTP := time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC)
+			st.SetSessionStart(baseNTP.Add(tc.offset))
+			st.AddParticipant("alice")
+
+			for i := 0; i < 5; i++ {
+				senderNTP := baseNTP.Add(time.Duration(i) * 2 * time.Second)
+				st.OnSenderReport("alice", "audio-a", clockRate, ntpToUint64(senderNTP), uint32(i)*2*clockRate, senderNTP)
+			}
+
+			pts, err := st.GetSessionPTS("alice", "audio-a", 0)
+			if tc.abnormal {
+				require.ErrorIs(t, err, errAbnormalSessionPTS)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Less(t, pts, time.Duration(0))
+			require.Greater(t, pts, -maxNegativeSessionPTS)
+		})
+	}
+}
