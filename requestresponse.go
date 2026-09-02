@@ -34,11 +34,11 @@ type pendingRequest struct {
 func (e *RTCEngine) newPendingRequest() *pendingRequest {
 	p := &pendingRequest{
 		engine: e,
-		id:     e.nextRequestID(),
 		ch:     make(chan *livekit.RequestResponse, 1),
 	}
 
 	e.pendingRequestsLock.Lock()
+	p.id = e.allocateRequestIDLocked()
 	if e.closed.Load() {
 		// nothing will answer, fail Await right away
 		close(p.ch)
@@ -50,12 +50,16 @@ func (e *RTCEngine) newPendingRequest() *pendingRequest {
 	return p
 }
 
-// nextRequestID returns an id for correlating a signal request with its RequestResponse.
-// 0 is never returned, it marks a request that is not correlated.
-func (e *RTCEngine) nextRequestID() uint32 {
+// allocateRequestIDLocked returns the next request id not in use by a pending request, skipping
+// zero. Wrapping around is harmless: an id is reused only once its previous request is done.
+func (e *RTCEngine) allocateRequestIDLocked() uint32 {
 	for {
-		if id := e.requestIDCounter.Inc(); id != 0 {
-			return id
+		e.nextRequestID++
+		if e.nextRequestID == 0 {
+			continue
+		}
+		if _, inUse := e.pendingRequests[e.nextRequestID]; !inUse {
+			return e.nextRequestID
 		}
 	}
 }
