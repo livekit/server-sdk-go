@@ -111,6 +111,32 @@ func TestPendingRequestContextDone(t *testing.T) {
 	require.False(t, engine.deliverResponse(pending.ID(), &livekit.RequestResponse{RequestId: pending.ID()}))
 }
 
+func TestWithDefaultTimeout(t *testing.T) {
+	ctx, cancel := withDefaultTimeout(context.Background(), time.Minute)
+	defer cancel()
+	deadline, ok := ctx.Deadline()
+	require.True(t, ok)
+	require.WithinDuration(t, time.Now().Add(time.Minute), deadline, 5*time.Second)
+
+	// a caller's own deadline is left alone, even when it is longer than the default
+	parent, cancelParent := context.WithTimeout(context.Background(), time.Hour)
+	defer cancelParent()
+	parentDeadline, _ := parent.Deadline()
+	ctx, cancel = withDefaultTimeout(parent, time.Minute)
+	defer cancel()
+	deadline, ok = ctx.Deadline()
+	require.True(t, ok)
+	require.Equal(t, parentDeadline, deadline)
+
+	engine := newTestEngine(t)
+	pending := engine.newPendingRequest()
+	ctx, cancel = withDefaultTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	_, err := pending.Await(ctx)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Zero(t, engine.pendingRequestCount())
+}
+
 func TestPendingRequestAbortedOnClose(t *testing.T) {
 	engine := newTestEngine(t)
 

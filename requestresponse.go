@@ -17,6 +17,7 @@ package lksdk
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/livekit/protocol/livekit"
 	"google.golang.org/protobuf/proto"
@@ -78,11 +79,9 @@ func (p *pendingRequest) ID() uint32 {
 	return p.id
 }
 
-// Await blocks until a response arrives, ctx is done, or the engine is closed.
-//
-// A RequestResponse with a reason other than OK is returned as a *SignalRequestError. Any
-// other message, including an OK RequestResponse, is returned as is; see awaitResponse to
-// also assert its type.
+// Await blocks until a response arrives, ctx is done, or the engine is closed. It has no timeout
+// of its own, see withDefaultTimeout. A RequestResponse with a reason other than OK is returned
+// as a *SignalRequestError.
 func (p *pendingRequest) Await(ctx context.Context) (proto.Message, error) {
 	defer p.engine.removePendingRequest(p.id)
 
@@ -118,6 +117,15 @@ func awaitResponse[T proto.Message](ctx context.Context, p *pendingRequest) (T, 
 		return zero, fmt.Errorf("unexpected response %T to signal request %d", res, p.id)
 	}
 	return typed, nil
+}
+
+// withDefaultTimeout applies deadline d to ctx when it has none. A deadline the caller set is
+// never shortened. The returned cancel must be called.
+func withDefaultTimeout(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
+	if _, ok := ctx.Deadline(); ok {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, d)
 }
 
 func (e *RTCEngine) removePendingRequest(requestID uint32) {
