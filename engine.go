@@ -129,6 +129,11 @@ type RTCEngine struct {
 	trackPublishedListenersLock sync.Mutex
 	trackPublishedListeners     map[string]chan *livekit.TrackPublishedResponse
 
+	// signal requests waiting for their RequestResponse, keyed by request id
+	requestIDCounter    atomic.Uint32
+	pendingRequestsLock sync.Mutex
+	pendingRequests     map[uint32]chan *livekit.RequestResponse
+
 	subscriberPrimary bool
 	hasPublish        atomic.Bool
 	closed            atomic.Bool
@@ -153,6 +158,7 @@ func NewRTCEngine(
 		engineHandler:            engineHandler,
 		cbGetLocalParticipantSID: getLocalParticipantSID,
 		trackPublishedListeners:  make(map[string]chan *livekit.TrackPublishedResponse),
+		pendingRequests:          make(map[uint32]chan *livekit.RequestResponse),
 		reliableMsgSeq:           1,
 		connectionManager:        newConnectionManager(regionProvider),
 	}
@@ -358,6 +364,7 @@ func (e *RTCEngine) Close() {
 	}
 
 	e.connectionManager.setClosed()
+	e.abortPendingRequests()
 
 	e.pclock.Lock()
 	e.pendingPublisherOffer = webrtc.SessionDescription{}
@@ -1664,6 +1671,10 @@ func (e *RTCEngine) OnMediaSectionsRequirement(mediaSectionsRequirement *livekit
 }
 
 func (e *RTCEngine) OnRequestResponse(res *livekit.RequestResponse) {
+	if e.deliverRequestResponse(res) {
+		return
+	}
+
 	if res.GetReason() != livekit.RequestResponse_OK {
 		e.log.Warnw(
 			"signal request failed", nil,
