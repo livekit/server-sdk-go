@@ -87,6 +87,7 @@ type syncEngineTrack struct {
 	srRejected     int
 	srRejectFirst  time.Time
 	srRejectMaxGap time.Duration
+	srBeforeInit   bool // an SR reached the timeline while the domain guard was still disarmed
 
 	// pipeline time feedback
 	lastTimelyPacket time.Time
@@ -158,6 +159,13 @@ func (st *syncEngineTrack) initializeLocked(pkt jitter.ExtPacket) func() {
 	st.lastTS = pkt.Timestamp
 	st.lastTimelyPacket = receivedAt
 	st.initialized = true
+
+	// Those SRs were admitted unchecked, and once the guard arms it rejects the very
+	// SRs whose outliers would have rebuilt a wrong-domain fit. Drop it now instead.
+	if st.srBeforeInit {
+		st.srBeforeInit = false
+		st.engine.timeline.ResetTrack(st.participantID, st.track.ID())
+	}
 
 	// Initialize the engine's session start time.
 	sessionStart, onStarted := st.engine.initializeIfNeeded(receivedAt)

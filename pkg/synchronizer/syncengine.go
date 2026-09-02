@@ -320,6 +320,9 @@ func (e *SyncEngine) OnRTCP(packet rtcp.Packet) {
 		return
 	}
 	st.endSRDomainEpisodeLocked()
+	if !st.initialized {
+		st.srBeforeInit = true
+	}
 	e.timeline.OnSenderReport(participantID, trackID, clockRate, sr.NTPTime, sr.RTPTime, now)
 	onSR := st.onSR
 	st.mu.Unlock()

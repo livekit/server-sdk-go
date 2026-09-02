@@ -651,6 +651,23 @@ func TestSyncEngine_OnRTCP_RejectsWrongDomainSR(t *testing.T) {
 			require.Zero(t, srDomainRejectCount(st), "an in-domain SR ends the episode")
 		})
 	}
+
+	t.Run("pre-roll", func(t *testing.T) {
+		engine := NewSyncEngine(WithSyncEngineOldPacketThreshold(0))
+		ts := engine.AddTrack(newMockAudioTrack("audio-1", 1000), "alice")
+
+		now := time.Now()
+		for i := 1; i <= minSamplesReady; i++ {
+			engine.OnRTCP(makeSenderReport(1000, ntpToUint64(now.Add(time.Duration(i)*time.Second)), 484740415+uint32(i)*48000))
+		}
+		require.True(t, estimatorReady(engine, "alice", "audio-1"), "the guard is disarmed until the first packet, so these build a fit")
+
+		pkt := makeExtPacket(48000, 0, now)
+		ts.PrimeForStart(pkt)
+		ts.GetPTS(pkt)
+
+		require.False(t, estimatorReady(engine, "alice", "audio-1"), "the wrong-domain fit must not survive initialization")
+	})
 }
 
 func TestSyncEngine_OnRTCP_AcceptsSRAcrossMediaGap(t *testing.T) {
