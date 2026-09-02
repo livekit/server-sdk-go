@@ -176,3 +176,27 @@ func (s *signallingBase) SignalUpdateParticipantMetadata(metadata *livekit.Updat
 		},
 	}
 }
+
+func (s *signallingBase) SignalPublishDataTrack(publishDataTrack *livekit.PublishDataTrackRequest) proto.Message {
+	return &livekit.SignalRequest{
+		Message: &livekit.SignalRequest_PublishDataTrackRequest{
+			PublishDataTrackRequest: publishDataTrack,
+		},
+	}
+}
+
+func (s *signallingBase) SignalUnpublishDataTrack(unpublishDataTrack *livekit.UnpublishDataTrackRequest) proto.Message {
+	return &livekit.SignalRequest{
+		Message: &livekit.SignalRequest_UnpublishDataTrackRequest{
+			UnpublishDataTrackRequest: unpublishDataTrack,
+		},
+	}
+}
+
+func (s *signallingBase) SignalUpdateDataSubscription(updateDataSubscription *livekit.UpdateDataSubscription) proto.Message {
+	return &livekit.SignalRequest{
+		Message: &livekit.SignalRequest_UpdateDataSubscription{
+			UpdateDataSubscription: updateDataSubscription,
+		},
+	}
+}
