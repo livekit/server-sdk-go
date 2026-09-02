@@ -185,4 +185,7 @@ type SignalProcessor interface {
 	OnSubscribedAudioCodecUpdate(subscribedAudioCodecUpdate *livekit.SubscribedAudioCodecUpdate)
 	OnMediaSectionsRequirement(mediaSectionsRequirement *livekit.MediaSectionsRequirement)
 	OnRequestResponse(requestResponse *livekit.RequestResponse)
+	OnPublishDataTrackResponse(publishDataTrackResponse *livekit.PublishDataTrackResponse)
+	OnUnpublishDataTrackResponse(unpublishDataTrackResponse *livekit.UnpublishDataTrackResponse)
+	OnDataTrackSubscriberHandles(dataTrackSubscriberHandles *livekit.DataTrackSubscriberHandles)
 }
