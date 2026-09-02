@@ -40,6 +40,11 @@ const (
 	// before its PTS is force-corrected forward.
 	maxTimelyPacketAge = 10 * time.Second
 
+	// srDomainRecoveryRun is how many consecutive in-domain sender reports end a
+	// rejection episode. A publisher interleaving two SR domains alternates
+	// accept/reject, which would re-arm the warning on every pair if one sufficed.
+	srDomainRecoveryRun = 3
+
 	// slewRatePerSecond is the maximum rate at which PTS corrections are absorbed.
 	slewRatePerSecond = 5 * time.Millisecond
 
@@ -85,6 +90,7 @@ type syncEngineTrack struct {
 	clampMaxDiff   time.Duration
 
 	srRejected     int
+	srAccepted     int
 	srRejectFirst  time.Time
 	srRejectMaxGap time.Duration
 	srBeforeInit   bool // an SR reached the timeline while the domain guard was still disarmed
@@ -522,6 +528,7 @@ func (st *syncEngineTrack) endClampEpisodeLocked(wallPTS time.Duration) {
 
 func (st *syncEngineTrack) noteSRDomainRejectLocked(gap time.Duration, now time.Time) bool {
 	st.srRejected++
+	st.srAccepted = 0
 	if st.srRejected == 1 {
 		st.srRejectFirst = now
 		st.srRejectMaxGap = gap
@@ -532,6 +539,17 @@ func (st *syncEngineTrack) noteSRDomainRejectLocked(gap time.Duration, now time.
 		st.srRejectMaxGap = gap
 	}
 	return false
+}
+
+func (st *syncEngineTrack) noteSRDomainAcceptLocked() {
+	if st.srRejected == 0 {
+		return
+	}
+
+	st.srAccepted++
+	if st.srAccepted >= srDomainRecoveryRun {
+		st.endSRDomainEpisodeLocked()
+	}
 }
 
 func (st *syncEngineTrack) endSRDomainEpisodeLocked() {
@@ -545,6 +563,7 @@ func (st *syncEngineTrack) endSRDomainEpisodeLocked() {
 		"maxGap", st.srRejectMaxGap,
 	)
 	st.srRejected = 0
+	st.srAccepted = 0
 	st.srRejectFirst = time.Time{}
 	st.srRejectMaxGap = 0
 }
@@ -616,10 +635,6 @@ func (st *syncEngineTrack) signedRTPDuration(ts uint32) time.Duration {
 func (st *syncEngineTrack) rtpVsWallGapLocked(ts uint32, receivedAt time.Time) (time.Duration, bool) {
 	if !st.initialized {
 		return 0, false
-	}
-
-	if receivedAt.IsZero() {
-		receivedAt = time.Now()
 	}
 
 	wallElapsed := receivedAt.Sub(st.startTime) + st.sessionOffset

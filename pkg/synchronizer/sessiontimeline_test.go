@@ -225,8 +225,7 @@ func TestSessionTimeline_FallbackBeforeSRs(t *testing.T) {
 func TestSessionTimeline_AbnormalSessionPTS(t *testing.T) {
 	const clockRate = 48000
 
-	// session start sits offset after the participant's NTP epoch, so RTP 0 maps to -offset;
-	// 3ms is CS-2011's observed legitimate negative, from OWD and regression noise
+	// 3ms is the observed legitimate negative, from OWD and regression noise
 	for _, tc := range []struct {
 		name     string
 		offset   time.Duration
@@ -247,9 +246,16 @@ func TestSessionTimeline_AbnormalSessionPTS(t *testing.T) {
 				st.OnSenderReport("alice", "audio-a", clockRate, ntpToUint64(senderNTP), uint32(i)*2*clockRate, senderNTP)
 			}
 
+			if tc.abnormal {
+				_, sampleErr := st.sampleSessionPTS("alice", "audio-a", 0)
+				require.ErrorIs(t, sampleErr, errAbnormalSessionPTS)
+				require.Empty(t, st.GetParticipantClock("alice").abnormalPTS, "the diagnostic path must not open an episode")
+			}
+
 			pts, err := st.GetSessionPTS("alice", "audio-a", 0)
 			if tc.abnormal {
 				require.ErrorIs(t, err, errAbnormalSessionPTS)
+				require.Len(t, st.GetParticipantClock("alice").abnormalPTS, 1, "the packet path does")
 				return
 			}
 

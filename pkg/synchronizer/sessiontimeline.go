@@ -32,6 +32,9 @@ var (
 // OWD and regression noise put a participant's first frames slightly before a session start set by another track
 const maxNegativeSessionPTS = time.Second
 
+// deliberate max-session-length policy, not derived from the RTP wrap period
+const maxSessionPTS = 24 * time.Hour
+
 // SessionTimeline establishes a shared recording timeline and maps each
 // participant's NTP clock domain onto it using OWD (one-way delay)
 // normalization. This is the key component that fixes cross-participant
@@ -177,6 +180,16 @@ func (st *SessionTimeline) OnSenderReport(participantID, trackID string, clockRa
 //
 // The formula is: sessionPTS = ntpTime + estimatedOWD - sessionStart
 func (st *SessionTimeline) GetSessionPTS(participantID, trackID string, rtpTimestamp uint32) (time.Duration, error) {
+	return st.sessionPTS(participantID, trackID, rtpTimestamp, true)
+}
+
+// sampleSessionPTS is GetSessionPTS for callers that only read the value; it leaves
+// abnormal-episode state untouched so a diagnostic cannot perturb the packet path's.
+func (st *SessionTimeline) sampleSessionPTS(participantID, trackID string, rtpTimestamp uint32) (time.Duration, error) {
+	return st.sessionPTS(participantID, trackID, rtpTimestamp, false)
+}
+
+func (st *SessionTimeline) sessionPTS(participantID, trackID string, rtpTimestamp uint32, note bool) (time.Duration, error) {
 	st.mu.RLock()
 	if !st.hasStart {
 		st.mu.RUnlock()
@@ -195,7 +208,13 @@ func (st *SessionTimeline) GetSessionPTS(participantID, trackID string, rtpTimes
 		return 0, err
 	}
 
-	sessionPTS, abnormal := pc.NoteSessionPTS(trackID, rtpTimestamp, receiverTime, sessionStart)
+	var sessionPTS time.Duration
+	var abnormal bool
+	if note {
+		sessionPTS, abnormal = pc.NoteSessionPTS(trackID, rtpTimestamp, receiverTime, sessionStart)
+	} else {
+		sessionPTS, abnormal = classifySessionPTS(receiverTime, sessionStart)
+	}
 	if abnormal {
 		return 0, errAbnormalSessionPTS
 	}

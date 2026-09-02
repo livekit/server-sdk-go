@@ -319,8 +319,8 @@ func (e *SyncEngine) OnRTCP(packet rtcp.Packet) {
 		st.mu.Unlock()
 		return
 	}
-	st.endSRDomainEpisodeLocked()
-	if !st.initialized {
+	st.noteSRDomainAcceptLocked()
+	if !st.initialized && e.srDomainThreshold > 0 {
 		st.srBeforeInit = true
 	}
 	e.timeline.OnSenderReport(participantID, trackID, clockRate, sr.NTPTime, sr.RTPTime, now)
@@ -336,7 +336,7 @@ func (e *SyncEngine) OnRTCP(packet rtcp.Packet) {
 		return
 	}
 
-	sessionPTS, err := e.timeline.GetSessionPTS(participantID, trackID, sr.RTPTime)
+	sessionPTS, err := e.timeline.sampleSessionPTS(participantID, trackID, sr.RTPTime)
 	if err != nil {
 		return
 	}

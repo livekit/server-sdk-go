@@ -623,13 +623,14 @@ func estimatorReady(engine *SyncEngine, participantID, trackID string) bool {
 }
 
 func TestSyncEngine_OnRTCP_RejectsWrongDomainSR(t *testing.T) {
-	// the CS-2011 reference track, and the smaller EG_d9sUZVjEHmuD magnitude that a 60s bound accepts
+	// the two magnitudes observed in production, plus a row whose 7s floor brackets the threshold from above
 	for _, tc := range []struct {
 		name   string
 		offset uint32
 	}{
 		{"10098s", 484740415},
 		{"37.9s", 1819200},
+		{"6s", 288000},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			engine := NewSyncEngine(WithSyncEngineOldPacketThreshold(0))
@@ -647,10 +648,28 @@ func TestSyncEngine_OnRTCP_RejectsWrongDomainSR(t *testing.T) {
 			require.False(t, fired, "a rejected SR must not produce a drift sample")
 			require.False(t, estimatorReady(engine, "alice", "audio-1"), "no SR should have reached the estimator")
 
-			engine.OnRTCP(makeSenderReport(1000, ntpToUint64(now), 48000))
-			require.Zero(t, srDomainRejectCount(st), "an in-domain SR ends the episode")
+			engine.OnRTCP(makeSenderReport(1000, ntpToUint64(now), 240000))
+			require.NotZero(t, srDomainRejectCount(st), "one in-domain SR is not enough to end the episode")
+
+			for i := 1; i < srDomainRecoveryRun; i++ {
+				engine.OnRTCP(makeSenderReport(1000, ntpToUint64(now.Add(time.Duration(i)*time.Millisecond)), 240000))
+			}
+			require.Zero(t, srDomainRejectCount(st), "a 4s in-domain gap must still be accepted, and a run of them ends the episode")
 		})
 	}
+
+	t.Run("interleaved domains", func(t *testing.T) {
+		engine := NewSyncEngine(WithSyncEngineOldPacketThreshold(0))
+		_, st := primeGuardTrack(t, engine, time.Now())
+
+		now := time.Now()
+		for i := 1; i <= 4; i++ {
+			engine.OnRTCP(makeSenderReport(1000, ntpToUint64(now.Add(time.Duration(i)*time.Second)), 48000+1819200+uint32(i)*48000))
+			engine.OnRTCP(makeSenderReport(1000, ntpToUint64(now.Add(time.Duration(i)*time.Second)), 48000))
+		}
+
+		require.Equal(t, 4, srDomainRejectCount(st), "alternating domains must not flush the episode on every accepted SR")
+	})
 
 	t.Run("pre-roll", func(t *testing.T) {
 		engine := NewSyncEngine(WithSyncEngineOldPacketThreshold(0))
@@ -667,6 +686,19 @@ func TestSyncEngine_OnRTCP_RejectsWrongDomainSR(t *testing.T) {
 		ts.GetPTS(pkt)
 
 		require.False(t, estimatorReady(engine, "alice", "audio-1"), "the wrong-domain fit must not survive initialization")
+
+		disabled := NewSyncEngine(WithSyncEngineOldPacketThreshold(0), WithSyncEngineSRDomainThreshold(0))
+		dts := disabled.AddTrack(newMockAudioTrack("audio-1", 1000), "alice")
+
+		for i := 1; i <= minSamplesReady; i++ {
+			disabled.OnRTCP(makeSenderReport(1000, ntpToUint64(now.Add(time.Duration(i)*time.Second)), 484740415+uint32(i)*48000))
+		}
+
+		dpkt := makeExtPacket(48000, 0, now)
+		dts.PrimeForStart(dpkt)
+		dts.GetPTS(dpkt)
+
+		require.True(t, estimatorReady(disabled, "alice", "audio-1"), "a disabled guard rejects nothing, so the estimator can still rebuild itself and nothing is discarded")
 	})
 }
 

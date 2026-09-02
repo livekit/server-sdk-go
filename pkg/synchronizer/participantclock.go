@@ -142,14 +142,20 @@ func (pc *ParticipantClock) RtpToReceiverClock(trackID string, rtpTimestamp uint
 	return ntpTime.Add(est.EstimatedOWD()), nil
 }
 
+func classifySessionPTS(receiverTime, sessionStart time.Time) (time.Duration, bool) {
+	sessionPTS := receiverTime.Sub(sessionStart)
+	return sessionPTS, sessionPTS < -maxNegativeSessionPTS || sessionPTS > maxSessionPTS
+}
+
 // NoteSessionPTS returns the session PTS for a track and whether it is abnormal.
 // Sustained abnormal values are logged once per episode, not once per packet.
 func (pc *ParticipantClock) NoteSessionPTS(trackID string, rtpTimestamp uint32, receiverTime, sessionStart time.Time) (time.Duration, bool) {
+	sessionPTS, abnormal := classifySessionPTS(receiverTime, sessionStart)
+
 	pc.mu.Lock()
 	defer pc.mu.Unlock()
 
-	sessionPTS := receiverTime.Sub(sessionStart)
-	if sessionPTS >= -maxNegativeSessionPTS && sessionPTS <= 24*time.Hour {
+	if !abnormal {
 		pc.endAbnormalEpisodeLocked(trackID)
 		return sessionPTS, false
 	}
