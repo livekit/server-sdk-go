@@ -135,6 +135,8 @@ type RTCEngine struct {
 	reliableMsgLock sync.Mutex
 	reliableMsgSeq  uint32
 
+	dataTrackSender *dataTrackSender
+
 	trackPublishedListenersLock sync.Mutex
 	trackPublishedListeners     map[string]chan *livekit.TrackPublishedResponse
 
@@ -175,6 +177,7 @@ func NewRTCEngine(
 		Logger:    e.log,
 		Processor: e,
 	})
+	e.dataTrackSender = newDataTrackSender(e.dataTrackDataChannel, e.log)
 	e.configureSignalling(useSinglePeerConnection)
 
 	return e
@@ -207,6 +210,7 @@ func (e *RTCEngine) configureSignalling(useSinglePeerConnection bool) {
 // SetLogger overrides default logger.
 func (e *RTCEngine) SetLogger(l protoLogger.Logger) {
 	e.log = l
+	e.dataTrackSender.setLogger(l)
 	e.connectionManager.setLogger(l)
 	e.signalling.SetLogger(l)
 	e.signalHandler.SetLogger(l)
@@ -374,6 +378,7 @@ func (e *RTCEngine) Close() {
 
 	e.connectionManager.setClosed()
 	e.abortPendingRequests()
+	e.dataTrackSender.stop()
 
 	e.pclock.Lock()
 	e.pendingPublisherOffer = webrtc.SessionDescription{}
@@ -572,6 +577,9 @@ func (e *RTCEngine) createPublisherPCLocked(configuration webrtc.Configuration) 
 		return err
 	}
 	e.dataTrackDC.OnMessage(e.handleDataTrackPacket)
+	e.dataTrackDC.SetBufferedAmountLowThreshold(dataTrackBufferedAmountLowThreshold)
+	e.dataTrackDC.OnBufferedAmountLow(e.dataTrackSender.wake)
+	e.dataTrackDC.OnOpen(e.dataTrackSender.wake)
 	e.dclock.Unlock()
 
 	return nil
@@ -1849,4 +1857,14 @@ func waitUntilConnected(d time.Duration, test func() bool) error {
 			}
 		}
 	}
+}
+
+func (e *RTCEngine) dataTrackDataChannel() *webrtc.DataChannel {
+	e.dclock.RLock()
+	defer e.dclock.RUnlock()
+	return e.dataTrackDC
+}
+
+func (e *RTCEngine) sendDataTrackFrame(frame dataTrackFramePackets) {
+	e.dataTrackSender.send(frame)
 }
