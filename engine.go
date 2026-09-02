@@ -76,6 +76,7 @@ type engineHandler interface {
 	OnSubscribedQualityUpdate(subscribedQualityUpdate *livekit.SubscribedQualityUpdate)
 	OnSubscribedAudioCodecUpdate(subscribedAudioCodecUpdate *livekit.SubscribedAudioCodecUpdate)
 	OnMediaSectionsRequirement(mediaSectionsRequirement *livekit.MediaSectionsRequirement)
+	OnRequestResponse(requestResponse *livekit.RequestResponse)
 }
 
 // -------------------------------------------
@@ -1675,14 +1676,7 @@ func (e *RTCEngine) OnRequestResponse(res *livekit.RequestResponse) {
 		return
 	}
 
-	if res.GetReason() != livekit.RequestResponse_OK {
-		e.log.Warnw(
-			"signal request failed", nil,
-			"requestID", res.GetRequestId(),
-			"reason", res.GetReason(),
-			"message", res.GetMessage(),
-		)
-	}
+	e.engineHandler.OnRequestResponse(res)
 }
 
 // ------------------------------------
