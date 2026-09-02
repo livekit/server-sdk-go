@@ -117,3 +117,15 @@ func (s *signallingUnimplemented) SignalUpdateTrackSettings(settings *livekit.Up
 func (s *signallingUnimplemented) SignalUpdateParticipantMetadata(metadata *livekit.UpdateParticipantMetadata) proto.Message {
 	return nil
 }
+
+func (s *signallingUnimplemented) SignalPublishDataTrack(publishDataTrack *livekit.PublishDataTrackRequest) proto.Message {
+	return nil
+}
+
+func (s *signallingUnimplemented) SignalUnpublishDataTrack(unpublishDataTrack *livekit.UnpublishDataTrackRequest) proto.Message {
+	return nil
+}
+
+func (s *signallingUnimplemented) SignalUpdateDataSubscription(updateDataSubscription *livekit.UpdateDataSubscription) proto.Message {
+	return nil
+}
