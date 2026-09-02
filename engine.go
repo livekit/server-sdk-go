@@ -1051,6 +1051,8 @@ func (e *RTCEngine) cleanupConnection() {
 }
 
 func (e *RTCEngine) restartConnection() error {
+	// the new session will never answer requests made on the old one
+	e.abortPendingRequests()
 	if err := e.join(nil, nil); err != nil {
 		return err
 	}
