@@ -16,25 +16,35 @@ package lksdk
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/livekit/protocol/livekit"
+	"google.golang.org/protobuf/proto"
 )
 
-// pendingRequest reserves the RequestResponse for a signal request that carries a request id.
-//
-// Create it with newPendingRequest before sending the request, put ID() in the request's
-// request_id field, then Await the response. Once Await returns the reservation is gone and
-// a late response is treated as uncorrelated.
+// SignalRequestError is returned when the server rejects a signal request.
+type SignalRequestError struct {
+	RequestID uint32
+	Reason    livekit.RequestResponse_Reason
+	Message   string
+}
+
+func (e *SignalRequestError) Error() string {
+	return fmt.Sprintf("signal request rejected (%s): %s", e.Reason, e.Message)
+}
+
+// pendingRequest reserves the response to a signal request that carries a request id: create it
+// before sending the request, put ID() in the request_id field, then Await the response.
 type pendingRequest struct {
 	engine *RTCEngine
 	id     uint32
-	ch     chan *livekit.RequestResponse
+	ch     chan proto.Message
 }
 
 func (e *RTCEngine) newPendingRequest() *pendingRequest {
 	p := &pendingRequest{
 		engine: e,
-		ch:     make(chan *livekit.RequestResponse, 1),
+		ch:     make(chan proto.Message, 1),
 	}
 
 	e.pendingRequestsLock.Lock()
@@ -64,19 +74,29 @@ func (e *RTCEngine) allocateRequestIDLocked() uint32 {
 	}
 }
 
-// ID is the value to send in the request's request_id field.
 func (p *pendingRequest) ID() uint32 {
 	return p.id
 }
 
-// Await blocks until the response arrives, ctx is done, or the engine is closed.
-func (p *pendingRequest) Await(ctx context.Context) (*livekit.RequestResponse, error) {
+// Await blocks until a response arrives, ctx is done, or the engine is closed.
+//
+// A RequestResponse with a reason other than OK is returned as a *SignalRequestError. Any
+// other message, including an OK RequestResponse, is returned as is; see awaitResponse to
+// also assert its type.
+func (p *pendingRequest) Await(ctx context.Context) (proto.Message, error) {
 	defer p.engine.removePendingRequest(p.id)
 
 	select {
 	case res, ok := <-p.ch:
 		if !ok {
 			return nil, ErrAborted
+		}
+		if rr, isRequestResponse := res.(*livekit.RequestResponse); isRequestResponse && rr.GetReason() != livekit.RequestResponse_OK {
+			return nil, &SignalRequestError{
+				RequestID: rr.GetRequestId(),
+				Reason:    rr.GetReason(),
+				Message:   rr.GetMessage(),
+			}
 		}
 		return res, nil
 
@@ -85,22 +105,36 @@ func (p *pendingRequest) Await(ctx context.Context) (*livekit.RequestResponse, e
 	}
 }
 
+// awaitResponse is Await for requests whose success is reported by a dedicated message type.
+func awaitResponse[T proto.Message](ctx context.Context, p *pendingRequest) (T, error) {
+	var zero T
+
+	res, err := p.Await(ctx)
+	if err != nil {
+		return zero, err
+	}
+	typed, ok := res.(T)
+	if !ok {
+		return zero, fmt.Errorf("unexpected response %T to signal request %d", res, p.id)
+	}
+	return typed, nil
+}
+
 func (e *RTCEngine) removePendingRequest(requestID uint32) {
 	e.pendingRequestsLock.Lock()
 	delete(e.pendingRequests, requestID)
 	e.pendingRequestsLock.Unlock()
 }
 
-// deliverRequestResponse hands res to the request waiting for its id.
-// Returns false if no request is waiting for it.
-func (e *RTCEngine) deliverRequestResponse(res *livekit.RequestResponse) bool {
-	if res.GetRequestId() == 0 {
+// deliverResponse hands res to the request waiting for requestID, if any.
+func (e *RTCEngine) deliverResponse(requestID uint32, res proto.Message) bool {
+	if requestID == 0 {
 		return false
 	}
 
 	e.pendingRequestsLock.Lock()
-	ch, ok := e.pendingRequests[res.RequestId]
-	delete(e.pendingRequests, res.RequestId)
+	ch, ok := e.pendingRequests[requestID]
+	delete(e.pendingRequests, requestID)
 	e.pendingRequestsLock.Unlock()
 	if !ok {
 		return false
@@ -115,7 +149,7 @@ func (e *RTCEngine) deliverRequestResponse(res *livekit.RequestResponse) bool {
 func (e *RTCEngine) abortPendingRequests() {
 	e.pendingRequestsLock.Lock()
 	pending := e.pendingRequests
-	e.pendingRequests = make(map[uint32]chan *livekit.RequestResponse)
+	e.pendingRequests = make(map[uint32]chan proto.Message)
 	e.pendingRequestsLock.Unlock()
 
 	for _, ch := range pending {
