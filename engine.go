@@ -1393,6 +1393,18 @@ func (e *RTCEngine) SendSyncState(syncState *livekit.SyncState) error {
 	return e.signalTransport.SendMessage(e.signalling.SignalSyncState(syncState))
 }
 
+func (e *RTCEngine) SendPublishDataTrack(publishDataTrack *livekit.PublishDataTrackRequest) error {
+	return e.signalTransport.SendMessage(e.signalling.SignalPublishDataTrack(publishDataTrack))
+}
+
+func (e *RTCEngine) SendUnpublishDataTrack(unpublishDataTrack *livekit.UnpublishDataTrackRequest) error {
+	return e.signalTransport.SendMessage(e.signalling.SignalUnpublishDataTrack(unpublishDataTrack))
+}
+
+func (e *RTCEngine) SendUpdateDataSubscription(updateDataSubscription *livekit.UpdateDataSubscription) error {
+	return e.signalTransport.SendMessage(e.signalling.SignalUpdateDataSubscription(updateDataSubscription))
+}
+
 func (e *RTCEngine) SendLeaveWithReason(reason livekit.DisconnectReason) error {
 	return e.signalTransport.SendMessage(
 		e.signalling.SignalLeaveRequest(
