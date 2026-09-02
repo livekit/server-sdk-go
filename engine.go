@@ -1663,6 +1663,17 @@ func (e *RTCEngine) OnMediaSectionsRequirement(mediaSectionsRequirement *livekit
 	e.engineHandler.OnMediaSectionsRequirement(mediaSectionsRequirement)
 }
 
+func (e *RTCEngine) OnRequestResponse(res *livekit.RequestResponse) {
+	if res.GetReason() != livekit.RequestResponse_OK {
+		e.log.Warnw(
+			"signal request failed", nil,
+			"requestID", res.GetRequestId(),
+			"reason", res.GetReason(),
+			"message", res.GetMessage(),
+		)
+	}
+}
+
 // ------------------------------------
 
 func setConfiguration(pcTransport *PCTransport, configuration webrtc.Configuration) {
