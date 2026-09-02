@@ -92,8 +92,9 @@ var (
 // -------------------------------------------
 
 const (
-	reliableDataChannelName = "_reliable"
-	lossyDataChannelName    = "_lossy"
+	reliableDataChannelName  = "_reliable"
+	lossyDataChannelName     = "_lossy"
+	dataTrackDataChannelName = "_data_track"
 
 	maxReconnectCount        = 10
 	initialReconnectInterval = 300 * time.Millisecond
@@ -127,6 +128,8 @@ type RTCEngine struct {
 	lossyDC         *webrtc.DataChannel
 	reliableDCSub   *webrtc.DataChannel
 	lossyDCSub      *webrtc.DataChannel
+	dataTrackDC     *webrtc.DataChannel
+	dataTrackDCSub  *webrtc.DataChannel
 	reliableMsgLock sync.Mutex
 	reliableMsgSeq  uint32
 
@@ -557,6 +560,15 @@ func (e *RTCEngine) createPublisherPCLocked(configuration webrtc.Configuration) 
 		return err
 	}
 	e.reliableDC.OnMessage(e.handleDataPacket)
+
+	e.dataTrackDC, err = e.publisher.pc.CreateDataChannel(dataTrackDataChannelName, &webrtc.DataChannelInit{
+		Ordered:        &falseVal,
+		MaxRetransmits: new(uint16),
+	})
+	if err != nil {
+		e.dclock.Unlock()
+		return err
+	}
 	e.dclock.Unlock()
 
 	return nil
@@ -643,6 +655,9 @@ func (e *RTCEngine) createSubscriberPCLocked(configuration webrtc.Configuration)
 			e.reliableDCSub = c
 		} else if c.Label() == lossyDataChannelName {
 			e.lossyDCSub = c
+		} else if c.Label() == dataTrackDataChannelName {
+			e.dataTrackDCSub = c
+			return
 		} else {
 			return
 		}
@@ -750,7 +765,9 @@ func (e *RTCEngine) ensurePublisherConnected(ensureDataReady bool) error {
 func (e *RTCEngine) dataPubChannelReady() bool {
 	e.dclock.RLock()
 	defer e.dclock.RUnlock()
-	return e.reliableDC.ReadyState() == webrtc.DataChannelStateOpen && e.lossyDC.ReadyState() == webrtc.DataChannelStateOpen
+	return e.reliableDC.ReadyState() == webrtc.DataChannelStateOpen &&
+		e.lossyDC.ReadyState() == webrtc.DataChannelStateOpen &&
+		e.dataTrackDC.ReadyState() == webrtc.DataChannelStateOpen
 }
 
 func (e *RTCEngine) RegisterTrackPublishedListener(cid string, c chan *livekit.TrackPublishedResponse) {
