@@ -107,3 +107,35 @@ func TestRequestIDsUnique(t *testing.T) {
 		seen[id] = struct{}{}
 	}
 }
+
+type requestResponseRecorder struct {
+	*Room
+	responses chan *livekit.RequestResponse
+}
+
+func (r *requestResponseRecorder) OnRequestResponse(res *livekit.RequestResponse) {
+	r.responses <- res
+}
+
+func TestRequestResponseForwardedToHandler(t *testing.T) {
+	recorder := &requestResponseRecorder{
+		Room:      NewRoom(&RoomCallback{}),
+		responses: make(chan *livekit.RequestResponse, 1),
+	}
+	t.Cleanup(recorder.Room.engine.Close)
+	engine := NewRTCEngine(false, recorder, func() string { return "" }, newRegionURLProvider())
+	t.Cleanup(engine.Close)
+
+	// no request id: nothing to correlate, handed to the handler
+	uncorrelated := &livekit.RequestResponse{Reason: livekit.RequestResponse_NOT_ALLOWED}
+	engine.OnRequestResponse(uncorrelated)
+	require.Same(t, uncorrelated, <-recorder.responses)
+
+	// a waiting request consumes its response, the handler is not involved
+	pending := engine.newPendingRequest()
+	engine.OnRequestResponse(&livekit.RequestResponse{RequestId: pending.ID()})
+	res, err := pending.Await(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, pending.ID(), res.RequestId)
+	require.Empty(t, recorder.responses)
+}
