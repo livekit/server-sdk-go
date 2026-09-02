@@ -131,10 +131,10 @@ type RTCEngine struct {
 	trackPublishedListenersLock sync.Mutex
 	trackPublishedListeners     map[string]chan *livekit.TrackPublishedResponse
 
-	// signal requests waiting for their RequestResponse, keyed by request id
+	// signal requests waiting for a response, keyed by request id
 	pendingRequestsLock sync.Mutex
 	nextRequestID       uint32 // guarded by pendingRequestsLock
-	pendingRequests     map[uint32]chan *livekit.RequestResponse
+	pendingRequests     map[uint32]chan proto.Message
 
 	subscriberPrimary bool
 	hasPublish        atomic.Bool
@@ -160,7 +160,7 @@ func NewRTCEngine(
 		engineHandler:            engineHandler,
 		cbGetLocalParticipantSID: getLocalParticipantSID,
 		trackPublishedListeners:  make(map[string]chan *livekit.TrackPublishedResponse),
-		pendingRequests:          make(map[uint32]chan *livekit.RequestResponse),
+		pendingRequests:          make(map[uint32]chan proto.Message),
 		reliableMsgSeq:           1,
 		connectionManager:        newConnectionManager(regionProvider),
 	}
@@ -1686,7 +1686,7 @@ func (e *RTCEngine) OnMediaSectionsRequirement(mediaSectionsRequirement *livekit
 }
 
 func (e *RTCEngine) OnRequestResponse(res *livekit.RequestResponse) {
-	if e.deliverRequestResponse(res) {
+	if e.deliverResponse(res.GetRequestId(), res) {
 		return
 	}
 
