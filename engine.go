@@ -77,6 +77,9 @@ type engineHandler interface {
 	OnSubscribedAudioCodecUpdate(subscribedAudioCodecUpdate *livekit.SubscribedAudioCodecUpdate)
 	OnMediaSectionsRequirement(mediaSectionsRequirement *livekit.MediaSectionsRequirement)
 	OnRequestResponse(requestResponse *livekit.RequestResponse)
+	OnPublishDataTrackResponse(publishDataTrackResponse *livekit.PublishDataTrackResponse)
+	OnUnpublishDataTrackResponse(unpublishDataTrackResponse *livekit.UnpublishDataTrackResponse)
+	OnDataTrackSubscriberHandles(dataTrackSubscriberHandles *livekit.DataTrackSubscriberHandles)
 }
 
 // -------------------------------------------
@@ -1761,6 +1764,18 @@ func (e *RTCEngine) OnRequestResponse(res *livekit.RequestResponse) {
 	}
 
 	e.engineHandler.OnRequestResponse(res)
+}
+
+func (e *RTCEngine) OnPublishDataTrackResponse(publishDataTrackResponse *livekit.PublishDataTrackResponse) {
+	e.engineHandler.OnPublishDataTrackResponse(publishDataTrackResponse)
+}
+
+func (e *RTCEngine) OnUnpublishDataTrackResponse(unpublishDataTrackResponse *livekit.UnpublishDataTrackResponse) {
+	e.engineHandler.OnUnpublishDataTrackResponse(unpublishDataTrackResponse)
+}
+
+func (e *RTCEngine) OnDataTrackSubscriberHandles(dataTrackSubscriberHandles *livekit.DataTrackSubscriberHandles) {
+	e.engineHandler.OnDataTrackSubscriberHandles(dataTrackSubscriberHandles)
 }
 
 // ------------------------------------
