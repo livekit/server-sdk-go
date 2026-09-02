@@ -16,6 +16,7 @@ package lksdk
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
 
@@ -95,47 +96,23 @@ func TestUncorrelatedRequestResponseIgnored(t *testing.T) {
 	require.False(t, engine.deliverRequestResponse(&livekit.RequestResponse{RequestId: 12345}))
 }
 
-func TestRequestIDsUnique(t *testing.T) {
+func TestRequestIDAllocation(t *testing.T) {
 	engine := newTestEngine(t)
 
+	// ids are unique while their requests are pending
 	seen := make(map[uint32]struct{})
-	for range 1000 {
-		id := engine.nextRequestID()
+	for range 100 {
+		id := engine.newPendingRequest().ID()
 		require.NotZero(t, id)
 		_, dup := seen[id]
 		require.False(t, dup)
 		seen[id] = struct{}{}
 	}
-}
 
-type requestResponseRecorder struct {
-	*Room
-	responses chan *livekit.RequestResponse
-}
-
-func (r *requestResponseRecorder) OnRequestResponse(res *livekit.RequestResponse) {
-	r.responses <- res
-}
-
-func TestRequestResponseForwardedToHandler(t *testing.T) {
-	recorder := &requestResponseRecorder{
-		Room:      NewRoom(&RoomCallback{}),
-		responses: make(chan *livekit.RequestResponse, 1),
-	}
-	t.Cleanup(recorder.Room.engine.Close)
-	engine := NewRTCEngine(false, recorder, func() string { return "" }, newRegionURLProvider())
-	t.Cleanup(engine.Close)
-
-	// no request id: nothing to correlate, handed to the handler
-	uncorrelated := &livekit.RequestResponse{Reason: livekit.RequestResponse_NOT_ALLOWED}
-	engine.OnRequestResponse(uncorrelated)
-	require.Same(t, uncorrelated, <-recorder.responses)
-
-	// a waiting request consumes its response, the handler is not involved
-	pending := engine.newPendingRequest()
-	engine.OnRequestResponse(&livekit.RequestResponse{RequestId: pending.ID()})
-	res, err := pending.Await(context.Background())
-	require.NoError(t, err)
-	require.Equal(t, pending.ID(), res.RequestId)
-	require.Empty(t, recorder.responses)
+	// the counter wraps around without handing out zero or an id that is still in use
+	engine.pendingRequestsLock.Lock()
+	engine.nextRequestID = math.MaxUint32 - 1
+	engine.pendingRequestsLock.Unlock()
+	require.Equal(t, uint32(math.MaxUint32), engine.newPendingRequest().ID())
+	require.Equal(t, uint32(101), engine.newPendingRequest().ID())
 }

@@ -131,8 +131,8 @@ type RTCEngine struct {
 	trackPublishedListeners     map[string]chan *livekit.TrackPublishedResponse
 
 	// signal requests waiting for their RequestResponse, keyed by request id
-	requestIDCounter    atomic.Uint32
 	pendingRequestsLock sync.Mutex
+	nextRequestID       uint32 // guarded by pendingRequestsLock
 	pendingRequests     map[uint32]chan *livekit.RequestResponse
 
 	subscriberPrimary bool
