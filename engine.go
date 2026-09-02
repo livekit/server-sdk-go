@@ -80,6 +80,7 @@ type engineHandler interface {
 	OnPublishDataTrackResponse(publishDataTrackResponse *livekit.PublishDataTrackResponse)
 	OnUnpublishDataTrackResponse(unpublishDataTrackResponse *livekit.UnpublishDataTrackResponse)
 	OnDataTrackSubscriberHandles(dataTrackSubscriberHandles *livekit.DataTrackSubscriberHandles)
+	OnDataTrackPacket(data []byte)
 }
 
 // -------------------------------------------
@@ -569,6 +570,7 @@ func (e *RTCEngine) createPublisherPCLocked(configuration webrtc.Configuration) 
 		e.dclock.Unlock()
 		return err
 	}
+	e.dataTrackDC.OnMessage(e.handleDataTrackPacket)
 	e.dclock.Unlock()
 
 	return nil
@@ -657,6 +659,7 @@ func (e *RTCEngine) createSubscriberPCLocked(configuration webrtc.Configuration)
 			e.lossyDCSub = c
 		} else if c.Label() == dataTrackDataChannelName {
 			e.dataTrackDCSub = c
+			c.OnMessage(e.handleDataTrackPacket)
 			return
 		} else {
 			return
@@ -924,6 +927,13 @@ func (e *RTCEngine) handleDataPacket(msg webrtc.DataChannelMessage) {
 	case *livekit.DataPacket_StreamTrailer:
 		e.engineHandler.OnStreamTrailer(msg.StreamTrailer)
 	}
+}
+
+func (e *RTCEngine) handleDataTrackPacket(msg webrtc.DataChannelMessage) {
+	if msg.IsString {
+		return
+	}
+	e.engineHandler.OnDataTrackPacket(msg.Data)
 }
 
 func (e *RTCEngine) readDataPacket(msg webrtc.DataChannelMessage) (*livekit.DataPacket, error) {
