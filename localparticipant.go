@@ -150,23 +150,29 @@ func (p *LocalParticipant) prepareTrackPublication(track webrtc.TrackLocal, opts
 		}
 	}
 
-	// TODO: support e2ee for backup codecs
-	if pubOptions.backupCodecTrack != nil {
-		if req.Encryption == livekit.Encryption_NONE {
-			req.SimulcastCodecs = []*livekit.SimulcastCodec{
-				{
-					Codec: primaryCodec.MimeType,
-					Cid:   track.ID(),
-				},
-				{
-					Codec: pubOptions.backupCodecTrack.Codec().MimeType,
-					Cid:   pubOptions.backupCodecTrack.ID(),
-				},
-			}
-			pub.setBackupCodecTrack(pubOptions.backupCodecTrack)
-		} else {
-			p.log.Warnw("backup codec publication with encryption is not supported, ignoring backup codec", nil)
+	withBackupCodec := pubOptions.backupCodecTrack != nil
+	if withBackupCodec && req.Encryption != livekit.Encryption_NONE {
+		// TODO: support e2ee for backup codecs
+		p.log.Warnw("backup codec publication with encryption is not supported, ignoring backup codec", nil)
+		withBackupCodec = false
+	}
+
+	if primaryCodec.MimeType != "" && (kind == TrackKindVideo || withBackupCodec) {
+		req.SimulcastCodecs = []*livekit.SimulcastCodec{
+			{
+				Codec: primaryCodec.MimeType,
+				Cid:   track.ID(),
+			},
 		}
+		if withBackupCodec {
+			req.SimulcastCodecs = append(req.SimulcastCodecs, &livekit.SimulcastCodec{
+				Codec: pubOptions.backupCodecTrack.Codec().MimeType,
+				Cid:   pubOptions.backupCodecTrack.ID(),
+			})
+			pub.setBackupCodecTrack(pubOptions.backupCodecTrack)
+		}
+	} else if withBackupCodec {
+		p.log.Warnw("backup codec publication requires a known primary codec, ignoring backup codec", nil)
 	}
 	return pub, req, nil
 }
