@@ -4,14 +4,13 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//	http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 package datatrack
 
 import (
@@ -19,6 +18,102 @@ import (
 
 	"github.com/livekit/protocol/livekit"
 )
+
+var (
+	wellKnownSchemaEncodingToProto = map[WellKnownSchemaEncoding]livekit.DataTrackSchemaEncoding_WellKnownSchemaEncoding{
+		SchemaEncodingProtobuf:   livekit.DataTrackSchemaEncoding_WELL_KNOWN_SCHEMA_ENCODING_PROTOBUF,
+		SchemaEncodingFlatbuffer: livekit.DataTrackSchemaEncoding_WELL_KNOWN_SCHEMA_ENCODING_FLATBUFFER,
+		SchemaEncodingROS1Msg:    livekit.DataTrackSchemaEncoding_WELL_KNOWN_SCHEMA_ENCODING_ROS1_MSG,
+		SchemaEncodingROS2Msg:    livekit.DataTrackSchemaEncoding_WELL_KNOWN_SCHEMA_ENCODING_ROS2_MSG,
+		SchemaEncodingROS2IDL:    livekit.DataTrackSchemaEncoding_WELL_KNOWN_SCHEMA_ENCODING_ROS2_IDL,
+		SchemaEncodingOMGIDL:     livekit.DataTrackSchemaEncoding_WELL_KNOWN_SCHEMA_ENCODING_OMG_IDL,
+		SchemaEncodingJSONSchema: livekit.DataTrackSchemaEncoding_WELL_KNOWN_SCHEMA_ENCODING_JSON_SCHEMA,
+	}
+	wellKnownSchemaEncodingFromProto = invert(wellKnownSchemaEncodingToProto)
+
+	wellKnownFrameEncodingToProto = map[WellKnownFrameEncoding]livekit.DataTrackFrameEncoding_WellKnownFrameEncoding{
+		FrameEncodingROS1:       livekit.DataTrackFrameEncoding_WELL_KNOWN_FRAME_ENCODING_ROS1,
+		FrameEncodingCDR:        livekit.DataTrackFrameEncoding_WELL_KNOWN_FRAME_ENCODING_CDR,
+		FrameEncodingProtobuf:   livekit.DataTrackFrameEncoding_WELL_KNOWN_FRAME_ENCODING_PROTOBUF,
+		FrameEncodingFlatbuffer: livekit.DataTrackFrameEncoding_WELL_KNOWN_FRAME_ENCODING_FLATBUFFER,
+		FrameEncodingCBOR:       livekit.DataTrackFrameEncoding_WELL_KNOWN_FRAME_ENCODING_CBOR,
+		FrameEncodingMsgPack:    livekit.DataTrackFrameEncoding_WELL_KNOWN_FRAME_ENCODING_MSGPACK,
+		FrameEncodingJSON:       livekit.DataTrackFrameEncoding_WELL_KNOWN_FRAME_ENCODING_JSON,
+	}
+	wellKnownFrameEncodingFromProto = invert(wellKnownFrameEncodingToProto)
+)
+
+func invert[K, V comparable](m map[K]V) map[V]K {
+	inverted := make(map[V]K, len(m))
+	for k, v := range m {
+		inverted[v] = k
+	}
+	return inverted
+}
+
+// schemaEncodingFromProto maps unspecified and unknown well-known values to SchemaEncodingOther.
+func schemaEncodingFromProto(msg *livekit.DataTrackSchemaEncoding) SchemaEncoding {
+	switch value := msg.GetValue().(type) {
+	case *livekit.DataTrackSchemaEncoding_WellKnown:
+		if encoding, known := wellKnownSchemaEncodingFromProto[value.WellKnown]; known {
+			return encoding
+		}
+		return SchemaEncodingOther
+	case *livekit.DataTrackSchemaEncoding_Custom:
+		return CustomSchemaEncoding(value.Custom)
+	default:
+		return SchemaEncodingOther
+	}
+}
+
+// schemaEncodingToProto maps SchemaEncodingOther and nil to the unspecified well-known value.
+func schemaEncodingToProto(encoding SchemaEncoding) *livekit.DataTrackSchemaEncoding {
+	if custom, ok := encoding.(CustomSchemaEncoding); ok {
+		return &livekit.DataTrackSchemaEncoding{Value: &livekit.DataTrackSchemaEncoding_Custom{Custom: string(custom)}}
+	}
+	wellKnown, _ := encoding.(WellKnownSchemaEncoding)
+	return &livekit.DataTrackSchemaEncoding{Value: &livekit.DataTrackSchemaEncoding_WellKnown{
+		WellKnown: wellKnownSchemaEncodingToProto[wellKnown],
+	}}
+}
+
+func schemaIDFromProto(msg *livekit.DataTrackSchemaId) SchemaID {
+	id := SchemaID{Name: msg.GetName(), Encoding: SchemaEncodingOther}
+	if msg.GetEncoding() != nil {
+		id.Encoding = schemaEncodingFromProto(msg.GetEncoding())
+	}
+	return id
+}
+
+func schemaIDToProto(id SchemaID) *livekit.DataTrackSchemaId {
+	return &livekit.DataTrackSchemaId{Name: id.Name, Encoding: schemaEncodingToProto(id.Encoding)}
+}
+
+// frameEncodingFromProto maps unspecified and unknown well-known values to FrameEncodingOther.
+func frameEncodingFromProto(msg *livekit.DataTrackFrameEncoding) FrameEncoding {
+	switch value := msg.GetValue().(type) {
+	case *livekit.DataTrackFrameEncoding_WellKnown:
+		if encoding, known := wellKnownFrameEncodingFromProto[value.WellKnown]; known {
+			return encoding
+		}
+		return FrameEncodingOther
+	case *livekit.DataTrackFrameEncoding_Custom:
+		return CustomFrameEncoding(value.Custom)
+	default:
+		return FrameEncodingOther
+	}
+}
+
+// frameEncodingToProto maps FrameEncodingOther and nil to the unspecified well-known value.
+func frameEncodingToProto(encoding FrameEncoding) *livekit.DataTrackFrameEncoding {
+	if custom, ok := encoding.(CustomFrameEncoding); ok {
+		return &livekit.DataTrackFrameEncoding{Value: &livekit.DataTrackFrameEncoding_Custom{Custom: string(custom)}}
+	}
+	wellKnown, _ := encoding.(WellKnownFrameEncoding)
+	return &livekit.DataTrackFrameEncoding{Value: &livekit.DataTrackFrameEncoding_WellKnown{
+		WellKnown: wellKnownFrameEncodingToProto[wellKnown],
+	}}
+}
 
 func infoFromProto(msg *livekit.DataTrackInfo) (Info, error) {
 	handle, err := handleFromUint32(msg.GetPubHandle())
@@ -46,8 +141,7 @@ func infoFromProto(msg *livekit.DataTrackInfo) (Info, error) {
 		info.Schema = &schema
 	}
 	if msg.GetFrameEncoding() != nil {
-		frameEncoding := frameEncodingFromProto(msg.GetFrameEncoding())
-		info.FrameEncoding = &frameEncoding
+		info.FrameEncoding = frameEncodingFromProto(msg.GetFrameEncoding())
 	}
 	return info, nil
 }
@@ -63,10 +157,10 @@ func infoToProto(info Info) *livekit.DataTrackInfo {
 		msg.Encryption = livekit.Encryption_GCM
 	}
 	if info.Schema != nil {
-		msg.Schema = info.Schema.toProto()
+		msg.Schema = schemaIDToProto(*info.Schema)
 	}
 	if info.FrameEncoding != nil {
-		msg.FrameEncoding = info.FrameEncoding.toProto()
+		msg.FrameEncoding = frameEncodingToProto(info.FrameEncoding)
 	}
 	return msg
 }

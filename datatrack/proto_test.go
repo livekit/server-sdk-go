@@ -18,7 +18,6 @@ import (
 	"testing"
 
 	"github.com/livekit/protocol/livekit"
-	"github.com/livekit/protocol/utils/pointer"
 	"github.com/stretchr/testify/require"
 )
 
@@ -33,8 +32,8 @@ func TestProto_InfoFromProto(t *testing.T) {
 			Sid:           "DTR_1234",
 			Name:          "track",
 			Encryption:    livekit.Encryption_GCM,
-			Schema:        SchemaID{Name: "schema", Encoding: SchemaEncodingJSONSchema}.toProto(),
-			FrameEncoding: FrameEncodingJSON.toProto(),
+			Schema:        schemaIDToProto(SchemaID{Name: "schema", Encoding: SchemaEncodingJSONSchema}),
+			FrameEncoding: frameEncodingToProto(FrameEncodingJSON),
 		},
 	}
 
@@ -44,7 +43,7 @@ func TestProto_InfoFromProto(t *testing.T) {
 	require.Equal(t, SID("DTR_1234"), info.SID)
 	require.Equal(t, "track", info.Name)
 	require.Equal(t, &SchemaID{Name: "schema", Encoding: SchemaEncodingJSONSchema}, info.Schema)
-	require.Equal(t, pointer.To(FrameEncodingJSON), info.FrameEncoding)
+	require.Equal(t, FrameEncodingJSON, info.FrameEncoding)
 	require.True(t, info.UsesE2EE)
 }
 
@@ -60,17 +59,17 @@ func TestProto_FrameEncodingMapping(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, info.FrameEncoding)
 
-	unspecified := &livekit.DataTrackInfo{FrameEncoding: FrameEncodingOther.toProto()}
+	unspecified := &livekit.DataTrackInfo{FrameEncoding: frameEncodingToProto(FrameEncodingOther)}
 	unspecified.PubHandle, unspecified.Sid, unspecified.Name = base.PubHandle, base.Sid, base.Name
 	info, err = infoFromProto(unspecified)
 	require.NoError(t, err)
-	require.Equal(t, pointer.To(FrameEncodingOther), info.FrameEncoding)
+	require.Equal(t, FrameEncodingOther, info.FrameEncoding)
 
-	custom := &livekit.DataTrackInfo{FrameEncoding: CustomFrameEncoding("my_encoding").toProto()}
+	custom := &livekit.DataTrackInfo{FrameEncoding: frameEncodingToProto(CustomFrameEncoding("my_encoding"))}
 	custom.PubHandle, custom.Sid, custom.Name = base.PubHandle, base.Sid, base.Name
 	info, err = infoFromProto(custom)
 	require.NoError(t, err)
-	require.Equal(t, pointer.To(CustomFrameEncoding("my_encoding")), info.FrameEncoding)
+	require.Equal(t, CustomFrameEncoding("my_encoding"), info.FrameEncoding)
 }
 
 func TestProto_PublishResponsesForSyncState(t *testing.T) {
