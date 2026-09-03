@@ -17,7 +17,6 @@ package datatrack
 import (
 	"testing"
 
-	"github.com/livekit/protocol/utils/pointer"
 	"github.com/stretchr/testify/require"
 )
 
@@ -26,28 +25,28 @@ func TestValidateSchema_NotSpecified(t *testing.T) {
 }
 
 func TestValidateSchema_SelfDescribing(t *testing.T) {
-	require.NoError(t, validateSchema(pointer.To(FrameEncodingJSON), nil))
+	require.NoError(t, validateSchema(FrameEncodingJSON, nil))
 }
 
 func TestValidateSchema_CompatibleEncodings(t *testing.T) {
-	require.NoError(t, validateSchema(pointer.To(FrameEncodingCDR), pointer.To(SchemaEncodingROS2IDL)))
+	require.NoError(t, validateSchema(FrameEncodingCDR, SchemaEncodingROS2IDL))
 }
 
 func TestValidateSchema_Custom(t *testing.T) {
 	require.NoError(t, validateSchema(
-		pointer.To(CustomFrameEncoding("my-frame-encoding")),
-		pointer.To(CustomSchemaEncoding("my-schema-encoding")),
+		CustomFrameEncoding("my-frame-encoding"),
+		CustomSchemaEncoding("my-schema-encoding"),
 	))
 }
 
 func TestValidateSchema_MissingFrameEncoding(t *testing.T) {
-	require.ErrorIs(t, validateSchema(nil, pointer.To(SchemaEncodingProtobuf)), ErrSchemaMissingFrameEncoding)
+	require.ErrorIs(t, validateSchema(nil, SchemaEncodingProtobuf), ErrSchemaMissingFrameEncoding)
 }
 
 func TestValidateSchema_MissingSchemaID(t *testing.T) {
-	require.ErrorIs(t, validateSchema(pointer.To(FrameEncodingProtobuf), nil), ErrSchemaMissingID)
+	require.ErrorIs(t, validateSchema(FrameEncodingProtobuf, nil), ErrSchemaMissingID)
 }
 
 func TestValidateSchema_Incompatible(t *testing.T) {
-	require.ErrorIs(t, validateSchema(pointer.To(FrameEncodingJSON), pointer.To(SchemaEncodingProtobuf)), ErrSchemaIncompatible)
+	require.ErrorIs(t, validateSchema(FrameEncodingJSON, SchemaEncodingProtobuf), ErrSchemaIncompatible)
 }

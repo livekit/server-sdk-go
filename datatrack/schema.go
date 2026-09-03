@@ -4,20 +4,18 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//	http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 package datatrack
 
 import (
 	"errors"
-
-	"github.com/livekit/protocol/livekit"
+	"fmt"
 )
 
 var (
@@ -32,174 +30,96 @@ type SchemaID struct {
 	Encoding SchemaEncoding
 }
 
-// SchemaEncoding is the encoding of a schema definition. The zero value is SchemaEncodingOther.
-type SchemaEncoding struct {
-	wellKnown livekit.DataTrackSchemaEncoding_WellKnownSchemaEncoding
-	custom    string
+// SchemaEncoding is the encoding of a schema definition: a WellKnownSchemaEncoding or a
+// CustomSchemaEncoding.
+type SchemaEncoding interface {
+	fmt.Stringer
+	isSchemaEncoding()
 }
 
-var (
-	SchemaEncodingProtobuf   = SchemaEncoding{wellKnown: livekit.DataTrackSchemaEncoding_WELL_KNOWN_SCHEMA_ENCODING_PROTOBUF}
-	SchemaEncodingFlatbuffer = SchemaEncoding{wellKnown: livekit.DataTrackSchemaEncoding_WELL_KNOWN_SCHEMA_ENCODING_FLATBUFFER}
-	SchemaEncodingROS1Msg    = SchemaEncoding{wellKnown: livekit.DataTrackSchemaEncoding_WELL_KNOWN_SCHEMA_ENCODING_ROS1_MSG}
-	SchemaEncodingROS2Msg    = SchemaEncoding{wellKnown: livekit.DataTrackSchemaEncoding_WELL_KNOWN_SCHEMA_ENCODING_ROS2_MSG}
-	SchemaEncodingROS2IDL    = SchemaEncoding{wellKnown: livekit.DataTrackSchemaEncoding_WELL_KNOWN_SCHEMA_ENCODING_ROS2_IDL}
-	SchemaEncodingOMGIDL     = SchemaEncoding{wellKnown: livekit.DataTrackSchemaEncoding_WELL_KNOWN_SCHEMA_ENCODING_OMG_IDL}
-	SchemaEncodingJSONSchema = SchemaEncoding{wellKnown: livekit.DataTrackSchemaEncoding_WELL_KNOWN_SCHEMA_ENCODING_JSON_SCHEMA}
+// WellKnownSchemaEncoding is a schema encoding defined by the protocol.
+type WellKnownSchemaEncoding uint8
+
+const (
 	// SchemaEncodingOther is a well-known encoding not known to this SDK version.
-	SchemaEncodingOther = SchemaEncoding{}
+	SchemaEncodingOther WellKnownSchemaEncoding = iota
+	SchemaEncodingProtobuf
+	SchemaEncodingFlatbuffer
+	SchemaEncodingROS1Msg
+	SchemaEncodingROS2Msg
+	SchemaEncodingROS2IDL
+	SchemaEncodingOMGIDL
+	SchemaEncodingJSONSchema
 )
 
-var schemaEncodingNames = map[livekit.DataTrackSchemaEncoding_WellKnownSchemaEncoding]string{
-	SchemaEncodingProtobuf.wellKnown:   "protobuf",
-	SchemaEncodingFlatbuffer.wellKnown: "flatbuffer",
-	SchemaEncodingROS1Msg.wellKnown:    "ros1msg",
-	SchemaEncodingROS2Msg.wellKnown:    "ros2msg",
-	SchemaEncodingROS2IDL.wellKnown:    "ros2idl",
-	SchemaEncodingOMGIDL.wellKnown:     "omgidl",
-	SchemaEncodingJSONSchema.wellKnown: "jsonschema",
-}
+var wellKnownSchemaEncodingNames = [...]string{"other", "protobuf", "flatbuffer", "ros1msg", "ros2msg", "ros2idl", "omgidl", "jsonschema"}
 
-// CustomSchemaEncoding is an application-specific schema encoding identified by name.
-func CustomSchemaEncoding(name string) SchemaEncoding {
-	return SchemaEncoding{custom: name}
-}
+func (WellKnownSchemaEncoding) isSchemaEncoding() {}
 
-// Custom returns the identifier of a custom encoding.
-func (e SchemaEncoding) Custom() (string, bool) {
-	return e.custom, e.custom != ""
-}
-
-func (e SchemaEncoding) String() string {
-	if e.custom != "" {
-		return e.custom
+func (e WellKnownSchemaEncoding) String() string {
+	if int(e) < len(wellKnownSchemaEncodingNames) {
+		return wellKnownSchemaEncodingNames[e]
 	}
-	if name, ok := schemaEncodingNames[e.wellKnown]; ok {
-		return name
-	}
-	return "other"
+	return fmt.Sprintf("WellKnownSchemaEncoding(%d)", uint8(e))
 }
 
-func schemaEncodingFromProto(msg *livekit.DataTrackSchemaEncoding) SchemaEncoding {
-	switch value := msg.GetValue().(type) {
-	case *livekit.DataTrackSchemaEncoding_WellKnown:
-		if _, known := schemaEncodingNames[value.WellKnown]; known {
-			return SchemaEncoding{wellKnown: value.WellKnown}
-		}
-		return SchemaEncodingOther
-	case *livekit.DataTrackSchemaEncoding_Custom:
-		return CustomSchemaEncoding(value.Custom)
-	default:
-		return SchemaEncodingOther
-	}
+// CustomSchemaEncoding is an application-defined schema encoding identified by name.
+type CustomSchemaEncoding string
+
+func (CustomSchemaEncoding) isSchemaEncoding() {}
+
+func (e CustomSchemaEncoding) String() string {
+	return string(e)
 }
 
-func (e SchemaEncoding) toProto() *livekit.DataTrackSchemaEncoding {
-	if e.custom != "" {
-		return &livekit.DataTrackSchemaEncoding{Value: &livekit.DataTrackSchemaEncoding_Custom{Custom: e.custom}}
-	}
-	return &livekit.DataTrackSchemaEncoding{Value: &livekit.DataTrackSchemaEncoding_WellKnown{WellKnown: e.wellKnown}}
+// FrameEncoding is the encoding of frames pushed on a data track: a WellKnownFrameEncoding or a
+// CustomFrameEncoding.
+type FrameEncoding interface {
+	fmt.Stringer
+	// isSelfDescribing reports whether frames need no schema; ok is false when this cannot be determined.
+	isSelfDescribing() (selfDescribing, ok bool)
+	// isDescribedBy reports whether a schema with the given encoding can describe these frames;
+	// ok is false when this cannot be determined.
+	isDescribedBy(schema SchemaEncoding) (described, ok bool)
 }
 
-func schemaIDFromProto(msg *livekit.DataTrackSchemaId) SchemaID {
-	id := SchemaID{Name: msg.GetName(), Encoding: SchemaEncodingOther}
-	if msg.GetEncoding() != nil {
-		id.Encoding = schemaEncodingFromProto(msg.GetEncoding())
-	}
-	return id
-}
+// WellKnownFrameEncoding is a frame encoding defined by the protocol.
+type WellKnownFrameEncoding uint8
 
-func (id SchemaID) toProto() *livekit.DataTrackSchemaId {
-	return &livekit.DataTrackSchemaId{Name: id.Name, Encoding: id.Encoding.toProto()}
-}
-
-// FrameEncoding is the encoding of frames pushed on a data track. The zero value is FrameEncodingOther.
-type FrameEncoding struct {
-	wellKnown livekit.DataTrackFrameEncoding_WellKnownFrameEncoding
-	custom    string
-}
-
-var (
-	FrameEncodingROS1       = FrameEncoding{wellKnown: livekit.DataTrackFrameEncoding_WELL_KNOWN_FRAME_ENCODING_ROS1}
-	FrameEncodingCDR        = FrameEncoding{wellKnown: livekit.DataTrackFrameEncoding_WELL_KNOWN_FRAME_ENCODING_CDR}
-	FrameEncodingProtobuf   = FrameEncoding{wellKnown: livekit.DataTrackFrameEncoding_WELL_KNOWN_FRAME_ENCODING_PROTOBUF}
-	FrameEncodingFlatbuffer = FrameEncoding{wellKnown: livekit.DataTrackFrameEncoding_WELL_KNOWN_FRAME_ENCODING_FLATBUFFER}
-	FrameEncodingCBOR       = FrameEncoding{wellKnown: livekit.DataTrackFrameEncoding_WELL_KNOWN_FRAME_ENCODING_CBOR}
-	FrameEncodingMsgPack    = FrameEncoding{wellKnown: livekit.DataTrackFrameEncoding_WELL_KNOWN_FRAME_ENCODING_MSGPACK}
-	FrameEncodingJSON       = FrameEncoding{wellKnown: livekit.DataTrackFrameEncoding_WELL_KNOWN_FRAME_ENCODING_JSON}
+const (
 	// FrameEncodingOther is a well-known encoding not known to this SDK version.
-	FrameEncodingOther = FrameEncoding{}
+	FrameEncodingOther WellKnownFrameEncoding = iota
+	FrameEncodingROS1
+	FrameEncodingCDR
+	FrameEncodingProtobuf
+	FrameEncodingFlatbuffer
+	FrameEncodingCBOR
+	FrameEncodingMsgPack
+	FrameEncodingJSON
 )
 
-var frameEncodingNames = map[livekit.DataTrackFrameEncoding_WellKnownFrameEncoding]string{
-	FrameEncodingROS1.wellKnown:       "ros1",
-	FrameEncodingCDR.wellKnown:        "cdr",
-	FrameEncodingProtobuf.wellKnown:   "protobuf",
-	FrameEncodingFlatbuffer.wellKnown: "flatbuffer",
-	FrameEncodingCBOR.wellKnown:       "cbor",
-	FrameEncodingMsgPack.wellKnown:    "msgpack",
-	FrameEncodingJSON.wellKnown:       "json",
-}
+var wellKnownFrameEncodingNames = [...]string{"other", "ros1", "cdr", "protobuf", "flatbuffer", "cbor", "msgpack", "json"}
 
-// CustomFrameEncoding is an application-specific frame encoding identified by name.
-func CustomFrameEncoding(name string) FrameEncoding {
-	return FrameEncoding{custom: name}
-}
-
-// Custom returns the identifier of a custom encoding.
-func (e FrameEncoding) Custom() (string, bool) {
-	return e.custom, e.custom != ""
-}
-
-func (e FrameEncoding) String() string {
-	if e.custom != "" {
-		return e.custom
+func (e WellKnownFrameEncoding) String() string {
+	if int(e) < len(wellKnownFrameEncodingNames) {
+		return wellKnownFrameEncodingNames[e]
 	}
-	if name, ok := frameEncodingNames[e.wellKnown]; ok {
-		return name
-	}
-	return "other"
+	return fmt.Sprintf("WellKnownFrameEncoding(%d)", uint8(e))
 }
 
-func frameEncodingFromProto(msg *livekit.DataTrackFrameEncoding) FrameEncoding {
-	switch value := msg.GetValue().(type) {
-	case *livekit.DataTrackFrameEncoding_WellKnown:
-		if _, known := frameEncodingNames[value.WellKnown]; known {
-			return FrameEncoding{wellKnown: value.WellKnown}
-		}
-		return FrameEncodingOther
-	case *livekit.DataTrackFrameEncoding_Custom:
-		return CustomFrameEncoding(value.Custom)
-	default:
-		return FrameEncodingOther
-	}
-}
-
-func (e FrameEncoding) toProto() *livekit.DataTrackFrameEncoding {
-	if e.custom != "" {
-		return &livekit.DataTrackFrameEncoding{Value: &livekit.DataTrackFrameEncoding_Custom{Custom: e.custom}}
-	}
-	return &livekit.DataTrackFrameEncoding{Value: &livekit.DataTrackFrameEncoding_WellKnown{WellKnown: e.wellKnown}}
-}
-
-// isSelfDescribing reports whether frames need no schema; ok is false when this cannot be determined.
-func (e FrameEncoding) isSelfDescribing() (selfDescribing, ok bool) {
+func (e WellKnownFrameEncoding) isSelfDescribing() (selfDescribing, ok bool) {
 	switch e {
 	case FrameEncodingCBOR, FrameEncodingMsgPack, FrameEncodingJSON:
 		return true, true
 	case FrameEncodingOther:
 		return false, false
+	default:
+		return false, true
 	}
-	if e.custom != "" {
-		return false, false
-	}
-	return false, true
 }
 
-// isDescribedBy reports whether a schema with the given encoding can describe frames with this
-// encoding; ok is false when this cannot be determined.
-func (e FrameEncoding) isDescribedBy(schema SchemaEncoding) (described, ok bool) {
-	if e == FrameEncodingOther || e.custom != "" {
+func (e WellKnownFrameEncoding) isDescribedBy(schema SchemaEncoding) (described, ok bool) {
+	if e == FrameEncodingOther {
 		return false, false
 	}
 	switch {
@@ -215,8 +135,23 @@ func (e FrameEncoding) isDescribedBy(schema SchemaEncoding) (described, ok bool)
 	return false, true
 }
 
-// validateSchema checks that the given frame and schema encodings are compatible.
-func validateSchema(frameEncoding *FrameEncoding, schemaEncoding *SchemaEncoding) error {
+// CustomFrameEncoding is an application-defined frame encoding identified by name.
+type CustomFrameEncoding string
+
+func (e CustomFrameEncoding) String() string {
+	return string(e)
+}
+
+func (CustomFrameEncoding) isSelfDescribing() (selfDescribing, ok bool) {
+	return false, false
+}
+
+func (CustomFrameEncoding) isDescribedBy(SchemaEncoding) (described, ok bool) {
+	return false, false
+}
+
+// validateSchema checks that the given frame and schema encodings are compatible; nil means unset.
+func validateSchema(frameEncoding FrameEncoding, schemaEncoding SchemaEncoding) error {
 	switch {
 	case frameEncoding == nil && schemaEncoding != nil:
 		return ErrSchemaMissingFrameEncoding
@@ -225,7 +160,7 @@ func validateSchema(frameEncoding *FrameEncoding, schemaEncoding *SchemaEncoding
 			return ErrSchemaMissingID
 		}
 	case frameEncoding != nil && schemaEncoding != nil:
-		if described, ok := frameEncoding.isDescribedBy(*schemaEncoding); ok && !described {
+		if described, ok := frameEncoding.isDescribedBy(schemaEncoding); ok && !described {
 			return ErrSchemaIncompatible
 		}
 	}
