@@ -75,6 +75,9 @@ func NewGCMFrameEncryptor(keyProvider types.KeyProvider, encryptFn EncryptFunc) 
 // EncryptFrame encrypts a complete media frame.
 func (e *GCMFrameEncryptor) EncryptFrame(payload []byte) ([]byte, error) {
 	idx := e.keyProvider.CurrentKeyIndex()
+	if idx > types.MaxKeyIndex {
+		return nil, types.ErrKeyIndexOutOfRange
+	}
 	st := e.state.Load()
 
 	// Fast path: key index unchanged, use cached cipher block (no lock).
