@@ -37,8 +37,8 @@ type dataCipherState struct {
 	keyBytes []byte
 }
 
-// DataCryptor handles encryption and decryption of data channel messages.
-// It mirrors the JS SDK's DataCryptor class, using AES-128-GCM with no AAD.
+// DataCryptor handles encryption and decryption of data channel messages and of raw payloads such
+// as data track frames. It mirrors the JS SDK's DataCryptor class, using AES-128-GCM with no AAD.
 type DataCryptor struct {
 	keyProvider types.KeyProvider
 	cipherCache map[uint32]*dataCipherState
@@ -126,6 +126,60 @@ func (dc *DataCryptor) Decrypt(ep *livekit.EncryptedPacket) (*livekit.EncryptedP
 		return nil, fmt.Errorf("unmarshal payload: %w", err)
 	}
 	return payload, nil
+}
+
+// EncryptedPayload is a payload sealed by EncryptPayload together with what DecryptPayload needs
+// to open it.
+type EncryptedPayload struct {
+	Ciphertext []byte
+	KeyIndex   uint32
+	IV         []byte
+}
+
+// EncryptPayload seals plaintext with the current key, using a random IV and no AAD.
+func (dc *DataCryptor) EncryptPayload(plaintext []byte) (EncryptedPayload, error) {
+	keyIndex := dc.keyProvider.CurrentKeyIndex()
+	aesGCM, err := dc.gcm(keyIndex, types.IVLength)
+	if err != nil {
+		return EncryptedPayload{}, err
+	}
+
+	iv := make([]byte, types.IVLength)
+	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+		return EncryptedPayload{}, fmt.Errorf("generate IV: %w", err)
+	}
+
+	return EncryptedPayload{
+		Ciphertext: aesGCM.Seal(nil, iv, plaintext, nil),
+		KeyIndex:   keyIndex,
+		IV:         iv,
+	}, nil
+}
+
+// DecryptPayload opens a payload sealed with the key at its key index.
+func (dc *DataCryptor) DecryptPayload(payload EncryptedPayload) ([]byte, error) {
+	if len(payload.IV) == 0 || len(payload.Ciphertext) == 0 {
+		return nil, fmt.Errorf("empty IV or ciphertext")
+	}
+
+	aesGCM, err := dc.gcm(payload.KeyIndex, len(payload.IV))
+	if err != nil {
+		return nil, err
+	}
+
+	plaintext, err := aesGCM.Open(nil, payload.IV, payload.Ciphertext, nil)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt: %w", err)
+	}
+	return plaintext, nil
+}
+
+func (dc *DataCryptor) gcm(keyIndex uint32, nonceSize int) (cipher.AEAD, error) {
+	block, err := dc.getCipherBlock(keyIndex)
+	if err != nil {
+		return nil, fmt.Errorf("get cipher for index %d: %w", keyIndex, err)
+	}
+	return cipher.NewGCMWithNonceSize(block, nonceSize)
 }
 
 // getCipherBlock returns an AES cipher block for the given key index. If the
