@@ -204,7 +204,7 @@ func TestLocalManager_PublishCancelled(t *testing.T) {
 
 func TestLocalManager_PublishWithE2EE(t *testing.T) {
 	transport := newFakeLocalTransport()
-	m := NewLocalManager(LocalManagerParams{Transport: transport, Encryptor: prefixingEncryptor{}})
+	m := NewLocalManager(LocalManagerParams{Transport: transport, Encryptor: func() Encryptor { return prefixingEncryptor{} }})
 
 	result := publishAsync(context.Background(), m, "secure")
 

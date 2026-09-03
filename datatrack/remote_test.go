@@ -338,7 +338,7 @@ func TestRemoteManager_SubscribeReceivesFrame(t *testing.T) {
 
 func TestRemoteManager_SubscribeWithE2EE(t *testing.T) {
 	transport := newFakeRemoteTransport()
-	m := NewRemoteManager(RemoteManagerParams{Transport: transport, Decryptor: prefixStrippingDecryptor{}})
+	m := NewRemoteManager(RemoteManagerParams{Transport: transport, Decryptor: func() Decryptor { return prefixStrippingDecryptor{} }})
 
 	trackSID, subHandle := SID("DTR_1234"), trackHandle(0x1234)
 
