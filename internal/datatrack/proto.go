@@ -17,6 +17,7 @@ import (
 	"fmt"
 
 	"github.com/livekit/protocol/livekit"
+	"github.com/livekit/protocol/logger"
 )
 
 var (
@@ -272,4 +273,42 @@ func publishRejectionFromRequestResponse(msg *livekit.RequestResponse) (rejectio
 		rejection.err = fmt.Errorf("%w: %s", rejection.err, message)
 	}
 	return rejection, true
+}
+
+// subscriptionUpdate asks the SFU to start or stop delivering a track's packets.
+type subscriptionUpdate struct {
+	sid       SID
+	subscribe bool
+}
+
+func (u subscriptionUpdate) toProto() *livekit.UpdateDataSubscription {
+	return &livekit.UpdateDataSubscription{Updates: []*livekit.UpdateDataSubscription_Update{{
+		TrackSid:  string(u.sid),
+		Subscribe: u.subscribe,
+	}}}
+}
+
+// publicationUpdatesFromProto maps each remote participant to the data tracks it publishes. The
+// local participant is skipped and a disconnected participant contributes an empty list. Tracks
+// that fail to convert are dropped with a warning.
+func publicationUpdatesFromProto(participants []*livekit.ParticipantInfo, localIdentity string, log logger.Logger) map[string][]Info {
+	updates := make(map[string][]Info, len(participants))
+	for _, participant := range participants {
+		if participant.GetIdentity() == localIdentity {
+			continue
+		}
+		infos := make([]Info, 0, len(participant.GetDataTracks()))
+		if participant.GetState() != livekit.ParticipantInfo_DISCONNECTED {
+			for _, msg := range participant.GetDataTracks() {
+				info, err := infoFromProto(msg)
+				if err != nil {
+					log.Warnw("ignoring invalid data track info", err, "participant", participant.GetIdentity())
+					continue
+				}
+				infos = append(infos, info)
+			}
+		}
+		updates[participant.GetIdentity()] = infos
+	}
+	return updates
 }
