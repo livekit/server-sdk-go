@@ -18,6 +18,7 @@ import (
 	"github.com/pion/webrtc/v4"
 
 	"github.com/livekit/protocol/livekit"
+	"github.com/livekit/server-sdk-go/v2/datatrack"
 )
 
 // ParticipantAttributesChangedFunc is callback for Participant attribute change event.
@@ -44,6 +45,8 @@ type ParticipantCallback struct {
 	OnTrackSubscriptionFailed func(sid string, rp *RemoteParticipant)
 	OnTrackPublished          func(publication *RemoteTrackPublication, rp *RemoteParticipant)
 	OnTrackUnpublished        func(publication *RemoteTrackPublication, rp *RemoteParticipant)
+	OnDataTrackPublished      func(track *datatrack.RemoteTrack, rp *RemoteParticipant)
+	OnDataTrackUnpublished    func(track *datatrack.RemoteTrack, rp *RemoteParticipant)
 	OnDataReceived            func(data []byte, params DataReceiveParams) // Deprecated: Use OnDataPacket instead
 	OnDataPacket              func(data DataPacket, params DataReceiveParams)
 	OnTranscriptionReceived   func(transcriptionSegments []*TranscriptionSegment, p Participant, publication TrackPublication)
@@ -66,6 +69,8 @@ func NewParticipantCallback() *ParticipantCallback {
 		OnTrackSubscriptionFailed:  func(sid string, rp *RemoteParticipant) {},
 		OnTrackPublished:           func(publication *RemoteTrackPublication, rp *RemoteParticipant) {},
 		OnTrackUnpublished:         func(publication *RemoteTrackPublication, rp *RemoteParticipant) {},
+		OnDataTrackPublished:       func(track *datatrack.RemoteTrack, rp *RemoteParticipant) {},
+		OnDataTrackUnpublished:     func(track *datatrack.RemoteTrack, rp *RemoteParticipant) {},
 		OnDataReceived:             func(data []byte, params DataReceiveParams) {},
 		OnDataPacket:               func(data DataPacket, params DataReceiveParams) {},
 		OnTranscriptionReceived:    func(transcriptionSegments []*TranscriptionSegment, p Participant, publication TrackPublication) {},
@@ -112,6 +117,12 @@ func (cb *ParticipantCallback) Merge(other *ParticipantCallback) {
 	}
 	if other.OnTrackUnpublished != nil {
 		cb.OnTrackUnpublished = other.OnTrackUnpublished
+	}
+	if other.OnDataTrackPublished != nil {
+		cb.OnDataTrackPublished = other.OnDataTrackPublished
+	}
+	if other.OnDataTrackUnpublished != nil {
+		cb.OnDataTrackUnpublished = other.OnDataTrackUnpublished
 	}
 	if other.OnDataReceived != nil {
 		cb.OnDataReceived = other.OnDataReceived
