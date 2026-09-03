@@ -899,6 +899,51 @@ func TestLimitPayloadSize(t *testing.T) {
 	pub.Disconnect()
 }
 
+// A plain video publish must come back with a mime type on its TrackInfo. The
+// server only populates that for codecs declared in
+// AddTrackRequest.SimulcastCodecs, and never sends the publisher the corrected
+// TrackInfo it builds once media arrives, so a publication that does not
+// declare its codec cannot tell its own codec from a backup codec request in a
+// SubscribedQualityUpdate.
+func TestPublishTrackMimeType(t *testing.T) {
+	for _, codec := range []webrtc.RTPCodecCapability{
+		{MimeType: webrtc.MimeTypeVP8, ClockRate: 90000},
+		{MimeType: webrtc.MimeTypeH264, ClockRate: 90000},
+	} {
+		t.Run(codec.MimeType, func(t *testing.T) {
+			pub, err := createAgent(t.Name(), nil, "publisher")
+			require.NoError(t, err)
+			defer pub.Disconnect()
+
+			track, err := NewLocalTrack(codec)
+			require.NoError(t, err)
+			provider := NewSampleTestProvider(codec)
+			track.OnBind(func() {
+				if err := track.StartWrite(provider, func() {}); err != nil {
+					track.log.Errorw("Could not start writing", err)
+				}
+			})
+
+			localPub, err := pub.LocalParticipant.PublishTrack(track, &TrackPublicationOptions{Name: "video"})
+			require.NoError(t, err)
+
+			require.True(
+				t,
+				strings.EqualFold(codec.MimeType, localPub.MimeType()),
+				"expected mime type %s, got %q", codec.MimeType, localPub.MimeType(),
+			)
+
+			ti := localPub.TrackInfo()
+			require.Len(t, ti.Codecs, 1)
+			require.True(
+				t,
+				strings.EqualFold(codec.MimeType, ti.Codecs[0].MimeType),
+				"expected codec mime type %s, got %q", codec.MimeType, ti.Codecs[0].MimeType,
+			)
+		})
+	}
+}
+
 func TestSimulcastCodec(t *testing.T) {
 	cases := []struct {
 		name                      string
