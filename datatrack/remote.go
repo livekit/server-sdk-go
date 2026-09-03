@@ -74,8 +74,9 @@ type PipelineOptions struct {
 
 type RemoteManagerParams struct {
 	Transport RemoteTransport
-	// Decryptor opens frames of tracks that use end-to-end encryption; nil disables decryption.
-	Decryptor Decryptor
+	// Decryptor returns the decryptor for the current session; nil, or a nil result, leaves frames of
+	// end-to-end encrypted tracks as received.
+	Decryptor func() Decryptor
 	Logger    logger.Logger
 }
 
@@ -99,6 +100,13 @@ func NewRemoteManager(params RemoteManagerParams) *RemoteManager {
 		descriptors: make(map[SID]*RemoteTrack),
 		subHandles:  make(map[trackHandle]SID),
 	}
+}
+
+func (m *RemoteManager) decryptor() Decryptor {
+	if m.params.Decryptor == nil {
+		return nil
+	}
+	return m.params.Decryptor()
 }
 
 // HandleParticipantUpdate applies the data tracks listed for each participant in a
@@ -484,7 +492,9 @@ func (t *RemoteTrack) removeWaiterLocked(waiter chan subscribeResult) {
 func (t *RemoteTrack) activateLocked(handle trackHandle) {
 	var decryptor Decryptor
 	if t.info.UsesE2EE {
-		decryptor = t.manager.params.Decryptor
+		if decryptor = t.manager.decryptor(); decryptor == nil {
+			t.manager.params.Logger.Warnw("subscribing to an end-to-end encrypted data track without encryption enabled, frames are delivered as received", nil, "sid", t.info.SID)
+		}
 	}
 	t.packets = make(chan *dtp.Packet, packetBufferCount)
 	go t.runPipeline(t.packets, newRemotePipeline(decryptor, t.manager.params.Logger))
