@@ -30,6 +30,7 @@ import (
 const (
 	defaultBufferSize       = 16
 	defaultMaxPartialFrames = 1
+	packetBufferCount       = 16
 	subscribeTimeout        = 10 * time.Second
 )
 
@@ -266,26 +267,18 @@ func (m *RemoteManager) HandlePacket(data []byte) {
 	}
 
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	sid, known := m.subHandles[trackHandle(packet.Handle)]
 	track := m.descriptors[sid]
 	if !known || track == nil || track.subscription != subscriptionActive {
-		m.mu.Unlock()
 		m.params.Logger.Debugw("dropping data track packet without subscription", "handle", packet.Handle)
 		return
 	}
-	pipeline := track.pipeline
-	streams := make([]*Stream, 0, len(track.streams))
-	for stream := range track.streams {
-		streams = append(streams, stream)
-	}
-	m.mu.Unlock()
-
-	frame, ok := pipeline.processPacket(packet, int(track.maxPartialFrames.Load()))
-	if !ok {
-		return
-	}
-	for _, stream := range streams {
-		stream.push(frame)
+	// the send happens under the lock so the channel is never closed underneath it
+	select {
+	case track.packets <- packet:
+	default:
+		m.params.Logger.Debugw("dropping data track packet, pipeline is behind", "sid", sid)
 	}
 }
 
@@ -345,14 +338,18 @@ type RemoteTrack struct {
 	unpublished       core.Fuse
 	maxPartialFrames  atomic.Int64
 
+	// streamList is an immutable snapshot of streams, read by the worker without the lock
+	streamList atomic.Pointer[[]*Stream]
+
 	// guarded by manager.mu
 	info         Info
 	subscription subscriptionState
 	waiters      []chan subscribeResult
 	bufferSize   int
 	subHandle    trackHandle
-	pipeline     *remotePipeline
-	streams      map[*Stream]struct{}
+	// packets feeds the worker goroutine of the active subscription
+	packets chan *dtp.Packet
+	streams map[*Stream]struct{}
 }
 
 func newRemoteTrack(manager *RemoteManager, info Info, publisherIdentity string) *RemoteTrack {
@@ -363,6 +360,7 @@ func newRemoteTrack(manager *RemoteManager, info Info, publisherIdentity string)
 		streams:           make(map[*Stream]struct{}),
 	}
 	track.maxPartialFrames.Store(defaultMaxPartialFrames)
+	track.streamList.Store(&[]*Stream{})
 	return track
 }
 
@@ -488,7 +486,8 @@ func (t *RemoteTrack) activateLocked(handle trackHandle) {
 	if t.info.UsesE2EE {
 		decryptor = t.manager.params.Decryptor
 	}
-	t.pipeline = newRemotePipeline(decryptor, t.manager.params.Logger)
+	t.packets = make(chan *dtp.Packet, packetBufferCount)
+	go t.runPipeline(t.packets, newRemotePipeline(decryptor, t.manager.params.Logger))
 	t.subHandle = handle
 	t.subscription = subscriptionActive
 	for _, waiter := range t.waiters {
@@ -497,9 +496,40 @@ func (t *RemoteTrack) activateLocked(handle trackHandle) {
 	t.waiters = nil
 }
 
+// runPipeline reassembles the subscription's packets on its own goroutine, so tracks never wait on
+// one another, and delivers completed frames to every stream. It ends when packets is closed.
+func (t *RemoteTrack) runPipeline(packets <-chan *dtp.Packet, pipeline *remotePipeline) {
+	for packet := range packets {
+		frame, ok := pipeline.processPacket(packet, int(t.maxPartialFrames.Load()))
+		if !ok {
+			continue
+		}
+		for _, stream := range *t.streamList.Load() {
+			stream.push(frame)
+		}
+	}
+}
+
+// deactivateLocked stops the worker of the active subscription.
+func (t *RemoteTrack) deactivateLocked() {
+	if t.packets != nil {
+		close(t.packets)
+		t.packets = nil
+	}
+}
+
+func (t *RemoteTrack) refreshStreamListLocked() {
+	list := make([]*Stream, 0, len(t.streams))
+	for stream := range t.streams {
+		list = append(list, stream)
+	}
+	t.streamList.Store(&list)
+}
+
 func (t *RemoteTrack) addStreamLocked(bufferSize int) *Stream {
 	stream := &Stream{track: t, frames: make(chan Frame, bufferSize)}
 	t.streams[stream] = struct{}{}
+	t.refreshStreamListLocked()
 	return stream
 }
 
@@ -514,8 +544,9 @@ func (t *RemoteTrack) endLocked(err error) {
 		stream.close()
 	}
 	clear(t.streams)
+	t.refreshStreamListLocked()
 	t.subscription = subscriptionNone
-	t.pipeline = nil
+	t.deactivateLocked()
 }
 
 // removeStream is the subscriber side of Stream.Close: the last stream to leave ends the SFU
@@ -528,9 +559,10 @@ func (t *RemoteTrack) removeStream(stream *Stream) {
 	stream.close()
 	if _, present := t.streams[stream]; present {
 		delete(t.streams, stream)
+		t.refreshStreamListLocked()
 		if len(t.streams) == 0 && t.subscription == subscriptionActive {
 			t.subscription = subscriptionNone
-			t.pipeline = nil
+			t.deactivateLocked()
 			delete(m.subHandles, t.subHandle)
 			withdraw = &subscriptionUpdate{sid: t.info.SID, subscribe: false}
 		}
@@ -592,11 +624,10 @@ func (s *Stream) close() {
 	}
 }
 
-// remotePipeline turns a subscription's packets back into frames.
+// remotePipeline turns a subscription's packets back into frames. It is owned by one goroutine.
 type remotePipeline struct {
 	decryptor    Decryptor
 	log          logger.Logger
-	mu           sync.Mutex
 	depacketizer *depacketizer
 }
 
@@ -606,9 +637,7 @@ func newRemotePipeline(decryptor Decryptor, log logger.Logger) *remotePipeline {
 
 // processPacket reports whether the packet completed a frame.
 func (p *remotePipeline) processPacket(packet *dtp.Packet, maxPartialFrames int) (Frame, bool) {
-	p.mu.Lock()
 	result := p.depacketizer.push(*packet, depacketizerPushOptions{maxPartialFrames: maxPartialFrames})
-	p.mu.Unlock()
 
 	if result.drop != nil {
 		p.log.Debugw("data track frame dropped", "reason", result.drop.Error())
