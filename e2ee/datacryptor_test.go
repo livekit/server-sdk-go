@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/livekit/protocol/livekit"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/livekit/server-sdk-go/v2/e2ee"
 )
@@ -175,4 +176,61 @@ func newTestDataCryptor(t *testing.T) *e2ee.DataCryptor {
 	kp := e2ee.NewExternalKeyProvider()
 	require.NoError(t, kp.SetKeyFromPassphrase("12345", 0))
 	return e2ee.NewDataCryptor(kp)
+}
+
+func TestDataCryptorPayloadRoundTrip(t *testing.T) {
+	dc := newTestDataCryptor(t)
+
+	encrypted, err := dc.EncryptPayload([]byte("hello encrypted world"))
+	require.NoError(t, err)
+	require.Len(t, encrypted.IV, 12)
+	require.NotEqual(t, []byte("hello encrypted world"), encrypted.Ciphertext)
+
+	plaintext, err := dc.DecryptPayload(encrypted)
+	require.NoError(t, err)
+	require.Equal(t, []byte("hello encrypted world"), plaintext)
+}
+
+func TestDataCryptorPayloadWrongKeyFails(t *testing.T) {
+	kpA := e2ee.NewExternalKeyProvider()
+	require.NoError(t, kpA.SetRawKey(bytes16(0x11), 0))
+	dcA := e2ee.NewDataCryptor(kpA)
+
+	kpB := e2ee.NewExternalKeyProvider()
+	require.NoError(t, kpB.SetRawKey(bytes16(0x22), 0))
+	dcB := e2ee.NewDataCryptor(kpB)
+
+	encrypted, err := dcA.EncryptPayload([]byte("secret"))
+	require.NoError(t, err)
+
+	_, err = dcB.DecryptPayload(encrypted)
+	require.Error(t, err)
+}
+
+func TestDataCryptorPayloadEmptyRejected(t *testing.T) {
+	dc := newTestDataCryptor(t)
+
+	_, err := dc.DecryptPayload(e2ee.EncryptedPayload{Ciphertext: []byte("x")})
+	require.Error(t, err)
+
+	_, err = dc.DecryptPayload(e2ee.EncryptedPayload{IV: []byte("iv")})
+	require.Error(t, err)
+}
+
+// A DataPacket sealed by Encrypt opens with DecryptPayload: both paths share one primitive.
+func TestDataCryptorPacketUsesPayloadEncryption(t *testing.T) {
+	dc := newTestDataCryptor(t)
+
+	encrypted, err := dc.Encrypt(&livekit.DataPacket{
+		Value: &livekit.DataPacket_User{User: &livekit.UserPacket{Payload: []byte("shared primitive")}},
+	})
+	require.NoError(t, err)
+	ep := encrypted.Value.(*livekit.DataPacket_EncryptedPacket).EncryptedPacket
+
+	plaintext, err := dc.DecryptPayload(e2ee.EncryptedPayload{Ciphertext: ep.EncryptedValue, KeyIndex: ep.KeyIndex, IV: ep.Iv})
+	require.NoError(t, err)
+
+	payload := &livekit.EncryptedPacketPayload{}
+	require.NoError(t, proto.Unmarshal(plaintext, payload))
+	require.Equal(t, []byte("shared primitive"), payload.GetUser().GetPayload())
 }
