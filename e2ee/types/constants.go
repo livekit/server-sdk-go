@@ -22,6 +22,8 @@ const (
 	PBKDFIterations = 100000
 	KeySizeBytes    = 16
 	HKDFInfoBytes   = 128
+	// MaxKeyIndex is the largest key index the one-byte frame trailer can carry.
+	MaxKeyIndex = 255
 )
 
 var (
@@ -29,4 +31,5 @@ var (
 	ErrUnableGenerateIV    = errors.New("unable to generate iv for encryption")
 	ErrIncorrectIVLength   = errors.New("incorrect iv length")
 	ErrBlockCipherRequired = errors.New("input block cipher cannot be nil")
+	ErrKeyIndexOutOfRange  = errors.New("key index must not exceed 255")
 )
