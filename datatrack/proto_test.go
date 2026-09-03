@@ -115,3 +115,29 @@ func TestProto_ExtractTrackInfo(t *testing.T) {
 	require.Equal(t, "track1", infos[0].Name)
 	require.Equal(t, SID("DTR_1234"), infos[0].SID)
 }
+
+func TestProto_PublishRequestToProto(t *testing.T) {
+	request := publishRequest{handle: 1, name: "track", usesE2EE: true}.toProto()
+	require.Equal(t, uint32(1), request.GetPubHandle())
+	require.Equal(t, "track", request.GetName())
+	require.Equal(t, livekit.Encryption_GCM, request.GetEncryption())
+}
+
+func TestProto_UnpublishRequestToProto(t *testing.T) {
+	request := unpublishRequestToProto(1)
+	require.Equal(t, uint32(1), request.GetPubHandle())
+}
+
+func TestProto_PublishRejectionFromRequestResponse(t *testing.T) {
+	response := &livekit.RequestResponse{
+		Request: &livekit.RequestResponse_PublishDataTrack{
+			PublishDataTrack: &livekit.PublishDataTrackRequest{PubHandle: 1},
+		},
+		Reason: livekit.RequestResponse_NOT_ALLOWED,
+	}
+
+	rejection, ok := publishRejectionFromRequestResponse(response)
+	require.True(t, ok)
+	require.Equal(t, trackHandle(1), rejection.handle)
+	require.ErrorIs(t, rejection.err, ErrNotAllowed)
+}
