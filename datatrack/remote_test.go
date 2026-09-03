@@ -167,7 +167,7 @@ func pushInterleavedTwoFramePair(t *testing.T, m *RemoteManager, handle trackHan
 
 func TestRemotePipeline_ProcessPacket(t *testing.T) {
 	const payloadLen = 1024
-	pipeline := newRemotePipeline(nil, logger.GetLogger())
+	pipeline := newRemotePipeline(false, nil, logger.GetLogger())
 
 	header := testHeader()
 	FrameMarkerSingle.apply(&header)
@@ -519,4 +519,27 @@ func TestRemoteManager_DefaultDropsOlderPartialFrame(t *testing.T) {
 
 	require.Equal(t, []byte{0xb1, 0xb2}, expectEvent(t, stream.Frames()).Payload)
 	expectNoEvent(t, stream.Frames())
+}
+
+func TestRemotePipeline_DropsEncryptedFrameWithoutDecryptor(t *testing.T) {
+	pipeline := newRemotePipeline(true, nil, logger.GetLogger())
+
+	header := testHeader()
+	FrameMarkerSingle.apply(&header)
+	Extensions{E2EE: &E2EEExtension{}}.apply(&header)
+	packet := &dtp.Packet{Header: header, Payload: []byte{1, 2, 3, 4, 5}}
+
+	_, ok := pipeline.processPacket(packet, defaultMaxPartialFrames)
+	require.False(t, ok)
+}
+
+func TestRemoteManager_SubscribeEncryptedTrackWithoutDecryptorFails(t *testing.T) {
+	transport := newFakeRemoteTransport()
+	m := NewRemoteManager(RemoteManagerParams{Transport: transport})
+
+	track := publishTrack(t, m, transport, "id", Info{SID: "DTR_1234", pubHandle: 1, Name: "secure", UsesE2EE: true})
+
+	_, err := track.Subscribe(context.Background())
+	require.ErrorIs(t, err, ErrEncryptionDisabled)
+	expectNoEvent(t, transport.subscriptionUpdates)
 }
