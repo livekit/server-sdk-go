@@ -35,6 +35,7 @@ import (
 	protosignalling "github.com/livekit/protocol/signalling"
 
 	"github.com/livekit/server-sdk-go/v2/e2ee"
+	"github.com/livekit/server-sdk-go/v2/internal/datatrack"
 	"github.com/livekit/server-sdk-go/v2/signalling"
 
 	"github.com/livekit/mediatransportutil/pkg/pacer"
@@ -322,6 +323,7 @@ type Room struct {
 	sid                     string
 	name                    string
 	LocalParticipant        *LocalParticipant
+	remoteDataTracks        *datatrack.RemoteManager
 	callback                *RoomCallback
 	sidReady                chan struct{}
 	disconnectReason        livekit.DisconnectReason
@@ -366,6 +368,7 @@ func NewRoom(callback *RoomCallback) *Room {
 
 	r.engine = NewRTCEngine(r.useSinglePeerConnection, r, r.getLocalParticipantSID, r.regionURLProvider)
 	r.LocalParticipant = newLocalParticipant(r.engine, r.callback, r.serverInfo, r.log)
+	r.remoteDataTracks = datatrack.NewRemoteManager(datatrack.RemoteManagerParams{Transport: remoteDataTrackTransport{room: r}, Logger: r.log})
 	return r
 }
 
@@ -789,6 +792,7 @@ func (r *Room) cleanup() {
 	r.engine.Close()
 	r.LocalParticipant.closeTracks()
 	r.LocalParticipant.dataTracks.Shutdown()
+	r.remoteDataTracks.Shutdown()
 	r.setSid("", true)
 
 	r.byteStreamHandlers.Clear()
@@ -1063,6 +1067,7 @@ func (r *Room) OnRoomJoined(
 		r.clearParticipantDefers(livekit.ParticipantID(pi.Sid), pi)
 		// no need to run participant defers here, since we are connected for the first time
 	}
+	r.remoteDataTracks.HandleParticipantSnapshot(otherParticipants, r.LocalParticipant.Identity())
 }
 
 func (r *Room) OnDisconnected(reason livekit.DisconnectReason) {
@@ -1109,6 +1114,8 @@ func (r *Room) OnRestarted(
 
 	r.LocalParticipant.republishTracks()
 	r.LocalParticipant.dataTracks.RepublishTracks()
+	r.remoteDataTracks.HandleParticipantSnapshot(otherParticipants, r.LocalParticipant.Identity())
+	r.remoteDataTracks.ResendSubscriptionUpdates()
 }
 
 func (r *Room) OnRestartConnected() {
@@ -1187,6 +1194,7 @@ func (r *Room) OnParticipantUpdate(participants []*livekit.ParticipantInfo) {
 			r.runParticipantDefers(newSid, rp)
 		}
 	}
+	r.remoteDataTracks.HandleParticipantUpdate(participants, r.LocalParticipant.Identity())
 }
 
 func (r *Room) OnParticipantDisconnect(rp *RemoteParticipant, reason livekit.DisconnectReason) {
@@ -1302,6 +1310,7 @@ func (r *Room) OnRoomMoved(moved *livekit.RoomMovedResponse) {
 	infos = append(infos, moved.Participant)
 	infos = append(infos, moved.OtherParticipants...)
 	r.OnParticipantUpdate(infos)
+	r.remoteDataTracks.HandleParticipantSnapshot(moved.OtherParticipants, r.LocalParticipant.Identity())
 }
 
 func (r *Room) OnTrackRemoteMuted(msg *livekit.MuteTrackRequest) {
@@ -1426,9 +1435,11 @@ func (r *Room) OnUnpublishDataTrackResponse(unpublishDataTrackResponse *livekit.
 }
 
 func (r *Room) OnDataTrackSubscriberHandles(dataTrackSubscriberHandles *livekit.DataTrackSubscriberHandles) {
+	r.remoteDataTracks.HandleSubscriberHandles(dataTrackSubscriberHandles)
 }
 
 func (r *Room) OnDataTrackPacket(data []byte) {
+	r.remoteDataTracks.HandlePacket(data)
 }
 
 func (r *Room) OnStreamHeader(streamHeader *livekit.DataStream_Header, participantIdentity string) {
