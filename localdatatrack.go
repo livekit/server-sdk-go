@@ -14,7 +14,16 @@
 
 package lksdk
 
-import "github.com/livekit/protocol/livekit"
+import (
+	"context"
+	"errors"
+	"time"
+
+	"github.com/livekit/protocol/livekit"
+	"github.com/livekit/server-sdk-go/v2/datatrack"
+)
+
+const dataTrackPublishTimeout = 10 * time.Second
 
 // localDataTrackTransport connects the local data track manager to the engine.
 type localDataTrackTransport struct {
@@ -34,4 +43,27 @@ func (t localDataTrackTransport) SendUnpublishRequest(req *livekit.UnpublishData
 
 func (t localDataTrackTransport) SendFrame(packets [][]byte) {
 	t.engine.sendDataTrackFrame(packets)
+}
+
+// PublishDataTrack publishes a data track and waits for the server to accept it. A 10 second
+// deadline applies when ctx has none. The name must be unique among the participant's data tracks.
+func (p *LocalParticipant) PublishDataTrack(ctx context.Context, name string, opts ...datatrack.PublishOption) (*datatrack.LocalTrack, error) {
+	options := datatrack.PublishOptions{Name: name}
+	for _, opt := range opts {
+		opt(&options)
+	}
+
+	_, hasDeadline := ctx.Deadline()
+	ctx, cancel := withDefaultTimeout(ctx, dataTrackPublishTimeout)
+	defer cancel()
+
+	track, err := p.dataTracks.Publish(ctx, options)
+	if err != nil {
+		if !hasDeadline && errors.Is(err, context.DeadlineExceeded) {
+			return nil, datatrack.ErrPublishTimeout
+		}
+		return nil, err
+	}
+	p.log.Infow("published data track", "name", name, "trackID", track.Info().SID)
+	return track, nil
 }
