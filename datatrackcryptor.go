@@ -17,9 +17,10 @@ package lksdk
 import (
 	"math"
 
-	"github.com/livekit/server-sdk-go/v2/datatrack"
+	dtp "github.com/livekit/protocol/datatrack"
 	"github.com/livekit/server-sdk-go/v2/e2ee"
 	"github.com/livekit/server-sdk-go/v2/e2ee/types"
+	"github.com/livekit/server-sdk-go/v2/internal/datatrack"
 )
 
 // dataTrackCryptor seals and opens data track frames with the room's DataCryptor, carrying the key
@@ -28,45 +29,46 @@ type dataTrackCryptor struct {
 	cryptor *e2ee.DataCryptor
 }
 
-func (c dataTrackCryptor) Encrypt(payload []byte) ([]byte, datatrack.E2EEExtension, error) {
+func (c dataTrackCryptor) Encrypt(payload []byte) ([]byte, dtp.ExtensionE2EE, error) {
 	encrypted, err := c.cryptor.EncryptPayload(payload)
 	if err != nil {
-		return nil, datatrack.E2EEExtension{}, err
+		return nil, dtp.ExtensionE2EE{}, err
 	}
 	if encrypted.KeyIndex > math.MaxUint8 {
-		return nil, datatrack.E2EEExtension{}, types.ErrKeyIndexOutOfRange
+		return nil, dtp.ExtensionE2EE{}, types.ErrKeyIndexOutOfRange
 	}
 
-	ext := datatrack.E2EEExtension{KeyIndex: uint8(encrypted.KeyIndex)}
-	if len(encrypted.IV) != len(ext.IV) {
-		return nil, datatrack.E2EEExtension{}, types.ErrIncorrectIVLength
+	var iv [dtp.ExtensionE2EEIVLength]byte
+	if len(encrypted.IV) != len(iv) {
+		return nil, dtp.ExtensionE2EE{}, types.ErrIncorrectIVLength
 	}
-	copy(ext.IV[:], encrypted.IV)
-	return encrypted.Ciphertext, ext, nil
+	copy(iv[:], encrypted.IV)
+	return encrypted.Ciphertext, *dtp.NewExtensionE2EE(uint8(encrypted.KeyIndex), iv), nil
 }
 
-func (c dataTrackCryptor) Decrypt(payload []byte, ext datatrack.E2EEExtension) ([]byte, error) {
+func (c dataTrackCryptor) Decrypt(payload []byte, ext dtp.ExtensionE2EE) ([]byte, error) {
+	iv := ext.IV()
 	return c.cryptor.DecryptPayload(e2ee.EncryptedPayload{
 		Ciphertext: payload,
-		KeyIndex:   uint32(ext.KeyIndex),
-		IV:         ext.IV[:],
+		KeyIndex:   uint32(ext.KeyIndex()),
+		IV:         iv[:],
 	})
 }
 
 // dataTrackEncryptor returns the encryptor for the current session, or nil when data encryption
 // is not enabled.
-func (r *Room) dataTrackEncryptor() datatrack.Encryptor {
-	if r.engine.dataCryptor == nil {
+func (e *RTCEngine) dataTrackEncryptor() datatrack.Encryptor {
+	if e.dataCryptor == nil {
 		return nil
 	}
-	return dataTrackCryptor{cryptor: r.engine.dataCryptor}
+	return dataTrackCryptor{cryptor: e.dataCryptor}
 }
 
 // dataTrackDecryptor returns the decryptor for the current session, or nil when data encryption
 // is not enabled.
-func (r *Room) dataTrackDecryptor() datatrack.Decryptor {
-	if r.engine.dataCryptor == nil {
+func (e *RTCEngine) dataTrackDecryptor() datatrack.Decryptor {
+	if e.dataCryptor == nil {
 		return nil
 	}
-	return dataTrackCryptor{cryptor: r.engine.dataCryptor}
+	return dataTrackCryptor{cryptor: e.dataCryptor}
 }

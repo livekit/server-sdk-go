@@ -554,7 +554,7 @@ func (d blockingDecryptor) Decrypt(payload []byte, _ dtp.ExtensionE2EE) ([]byte,
 func TestRemoteManager_ResubscribeDoesNotReceivePreviousSubscriptionFrames(t *testing.T) {
 	decryptor := blockingDecryptor{entered: make(chan struct{}, 1), release: make(chan struct{})}
 	transport := newFakeRemoteTransport()
-	m := NewRemoteManager(RemoteManagerParams{Transport: transport, Decryptor: decryptor})
+	m := NewRemoteManager(RemoteManagerParams{Transport: transport, Decryptor: func() Decryptor { return decryptor }})
 
 	trackSID := livekit.TrackID("DTR_1234")
 	oldHandle, newHandle := trackHandle(0x1234), trackHandle(0x1235)
