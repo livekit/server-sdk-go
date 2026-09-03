@@ -53,9 +53,8 @@ func NewDataCryptor(keyProvider types.KeyProvider) *DataCryptor {
 	}
 }
 
-// Encrypt wraps a DataPacket's value in an EncryptedPacket.
-// The original value is serialized as EncryptedPacketPayload, then
-// encrypted with AES-128-GCM using a random IV and no AAD.
+// Encrypt wraps a DataPacket's value in an EncryptedPacket: the value is serialized as an
+// EncryptedPacketPayload and sealed with EncryptPayload.
 func (dc *DataCryptor) Encrypt(pck *livekit.DataPacket) (*livekit.DataPacket, error) {
 	payload := DataPacketValueToPayload(pck)
 	if payload == nil {
@@ -67,23 +66,10 @@ func (dc *DataCryptor) Encrypt(pck *livekit.DataPacket) (*livekit.DataPacket, er
 		return nil, fmt.Errorf("marshal payload: %w", err)
 	}
 
-	keyIndex := dc.keyProvider.CurrentKeyIndex()
-	block, err := dc.getCipherBlock(keyIndex)
-	if err != nil {
-		return nil, fmt.Errorf("get cipher: %w", err)
-	}
-
-	aesGCM, err := cipher.NewGCMWithNonceSize(block, types.IVLength)
+	encrypted, err := dc.EncryptPayload(plaintext)
 	if err != nil {
 		return nil, err
 	}
-
-	iv := make([]byte, types.IVLength)
-	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
-		return nil, fmt.Errorf("generate IV: %w", err)
-	}
-
-	ciphertext := aesGCM.Seal(nil, iv, plaintext, nil)
 
 	return &livekit.DataPacket{
 		Kind:                  pck.Kind, //nolint:staticcheck
@@ -92,9 +78,9 @@ func (dc *DataCryptor) Encrypt(pck *livekit.DataPacket) (*livekit.DataPacket, er
 		Value: &livekit.DataPacket_EncryptedPacket{
 			EncryptedPacket: &livekit.EncryptedPacket{
 				EncryptionType: livekit.Encryption_GCM,
-				Iv:             iv,
-				KeyIndex:       keyIndex,
-				EncryptedValue: ciphertext,
+				Iv:             encrypted.IV,
+				KeyIndex:       encrypted.KeyIndex,
+				EncryptedValue: encrypted.Ciphertext,
 			},
 		},
 	}, nil
@@ -102,23 +88,9 @@ func (dc *DataCryptor) Encrypt(pck *livekit.DataPacket) (*livekit.DataPacket, er
 
 // Decrypt extracts and decrypts an EncryptedPacket, returning the inner payload.
 func (dc *DataCryptor) Decrypt(ep *livekit.EncryptedPacket) (*livekit.EncryptedPacketPayload, error) {
-	if len(ep.Iv) == 0 || len(ep.EncryptedValue) == 0 {
-		return nil, fmt.Errorf("empty IV or ciphertext")
-	}
-
-	block, err := dc.getCipherBlock(ep.KeyIndex)
-	if err != nil {
-		return nil, fmt.Errorf("get cipher for index %d: %w", ep.KeyIndex, err)
-	}
-
-	aesGCM, err := cipher.NewGCMWithNonceSize(block, len(ep.Iv))
+	plaintext, err := dc.DecryptPayload(EncryptedPayload{Ciphertext: ep.EncryptedValue, KeyIndex: ep.KeyIndex, IV: ep.Iv})
 	if err != nil {
 		return nil, err
-	}
-
-	plaintext, err := aesGCM.Open(nil, ep.Iv, ep.EncryptedValue, nil)
-	if err != nil {
-		return nil, fmt.Errorf("decrypt: %w", err)
 	}
 
 	payload := &livekit.EncryptedPacketPayload{}
