@@ -34,12 +34,12 @@ func parseSID(raw string) (SID, error) {
 }
 
 // Info describes a published data track. The SID changes when the publisher completes a
-// full reconnect; Name is stable.
+// full reconnect; Name is stable. Schema and FrameEncoding are nil when not specified.
 type Info struct {
 	SID           SID
 	pubHandle     trackHandle
 	Name          string
 	UsesE2EE      bool
 	Schema        *SchemaID
-	FrameEncoding *FrameEncoding
+	FrameEncoding FrameEncoding
 }
