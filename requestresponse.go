@@ -104,30 +104,6 @@ func (p *pendingRequest) Await(ctx context.Context) (proto.Message, error) {
 	}
 }
 
-// awaitResponse is Await for requests whose success is reported by a dedicated message type.
-func awaitResponse[T proto.Message](ctx context.Context, p *pendingRequest) (T, error) {
-	var zero T
-
-	res, err := p.Await(ctx)
-	if err != nil {
-		return zero, err
-	}
-	typed, ok := res.(T)
-	if !ok {
-		return zero, fmt.Errorf("unexpected response %T to signal request %d", res, p.id)
-	}
-	return typed, nil
-}
-
-// withDefaultTimeout applies deadline d to ctx when it has none. A deadline the caller set is
-// never shortened. The returned cancel must be called.
-func withDefaultTimeout(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
-	if _, ok := ctx.Deadline(); ok {
-		return ctx, func() {}
-	}
-	return context.WithTimeout(ctx, d)
-}
-
 func (e *RTCEngine) removePendingRequest(requestID uint32) {
 	e.pendingRequestsLock.Lock()
 	delete(e.pendingRequests, requestID)
@@ -163,4 +139,28 @@ func (e *RTCEngine) abortPendingRequests() {
 	for _, ch := range pending {
 		close(ch)
 	}
+}
+
+// awaitResponse is Await for requests whose success is reported by a dedicated message type.
+func awaitResponse[T proto.Message](ctx context.Context, p *pendingRequest) (T, error) {
+	var zero T
+
+	res, err := p.Await(ctx)
+	if err != nil {
+		return zero, err
+	}
+	typed, ok := res.(T)
+	if !ok {
+		return zero, fmt.Errorf("unexpected response %T to signal request %d", res, p.id)
+	}
+	return typed, nil
+}
+
+// withDefaultTimeout applies deadline d to ctx when it has none. A deadline the caller set is
+// never shortened. The returned cancel must be called.
+func withDefaultTimeout(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
+	if _, ok := ctx.Deadline(); ok {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, d)
 }
