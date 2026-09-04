@@ -182,3 +182,10 @@ type SignalProcessor interface {
 	OnSubscribedAudioCodecUpdate(subscribedAudioCodecUpdate *livekit.SubscribedAudioCodecUpdate)
 	OnMediaSectionsRequirement(mediaSectionsRequirement *livekit.MediaSectionsRequirement)
 }
+
+// SubscriptionResponseProcessor is an optional extension of SignalProcessor.
+// Processors that also implement it receive server responses to subscription
+// requests; others continue to compile and behave as before.
+type SubscriptionResponseProcessor interface {
+	OnSubscriptionResponse(subscriptionResponse *livekit.SubscriptionResponse)
+}
