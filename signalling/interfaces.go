@@ -69,6 +69,9 @@ type Signalling interface {
 	SignalSubscriptionPermission(subscriptionPermission *livekit.SubscriptionPermission) proto.Message
 	SignalUpdateTrackSettings(settings *livekit.UpdateTrackSettings) proto.Message
 	SignalUpdateParticipantMetadata(metadata *livekit.UpdateParticipantMetadata) proto.Message
+	SignalPublishDataTrack(publishDataTrack *livekit.PublishDataTrackRequest) proto.Message
+	SignalUnpublishDataTrack(unpublishDataTrack *livekit.UnpublishDataTrackRequest) proto.Message
+	SignalUpdateDataSubscription(updateDataSubscription *livekit.UpdateDataSubscription) proto.Message
 }
 
 type ConnectParams struct {
@@ -182,4 +185,7 @@ type SignalProcessor interface {
 	OnSubscribedAudioCodecUpdate(subscribedAudioCodecUpdate *livekit.SubscribedAudioCodecUpdate)
 	OnMediaSectionsRequirement(mediaSectionsRequirement *livekit.MediaSectionsRequirement)
 	OnRequestResponse(requestResponse *livekit.RequestResponse)
+	OnPublishDataTrackResponse(publishDataTrackResponse *livekit.PublishDataTrackResponse)
+	OnUnpublishDataTrackResponse(unpublishDataTrackResponse *livekit.UnpublishDataTrackResponse)
+	OnDataTrackSubscriberHandles(dataTrackSubscriberHandles *livekit.DataTrackSubscriberHandles)
 }
