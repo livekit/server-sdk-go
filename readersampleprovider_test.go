@@ -317,7 +317,7 @@ func TestNextNALH265LengthPrefixed(t *testing.T) {
 		vps := makeH265NALData(32, []byte{0x01, 0x02})
 		r := bytes.NewReader(lengthPrefix(vps))
 
-		nal, err := nextNALH265LengthPrefixed(r)
+		nal, err := nextNALH265LengthPrefixed(r, defaultMaxNALSize)
 		require.NoError(t, err)
 		require.False(t, nal.ForbiddenZeroBit)
 		require.Equal(t, h265reader.NalUnitType(32), nal.NalUnitType)
@@ -327,24 +327,51 @@ func TestNextNALH265LengthPrefixed(t *testing.T) {
 	})
 
 	t.Run("EOF at a clean boundary", func(t *testing.T) {
-		_, err := nextNALH265LengthPrefixed(bytes.NewReader(nil))
+		_, err := nextNALH265LengthPrefixed(bytes.NewReader(nil), defaultMaxNALSize)
 		require.ErrorIs(t, err, io.EOF)
 	})
 
 	t.Run("truncated payload", func(t *testing.T) {
-		_, err := nextNALH265LengthPrefixed(bytes.NewReader([]byte{0, 0, 0, 8, 0x40, 0x01}))
+		_, err := nextNALH265LengthPrefixed(bytes.NewReader([]byte{0, 0, 0, 8, 0x40, 0x01}), defaultMaxNALSize)
 		require.ErrorIs(t, err, io.ErrUnexpectedEOF)
 	})
 
 	t.Run("NAL shorter than the header", func(t *testing.T) {
-		_, err := nextNALH265LengthPrefixed(bytes.NewReader([]byte{0, 0, 0, 1, 0x40}))
+		_, err := nextNALH265LengthPrefixed(bytes.NewReader([]byte{0, 0, 0, 1, 0x40}), defaultMaxNALSize)
 		require.ErrorIs(t, err, io.ErrUnexpectedEOF)
 	})
 
 	t.Run("zero length", func(t *testing.T) {
-		_, err := nextNALH265LengthPrefixed(bytes.NewReader([]byte{0, 0, 0, 0}))
+		_, err := nextNALH265LengthPrefixed(bytes.NewReader([]byte{0, 0, 0, 0}), defaultMaxNALSize)
 		require.ErrorIs(t, err, io.ErrUnexpectedEOF)
 	})
+
+	t.Run("exceeds max size", func(t *testing.T) {
+		// prefix advertises a NAL one byte past the limit; no payload follows,
+		// so a size check that ran after allocation would instead read and fail.
+		_, err := nextNALH265LengthPrefixed(bytes.NewReader([]byte{0, 0, 0, 5}), 4)
+		require.ErrorIs(t, err, ErrNALTooLarge)
+	})
+}
+
+func TestReaderTrackWithMaxNALSize(t *testing.T) {
+	// OnBind resolves the effective limit once into maxNALSize.
+	bind := func(opts ...ReaderSampleProviderOption) *ReaderSampleProvider {
+		p := &ReaderSampleProvider{
+			Mime:                webrtc.MimeTypeH265,
+			reader:              io.NopCloser(bytes.NewReader(nil)),
+			h26xStreamingFormat: H26xStreamingFormatLengthPrefixed,
+		}
+		for _, opt := range opts {
+			opt(p)
+		}
+		require.NoError(t, p.OnBind())
+		return p
+	}
+
+	require.Equal(t, defaultMaxNALSize, bind().maxNALSize, "unset uses the default")
+	require.Equal(t, defaultMaxNALSize, bind(ReaderTrackWithMaxNALSize(0)).maxNALSize, "0 keeps the default")
+	require.Equal(t, 1<<20, bind(ReaderTrackWithMaxNALSize(1<<20)).maxNALSize)
 }
 
 func TestH265NextSample_LengthPrefixed_SingleAccessUnit(t *testing.T) {
