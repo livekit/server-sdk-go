@@ -82,3 +82,13 @@ func bytes16(b byte) []byte {
 	}
 	return out
 }
+
+func TestKeyIndexOutOfRangeRejected(t *testing.T) {
+	kp := e2ee.NewExternalKeyProvider()
+
+	require.ErrorIs(t, kp.SetRawKey(bytes16(0x11), 256), types.ErrKeyIndexOutOfRange)
+	require.ErrorIs(t, kp.SetKeyFromPassphrase("12345", 256), types.ErrKeyIndexOutOfRange)
+
+	require.NoError(t, kp.SetRawKey(bytes16(0x11), 255))
+	require.Equal(t, uint32(255), kp.CurrentKeyIndex())
+}
