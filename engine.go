@@ -80,6 +80,7 @@ type engineHandler interface {
 	OnPublishDataTrackResponse(publishDataTrackResponse *livekit.PublishDataTrackResponse)
 	OnUnpublishDataTrackResponse(unpublishDataTrackResponse *livekit.UnpublishDataTrackResponse)
 	OnDataTrackSubscriberHandles(dataTrackSubscriberHandles *livekit.DataTrackSubscriberHandles)
+	OnDataTrackPacket(data []byte)
 }
 
 // -------------------------------------------
@@ -92,8 +93,9 @@ var (
 // -------------------------------------------
 
 const (
-	reliableDataChannelName = "_reliable"
-	lossyDataChannelName    = "_lossy"
+	reliableDataChannelName  = "_reliable"
+	lossyDataChannelName     = "_lossy"
+	dataTrackDataChannelName = "_data_track"
 
 	maxReconnectCount        = 10
 	initialReconnectInterval = 300 * time.Millisecond
@@ -127,8 +129,12 @@ type RTCEngine struct {
 	lossyDC         *webrtc.DataChannel
 	reliableDCSub   *webrtc.DataChannel
 	lossyDCSub      *webrtc.DataChannel
+	dataTrackDC     *webrtc.DataChannel
+	dataTrackDCSub  *webrtc.DataChannel
 	reliableMsgLock sync.Mutex
 	reliableMsgSeq  uint32
+
+	dataTrackSender *dataTrackSender
 
 	trackPublishedListenersLock sync.Mutex
 	trackPublishedListeners     map[string]chan *livekit.TrackPublishedResponse
@@ -170,6 +176,7 @@ func NewRTCEngine(
 		Logger:    e.log,
 		Processor: e,
 	})
+	e.dataTrackSender = newDataTrackSender(e.dataTrackDataChannel, e.log)
 	e.configureSignalling(useSinglePeerConnection)
 
 	return e
@@ -202,6 +209,7 @@ func (e *RTCEngine) configureSignalling(useSinglePeerConnection bool) {
 // SetLogger overrides default logger.
 func (e *RTCEngine) SetLogger(l protoLogger.Logger) {
 	e.log = l
+	e.dataTrackSender.setLogger(l)
 	e.connectionManager.setLogger(l)
 	e.signalling.SetLogger(l)
 	e.signalHandler.SetLogger(l)
@@ -369,6 +377,7 @@ func (e *RTCEngine) Close() {
 
 	e.connectionManager.setClosed()
 	e.abortPendingRequests()
+	e.dataTrackSender.stop()
 
 	e.pclock.Lock()
 	e.pendingPublisherOffer = webrtc.SessionDescription{}
@@ -557,6 +566,19 @@ func (e *RTCEngine) createPublisherPCLocked(configuration webrtc.Configuration) 
 		return err
 	}
 	e.reliableDC.OnMessage(e.handleDataPacket)
+
+	e.dataTrackDC, err = e.publisher.pc.CreateDataChannel(dataTrackDataChannelName, &webrtc.DataChannelInit{
+		Ordered:        &falseVal,
+		MaxRetransmits: new(uint16),
+	})
+	if err != nil {
+		e.dclock.Unlock()
+		return err
+	}
+	e.dataTrackDC.OnMessage(e.handleDataTrackPacket)
+	e.dataTrackDC.SetBufferedAmountLowThreshold(dataTrackBufferedAmountLowThreshold)
+	e.dataTrackDC.OnBufferedAmountLow(e.dataTrackSender.wake)
+	e.dataTrackDC.OnOpen(e.dataTrackSender.wake)
 	e.dclock.Unlock()
 
 	return nil
@@ -643,6 +665,10 @@ func (e *RTCEngine) createSubscriberPCLocked(configuration webrtc.Configuration)
 			e.reliableDCSub = c
 		} else if c.Label() == lossyDataChannelName {
 			e.lossyDCSub = c
+		} else if c.Label() == dataTrackDataChannelName {
+			e.dataTrackDCSub = c
+			c.OnMessage(e.handleDataTrackPacket)
+			return
 		} else {
 			return
 		}
@@ -750,7 +776,9 @@ func (e *RTCEngine) ensurePublisherConnected(ensureDataReady bool) error {
 func (e *RTCEngine) dataPubChannelReady() bool {
 	e.dclock.RLock()
 	defer e.dclock.RUnlock()
-	return e.reliableDC.ReadyState() == webrtc.DataChannelStateOpen && e.lossyDC.ReadyState() == webrtc.DataChannelStateOpen
+	return e.reliableDC.ReadyState() == webrtc.DataChannelStateOpen &&
+		e.lossyDC.ReadyState() == webrtc.DataChannelStateOpen &&
+		e.dataTrackDC.ReadyState() == webrtc.DataChannelStateOpen
 }
 
 func (e *RTCEngine) RegisterTrackPublishedListener(cid string, c chan *livekit.TrackPublishedResponse) {
@@ -907,6 +935,13 @@ func (e *RTCEngine) handleDataPacket(msg webrtc.DataChannelMessage) {
 	case *livekit.DataPacket_StreamTrailer:
 		e.engineHandler.OnStreamTrailer(msg.StreamTrailer)
 	}
+}
+
+func (e *RTCEngine) handleDataTrackPacket(msg webrtc.DataChannelMessage) {
+	if msg.IsString {
+		return
+	}
+	e.engineHandler.OnDataTrackPacket(msg.Data)
 }
 
 func (e *RTCEngine) readDataPacket(msg webrtc.DataChannelMessage) (*livekit.DataPacket, error) {
@@ -1808,4 +1843,14 @@ func waitUntilConnected(d time.Duration, test func() bool) error {
 			}
 		}
 	}
+}
+
+func (e *RTCEngine) dataTrackDataChannel() *webrtc.DataChannel {
+	e.dclock.RLock()
+	defer e.dclock.RUnlock()
+	return e.dataTrackDC
+}
+
+func (e *RTCEngine) sendDataTrackFrame(frame dataTrackFramePackets) {
+	e.dataTrackSender.send(frame)
 }
