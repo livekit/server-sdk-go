@@ -35,44 +35,12 @@ func (e *SignalRequestError) Error() string {
 }
 
 // pendingRequest reserves the response to a signal request that carries a request id: create it
-// before sending the request, put ID() in the request_id field, then Await the response.
+// before sending the request, put ID() in the request_id field, then Await the response. The
+// engine owns the registry these are tracked in, see (*RTCEngine).newPendingRequest.
 type pendingRequest struct {
 	engine *RTCEngine
 	id     uint32
 	ch     chan proto.Message
-}
-
-func (e *RTCEngine) newPendingRequest() *pendingRequest {
-	p := &pendingRequest{
-		engine: e,
-		ch:     make(chan proto.Message, 1),
-	}
-
-	e.pendingRequestsLock.Lock()
-	p.id = e.allocateRequestIDLocked()
-	if e.closed.Load() {
-		// nothing will answer, fail Await right away
-		close(p.ch)
-	} else {
-		e.pendingRequests[p.id] = p.ch
-	}
-	e.pendingRequestsLock.Unlock()
-
-	return p
-}
-
-// allocateRequestIDLocked returns the next request id not in use by a pending request, skipping
-// zero. Wrapping around is harmless: an id is reused only once its previous request is done.
-func (e *RTCEngine) allocateRequestIDLocked() uint32 {
-	for {
-		e.nextRequestID++
-		if e.nextRequestID == 0 {
-			continue
-		}
-		if _, inUse := e.pendingRequests[e.nextRequestID]; !inUse {
-			return e.nextRequestID
-		}
-	}
 }
 
 func (p *pendingRequest) ID() uint32 {
@@ -101,43 +69,6 @@ func (p *pendingRequest) Await(ctx context.Context) (proto.Message, error) {
 
 	case <-ctx.Done():
 		return nil, ctx.Err()
-	}
-}
-
-func (e *RTCEngine) removePendingRequest(requestID uint32) {
-	e.pendingRequestsLock.Lock()
-	delete(e.pendingRequests, requestID)
-	e.pendingRequestsLock.Unlock()
-}
-
-// deliverResponse hands res to the request waiting for requestID, if any.
-func (e *RTCEngine) deliverResponse(requestID uint32, res proto.Message) bool {
-	if requestID == 0 {
-		return false
-	}
-
-	e.pendingRequestsLock.Lock()
-	ch, ok := e.pendingRequests[requestID]
-	delete(e.pendingRequests, requestID)
-	e.pendingRequestsLock.Unlock()
-	if !ok {
-		return false
-	}
-
-	// buffered, and removed from the map above so this is the only send
-	ch <- res
-	return true
-}
-
-// abortPendingRequests fails every request still waiting for a response.
-func (e *RTCEngine) abortPendingRequests() {
-	e.pendingRequestsLock.Lock()
-	pending := e.pendingRequests
-	e.pendingRequests = make(map[uint32]chan proto.Message)
-	e.pendingRequestsLock.Unlock()
-
-	for _, ch := range pending {
-		close(ch)
 	}
 }
 
