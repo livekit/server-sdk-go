@@ -3,10 +3,13 @@ package lksdk
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/pion/webrtc/v4"
+	"github.com/pion/webrtc/v4/pkg/media"
 	"github.com/pion/webrtc/v4/pkg/media/h265reader"
 	"github.com/stretchr/testify/require"
 )
@@ -306,8 +309,293 @@ func TestH265NextSample_WithUserTimestamp(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// H265 NextSample — length-prefixed input
+// ---------------------------------------------------------------------------
+
+func TestNextNALH265LengthPrefixed(t *testing.T) {
+	t.Run("parses the NAL header", func(t *testing.T) {
+		vps := makeH265NALData(32, []byte{0x01, 0x02})
+		r := bytes.NewReader(lengthPrefix(vps))
+
+		nal, err := nextNALH265LengthPrefixed(r, defaultMaxNALSize)
+		require.NoError(t, err)
+		require.False(t, nal.ForbiddenZeroBit)
+		require.Equal(t, h265reader.NalUnitType(32), nal.NalUnitType)
+		require.Equal(t, uint8(0), nal.LayerID)
+		require.Equal(t, uint8(1), nal.TemporalIDPlus1)
+		require.Equal(t, vps, nal.Data)
+	})
+
+	t.Run("EOF at a clean boundary", func(t *testing.T) {
+		_, err := nextNALH265LengthPrefixed(bytes.NewReader(nil), defaultMaxNALSize)
+		require.ErrorIs(t, err, io.EOF)
+	})
+
+	t.Run("truncated payload", func(t *testing.T) {
+		_, err := nextNALH265LengthPrefixed(bytes.NewReader([]byte{0, 0, 0, 8, 0x40, 0x01}), defaultMaxNALSize)
+		require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+	})
+
+	t.Run("NAL shorter than the header", func(t *testing.T) {
+		_, err := nextNALH265LengthPrefixed(bytes.NewReader([]byte{0, 0, 0, 1, 0x40}), defaultMaxNALSize)
+		require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+	})
+
+	t.Run("zero length", func(t *testing.T) {
+		_, err := nextNALH265LengthPrefixed(bytes.NewReader([]byte{0, 0, 0, 0}), defaultMaxNALSize)
+		require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+	})
+
+	t.Run("exceeds max size", func(t *testing.T) {
+		// prefix advertises a NAL one byte past the limit; no payload follows,
+		// so a size check that ran after allocation would instead read and fail.
+		_, err := nextNALH265LengthPrefixed(bytes.NewReader([]byte{0, 0, 0, 5}), 4)
+		require.ErrorIs(t, err, ErrNALTooLarge)
+	})
+}
+
+func TestReaderTrackWithMaxNALSize(t *testing.T) {
+	// OnBind resolves the effective limit once into maxNALSize.
+	bind := func(opts ...ReaderSampleProviderOption) *ReaderSampleProvider {
+		p := &ReaderSampleProvider{
+			Mime:                webrtc.MimeTypeH265,
+			reader:              io.NopCloser(bytes.NewReader(nil)),
+			h26xStreamingFormat: H26xStreamingFormatLengthPrefixed,
+		}
+		for _, opt := range opts {
+			opt(p)
+		}
+		require.NoError(t, p.OnBind())
+		return p
+	}
+
+	require.Equal(t, defaultMaxNALSize, bind().maxNALSize, "unset uses the default")
+	require.Equal(t, defaultMaxNALSize, bind(ReaderTrackWithMaxNALSize(0)).maxNALSize, "0 keeps the default")
+	require.Equal(t, 1<<20, bind(ReaderTrackWithMaxNALSize(1<<20)).maxNALSize)
+}
+
+func TestH265NextSample_LengthPrefixed_SingleAccessUnit(t *testing.T) {
+	// VPS + SPS + PPS + VCL(first slice), each with a 4-byte length prefix.
+	sc := []byte{0, 0, 0, 1}
+	vps := makeH265NALData(32, []byte{0x01, 0x02})
+	sps := makeH265NALData(33, []byte{0x03, 0x04})
+	pps := makeH265NALData(34, []byte{0x05, 0x06})
+	vcl := makeH265VCLData(1, true, []byte{0xAA, 0xBB})
+
+	stream := concat(lengthPrefix(vps), lengthPrefix(sps), lengthPrefix(pps), lengthPrefix(vcl))
+	p := newLengthPrefixedH265Provider(t, stream)
+
+	sample, err := p.NextSample(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, defaultH265FrameDuration, sample.Duration)
+	// the sample is emitted in Annex B form regardless of the input framing
+	want := concat(sc, vps, sc, sps, sc, pps, sc, vcl)
+	require.Equal(t, want, sample.Data)
+}
+
+func TestH265NextSample_LengthPrefixed_MultipleAccessUnits(t *testing.T) {
+	vcl1 := makeH265VCLData(1, true, []byte{0x11, 0x22})
+	vcl2 := makeH265VCLData(1, true, []byte{0x33, 0x44})
+
+	p := newLengthPrefixedH265Provider(t, concat(lengthPrefix(vcl1), lengthPrefix(vcl2)))
+
+	s1, err := p.NextSample(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, defaultH265FrameDuration, s1.Duration)
+	require.Equal(t, vcl1, s1.Data)
+
+	// second access unit, flushed at EOF
+	s2, err := p.NextSample(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, defaultH265FrameDuration, s2.Duration)
+	require.Equal(t, vcl2, s2.Data)
+
+	_, err = p.NextSample(context.Background())
+	require.ErrorIs(t, err, io.EOF)
+}
+
+func TestH265NextSample_LengthPrefixed_MultiSliceAccessUnit(t *testing.T) {
+	sc := []byte{0, 0, 0, 1}
+	vclFirst := makeH265VCLData(1, true, []byte{0x11})
+	vclCont := makeH265VCLData(1, false, []byte{0x22})
+
+	p := newLengthPrefixedH265Provider(t, concat(lengthPrefix(vclFirst), lengthPrefix(vclCont)))
+
+	sample, err := p.NextSample(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, concat(sc, vclFirst, sc, vclCont), sample.Data)
+}
+
+func TestH265NextSample_LengthPrefixed_NonVCLAfterVCLSplits(t *testing.T) {
+	sc := []byte{0, 0, 0, 1}
+	vcl := makeH265VCLData(1, true, []byte{0x11})
+	vps := makeH265NALData(32, []byte{0x22, 0x33})
+	vcl2 := makeH265VCLData(1, true, []byte{0x44})
+
+	p := newLengthPrefixedH265Provider(t, concat(lengthPrefix(vcl), lengthPrefix(vps), lengthPrefix(vcl2)))
+
+	s1, err := p.NextSample(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, vcl, s1.Data)
+
+	s2, err := p.NextSample(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, concat(sc, vps, sc, vcl2), s2.Data)
+}
+
+func TestH265NextSample_LengthPrefixed_SuffixSEIIgnored(t *testing.T) {
+	vcl1 := makeH265VCLData(1, true, []byte{0x11})
+	suffixSEI := makeH265NALData(40, []byte{0xFF})
+	vcl2 := makeH265VCLData(1, true, []byte{0x22})
+
+	p := newLengthPrefixedH265Provider(t, concat(lengthPrefix(vcl1), lengthPrefix(suffixSEI), lengthPrefix(vcl2)))
+
+	s1, err := p.NextSample(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, vcl1, s1.Data)
+	require.False(t, bytes.Contains(s1.Data, suffixSEI), "s1 should not contain suffix SEI data")
+
+	s2, err := p.NextSample(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, vcl2, s2.Data)
+}
+
+func TestH265NextSample_LengthPrefixed_PrefixSEIBeforeVCLSkipped(t *testing.T) {
+	prefixSEI := makeH265NALData(39, []byte{0xFF, 0xEE})
+
+	p := newLengthPrefixedH265Provider(t, lengthPrefix(prefixSEI))
+
+	sample, err := p.NextSample(context.Background())
+	require.NoError(t, err)
+	require.Nil(t, sample.Data)
+	require.Zero(t, sample.Duration)
+}
+
+func TestH265NextSample_LengthPrefixed_WithUserTimestamp(t *testing.T) {
+	wantMeta := FrameMetadata{UserTimestamp: 9876543210, FrameId: 77}
+	seiNAL := buildH265PacketTrailerSEI(wantMeta)
+	vcl := makeH265VCLData(1, true, []byte{0xAA})
+
+	p := newLengthPrefixedH265Provider(t, concat(lengthPrefix(seiNAL), lengthPrefix(vcl)))
+	p.appendPacketTrailer = true
+
+	// first call returns the SEI-only empty sample
+	s1, err := p.NextSample(context.Background())
+	require.NoError(t, err)
+	require.Nil(t, s1.Data)
+
+	// second call returns the VCL frame with the packet trailer
+	s2, err := p.NextSample(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, defaultH265FrameDuration, s2.Duration)
+	require.True(t, bytes.HasPrefix(s2.Data, vcl), "expected VCL prefix %x in sample data %x", vcl, s2.Data)
+
+	gotMeta, ok := parsePacketTrailer(s2.Data)
+	require.True(t, ok, "expected LKTS trailer in sample data")
+	require.Equal(t, wantMeta.UserTimestamp, gotMeta.UserTimestamp)
+	require.Equal(t, wantMeta.FrameId, gotMeta.FrameId)
+}
+
+// Access unit aggregation only ends when the NAL that starts the next access
+// unit arrives, so on a live feed every picture is held for a frame period.
+// The reader here is a pipe that stops after one access unit, which is what a
+// bytes.Reader cannot express: it reports EOF and flushes, hiding the wait.
+func TestH265NextSample_SingleSliceFlushPublishesWithoutLookahead(t *testing.T) {
+	aud := makeH265NALData(35, []byte{0x10})
+	vps := makeH265NALData(32, []byte{0x01, 0x02})
+	sps := makeH265NALData(33, []byte{0x03, 0x04})
+	pps := makeH265NALData(34, []byte{0x05, 0x06})
+	vcl := makeH265VCLData(1, true, []byte{0xAA, 0xBB})
+
+	pipeReader, pipeWriter := io.Pipe()
+	defer pipeWriter.Close()
+
+	p := &ReaderSampleProvider{
+		Mime:                 webrtc.MimeTypeH265,
+		reader:               pipeReader,
+		h26xStreamingFormat:  H26xStreamingFormatLengthPrefixed,
+		h265SingleSliceFlush: true,
+	}
+	require.NoError(t, p.OnBind())
+
+	// One access unit, and nothing after it: the next frame has not been
+	// encoded yet, exactly as on a live feed.
+	go func() {
+		_, _ = pipeWriter.Write(concat(
+			lengthPrefix(aud), lengthPrefix(vps), lengthPrefix(sps),
+			lengthPrefix(pps), lengthPrefix(vcl)))
+	}()
+
+	type result struct {
+		sample media.Sample
+		err    error
+	}
+	samples := make(chan result, 4)
+	go func() {
+		for {
+			sample, err := p.NextSample(context.Background())
+			samples <- result{sample, err}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	timeout := time.After(2 * time.Second)
+	for {
+		select {
+		case <-timeout:
+			t.Fatal("timed out: the access unit was held waiting for the next one")
+		case got := <-samples:
+			require.NoError(t, got.err)
+			if got.sample.Duration == 0 {
+				continue // the AUD, which is published on its own
+			}
+			require.Equal(t, defaultH265FrameDuration, got.sample.Duration)
+			require.True(t, bytes.HasSuffix(got.sample.Data, vcl),
+				"expected the sample to end with the slice, got %x", got.sample.Data)
+			return
+		}
+	}
+}
+
+func TestH265OnBind_LengthPrefixedSkipsAnnexBReader(t *testing.T) {
+	p := newLengthPrefixedH265Provider(t, nil)
+	require.Nil(t, p.h265reader, "length-prefixed input must not build the Annex B reader")
+
+	pAnnexB := &ReaderSampleProvider{
+		Mime:                webrtc.MimeTypeH265,
+		reader:              io.NopCloser(bytes.NewReader(concat([]byte{0, 0, 0, 1}, makeH265NALData(32, []byte{0x01})))),
+		h26xStreamingFormat: H26xStreamingFormatAnnexB,
+	}
+	require.NoError(t, pAnnexB.OnBind())
+	require.NotNil(t, pAnnexB.h265reader)
+}
+
+// ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
+
+// lengthPrefix frames a NAL with the 4-byte big-endian length prefix that
+// H26xStreamingFormatLengthPrefixed expects.
+func lengthPrefix(nal []byte) []byte {
+	out := make([]byte, 4, 4+len(nal))
+	binary.BigEndian.PutUint32(out, uint32(len(nal)))
+	return append(out, nal...)
+}
+
+// newLengthPrefixedH265Provider builds a bound provider reading length-prefixed H265.
+func newLengthPrefixedH265Provider(t *testing.T, stream []byte) *ReaderSampleProvider {
+	t.Helper()
+
+	p := &ReaderSampleProvider{
+		Mime:                webrtc.MimeTypeH265,
+		reader:              io.NopCloser(bytes.NewReader(stream)),
+		h26xStreamingFormat: H26xStreamingFormatLengthPrefixed,
+	}
+	require.NoError(t, p.OnBind())
+	return p
+}
 
 func concat(slices ...[]byte) []byte {
 	var out []byte
