@@ -6,8 +6,10 @@ import (
 	"encoding/binary"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/pion/webrtc/v4"
+	"github.com/pion/webrtc/v4/pkg/media"
 	"github.com/pion/webrtc/v4/pkg/media/h265reader"
 	"github.com/stretchr/testify/require"
 )
@@ -465,6 +467,69 @@ func TestH265NextSample_LengthPrefixed_WithUserTimestamp(t *testing.T) {
 	require.True(t, ok, "expected LKTS trailer in sample data")
 	require.Equal(t, wantMeta.UserTimestamp, gotMeta.UserTimestamp)
 	require.Equal(t, wantMeta.FrameId, gotMeta.FrameId)
+}
+
+// Access unit aggregation only ends when the NAL that starts the next access
+// unit arrives, so on a live feed every picture is held for a frame period.
+// The reader here is a pipe that stops after one access unit, which is what a
+// bytes.Reader cannot express: it reports EOF and flushes, hiding the wait.
+func TestH265NextSample_SingleSliceFlushPublishesWithoutLookahead(t *testing.T) {
+	aud := makeH265NALData(35, []byte{0x10})
+	vps := makeH265NALData(32, []byte{0x01, 0x02})
+	sps := makeH265NALData(33, []byte{0x03, 0x04})
+	pps := makeH265NALData(34, []byte{0x05, 0x06})
+	vcl := makeH265VCLData(1, true, []byte{0xAA, 0xBB})
+
+	pipeReader, pipeWriter := io.Pipe()
+	defer pipeWriter.Close()
+
+	p := &ReaderSampleProvider{
+		Mime:                 webrtc.MimeTypeH265,
+		reader:               pipeReader,
+		h26xStreamingFormat:  H26xStreamingFormatLengthPrefixed,
+		h265SingleSliceFlush: true,
+	}
+	require.NoError(t, p.OnBind())
+
+	// One access unit, and nothing after it: the next frame has not been
+	// encoded yet, exactly as on a live feed.
+	go func() {
+		_, _ = pipeWriter.Write(concat(
+			lengthPrefix(aud), lengthPrefix(vps), lengthPrefix(sps),
+			lengthPrefix(pps), lengthPrefix(vcl)))
+	}()
+
+	type result struct {
+		sample media.Sample
+		err    error
+	}
+	samples := make(chan result, 4)
+	go func() {
+		for {
+			sample, err := p.NextSample(context.Background())
+			samples <- result{sample, err}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	timeout := time.After(2 * time.Second)
+	for {
+		select {
+		case <-timeout:
+			t.Fatal("timed out: the access unit was held waiting for the next one")
+		case got := <-samples:
+			require.NoError(t, got.err)
+			if got.sample.Duration == 0 {
+				continue // the AUD, which is published on its own
+			}
+			require.Equal(t, defaultH265FrameDuration, got.sample.Duration)
+			require.True(t, bytes.HasSuffix(got.sample.Data, vcl),
+				"expected the sample to end with the slice, got %x", got.sample.Data)
+			return
+		}
+	}
 }
 
 func TestH265OnBind_LengthPrefixedSkipsAnnexBReader(t *testing.T) {

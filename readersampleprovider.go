@@ -98,6 +98,8 @@ type ReaderSampleProvider struct {
 	h265reader *h265reader.H265Reader
 	// pending H265 NAL when we detect a new access unit
 	h265PendingNAL *h265reader.NAL
+	// publish each access unit at its slice instead of at the next unit's start
+	h265SingleSliceFlush bool
 
 	// for ogg
 	oggReader *oggreader.OggReader
@@ -155,6 +157,21 @@ func readerTrackWithWavReader(wr *wavReader) func(provider *ReaderSampleProvider
 func ReaderTrackWithPacketTrailer(enabled bool) func(provider *ReaderSampleProvider) {
 	return func(provider *ReaderSampleProvider) {
 		provider.appendPacketTrailer = enabled
+	}
+}
+
+// ReaderTrackWithH265SingleSliceFlush publishes each H265 access unit as soon
+// as its slice arrives, instead of waiting for the next access unit to begin.
+// An access unit boundary is only detectable from the NAL that starts the next
+// one, so aggregation holds every picture for a full frame period; on a live
+// feed that is latency the encoder never intended.
+//
+// Enable this only for streams carrying one slice per picture, which is what
+// hardware encoders typically emit. With multiple slices per picture, each
+// slice is published as its own sample.
+func ReaderTrackWithH265SingleSliceFlush(enabled bool) func(provider *ReaderSampleProvider) {
+	return func(provider *ReaderSampleProvider) {
+		provider.h265SingleSliceFlush = enabled
 	}
 }
 
@@ -457,6 +474,11 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 
 			if nal.NalUnitType < 32 {
 				haveVCL = true
+				if p.h265SingleSliceFlush {
+					// The slice completes the picture, so publish it now
+					// rather than waiting for the next access unit to start.
+					break
+				}
 			} else if !haveVCL {
 				// return it without duration
 				return sample, nil
@@ -679,6 +701,11 @@ func (w *wavReader) readFrame() ([]byte, error) {
 	return buf[:n], nil
 }
 
+// maxNALSize bounds a single length-prefixed NAL. The buffer is allocated from
+// the size read off the prefix, so this caps run-away values. 16MiB is well
+// above any real NAL, including a 4K I-frame.
+const maxNALSize = 16 << 20
+
 // minimal length-prefixed NAL reeader, 4-byte big-endian length prefix
 func nextNALLengthPrefixed(r io.Reader) ([]byte, error) {
 	var hdr [4]byte
@@ -687,7 +714,7 @@ func nextNALLengthPrefixed(r io.Reader) ([]byte, error) {
 	}
 
 	n := int(binary.BigEndian.Uint32(hdr[:]))
-	if n <= 0 {
+	if n <= 0 || n > maxNALSize {
 		return nil, io.ErrUnexpectedEOF
 	}
 
