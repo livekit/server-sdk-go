@@ -55,7 +55,7 @@ func (s *dataTrackSender) setLogger(log protoLogger.Logger) {
 func (s *dataTrackSender) send(frame dataTrackFramePackets) {
 	s.once.Do(func() { go s.run() })
 	if dropped := s.push(frame); dropped != nil {
-		s.log.Debugw("dropping data track frame", "packets", len(dropped))
+		s.log.Debugw("dropping data track frame", "numPackets", len(dropped))
 	}
 }
 
