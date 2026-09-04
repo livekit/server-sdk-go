@@ -36,16 +36,17 @@ type dataTrackSender struct {
 	frame  dataTrackFramePackets
 	notify chan struct{}
 	done   chan struct{}
-	once   sync.Once
 }
 
 func newDataTrackSender(dc func() *webrtc.DataChannel, log protoLogger.Logger) *dataTrackSender {
-	return &dataTrackSender{
+	s := &dataTrackSender{
 		dc:     dc,
 		log:    log,
 		notify: make(chan struct{}, 1),
 		done:   make(chan struct{}),
 	}
+	go s.run()
+	return s
 }
 
 func (s *dataTrackSender) setLogger(log protoLogger.Logger) {
@@ -53,7 +54,6 @@ func (s *dataTrackSender) setLogger(log protoLogger.Logger) {
 }
 
 func (s *dataTrackSender) send(frame dataTrackFramePackets) {
-	s.once.Do(func() { go s.run() })
 	if dropped := s.push(frame); dropped != nil {
 		s.log.Debugw("dropping data track frame", "numPackets", len(dropped))
 	}
