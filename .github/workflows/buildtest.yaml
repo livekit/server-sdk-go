@@ -30,7 +30,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up SoX resampler and Opus
         run: |
@@ -50,7 +50,7 @@ jobs:
       # entry rather than one frozen at the go.sum that first created it.
       - name: Restore Go caches
         id: go-cache
-        uses: actions/cache/restore@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             ~/.cache/go-build
@@ -80,9 +80,9 @@ jobs:
           args: build
 
       - name: Lint
-        uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
-          version: v2.11.4
+          version: v2.13.1
 
       - name: Mage Test
         uses: magefile/mage-action@a662bd8c29d8106879588cfff83b2faf6e6f59db # v4
@@ -96,7 +96,7 @@ jobs:
       # per PR run out of the repo's 10 GB cache budget.
       - name: Save Go caches
         if: github.event_name == 'push'
-        uses: actions/cache/save@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             ~/.cache/go-build
