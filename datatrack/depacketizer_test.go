@@ -260,6 +260,35 @@ func TestDepacketizer_SinglePacketAtCapacity(t *testing.T) {
 	require.Equal(t, &depacketizerDropError{frameNumber: 1, reason: dropReasonInterrupted, newFrameNumber: 3}, result.drop)
 }
 
+func TestDepacketizer_RepeatedStartBelowCapacity(t *testing.T) {
+	d := newDepacketizer()
+	opts := depacketizerPushOptions{maxPartialFrames: 2}
+
+	base := testPacket()
+
+	result := d.push(derive(base, FrameMarkerStart, 0, 1), opts)
+	require.True(t, result.frame == nil && result.drop == nil)
+
+	// a repeated start replaces frame 1 in place
+	result = d.push(derive(base, FrameMarkerStart, 10, 1), opts)
+	require.True(t, result.frame == nil && result.drop == nil)
+	require.Len(t, d.order, len(d.partials))
+
+	result = d.push(derive(base, FrameMarkerStart, 100, 2), opts)
+	require.True(t, result.frame == nil && result.drop == nil)
+
+	result = d.push(derive(base, FrameMarkerStart, 200, 3), opts)
+	require.Equal(t, &depacketizerDropError{frameNumber: 1, reason: dropReasonInterrupted, newFrameNumber: 3}, result.drop)
+
+	result = d.push(derive(base, FrameMarkerStart, 300, 4), opts)
+	require.Equal(t, &depacketizerDropError{frameNumber: 2, reason: dropReasonInterrupted, newFrameNumber: 4}, result.drop)
+
+	result = d.push(derive(base, FrameMarkerFinal, 301, 4), opts)
+	require.Nil(t, result.drop)
+	require.NotNil(t, result.frame)
+	require.Len(t, result.frame.payload, len(base.Payload)*2)
+}
+
 func TestDepacketizer_EvictsOldestWhenStartsExceedMax(t *testing.T) {
 	d := newDepacketizer()
 	opts := depacketizerPushOptions{maxPartialFrames: 5}
