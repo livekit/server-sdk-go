@@ -120,10 +120,7 @@ func (s *dataTrackSender) run() {
 			dc, inFlight = current, nil
 		}
 
-		for {
-			if dc == nil || dc.ReadyState() != webrtc.DataChannelStateOpen || dc.BufferedAmount() > dataTrackBufferedAmountLowThreshold {
-				break
-			}
+		for dc != nil && dc.ReadyState() == webrtc.DataChannelStateOpen && dc.BufferedAmount() <= dataTrackBufferedAmountLowThreshold {
 			if len(inFlight) == 0 {
 				if inFlight = s.pop(); inFlight == nil {
 					break
