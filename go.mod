@@ -8,9 +8,9 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/livekit/mageutil v0.0.0-20250511045019-0f1ff63f7731
-	github.com/livekit/media-sdk v0.0.0-20260828235137-cb2363a4cb4f
+	github.com/livekit/media-sdk v0.0.0-20260903090624-c6c8d0976284
 	github.com/livekit/mediatransportutil v0.0.0-20260821083140-f234b534b095
-	github.com/livekit/protocol v1.51.1-0.20260903060125-0cf5ba018b8e
+	github.com/livekit/protocol v1.51.1-0.20260905133529-a4f4b5c0c23f
 	github.com/magefile/mage v1.17.2
 	github.com/moby/buildkit v0.32.2
 	github.com/moby/patternmatcher v0.6.1
@@ -82,7 +82,7 @@ require (
 	github.com/klauspost/compress v1.19.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/lithammer/shortuuid/v4 v4.2.0 // indirect
-	github.com/livekit/psrpc v0.7.5 // indirect
+	github.com/livekit/psrpc v0.7.6 // indirect
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.12.2 // indirect
 	github.com/moby/locker v1.0.1 // indirect
 	github.com/moby/sys/signal v0.7.1 // indirect
