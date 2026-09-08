@@ -140,12 +140,14 @@ func (d *depacketizer) beginPartial(packet dtp.Packet, options depacketizerPushO
 		}
 	}
 
+	if _, replacing := d.partials[packet.FrameNumber]; !replacing {
+		d.order = append(d.order, packet.FrameNumber)
+	}
 	d.partials[packet.FrameNumber] = &partialFrame{
 		startSequence: packet.SequenceNumber,
 		extensions:    extensionsOf(&packet.Header),
 		payloads:      map[uint16][]byte{packet.SequenceNumber: packet.Payload},
 	}
-	d.order = append(d.order, packet.FrameNumber)
 	return result
 }
 
