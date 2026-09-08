@@ -29,24 +29,32 @@ type dataTrackFramePackets [][]byte
 // dataTrackSender paces frames onto the data track channel, keeping only the freshest frame
 // while the channel's send buffer is above the low threshold.
 type dataTrackSender struct {
-	dc  func() *webrtc.DataChannel
 	log protoLogger.Logger
 
 	lock   sync.Mutex
+	dc     *webrtc.DataChannel
 	frame  dataTrackFramePackets
 	notify chan struct{}
 	done   chan struct{}
 }
 
-func newDataTrackSender(dc func() *webrtc.DataChannel, log protoLogger.Logger) *dataTrackSender {
+func newDataTrackSender(log protoLogger.Logger) *dataTrackSender {
 	s := &dataTrackSender{
-		dc:     dc,
 		log:    log,
 		notify: make(chan struct{}, 1),
 		done:   make(chan struct{}),
 	}
 	go s.run()
 	return s
+}
+
+// setDataChannel points the sender at the channel it should write to.
+func (s *dataTrackSender) setDataChannel(dc *webrtc.DataChannel) {
+	s.lock.Lock()
+	s.dc = dc
+	s.lock.Unlock()
+
+	s.wake()
 }
 
 func (s *dataTrackSender) setLogger(log protoLogger.Logger) {
@@ -104,10 +112,15 @@ func (s *dataTrackSender) run() {
 		case <-s.notify:
 		}
 
+		s.lock.Lock()
+		current := s.dc
+		s.lock.Unlock()
+		if current != dc {
+			// A partially sent frame cannot be completed on a new channel.
+			dc, inFlight = current, nil
+		}
+
 		for {
-			if current := s.dc(); current != dc {
-				dc, inFlight = current, nil
-			}
 			if dc == nil || dc.ReadyState() != webrtc.DataChannelStateOpen || dc.BufferedAmount() > dataTrackBufferedAmountLowThreshold {
 				break
 			}

@@ -17,7 +17,6 @@ package lksdk
 import (
 	"testing"
 
-	"github.com/pion/webrtc/v4"
 	"github.com/stretchr/testify/require"
 )
 
@@ -30,7 +29,7 @@ func testFrame(marker byte, packets int) dataTrackFramePackets {
 }
 
 func TestDataTrackSenderQueue(t *testing.T) {
-	s := newDataTrackSender(func() *webrtc.DataChannel { return nil }, logger)
+	s := newDataTrackSender(logger)
 	t.Cleanup(s.stop)
 
 	require.Nil(t, s.push(nil))
