@@ -703,7 +703,7 @@ func TestAPI_SIPCallErrors(t *testing.T) {
 		grpcCode codes.Code
 		sipCode  livekit.SIPStatusCode
 	}{
-		{"busy", sipStatus{Code: 486, Status: "Busy Here"}, codes.ResourceExhausted, livekit.SIPStatusCode_SIP_STATUS_BUSY_HERE},
+		{"busy", sipStatus{Code: 486, Status: "Busy Here"}, codes.FailedPrecondition, livekit.SIPStatusCode_SIP_STATUS_BUSY_HERE},
 		{"declined", sipStatus{Code: 603, Status: "Decline"}, codes.PermissionDenied, livekit.SIPStatusCode_SIP_STATUS_GLOBAL_DECLINE},
 	}
 	for _, tc := range cases {

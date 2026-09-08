@@ -77,6 +77,9 @@ type ReaderSampleProvider struct {
 	trackOpts           []LocalTrackOptions
 	h26xStreamingFormat H26xStreamingFormat
 	appendPacketTrailer bool
+	// max size of a single length-prefixed NAL, resolved in OnBind; a user
+	// value of <= 0 becomes defaultMaxNALSize
+	maxNALSize int
 
 	// When appendPacketTrailer is enabled, we parse LKTS packet trailers from
 	// H264/H265 SEI user_data_unregistered NALs that precede frame NALs.
@@ -98,6 +101,8 @@ type ReaderSampleProvider struct {
 	h265reader *h265reader.H265Reader
 	// pending H265 NAL when we detect a new access unit
 	h265PendingNAL *h265reader.NAL
+	// publish each access unit at its slice instead of at the next unit's start
+	h265SingleSliceFlush bool
 
 	// for ogg
 	oggReader *oggreader.OggReader
@@ -155,6 +160,32 @@ func readerTrackWithWavReader(wr *wavReader) func(provider *ReaderSampleProvider
 func ReaderTrackWithPacketTrailer(enabled bool) func(provider *ReaderSampleProvider) {
 	return func(provider *ReaderSampleProvider) {
 		provider.appendPacketTrailer = enabled
+	}
+}
+
+// ReaderTrackWithH265SingleSliceFlush publishes each H265 access unit as soon
+// as its slice arrives, instead of waiting for the next access unit to begin.
+// An access unit boundary is only detectable from the NAL that starts the next
+// one, so aggregation holds every picture for a full frame period; on a live
+// feed that is latency the encoder never intended.
+//
+// Enable this only for streams carrying one slice per picture, which is what
+// hardware encoders typically emit. With multiple slices per picture, each
+// slice is published as its own sample.
+func ReaderTrackWithH265SingleSliceFlush(enabled bool) func(provider *ReaderSampleProvider) {
+	return func(provider *ReaderSampleProvider) {
+		provider.h265SingleSliceFlush = enabled
+	}
+}
+
+// ReaderTrackWithMaxNALSize sets the maximum size of a single length-prefixed
+// NAL. The buffer is allocated from the size read off the prefix, so this caps
+// run-away values. A size <= 0 keeps the default (defaultMaxNALSize), which is
+// well above any real NAL, including a 4K I-frame. Raise it for larger content
+// such as high-bitrate 8K.
+func ReaderTrackWithMaxNALSize(size int) func(provider *ReaderSampleProvider) {
+	return func(provider *ReaderSampleProvider) {
+		provider.maxNALSize = size
 	}
 }
 
@@ -264,6 +295,11 @@ func NewLocalReaderTrack(in io.ReadCloser, mime string, options ...ReaderSampleP
 }
 
 func (p *ReaderSampleProvider) OnBind() error {
+	// Resolve the length-prefixed NAL limit once, so reads don't branch per NAL.
+	if p.maxNALSize <= 0 {
+		p.maxNALSize = defaultMaxNALSize
+	}
+
 	// If we are not closing on unbind, don't do anything on rebind
 	if p.ivfReader != nil || p.h264reader != nil || p.oggReader != nil || p.h265reader != nil || p.wavReader != nil {
 		return nil
@@ -276,7 +312,9 @@ func (p *ReaderSampleProvider) OnBind() error {
 			p.h264reader, err = h264reader.NewReaderWithOptions(p.reader, h264reader.WithIncludeSEI(true))
 		}
 	case webrtc.MimeTypeH265:
-		p.h265reader, err = h265reader.NewReaderWithOptions(p.reader, h265reader.WithIncludeSEI(true))
+		if p.h26xStreamingFormat == H26xStreamingFormatAnnexB {
+			p.h265reader, err = h265reader.NewReaderWithOptions(p.reader, h265reader.WithIncludeSEI(true))
+		}
 	case webrtc.MimeTypeVP8, webrtc.MimeTypeVP9, webrtc.MimeTypeAV1:
 		var ivfHeader *ivfreader.IVFFileHeader
 		p.ivfReader, ivfHeader, err = ivfreader.NewWith(p.reader)
@@ -325,7 +363,7 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 		)
 		switch p.h26xStreamingFormat {
 		case H26xStreamingFormatLengthPrefixed:
-			nalUnitType, nalUnitData, err = nextNALH264LengthPrefixed(p.reader)
+			nalUnitType, nalUnitData, err = nextNALH264LengthPrefixed(p.reader, p.maxNALSize)
 			if err != nil {
 				return sample, err
 			}
@@ -455,6 +493,11 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 
 			if nal.NalUnitType < 32 {
 				haveVCL = true
+				if p.h265SingleSliceFlush {
+					// The slice completes the picture, so publish it now
+					// rather than waiting for the next access unit to start.
+					break
+				}
 			} else if !haveVCL {
 				// return it without duration
 				return sample, nil
@@ -677,24 +720,63 @@ func (w *wavReader) readFrame() ([]byte, error) {
 	return buf[:n], nil
 }
 
-// minimal length-prefixed NAL reeader
-func nextNALH264LengthPrefixed(r io.Reader) (h264reader.NalUnitType, []byte, error) {
+// defaultMaxNALSize bounds a single length-prefixed NAL when no limit is set
+// via ReaderTrackWithMaxNALSize. The buffer is allocated from the size read off
+// the prefix, so this caps run-away values. 16MiB is well above any real NAL,
+// including a 4K I-frame.
+const defaultMaxNALSize = 16 << 20
+
+// minimal length-prefixed NAL reeader, 4-byte big-endian length prefix
+func nextNALLengthPrefixed(r io.Reader, maxSize int) ([]byte, error) {
 	var hdr [4]byte
 	if _, err := io.ReadFull(r, hdr[:]); err != nil {
-		return 0, nil, err
+		return nil, err
 	}
 
 	n := int(binary.BigEndian.Uint32(hdr[:]))
 	if n <= 0 {
-		return 0, nil, io.ErrUnexpectedEOF
+		return nil, io.ErrUnexpectedEOF
+	}
+	if n > maxSize {
+		return nil, ErrNALTooLarge
 	}
 
 	buf := make([]byte, n)
 	if _, err := io.ReadFull(r, buf); err != nil {
+		return nil, err
+	}
+
+	return buf, nil
+}
+
+func nextNALH264LengthPrefixed(r io.Reader, maxSize int) (h264reader.NalUnitType, []byte, error) {
+	buf, err := nextNALLengthPrefixed(r, maxSize)
+	if err != nil {
 		return 0, nil, err
 	}
 
 	return h264reader.NalUnitType(buf[0] & 0x1F), buf, nil
+}
+
+func nextNALH265LengthPrefixed(r io.Reader, maxSize int) (*h265reader.NAL, error) {
+	buf, err := nextNALLengthPrefixed(r, maxSize)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(buf) < 2 {
+		// the H265 NAL header is two bytes, anything shorter cannot be parsed
+		return nil, io.ErrUnexpectedEOF
+	}
+
+	// mirrors h265reader's header parse, access unit assembly relies on these fields
+	return &h265reader.NAL{
+		ForbiddenZeroBit: (buf[0] & 0x80) != 0,
+		NalUnitType:      h265reader.NalUnitType((buf[0] & 0x7E) >> 1),
+		LayerID:          ((buf[0] & 0x01) << 5) | ((buf[1] & 0xF8) >> 3),
+		TemporalIDPlus1:  buf[1] & 0x07,
+		Data:             buf,
+	}, nil
 }
 
 func detectWavFormat(r io.Reader) (*wavReader, string, error) {
@@ -714,6 +796,10 @@ func (p *ReaderSampleProvider) nextH265NAL() (*h265reader.NAL, error) {
 		nal := p.h265PendingNAL
 		p.h265PendingNAL = nil
 		return nal, nil
+	}
+
+	if p.h26xStreamingFormat == H26xStreamingFormatLengthPrefixed {
+		return nextNALH265LengthPrefixed(p.reader, p.maxNALSize)
 	}
 	return p.h265reader.NextNAL()
 }

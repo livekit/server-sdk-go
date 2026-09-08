@@ -76,21 +76,15 @@ func (p *trackPublicationBase) Track() Track {
 }
 
 func (p *trackPublicationBase) MimeType() string {
-	// This requires some more work.
-	// TrackInfo has a top level MimeType which is not set
-	// on server side till the track is published.
-	// So, it is not available in the TrackPublishedResponse.
+	// TrackInfo has a top level MimeType which is not set on server side till
+	// the track is published, so it is not available in the
+	// TrackPublishedResponse. The per-codec mime type is, but only for codecs
+	// the client declared in AddTrackRequest.SimulcastCodecs, which publishing
+	// from here always does for video and does for audio when there is a backup
+	// codec. Take the first codec with a mime type.
 	//
-	// But, if client specified SimulcastCodecs in AddTrackRequest,
-	// the TrackPublishedResponse will have Codecs populated and
-	// that will have the MimeType specified in AddTrackRequest.
-	// Just taking the first one here which has a non-nil MimeType.
-	// This is okay (for tracks published from here)
-	// as of 2025-05-12, 1:30 pm Pacific as
-	// Go SDK does not (yet) support simulcast codec feature.
-	//
-	// When simulcast codec feature is added, this struct needs
-	// to be updated to handle multiple mime types
+	// TODO: a publication with a backup codec has more than one mime type, this
+	// struct needs to be updated to handle that.
 	if info, ok := p.info.Load().(*livekit.TrackInfo); ok {
 		if info.MimeType != "" {
 			return info.MimeType
