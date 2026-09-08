@@ -176,7 +176,7 @@ func NewRTCEngine(
 		Logger:    e.log,
 		Processor: e,
 	})
-	e.dataTrackSender = newDataTrackSender(e.dataTrackDataChannel, e.log)
+	e.dataTrackSender = newDataTrackSender(e.log)
 	e.configureSignalling(useSinglePeerConnection)
 
 	return e
@@ -579,6 +579,7 @@ func (e *RTCEngine) createPublisherPCLocked(configuration webrtc.Configuration) 
 	e.dataTrackDC.SetBufferedAmountLowThreshold(dataTrackBufferedAmountLowThreshold)
 	e.dataTrackDC.OnBufferedAmountLow(e.dataTrackSender.wake)
 	e.dataTrackDC.OnOpen(e.dataTrackSender.wake)
+	e.dataTrackSender.setDataChannel(e.dataTrackDC)
 	e.dclock.Unlock()
 
 	return nil
@@ -1843,12 +1844,6 @@ func waitUntilConnected(d time.Duration, test func() bool) error {
 			}
 		}
 	}
-}
-
-func (e *RTCEngine) dataTrackDataChannel() *webrtc.DataChannel {
-	e.dclock.RLock()
-	defer e.dclock.RUnlock()
-	return e.dataTrackDC
 }
 
 func (e *RTCEngine) sendDataTrackFrame(frame dataTrackFramePackets) {
