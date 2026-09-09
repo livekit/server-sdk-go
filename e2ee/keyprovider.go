@@ -46,6 +46,9 @@ func (p *ExternalKeyProvider) SetKeyFromPassphrase(passphrase string, index uint
 	if passphrase == "" {
 		return fmt.Errorf("passphrase cannot be empty")
 	}
+	if index > types.MaxKeyIndex {
+		return types.ErrKeyIndexOutOfRange
+	}
 	derived := pbkdf2.Key(
 		[]byte(passphrase),
 		[]byte(types.SDKSalt),
@@ -65,6 +68,9 @@ func (p *ExternalKeyProvider) SetKeyFromPassphrase(passphrase string, index uint
 func (p *ExternalKeyProvider) SetRawKey(key []byte, index uint32) error {
 	if len(key) != types.KeySizeBytes {
 		return types.ErrIncorrectKeyLength
+	}
+	if index > types.MaxKeyIndex {
+		return types.ErrKeyIndexOutOfRange
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()

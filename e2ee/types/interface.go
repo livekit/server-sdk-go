@@ -16,7 +16,8 @@ package types
 
 // KeyProvider manages encryption keys for E2EE.
 type KeyProvider interface {
-	// GetKey returns the derived AES key for the given index.
+	// GetKey returns the derived AES key for the given index. It is called on every encrypt and
+	// decrypt, so implementations should return pre-derived keys rather than derive on demand.
 	GetKey(keyIndex uint32) ([]byte, error)
 	// CurrentKeyIndex returns the active key index for encryption.
 	CurrentKeyIndex() uint32
