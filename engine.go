@@ -77,6 +77,9 @@ type engineHandler interface {
 	OnSubscribedAudioCodecUpdate(subscribedAudioCodecUpdate *livekit.SubscribedAudioCodecUpdate)
 	OnMediaSectionsRequirement(mediaSectionsRequirement *livekit.MediaSectionsRequirement)
 	OnRequestResponse(requestResponse *livekit.RequestResponse)
+	OnPublishDataTrackResponse(publishDataTrackResponse *livekit.PublishDataTrackResponse)
+	OnUnpublishDataTrackResponse(unpublishDataTrackResponse *livekit.UnpublishDataTrackResponse)
+	OnDataTrackSubscriberHandles(dataTrackSubscriberHandles *livekit.DataTrackSubscriberHandles)
 }
 
 // -------------------------------------------
@@ -1393,6 +1396,18 @@ func (e *RTCEngine) SendSyncState(syncState *livekit.SyncState) error {
 	return e.signalTransport.SendMessage(e.signalling.SignalSyncState(syncState))
 }
 
+func (e *RTCEngine) SendPublishDataTrack(publishDataTrack *livekit.PublishDataTrackRequest) error {
+	return e.signalTransport.SendMessage(e.signalling.SignalPublishDataTrack(publishDataTrack))
+}
+
+func (e *RTCEngine) SendUnpublishDataTrack(unpublishDataTrack *livekit.UnpublishDataTrackRequest) error {
+	return e.signalTransport.SendMessage(e.signalling.SignalUnpublishDataTrack(unpublishDataTrack))
+}
+
+func (e *RTCEngine) SendUpdateDataSubscription(updateDataSubscription *livekit.UpdateDataSubscription) error {
+	return e.signalTransport.SendMessage(e.signalling.SignalUpdateDataSubscription(updateDataSubscription))
+}
+
 func (e *RTCEngine) SendLeaveWithReason(reason livekit.DisconnectReason) error {
 	return e.signalTransport.SendMessage(
 		e.signalling.SignalLeaveRequest(
@@ -1749,6 +1764,18 @@ func (e *RTCEngine) OnRequestResponse(res *livekit.RequestResponse) {
 	}
 
 	e.engineHandler.OnRequestResponse(res)
+}
+
+func (e *RTCEngine) OnPublishDataTrackResponse(publishDataTrackResponse *livekit.PublishDataTrackResponse) {
+	e.engineHandler.OnPublishDataTrackResponse(publishDataTrackResponse)
+}
+
+func (e *RTCEngine) OnUnpublishDataTrackResponse(unpublishDataTrackResponse *livekit.UnpublishDataTrackResponse) {
+	e.engineHandler.OnUnpublishDataTrackResponse(unpublishDataTrackResponse)
+}
+
+func (e *RTCEngine) OnDataTrackSubscriberHandles(dataTrackSubscriberHandles *livekit.DataTrackSubscriberHandles) {
+	e.engineHandler.OnDataTrackSubscriberHandles(dataTrackSubscriberHandles)
 }
 
 // ------------------------------------
