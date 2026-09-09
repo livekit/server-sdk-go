@@ -74,8 +74,9 @@ type PipelineOptions struct {
 
 type RemoteManagerParams struct {
 	Transport RemoteTransport
-	// Decryptor opens frames of tracks that use end-to-end encryption; nil disables decryption.
-	Decryptor Decryptor
+	// Decryptor returns the decryptor for the current session; nil, or a nil result, leaves frames of
+	// end-to-end encrypted tracks as received.
+	Decryptor func() Decryptor
 	Logger    logger.Logger
 }
 
@@ -99,6 +100,13 @@ func NewRemoteManager(params RemoteManagerParams) *RemoteManager {
 		descriptors: make(map[SID]*RemoteTrack),
 		subHandles:  make(map[trackHandle]SID),
 	}
+}
+
+func (m *RemoteManager) decryptor() Decryptor {
+	if m.params.Decryptor == nil {
+		return nil
+	}
+	return m.params.Decryptor()
 }
 
 // HandleParticipantUpdate applies the data tracks listed for each participant in a
@@ -421,6 +429,10 @@ func (t *RemoteTrack) Subscribe(ctx context.Context, opts ...SubscribeOption) (*
 		m.mu.Unlock()
 		return nil, ErrUnpublished
 	}
+	if t.info.UsesE2EE && m.decryptor() == nil {
+		m.mu.Unlock()
+		return nil, ErrEncryptionDisabled
+	}
 	if t.subscription == subscriptionActive {
 		stream := t.addStreamLocked(options.BufferSize)
 		m.mu.Unlock()
@@ -484,10 +496,10 @@ func (t *RemoteTrack) removeWaiterLocked(waiter chan subscribeResult) {
 func (t *RemoteTrack) activateLocked(handle trackHandle) {
 	var decryptor Decryptor
 	if t.info.UsesE2EE {
-		decryptor = t.manager.params.Decryptor
+		decryptor = t.manager.decryptor()
 	}
 	t.packets = make(chan *dtp.Packet, packetBufferCount)
-	go t.runPipeline(t.packets, newRemotePipeline(decryptor, t.manager.params.Logger))
+	go t.runPipeline(t.packets, newRemotePipeline(t.info.UsesE2EE, decryptor, t.manager.params.Logger))
 	t.subHandle = handle
 	t.subscription = subscriptionActive
 	for _, waiter := range t.waiters {
@@ -626,13 +638,14 @@ func (s *Stream) close() {
 
 // remotePipeline turns a subscription's packets back into frames. It is owned by one goroutine.
 type remotePipeline struct {
+	encrypted    bool
 	decryptor    Decryptor
 	log          logger.Logger
 	depacketizer *depacketizer
 }
 
-func newRemotePipeline(decryptor Decryptor, log logger.Logger) *remotePipeline {
-	return &remotePipeline{decryptor: decryptor, log: log, depacketizer: newDepacketizer()}
+func newRemotePipeline(encrypted bool, decryptor Decryptor, log logger.Logger) *remotePipeline {
+	return &remotePipeline{encrypted: encrypted, decryptor: decryptor, log: log, depacketizer: newDepacketizer()}
 }
 
 // processPacket reports whether the packet completed a frame.
@@ -647,8 +660,12 @@ func (p *remotePipeline) processPacket(packet *dtp.Packet, maxPartialFrames int)
 	}
 
 	frame := Frame{Payload: result.frame.payload, UserTimestamp: result.frame.extensions.UserTimestamp}
-	if p.decryptor == nil {
+	if !p.encrypted {
 		return frame, true
+	}
+	if p.decryptor == nil {
+		p.log.Errorw("dropping encrypted data track frame, data encryption is not enabled", nil)
+		return Frame{}, false
 	}
 	e2ee := result.frame.extensions.E2EE
 	if e2ee == nil {

@@ -67,8 +67,9 @@ func WithFrameEncoding(encoding FrameEncoding) PublishOption {
 
 type LocalManagerParams struct {
 	Transport LocalTransport
-	// Encryptor enables end-to-end encryption for every published track; nil disables it.
-	Encryptor Encryptor
+	// Encryptor returns the encryptor for the current session; nil, or a nil result, disables
+	// end-to-end encryption for tracks published from then on.
+	Encryptor func() Encryptor
 	Logger    logger.Logger
 }
 
@@ -99,6 +100,13 @@ func NewLocalManager(params LocalManagerParams) *LocalManager {
 	}
 }
 
+func (m *LocalManager) encryptor() Encryptor {
+	if m.params.Encryptor == nil {
+		return nil
+	}
+	return m.params.Encryptor()
+}
+
 // Publish requests a publication and waits for the SFU's answer. Ending ctx abandons the request;
 // should the SFU accept it afterwards, the track is unpublished right away.
 func (m *LocalManager) Publish(ctx context.Context, options PublishOptions) (*LocalTrack, error) {
@@ -126,7 +134,7 @@ func (m *LocalManager) Publish(ctx context.Context, options PublishOptions) (*Lo
 	request := publishRequest{
 		handle:        handle,
 		name:          options.Name,
-		usesE2EE:      m.params.Encryptor != nil,
+		usesE2EE:      m.encryptor() != nil,
 		schema:        options.Schema,
 		frameEncoding: options.FrameEncoding,
 	}
@@ -331,7 +339,7 @@ type LocalTrack struct {
 func newLocalTrack(manager *LocalManager, info Info) *LocalTrack {
 	var encryptor Encryptor
 	if info.UsesE2EE {
-		encryptor = manager.params.Encryptor
+		encryptor = manager.encryptor()
 	}
 	return &LocalTrack{
 		manager:     manager,
