@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/livekit/protocol/livekit"
+	"github.com/livekit/protocol/logger"
 	"github.com/stretchr/testify/require"
 )
 
@@ -140,4 +141,25 @@ func TestProto_PublishRejectionFromRequestResponse(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, trackHandle(1), rejection.handle)
 	require.ErrorIs(t, rejection.err, ErrNotAllowed)
+}
+
+func TestProto_SubscriptionUpdateToProto(t *testing.T) {
+	update := subscriptionUpdate{sid: "DTR_1234", subscribe: true}.toProto()
+	require.Len(t, update.GetUpdates(), 1)
+	require.Equal(t, "DTR_1234", update.GetUpdates()[0].GetTrackSid())
+	require.True(t, update.GetUpdates()[0].GetSubscribe())
+}
+
+func TestProto_PublicationUpdatesFromProto(t *testing.T) {
+	participants := []*livekit.ParticipantInfo{
+		{Identity: "local", DataTracks: []*livekit.DataTrackInfo{{PubHandle: 1, Sid: "DTR_0000", Name: "mine"}}},
+		{Identity: "publisher", DataTracks: []*livekit.DataTrackInfo{{PubHandle: 1, Sid: "DTR_1234", Name: "track1"}}},
+		{Identity: "leaving", State: livekit.ParticipantInfo_DISCONNECTED, DataTracks: []*livekit.DataTrackInfo{{PubHandle: 1, Sid: "DTR_4567", Name: "stale"}}},
+	}
+
+	updates := publicationUpdatesFromProto(participants, "local", logger.GetLogger())
+	require.Len(t, updates, 2)
+	require.Len(t, updates["publisher"], 1)
+	require.Equal(t, SID("DTR_1234"), updates["publisher"][0].SID)
+	require.Empty(t, updates["leaving"])
 }
