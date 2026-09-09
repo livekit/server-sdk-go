@@ -121,6 +121,9 @@ func (s *signalhandler) HandleMessage(msg proto.Message) error {
 
 	case *livekit.SignalResponse_MediaSectionsRequirement:
 		s.params.Processor.OnMediaSectionsRequirement(payload.MediaSectionsRequirement)
+
+	case *livekit.SignalResponse_RequestResponse:
+		s.params.Processor.OnRequestResponse(payload.RequestResponse)
 	}
 
 	return nil
