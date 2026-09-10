@@ -266,13 +266,13 @@ func TestPublishDTMF(t *testing.T) {
 
 	require.Equal(t, sub.LocalParticipant.Identity(), <-remoteParticipantsOfPub)
 
-	// Send a short sequence; the reliable channel must deliver every key, in order.
+	// The reliable data channel must deliver every key in order.
 	keys := []struct {
 		code  uint32
 		digit string
 	}{{1, "1"}, {2, "2"}, {3, "3"}, {11, "#"}}
 	for _, k := range keys {
-		// An explicit lossy request is overridden; PublishDTMF always sends reliably.
+		// PublishDTMF always sends reliably and overrides an explicit lossy request.
 		require.NoError(t, pub.LocalParticipant.PublishDTMF(k.code, k.digit, WithDataPublishReliable(false)))
 	}
 
@@ -290,6 +290,24 @@ func TestPublishDTMF(t *testing.T) {
 		require.Equal(t, k.code, received[i].dtmf.Code)
 		require.Equal(t, k.digit, received[i].dtmf.Digit)
 	}
+
+	// The receiver never sees packet Kind, so check the publisher's data channel, and
+	// every digit must have left on the reliable channel and none on the lossy one.
+	pubTransport, ok := pub.engine.Publisher()
+	require.True(t, ok)
+	var reliableSent, lossySent uint32
+	for _, s := range pubTransport.PeerConnection().GetStats() {
+		if dc, ok := s.(webrtc.DataChannelStats); ok {
+			switch dc.Label {
+			case reliableDataChannelName:
+				reliableSent += dc.MessagesSent
+			case lossyDataChannelName:
+				lossySent += dc.MessagesSent
+			}
+		}
+	}
+	require.Equal(t, uint32(len(keys)), reliableSent)
+	require.Zero(t, lossySent)
 }
 
 func TestJoinError(t *testing.T) {
