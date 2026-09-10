@@ -644,7 +644,8 @@ func (p *LocalParticipant) PublishDataPacket(pck DataPacket, opts ...DataPublish
 		}
 	}
 
-	// This matches the default value of Kind on protobuf level.
+	// Lossy by default to keep the old PublishData behavior.
+	// The protobuf zero value of Kind is RELIABLE, so this is not the proto default.
 	kind := livekit.DataPacket_LOSSY
 	if options.Reliable != nil && *options.Reliable {
 		kind = livekit.DataPacket_RELIABLE
