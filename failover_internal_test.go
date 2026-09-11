@@ -39,6 +39,11 @@ func TestFailoverAttempts(t *testing.T) {
 		{failoverConfig{enabled: true}, "myproject.livekit.cloud", failoverMaxAttempts},
 		{failoverConfig{enabled: true}, "myproject.region.livekit.cloud", failoverMaxAttempts},
 		{failoverConfig{enabled: true}, "myproject.livekit.io", 1},
+		// The LiveKit Cloud API hosts fail over too (same-host retry, see failover).
+		{failoverConfig{enabled: true}, "cloud-api.livekit.io", failoverMaxAttempts},
+		{failoverConfig{enabled: true}, "cloud-api.staging.livekit.io", failoverMaxAttempts},
+		{failoverConfig{enabled: true}, "CLOUD-API.LIVEKIT.IO", failoverMaxAttempts},
+		{failoverConfig{enabled: true}, "cloud-api.example.com", 1},
 		{failoverConfig{enabled: true}, "example.com", 1},
 		{failoverConfig{enabled: true}, "127.0.0.1", 1},
 		{failoverConfig{enabled: true}, "notlivekit.cloud", 1},
@@ -407,5 +412,96 @@ func TestFailoverRetriesOn5xxWithinBudget(t *testing.T) {
 	}
 	if n := stub.count(); n != 2 {
 		t.Fatalf("expected 2 attempts (5xx then success), got %d", n)
+	}
+}
+
+// newSingleHostTransport wires a failoverTransport with no fallback region: the
+// cache lists only the request's own host.
+func newSingleHostTransport(stub http.RoundTripper, host string) *failoverTransport {
+	rc := newRegionCache()
+	rc.cache[strings.ToLower(host)] = &regionCacheEntry{
+		settings:  &livekit.RegionSettings{Regions: []*livekit.RegionInfo{{Url: "http://" + host}}},
+		fetchedAt: time.Now(),
+		ttl:       time.Hour,
+	}
+	return &failoverTransport{base: stub, regions: rc}
+}
+
+// Without a fallback region, a transport error retries the same host.
+func TestFailoverRetriesSameHostOnTransportError(t *testing.T) {
+	const host = "cloud-api.example.com"
+
+	stub := &stubRoundTripper{behave: func(attempt int, _ context.Context) (*http.Response, error) {
+		if attempt == 0 {
+			return nil, errors.New("read: connection reset by peer")
+		}
+		return stubResponse(http.StatusOK), nil
+	}}
+	tr := newSingleHostTransport(stub, host)
+
+	ctx := withFailoverForce(context.Background(), time.Millisecond)
+	resp, err := tr.RoundTrip(stubRequest(ctx, host))
+	if err != nil {
+		t.Fatalf("a lost request should be retried on the same host, got error: %v", err)
+	}
+	_ = resp.Body.Close()
+	if n := stub.count(); n != 2 {
+		t.Fatalf("expected 2 attempts (transport error then success), got %d", n)
+	}
+}
+
+// Without a fallback region, a 5xx retries the same host.
+func TestFailoverRetriesSameHostOn5xx(t *testing.T) {
+	const host = "cloud-api.example.com"
+
+	stub := &stubRoundTripper{behave: func(attempt int, _ context.Context) (*http.Response, error) {
+		if attempt == 0 {
+			return stubResponse(http.StatusBadGateway), nil
+		}
+		return stubResponse(http.StatusOK), nil
+	}}
+	tr := newSingleHostTransport(stub, host)
+
+	ctx := withFailoverForce(context.Background(), time.Millisecond)
+	resp, err := tr.RoundTrip(stubRequest(ctx, host))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 after a same-host retry, got %d", resp.StatusCode)
+	}
+	if n := stub.count(); n != 2 {
+		t.Fatalf("expected 2 attempts (5xx then success), got %d", n)
+	}
+}
+
+// A Cloud API host has a single origin: its retries never call region discovery.
+func TestFailoverCloudAPISkipsRegionDiscovery(t *testing.T) {
+	const host = "cloud-api.livekit.io"
+
+	stub := &stubRoundTripper{behave: func(attempt int, _ context.Context) (*http.Response, error) {
+		if attempt == 0 {
+			return nil, errors.New("read: connection reset by peer")
+		}
+		return stubResponse(http.StatusOK), nil
+	}}
+	discovery := &stubRoundTripper{behave: func(int, context.Context) (*http.Response, error) {
+		return nil, errors.New("discovery must not be called")
+	}}
+	rc := newRegionCache()
+	rc.client = &http.Client{Transport: discovery}
+	tr := &failoverTransport{base: stub, regions: rc}
+
+	resp, err := tr.RoundTrip(stubRequest(context.Background(), host))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	_ = resp.Body.Close()
+	if n := stub.count(); n != 2 {
+		t.Fatalf("expected 2 attempts, got %d", n)
+	}
+	if n := discovery.count(); n != 0 {
+		t.Fatalf("expected no region discovery for a Cloud API host, got %d fetches", n)
 	}
 }
