@@ -231,6 +231,85 @@ func TestJoin(t *testing.T) {
 	require.Equal(t, ConnectionStateDisconnected, sub.ConnectionState())
 }
 
+func TestPublishDTMF(t *testing.T) {
+	remoteParticipantsOfPub := make(chan string, 1)
+	pub, err := createAgent(t.Name(), &RoomCallback{
+		OnParticipantConnected: func(participant *RemoteParticipant) {
+			remoteParticipantsOfPub <- participant.Identity()
+		},
+	}, "publisher")
+	require.NoError(t, err)
+	defer pub.Disconnect()
+
+	type receivedDTMF struct {
+		sender string
+		dtmf   *livekit.SipDTMF
+	}
+	var (
+		dtmfLock sync.Mutex
+		received []receivedDTMF
+	)
+	sub, err := createAgent(t.Name(), &RoomCallback{
+		ParticipantCallback: ParticipantCallback{
+			OnDataPacket: func(data DataPacket, params DataReceiveParams) {
+				// The packet must surface to the callback as the protocol type, not as user data.
+				if dtmf, ok := data.(*livekit.SipDTMF); ok {
+					dtmfLock.Lock()
+					received = append(received, receivedDTMF{sender: params.SenderIdentity, dtmf: dtmf})
+					dtmfLock.Unlock()
+				}
+			},
+		},
+	}, "subscriber")
+	require.NoError(t, err)
+	defer sub.Disconnect()
+
+	require.Equal(t, sub.LocalParticipant.Identity(), <-remoteParticipantsOfPub)
+
+	// The reliable data channel must deliver every key in order.
+	keys := []struct {
+		code  uint32
+		digit string
+	}{{1, "1"}, {2, "2"}, {3, "3"}, {11, "#"}}
+	for _, k := range keys {
+		// PublishDTMF always sends reliably and overrides an explicit lossy request.
+		require.NoError(t, pub.LocalParticipant.PublishDTMF(k.code, k.digit, WithDataPublishReliable(false)))
+	}
+
+	require.Eventually(t, func() bool {
+		dtmfLock.Lock()
+		defer dtmfLock.Unlock()
+		return len(received) >= len(keys)
+	}, 5*time.Second, 100*time.Millisecond)
+
+	dtmfLock.Lock()
+	defer dtmfLock.Unlock()
+	require.Len(t, received, len(keys))
+	for i, k := range keys {
+		require.Equal(t, pub.LocalParticipant.Identity(), received[i].sender)
+		require.Equal(t, k.code, received[i].dtmf.Code)
+		require.Equal(t, k.digit, received[i].dtmf.Digit)
+	}
+
+	// The receiver never sees packet Kind, so check the publisher's data channel, and
+	// every digit must have left on the reliable channel and none on the lossy one.
+	pubTransport, ok := pub.engine.Publisher()
+	require.True(t, ok)
+	var reliableSent, lossySent uint32
+	for _, s := range pubTransport.PeerConnection().GetStats() {
+		if dc, ok := s.(webrtc.DataChannelStats); ok {
+			switch dc.Label {
+			case reliableDataChannelName:
+				reliableSent += dc.MessagesSent
+			case lossyDataChannelName:
+				lossySent += dc.MessagesSent
+			}
+		}
+	}
+	require.Equal(t, uint32(len(keys)), reliableSent)
+	require.Zero(t, lossySent)
+}
+
 func TestJoinError(t *testing.T) {
 	_, err := ConnectToRoomWithToken(host, "invalid", nil)
 	require.Error(t, err)

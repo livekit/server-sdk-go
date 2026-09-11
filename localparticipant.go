@@ -644,7 +644,8 @@ func (p *LocalParticipant) PublishDataPacket(pck DataPacket, opts ...DataPublish
 		}
 	}
 
-	// This matches the default value of Kind on protobuf level.
+	// Lossy by default to keep the old PublishData behavior.
+	// The protobuf zero value of Kind is RELIABLE, so this is not the proto default.
 	kind := livekit.DataPacket_LOSSY
 	if options.Reliable != nil && *options.Reliable {
 		kind = livekit.DataPacket_RELIABLE
@@ -657,6 +658,19 @@ func (p *LocalParticipant) PublishDataPacket(pck DataPacket, opts ...DataPublish
 	}
 
 	return p.engine.publishDataPacket(dataPacket, kind)
+}
+
+// PublishDTMF sends a SIP DTMF digit to the room as a livekit.SipDTMF data packet.
+// code is the RFC 4733 event code and digit is the key it represents, e.g. 11 and "#".
+//
+// DTMF always uses the RELIABLE channel so digits arrive in order, overriding any
+// WithDataPublishReliable(false). See WithDataPublishDestination to target participants.
+func (p *LocalParticipant) PublishDTMF(code uint32, digit string, opts ...DataPublishOption) error {
+	// Copy opts so appending never modifies the caller's slice.
+	allOpts := make([]DataPublishOption, 0, len(opts)+1)
+	allOpts = append(allOpts, opts...)
+	allOpts = append(allOpts, WithDataPublishReliable(true))
+	return p.PublishDataPacket(&livekit.SipDTMF{Code: code, Digit: digit}, allOpts...)
 }
 
 // UnpublishTrack stops publishing a track and removes it from the room.
