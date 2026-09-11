@@ -40,6 +40,11 @@ const (
 	// before its PTS is force-corrected forward.
 	maxTimelyPacketAge = 10 * time.Second
 
+	// srDomainRecoveryRun is how many consecutive in-domain sender reports end a
+	// rejection episode. A publisher interleaving two SR domains alternates
+	// accept/reject, which would re-arm the warning on every pair if one sufficed.
+	srDomainRecoveryRun = 3
+
 	// slewRatePerSecond is the maximum rate at which PTS corrections are absorbed.
 	slewRatePerSecond = 5 * time.Millisecond
 
@@ -83,6 +88,12 @@ type syncEngineTrack struct {
 	clampedPackets int
 	clampStartPTS  time.Duration
 	clampMaxDiff   time.Duration
+
+	srRejected     int
+	srAccepted     int
+	srRejectFirst  time.Time
+	srRejectMaxGap time.Duration
+	srBeforeInit   bool // an SR reached the timeline while the domain guard was still disarmed
 
 	// pipeline time feedback
 	lastTimelyPacket time.Time
@@ -154,6 +165,13 @@ func (st *syncEngineTrack) initializeLocked(pkt jitter.ExtPacket) func() {
 	st.lastTS = pkt.Timestamp
 	st.lastTimelyPacket = receivedAt
 	st.initialized = true
+
+	// Those SRs were admitted unchecked, and once the guard arms it rejects the very
+	// SRs whose outliers would have rebuilt a wrong-domain fit. Drop it now instead.
+	if st.srBeforeInit {
+		st.srBeforeInit = false
+		st.engine.timeline.ResetTrack(st.participantID, st.track.ID())
+	}
 
 	// Initialize the engine's session start time.
 	sessionStart, onStarted := st.engine.initializeIfNeeded(receivedAt)
@@ -508,6 +526,48 @@ func (st *syncEngineTrack) endClampEpisodeLocked(wallPTS time.Duration) {
 	st.clampMaxDiff = 0
 }
 
+func (st *syncEngineTrack) noteSRDomainRejectLocked(gap time.Duration, now time.Time) bool {
+	st.srRejected++
+	st.srAccepted = 0
+	if st.srRejected == 1 {
+		st.srRejectFirst = now
+		st.srRejectMaxGap = gap
+		return true
+	}
+
+	if gap.Abs() > st.srRejectMaxGap.Abs() {
+		st.srRejectMaxGap = gap
+	}
+	return false
+}
+
+func (st *syncEngineTrack) noteSRDomainAcceptLocked() {
+	if st.srRejected == 0 {
+		return
+	}
+
+	st.srAccepted++
+	if st.srAccepted >= srDomainRecoveryRun {
+		st.endSRDomainEpisodeLocked()
+	}
+}
+
+func (st *syncEngineTrack) endSRDomainEpisodeLocked() {
+	if st.srRejected == 0 {
+		return
+	}
+
+	st.logger.Infow("sender report domain rejection episode ended",
+		"rejected", st.srRejected,
+		"episodeSpan", time.Since(st.srRejectFirst),
+		"maxGap", st.srRejectMaxGap,
+	)
+	st.srRejected = 0
+	st.srAccepted = 0
+	st.srRejectFirst = time.Time{}
+	st.srRejectMaxGap = 0
+}
+
 func (st *syncEngineTrack) wallClockPTS(pkt jitter.ExtPacket) (slewed, unslewed time.Duration) {
 	return st.wallClockPTSForRTPLocked(pkt.Timestamp, pkt.ReceivedAt)
 }
@@ -562,6 +622,30 @@ func (st *syncEngineTrack) wallClockPTSForRTPLocked(ts uint32, receivedAt time.T
 	return slewedRTP - absorbed, unslewed
 }
 
+func (st *syncEngineTrack) signedRTPDuration(ts uint32) time.Duration {
+	// widen before negating; -int32(math.MinInt32) overflows
+	d := int64(int32(ts - st.lastTS))
+	if d < 0 {
+		return -st.converter.ToDuration(uint32(-d))
+	}
+	return st.converter.ToDuration(uint32(d))
+}
+
+// rtpVsWallGapLocked returns how far ts projects ahead of wall clock in the track's media domain; !ok before the first packet
+func (st *syncEngineTrack) rtpVsWallGapLocked(ts uint32, receivedAt time.Time) (time.Duration, bool) {
+	if !st.initialized {
+		return 0, false
+	}
+
+	wallElapsed := receivedAt.Sub(st.startTime) + st.sessionOffset
+	if wallElapsed < 0 {
+		wallElapsed = 0
+	}
+
+	// slewed tracks wall clock; the unslewed baseline accumulates publisher skew and would trip the guard on long sessions
+	return st.lastWallPTSSlewed + st.signedRTPDuration(ts) - wallElapsed, true
+}
+
 // OnSenderReport implements TrackSync. It stores a callback invoked on sender reports.
 func (st *syncEngineTrack) OnSenderReport(f func(drift time.Duration)) {
 	st.mu.Lock()
@@ -598,6 +682,7 @@ func (st *syncEngineTrack) Close() {
 // an unacceptable constraint on what the callback may do.
 func (st *syncEngineTrack) closeLocked() {
 	st.endClampEpisodeLocked(st.lastPTSAdjusted)
+	st.endSRDomainEpisodeLocked()
 
 	st.closed = true
 	// Clear the field too: OnRTCP invocations that arrive AFTER close and

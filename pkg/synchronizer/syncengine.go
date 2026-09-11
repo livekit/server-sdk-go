@@ -36,6 +36,9 @@ const (
 	// we clamp to wall clock. This prevents bad publishers from dragging PTS far
 	// from reality.
 	defaultNtpTrustThreshold = 500 * time.Millisecond
+
+	// Wrong-domain sender reports are mutually consistent, so NtpEstimator's own guards cannot see them
+	defaultSRDomainThreshold = 5 * time.Second
 )
 
 // SyncEngineOption configures a SyncEngine.
@@ -68,6 +71,14 @@ func WithSyncEngineOldPacketThreshold(d time.Duration) SyncEngineOption {
 func WithSyncEngineNtpTrustThreshold(d time.Duration) SyncEngineOption {
 	return func(e *SyncEngine) {
 		e.ntpTrustThreshold = d
+	}
+}
+
+// WithSyncEngineSRDomainThreshold sets the max divergence between a sender report's
+// RTP timestamp and the track's media RTP timeline. Zero disables the check.
+func WithSyncEngineSRDomainThreshold(d time.Duration) SyncEngineOption {
+	return func(e *SyncEngine) {
+		e.srDomainThreshold = d
 	}
 }
 
@@ -122,6 +133,7 @@ type SyncEngine struct {
 	enableStartGate       bool
 	oldPacketThreshold    time.Duration
 	ntpTrustThreshold     time.Duration // max NTP-vs-wall divergence before clamping to wall clock
+	srDomainThreshold     time.Duration // max SR-RTP-vs-wall divergence before rejecting the sender report
 	audioDriftCompensated bool          // audio drift handled externally (e.g., tempo controller)
 	onStarted             func()
 
@@ -137,6 +149,7 @@ func NewSyncEngine(opts ...SyncEngineOption) *SyncEngine {
 		trackIDs:           make(map[string]*syncEngineTrack),
 		oldPacketThreshold: defaultOldPacketThreshold,
 		ntpTrustThreshold:  defaultNtpTrustThreshold,
+		srDomainThreshold:  defaultSRDomainThreshold,
 	}
 	for _, opt := range opts {
 		opt(e)
@@ -293,6 +306,23 @@ func (e *SyncEngine) OnRTCP(packet rtcp.Packet) {
 		st.mu.Unlock()
 		return
 	}
+	if gap, ok := st.rtpVsWallGapLocked(sr.RTPTime, now); ok && e.srDomainThreshold > 0 &&
+		(gap > e.srDomainThreshold || gap < -e.srDomainThreshold) {
+		if st.noteSRDomainRejectLocked(gap, now) {
+			st.logger.Warnw("rejecting sender report outside media RTP domain", nil,
+				"rtpTimestamp", sr.RTPTime,
+				"lastTS", st.lastTS,
+				"gap", gap,
+				"threshold", e.srDomainThreshold,
+			)
+		}
+		st.mu.Unlock()
+		return
+	}
+	st.noteSRDomainAcceptLocked()
+	if !st.initialized && e.srDomainThreshold > 0 {
+		st.srBeforeInit = true
+	}
 	e.timeline.OnSenderReport(participantID, trackID, clockRate, sr.NTPTime, sr.RTPTime, now)
 	onSR := st.onSR
 	st.mu.Unlock()
@@ -306,7 +336,7 @@ func (e *SyncEngine) OnRTCP(packet rtcp.Packet) {
 		return
 	}
 
-	sessionPTS, err := e.timeline.GetSessionPTS(participantID, trackID, sr.RTPTime)
+	sessionPTS, err := e.timeline.sampleSessionPTS(participantID, trackID, sr.RTPTime)
 	if err != nil {
 		return
 	}

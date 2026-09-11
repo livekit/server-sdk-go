@@ -53,3 +53,44 @@ func TestParticipantClock_RemoveTrack(t *testing.T) {
 	pc.RemoveTrack("audio-1")
 	require.False(t, pc.HasTrack("audio-1"))
 }
+
+func noteAt(pc *ParticipantClock, trackID string, sessionPTS time.Duration) (time.Duration, bool) {
+	base := time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC)
+	return pc.NoteSessionPTS(trackID, 0, base.Add(sessionPTS), base)
+}
+
+func TestParticipantClock_AbnormalPTSEpisode(t *testing.T) {
+	pc := NewParticipantClock(nil, "alice")
+
+	_, abnormal := noteAt(pc, "audio-1", -5*time.Second)
+	require.True(t, abnormal)
+
+	for i := 0; i < 3; i++ {
+		_, abnormal = noteAt(pc, "audio-1", -9*time.Second)
+		require.True(t, abnormal)
+	}
+
+	pc.mu.Lock()
+	ep := pc.abnormalPTS["audio-1"]
+	pc.mu.Unlock()
+	require.NotNil(t, ep)
+	require.Equal(t, 4, ep.count, "every abnormal packet is counted, not logged")
+	require.Equal(t, -5*time.Second, ep.first)
+	require.Equal(t, -9*time.Second, ep.worst, "worst tracks the largest magnitude seen")
+
+	pts, abnormal := noteAt(pc, "audio-1", 2*time.Second)
+	require.False(t, abnormal)
+	require.Equal(t, 2*time.Second, pts)
+
+	pc.mu.Lock()
+	require.NotContains(t, pc.abnormalPTS, "audio-1", "recovery ends the episode")
+	pc.mu.Unlock()
+
+	_, abnormal = noteAt(pc, "audio-1", -5*time.Second)
+	require.True(t, abnormal)
+	pc.RemoveTrack("audio-1")
+
+	pc.mu.Lock()
+	defer pc.mu.Unlock()
+	require.NotContains(t, pc.abnormalPTS, "audio-1", "removing the track clears the episode")
+}
