@@ -69,13 +69,20 @@ type failoverConfig struct {
 }
 
 // attempts returns the total request attempts for a host; 1 means no failover.
-// Failover engages only when enabled and the host is a LiveKit Cloud domain
-// (or force is set).
+// Failover engages only when enabled and the host is a LiveKit Cloud project
+// or Cloud API domain (or force is set).
 func (c failoverConfig) attempts(hostname string) int {
-	if c.enabled && (c.force || isCloud(hostname)) {
+	if c.enabled && (c.force || isCloud(hostname) || isCloudAPI(hostname)) {
 		return failoverMaxAttempts
 	}
 	return 1
+}
+
+// isCloudAPI reports whether the hostname is a LiveKit Cloud API endpoint
+// (cloud-api.livekit.io or a cloud-api.<env>.livekit.io variant).
+func isCloudAPI(hostname string) bool {
+	hostname = strings.ToLower(hostname)
+	return strings.HasPrefix(hostname, "cloud-api.") && strings.HasSuffix(hostname, ".livekit.io")
 }
 
 type failoverEnabledKey struct{}
@@ -238,6 +245,8 @@ func (t *failoverTransport) failover(req *http.Request, maxAttempts int, timeout
 	scheme, host := req.URL.Scheme, req.URL.Host
 	tried := map[string]struct{}{strings.ToLower(host): {}}
 	var regions *livekit.RegionSettings // discovered lazily on the first failure
+	// A Cloud API host has a single origin; region discovery is never consulted.
+	discover := !isCloudAPI(req.URL.Hostname())
 
 	var resp *http.Response
 	var err error
@@ -259,7 +268,7 @@ func (t *failoverTransport) failover(req *http.Request, maxAttempts int, timeout
 			return terminate(resp, err, cancel)
 		}
 
-		if regions == nil {
+		if regions == nil && discover {
 			u := url.URL{Scheme: req.URL.Scheme, Host: req.URL.Host, Path: "/settings/regions"}
 			regions, _ = t.regions.get(req.URL.Host, u.String(), req.Header, 0)
 		}

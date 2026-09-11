@@ -39,6 +39,11 @@ func TestFailoverAttempts(t *testing.T) {
 		{failoverConfig{enabled: true}, "myproject.livekit.cloud", failoverMaxAttempts},
 		{failoverConfig{enabled: true}, "myproject.region.livekit.cloud", failoverMaxAttempts},
 		{failoverConfig{enabled: true}, "myproject.livekit.io", 1},
+		// The LiveKit Cloud API hosts fail over too (same-host retry, see failover).
+		{failoverConfig{enabled: true}, "cloud-api.livekit.io", failoverMaxAttempts},
+		{failoverConfig{enabled: true}, "cloud-api.staging.livekit.io", failoverMaxAttempts},
+		{failoverConfig{enabled: true}, "CLOUD-API.LIVEKIT.IO", failoverMaxAttempts},
+		{failoverConfig{enabled: true}, "cloud-api.example.com", 1},
 		{failoverConfig{enabled: true}, "example.com", 1},
 		{failoverConfig{enabled: true}, "127.0.0.1", 1},
 		{failoverConfig{enabled: true}, "notlivekit.cloud", 1},
@@ -468,5 +473,35 @@ func TestFailoverRetriesSameHostOn5xx(t *testing.T) {
 	}
 	if n := stub.count(); n != 2 {
 		t.Fatalf("expected 2 attempts (5xx then success), got %d", n)
+	}
+}
+
+// A Cloud API host has a single origin: its retries never call region discovery.
+func TestFailoverCloudAPISkipsRegionDiscovery(t *testing.T) {
+	const host = "cloud-api.livekit.io"
+
+	stub := &stubRoundTripper{behave: func(attempt int, _ context.Context) (*http.Response, error) {
+		if attempt == 0 {
+			return nil, errors.New("read: connection reset by peer")
+		}
+		return stubResponse(http.StatusOK), nil
+	}}
+	discovery := &stubRoundTripper{behave: func(int, context.Context) (*http.Response, error) {
+		return nil, errors.New("discovery must not be called")
+	}}
+	rc := newRegionCache()
+	rc.client = &http.Client{Transport: discovery}
+	tr := &failoverTransport{base: stub, regions: rc}
+
+	resp, err := tr.RoundTrip(stubRequest(context.Background(), host))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	_ = resp.Body.Close()
+	if n := stub.count(); n != 2 {
+		t.Fatalf("expected 2 attempts, got %d", n)
+	}
+	if n := discovery.count(); n != 0 {
+		t.Fatalf("expected no region discovery for a Cloud API host, got %d fetches", n)
 	}
 }
