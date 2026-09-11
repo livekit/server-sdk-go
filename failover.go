@@ -265,7 +265,9 @@ func (t *failoverTransport) failover(req *http.Request, maxAttempts int, timeout
 		}
 		nextScheme, nextHost, ok := nextRegion(regions, tried)
 		if !ok {
-			return terminate(resp, err, cancel) // no untried region left
+			// With no fallback region, a retryable failure is retried against
+			// the same host.
+			nextScheme, nextHost = scheme, host
 		}
 
 		status := 0

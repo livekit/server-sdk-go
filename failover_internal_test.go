@@ -409,3 +409,64 @@ func TestFailoverRetriesOn5xxWithinBudget(t *testing.T) {
 		t.Fatalf("expected 2 attempts (5xx then success), got %d", n)
 	}
 }
+
+// newSingleHostTransport wires a failoverTransport with no fallback region: the
+// cache lists only the request's own host.
+func newSingleHostTransport(stub http.RoundTripper, host string) *failoverTransport {
+	rc := newRegionCache()
+	rc.cache[strings.ToLower(host)] = &regionCacheEntry{
+		settings:  &livekit.RegionSettings{Regions: []*livekit.RegionInfo{{Url: "http://" + host}}},
+		fetchedAt: time.Now(),
+		ttl:       time.Hour,
+	}
+	return &failoverTransport{base: stub, regions: rc}
+}
+
+// Without a fallback region, a transport error retries the same host.
+func TestFailoverRetriesSameHostOnTransportError(t *testing.T) {
+	const host = "cloud-api.example.com"
+
+	stub := &stubRoundTripper{behave: func(attempt int, _ context.Context) (*http.Response, error) {
+		if attempt == 0 {
+			return nil, errors.New("read: connection reset by peer")
+		}
+		return stubResponse(http.StatusOK), nil
+	}}
+	tr := newSingleHostTransport(stub, host)
+
+	ctx := withFailoverForce(context.Background(), time.Millisecond)
+	resp, err := tr.RoundTrip(stubRequest(ctx, host))
+	if err != nil {
+		t.Fatalf("a lost request should be retried on the same host, got error: %v", err)
+	}
+	_ = resp.Body.Close()
+	if n := stub.count(); n != 2 {
+		t.Fatalf("expected 2 attempts (transport error then success), got %d", n)
+	}
+}
+
+// Without a fallback region, a 5xx retries the same host.
+func TestFailoverRetriesSameHostOn5xx(t *testing.T) {
+	const host = "cloud-api.example.com"
+
+	stub := &stubRoundTripper{behave: func(attempt int, _ context.Context) (*http.Response, error) {
+		if attempt == 0 {
+			return stubResponse(http.StatusBadGateway), nil
+		}
+		return stubResponse(http.StatusOK), nil
+	}}
+	tr := newSingleHostTransport(stub, host)
+
+	ctx := withFailoverForce(context.Background(), time.Millisecond)
+	resp, err := tr.RoundTrip(stubRequest(ctx, host))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 after a same-host retry, got %d", resp.StatusCode)
+	}
+	if n := stub.count(); n != 2 {
+		t.Fatalf("expected 2 attempts (5xx then success), got %d", n)
+	}
+}
