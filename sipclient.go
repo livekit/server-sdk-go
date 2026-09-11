@@ -357,3 +357,10 @@ func (s *SIPClient) TransferSIPParticipant(ctx context.Context, in *livekit.Tran
 func SIPStatusFrom(err error) *livekit.SIPStatus {
 	return livekit.SIPStatusFrom(err)
 }
+
+// SIPTransferErrorFrom unwraps an error from TransferSIPParticipant and returns
+// why the transfer failed, if reported. A transfer rejected by the transferee
+// also carries a SIP status, see SIPStatusFrom.
+func SIPTransferErrorFrom(err error) *livekit.SIPTransferError {
+	return livekit.SIPTransferErrorFrom(err)
+}
