@@ -24,9 +24,16 @@ import (
 )
 
 var (
-	errNoSenderReports = errors.New("SessionTimeline: no sender reports received for track")
-	errNoSessionStart  = errors.New("SessionTimeline: session start time not set")
+	errNoSenderReports    = errors.New("SessionTimeline: no sender reports received for track")
+	errNoSessionStart     = errors.New("SessionTimeline: session start time not set")
+	errAbnormalSessionPTS = errors.New("SessionTimeline: session PTS outside plausible range")
 )
+
+// OWD and regression noise put a participant's first frames slightly before a session start set by another track
+const maxNegativeSessionPTS = time.Second
+
+// deliberate max-session-length policy, not derived from the RTP wrap period
+const maxSessionPTS = 24 * time.Hour
 
 // SessionTimeline establishes a shared recording timeline and maps each
 // participant's NTP clock domain onto it using OWD (one-way delay)
@@ -168,10 +175,21 @@ func (st *SessionTimeline) OnSenderReport(participantID, trackID string, clockRa
 }
 
 // GetSessionPTS maps an RTP timestamp for a participant's track to a position
-// on the shared session timeline.
+// on the shared session timeline. It returns errAbnormalSessionPTS when the
+// result falls outside the plausible range.
 //
 // The formula is: sessionPTS = ntpTime + estimatedOWD - sessionStart
 func (st *SessionTimeline) GetSessionPTS(participantID, trackID string, rtpTimestamp uint32) (time.Duration, error) {
+	return st.sessionPTS(participantID, trackID, rtpTimestamp, true)
+}
+
+// sampleSessionPTS is GetSessionPTS for callers that only read the value; it leaves
+// abnormal-episode state untouched so a diagnostic cannot perturb the packet path's.
+func (st *SessionTimeline) sampleSessionPTS(participantID, trackID string, rtpTimestamp uint32) (time.Duration, error) {
+	return st.sessionPTS(participantID, trackID, rtpTimestamp, false)
+}
+
+func (st *SessionTimeline) sessionPTS(participantID, trackID string, rtpTimestamp uint32, note bool) (time.Duration, error) {
 	st.mu.RLock()
 	if !st.hasStart {
 		st.mu.RUnlock()
@@ -190,18 +208,15 @@ func (st *SessionTimeline) GetSessionPTS(participantID, trackID string, rtpTimes
 		return 0, err
 	}
 
-	sessionPTS := receiverTime.Sub(sessionStart)
-
-	if (sessionPTS < 0 || sessionPTS > 24*time.Hour) && st.logger != nil {
-		st.logger.Warnw("GetSessionPTS: abnormal result",
-			nil,
-			"participantID", participantID,
-			"trackID", trackID,
-			"rtpTimestamp", rtpTimestamp,
-			"receiverTime", receiverTime,
-			"sessionStart", sessionStart,
-			"sessionPTS", sessionPTS,
-		)
+	var sessionPTS time.Duration
+	var abnormal bool
+	if note {
+		sessionPTS, abnormal = pc.NoteSessionPTS(trackID, rtpTimestamp, receiverTime, sessionStart)
+	} else {
+		sessionPTS, abnormal = classifySessionPTS(receiverTime, sessionStart)
+	}
+	if abnormal {
+		return 0, errAbnormalSessionPTS
 	}
 
 	return sessionPTS, nil
