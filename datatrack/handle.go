@@ -20,8 +20,9 @@ import (
 )
 
 var (
-	errHandleReserved = errors.New("data track handle 0 is reserved")
-	errHandleTooLarge = errors.New("value too large to be a data track handle")
+	errHandleReserved   = errors.New("data track handle 0 is reserved")
+	errHandleTooLarge   = errors.New("value too large to be a data track handle")
+	errHandlesExhausted = errors.New("data track handles exhausted")
 )
 
 // trackHandle identifies the data track a packet belongs to.
@@ -42,10 +43,10 @@ type handleAllocator struct {
 	value uint16
 }
 
-func (a *handleAllocator) get() (trackHandle, bool) {
+func (a *handleAllocator) get() (trackHandle, error) {
 	if a.value == math.MaxUint16 {
-		return 0, false
+		return 0, errHandlesExhausted
 	}
 	a.value++
-	return trackHandle(a.value), true
+	return trackHandle(a.value), nil
 }
