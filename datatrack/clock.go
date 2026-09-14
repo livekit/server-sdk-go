@@ -19,9 +19,9 @@ import (
 	"time"
 )
 
-const timestampRate = 90_000
+const clockRate = 90_000
 
-// timestamp is a packet-level timestamp in ticks of timestampRate.
+// timestamp is a packet-level timestamp in ticks of clockRate.
 type timestamp uint32
 
 func randomTimestamp() timestamp {
@@ -70,5 +70,5 @@ func durationToTicks(d time.Duration) uint32 {
 		nanos = 0
 	}
 	seconds, remainder := uint64(nanos)/1_000_000_000, uint64(nanos)%1_000_000_000
-	return uint32(seconds*timestampRate + (remainder*timestampRate+500_000_000)/1_000_000_000)
+	return uint32(seconds*clockRate + (remainder*clockRate+500_000_000)/1_000_000_000)
 }
