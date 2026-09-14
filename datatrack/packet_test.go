@@ -184,6 +184,14 @@ func TestClock_IsBaseAtEpoch(t *testing.T) {
 	require.Equal(t, base, c.prev)
 }
 
+func TestTimestamp_IsBeforeHalfRange(t *testing.T) {
+	for _, a := range []timestamp{0, 1, 1 << 31, 0xffffffff} {
+		b := a.wrappingAdd(1 << 31)
+		require.NotEqual(t, a.isBefore(b), b.isBefore(a), "a=%#x b=%#x", a, b)
+		require.Equal(t, a < b, a.isBefore(b), "a=%#x b=%#x", a, b)
+	}
+}
+
 func TestClock_Monotonic(t *testing.T) {
 	epoch := time.Now()
 	c := newClockWithEpoch(epoch, 0)

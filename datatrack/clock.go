@@ -29,6 +29,9 @@ func randomTimestamp() timestamp {
 }
 
 func (t timestamp) isBefore(other timestamp) bool {
+	if t-other == 1<<31 {
+		return t < other
+	}
 	return int32(t-other) < 0
 }
 
