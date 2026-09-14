@@ -177,6 +177,15 @@ func (d *depacketizer) pushToPartial(packet dtp.Packet) depacketizerPushResult {
 
 func finalize(frameNumber uint16, partial *partialFrame, endSequence uint16) depacketizerPushResult {
 	received := uint16(len(partial.payloads))
+	expected := endSequence - partial.startSequence + 1
+	if received != expected {
+		return depacketizerPushResult{drop: &depacketizerDropError{
+			frameNumber: frameNumber,
+			reason:      dropReasonIncomplete,
+			received:    received,
+			expected:    expected,
+		}}
+	}
 
 	payloadLen := 0
 	for _, payload := range partial.payloads {
@@ -198,6 +207,6 @@ func finalize(frameNumber uint16, partial *partialFrame, endSequence uint16) dep
 		frameNumber: frameNumber,
 		reason:      dropReasonIncomplete,
 		received:    received,
-		expected:    endSequence - partial.startSequence + 1,
+		expected:    expected,
 	}}
 }
