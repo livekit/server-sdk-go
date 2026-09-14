@@ -105,6 +105,9 @@ func (d *depacketizer) push(packet dtp.Packet, options depacketizerPushOptions) 
 
 func (d *depacketizer) frameFromSingle(packet dtp.Packet, options depacketizerPushOptions) depacketizerPushResult {
 	var result depacketizerPushResult
+	// A single packet is a self-contained frame and does not occupy a partials slot, but if
+	// the partials map is at capacity it is treated as a signal that the oldest in-flight
+	// partial is stale and evicts it.
 	if len(d.partials) >= options.maxPartialFrames {
 		result.drop = d.evictOldest(packet.FrameNumber)
 	}
