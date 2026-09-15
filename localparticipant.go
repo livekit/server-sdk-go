@@ -663,14 +663,12 @@ func (p *LocalParticipant) PublishDataPacket(pck DataPacket, opts ...DataPublish
 // PublishDTMF sends a SIP DTMF digit to the room as a livekit.SipDTMF data packet.
 // code is the RFC 4733 event code and digit is the key it represents, e.g. 11 and "#".
 //
-// DTMF always uses the RELIABLE channel so digits arrive in order, overriding any
-// WithDataPublishReliable(false). See WithDataPublishDestination to target participants.
-func (p *LocalParticipant) PublishDTMF(code uint32, digit string, opts ...DataPublishOption) error {
-	// Copy opts so appending never modifies the caller's slice.
-	allOpts := make([]DataPublishOption, 0, len(opts)+1)
-	allOpts = append(allOpts, opts...)
-	allOpts = append(allOpts, WithDataPublishReliable(true))
-	return p.PublishDataPacket(&livekit.SipDTMF{Code: code, Digit: digit}, allOpts...)
+// DTMF always uses the RELIABLE channel so digits arrive in order.
+func (p *LocalParticipant) PublishDTMF(code uint32, digit string) error {
+	return p.PublishDataPacket(
+		&livekit.SipDTMF{Code: code, Digit: digit},
+		WithDataPublishReliable(true),
+	)
 }
 
 // UnpublishTrack stops publishing a track and removes it from the room.

@@ -272,8 +272,7 @@ func TestPublishDTMF(t *testing.T) {
 		digit string
 	}{{1, "1"}, {2, "2"}, {3, "3"}, {11, "#"}}
 	for _, k := range keys {
-		// PublishDTMF always sends reliably and overrides an explicit lossy request.
-		require.NoError(t, pub.LocalParticipant.PublishDTMF(k.code, k.digit, WithDataPublishReliable(false)))
+		require.NoError(t, pub.LocalParticipant.PublishDTMF(k.code, k.digit))
 	}
 
 	require.Eventually(t, func() bool {
