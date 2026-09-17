@@ -17,13 +17,14 @@ package datatrack
 import "errors"
 
 var (
-	ErrNotAllowed       = errors.New("data track publishing unauthorized")
-	ErrDuplicateName    = errors.New("track name already taken")
-	ErrInvalidName      = errors.New("track name invalid")
-	ErrLimitReached     = errors.New("data track publication limit reached")
-	ErrPublishTimeout   = errors.New("timed out publishing data track")
-	ErrSubscribeTimeout = errors.New("timed out subscribing to data track")
-	ErrDisconnected     = errors.New("room disconnected")
-	ErrUnpublished      = errors.New("track unpublished")
-	ErrQueueFull        = errors.New("queue full")
+	ErrNotAllowed         = errors.New("data track publishing unauthorized")
+	ErrDuplicateName      = errors.New("track name already taken")
+	ErrInvalidName        = errors.New("track name invalid")
+	ErrLimitReached       = errors.New("data track publication limit reached")
+	ErrPublishTimeout     = errors.New("timed out publishing data track")
+	ErrSubscribeTimeout   = errors.New("timed out subscribing to data track")
+	ErrDisconnected       = errors.New("room disconnected")
+	ErrUnpublished        = errors.New("track unpublished")
+	ErrQueueFull          = errors.New("queue full")
+	ErrEncryptionDisabled = errors.New("track is end-to-end encrypted but data encryption is not enabled")
 )
