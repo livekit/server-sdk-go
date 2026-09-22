@@ -30,8 +30,8 @@ type localDataTrackTransport struct {
 	engine *RTCEngine
 }
 
-func (t localDataTrackTransport) SendPublishRequest(req *livekit.PublishDataTrackRequest) error {
-	if err := t.engine.ensurePublisherConnected(true); err != nil {
+func (t localDataTrackTransport) SendPublishRequest(ctx context.Context, req *livekit.PublishDataTrackRequest) error {
+	if err := t.engine.ensurePublisherConnected(ctx, true); err != nil {
 		return err
 	}
 	return t.engine.SendPublishDataTrack(req)

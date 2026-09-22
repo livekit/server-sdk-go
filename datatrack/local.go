@@ -30,7 +30,8 @@ const transportMTU = 16_000
 // LocalTransport carries what the local manager produces: signal requests to the SFU and frame
 // packets over the data channel.
 type LocalTransport interface {
-	SendPublishRequest(req *livekit.PublishDataTrackRequest) error
+	// SendPublishRequest may block until the connection is ready; it returns ctx.Err() when ctx ends first.
+	SendPublishRequest(ctx context.Context, req *livekit.PublishDataTrackRequest) error
 	SendUnpublishRequest(req *livekit.UnpublishDataTrackRequest) error
 	// SendFrame queues all packets of one frame; it must not block.
 	SendFrame(packets [][]byte)
@@ -130,7 +131,7 @@ func (m *LocalManager) Publish(ctx context.Context, options PublishOptions) (*Lo
 		schema:        options.Schema,
 		frameEncoding: options.FrameEncoding,
 	}
-	if err := m.params.Transport.SendPublishRequest(request.toProto()); err != nil {
+	if err := m.params.Transport.SendPublishRequest(ctx, request.toProto()); err != nil {
 		m.mu.Lock()
 		delete(m.pending, handle)
 		m.mu.Unlock()
@@ -269,7 +270,7 @@ func (m *LocalManager) RepublishTracks() {
 	m.mu.Unlock()
 
 	for _, request := range requests {
-		if err := m.params.Transport.SendPublishRequest(request.toProto()); err != nil {
+		if err := m.params.Transport.SendPublishRequest(context.Background(), request.toProto()); err != nil {
 			m.params.Logger.Warnw("could not republish data track", err, "handle", request.handle)
 		}
 	}

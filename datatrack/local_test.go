@@ -41,7 +41,7 @@ func newFakeLocalTransport() *fakeLocalTransport {
 	}
 }
 
-func (f *fakeLocalTransport) SendPublishRequest(req *livekit.PublishDataTrackRequest) error {
+func (f *fakeLocalTransport) SendPublishRequest(_ context.Context, req *livekit.PublishDataTrackRequest) error {
 	f.publishRequests <- req
 	return nil
 }
@@ -209,6 +209,31 @@ func TestLocalManager_PublishCancelled(t *testing.T) {
 	// Manager sends unpublish for the orphaned handle
 	unpublish := expectEvent(t, transport.unpublishRequests)
 	require.Equal(t, request.GetPubHandle(), unpublish.GetPubHandle())
+}
+
+// blockingTransport never becomes ready: SendPublishRequest waits on ctx like the real transport
+// waits on the engine connection.
+type blockingTransport struct{ *fakeLocalTransport }
+
+func (b blockingTransport) SendPublishRequest(ctx context.Context, _ *livekit.PublishDataTrackRequest) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func TestLocalManager_PublishCancelledWhileTransportBlocked(t *testing.T) {
+	transport := newFakeLocalTransport()
+	m := NewLocalManager(LocalManagerParams{Transport: blockingTransport{transport}})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	res := expectEvent(t, publishAsync(ctx, m, "test"))
+	require.ErrorIs(t, res.err, context.DeadlineExceeded)
+
+	// The abandoned request released its handle and left nothing pending
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	require.Empty(t, m.pending)
+	require.Empty(t, m.active)
 }
 
 func TestLocalManager_PublishWithE2EE(t *testing.T) {
