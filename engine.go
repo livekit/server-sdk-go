@@ -745,22 +745,24 @@ func (e *RTCEngine) GetDataChannelSub(kind livekit.DataPacket_Kind) *webrtc.Data
 }
 
 func (e *RTCEngine) waitUntilConnected(timeout time.Duration) error {
-	return waitUntilConnected(timeout, func() bool {
+	return waitUntilConnected(context.Background(), timeout, func() bool {
 		return e.IsConnected()
 	})
 }
 
-func (e *RTCEngine) ensurePublisherConnected(ensureDataReady bool) error {
+// ensurePublisherConnected waits for the publisher connection, giving up when ctx ends or the
+// connect timeout passes, whichever comes first.
+func (e *RTCEngine) ensurePublisherConnected(ctx context.Context, ensureDataReady bool) error {
 	e.pclock.Lock()
 	subscriberPrimary := e.subscriberPrimary
 	e.pclock.Unlock()
 	connectTimeout := e.connectionManager.getConnectTimeout()
 	if !subscriberPrimary {
-		return e.waitUntilConnected(connectTimeout)
+		return waitUntilConnected(ctx, connectTimeout, e.IsConnected)
 	}
 
 	var negotiated bool
-	return waitUntilConnected(connectTimeout, func() bool {
+	return waitUntilConnected(ctx, connectTimeout, func() bool {
 		if publisher, ok := e.Publisher(); ok {
 			if publisher.IsConnected() && (!ensureDataReady || e.dataPubChannelReady()) {
 				return true
@@ -1221,7 +1223,7 @@ func filterTURNServers(iceServers []*livekit.ICEServer) []*livekit.ICEServer {
 }
 
 func (e *RTCEngine) publishDataPacket(pck *livekit.DataPacket, kind livekit.DataPacket_Kind) error {
-	err := e.ensurePublisherConnected(true)
+	err := e.ensurePublisherConnected(context.Background(), true)
 	if err != nil {
 		e.log.Errorw("could not ensure publisher connected", err)
 		return err
@@ -1822,7 +1824,7 @@ func setConfiguration(pcTransport *PCTransport, configuration webrtc.Configurati
 	}
 }
 
-func waitUntilConnected(d time.Duration, test func() bool) error {
+func waitUntilConnected(ctx context.Context, d time.Duration, test func() bool) error {
 	if test() {
 		return nil
 	}
@@ -1835,6 +1837,9 @@ func waitUntilConnected(d time.Duration, test func() bool) error {
 
 	for {
 		select {
+		case <-ctx.Done():
+			return ctx.Err()
+
 		case <-timeout.C:
 			return ErrConnectionTimeout
 
