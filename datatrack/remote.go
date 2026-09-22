@@ -84,8 +84,9 @@ type RemoteManagerParams struct {
 type RemoteManager struct {
 	params RemoteManagerParams
 
-	// mu guards descriptors and subHandles. Lock ordering: mu is acquired before RemoteTrack.mu,
-	// never while holding it. Methods suffixed Locked expect the receiver's mutex to be held.
+	// mu guards descriptors and subHandles. Each RemoteTrack guards its own state: the manager
+	// reaches it through methods, which may take the track's lock while mu is held, and a track
+	// never calls into the manager while holding its own lock. Methods suffixed Locked expect mu.
 	mu          sync.Mutex
 	descriptors map[SID]*RemoteTrack
 	subHandles  map[trackHandle]*RemoteTrack
@@ -153,7 +154,10 @@ func (m *RemoteManager) handlePublicationUpdates(updates map[string][]Info) {
 				continue
 			}
 			if _, present := sidsInUpdate[sid]; !present {
-				m.unpublishLocked(track)
+				delete(m.descriptors, sid)
+				if handle, wasActive := track.end(ErrUnpublished); wasActive {
+					delete(m.subHandles, handle)
+				}
 				unpublished = append(unpublished, track)
 			}
 		}
@@ -178,7 +182,7 @@ func (m *RemoteManager) handlePublicationUpdates(updates map[string][]Info) {
 func (m *RemoteManager) reassignSIDLocked(publisherIdentity string, info Info) (*subscriptionUpdate, bool) {
 	var track *RemoteTrack
 	for _, candidate := range m.descriptors {
-		if candidate.publisherIdentity == publisherIdentity && candidate.Info().pubHandle == info.pubHandle {
+		if candidate.publisherIdentity == publisherIdentity && candidate.pubHandle == info.pubHandle {
 			track = candidate
 			break
 		}
@@ -186,25 +190,15 @@ func (m *RemoteManager) reassignSIDLocked(publisherIdentity string, info Info) (
 	if track == nil {
 		return nil, false
 	}
-	track.mu.Lock()
-	defer track.mu.Unlock()
-
-	// other than the SID, the info should not have changed
-	if track.info.Name != info.Name || track.info.UsesE2EE != info.UsesE2EE ||
-		!schemaEqual(track.info.Schema, info.Schema) || track.info.FrameEncoding != info.FrameEncoding {
-		m.params.Logger.Warnw("data track info mismatch, treating as new publication", nil, "sid", track.info.SID)
+	oldSID, subscribed, ok := track.reassignSID(info)
+	if !ok {
 		return nil, false
 	}
-
-	oldSID, newSID := track.info.SID, info.SID
-	m.params.Logger.Debugw("data track SID reassigned", "oldSid", oldSID, "newSid", newSID)
 	delete(m.descriptors, oldSID)
-	track.info.SID = newSID
-	m.descriptors[newSID] = track
-
-	if track.subscription != subscriptionNone {
+	m.descriptors[info.SID] = track
+	if subscribed {
 		// the SFU does not carry subscriptions across the publisher's full reconnect
-		return &subscriptionUpdate{sid: newSID, subscribe: true}, true
+		return &subscriptionUpdate{sid: info.SID, subscribe: true}, true
 	}
 	return nil, true
 }
@@ -214,17 +208,6 @@ func schemaEqual(a, b *SchemaID) bool {
 		return a == b
 	}
 	return *a == *b
-}
-
-// unpublishLocked removes a track and ends its subscription.
-func (m *RemoteManager) unpublishLocked(track *RemoteTrack) {
-	track.mu.Lock()
-	defer track.mu.Unlock()
-	delete(m.descriptors, track.info.SID)
-	if track.subscription == subscriptionActive {
-		delete(m.subHandles, track.subHandle)
-	}
-	track.endLocked(ErrUnpublished)
 }
 
 // HandleSubscriberHandles records the handles the SFU assigned to requested subscriptions, which
@@ -244,20 +227,25 @@ func (m *RemoteManager) HandleSubscriberHandles(msg *livekit.DataTrackSubscriber
 			m.params.Logger.Warnw("subscriber handle for unknown data track", nil, "sid", sid)
 			continue
 		}
-		track.mu.Lock()
-		switch track.subscription {
-		case subscriptionNone:
+		previous, replaced, ok := track.activate(handle)
+		if !ok {
 			m.params.Logger.Warnw("subscriber handle for data track without subscription", nil, "sid", sid)
-		case subscriptionActive:
-			// a new handle for an active subscription follows a full reconnect
-			delete(m.subHandles, track.subHandle)
-			track.subHandle = handle
-			m.subHandles[handle] = track
-		case subscriptionPending:
-			track.activateLocked(handle)
-			m.subHandles[handle] = track
+			continue
 		}
-		track.mu.Unlock()
+		if replaced {
+			delete(m.subHandles, previous)
+		}
+		m.subHandles[handle] = track
+	}
+}
+
+// releaseHandle forgets the handle of a subscription the track ended, unless the SFU has since
+// assigned the same handle to the track again.
+func (m *RemoteManager) releaseHandle(track *RemoteTrack, handle trackHandle) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.subHandles[handle] == track && !track.usesHandle(handle) {
+		delete(m.subHandles, handle)
 	}
 }
 
@@ -277,20 +265,7 @@ func (m *RemoteManager) HandlePacket(data []byte) {
 		m.params.Logger.Debugw("dropping data track packet without subscription", "handle", packet.Handle)
 		return
 	}
-
-	track.mu.Lock()
-	defer track.mu.Unlock()
-	// the subscription may have ended, or been replaced under a new handle, since the lookup
-	if track.subscription != subscriptionActive || track.subHandle != handle {
-		m.params.Logger.Debugw("dropping data track packet without subscription", "handle", packet.Handle)
-		return
-	}
-	// the send happens under the lock so the channel is never closed underneath it
-	select {
-	case track.packets <- packet:
-	default:
-		m.params.Logger.Debugw("dropping data track packet, pipeline is behind", "sid", track.info.SID)
-	}
+	track.deliver(handle, packet)
 }
 
 // ResendSubscriptionUpdates re-requests every pending and active subscription after a full
@@ -298,12 +273,10 @@ func (m *RemoteManager) HandlePacket(data []byte) {
 func (m *RemoteManager) ResendSubscriptionUpdates() {
 	m.mu.Lock()
 	var updates []subscriptionUpdate
-	for sid, track := range m.descriptors {
-		track.mu.Lock()
-		if track.subscription != subscriptionNone {
+	for _, track := range m.descriptors {
+		if sid, subscribed := track.subscribedSID(); subscribed {
 			updates = append(updates, subscriptionUpdate{sid: sid, subscribe: true})
 		}
-		track.mu.Unlock()
 	}
 	m.mu.Unlock()
 
@@ -317,9 +290,7 @@ func (m *RemoteManager) ResendSubscriptionUpdates() {
 func (m *RemoteManager) Shutdown() {
 	m.mu.Lock()
 	for _, track := range m.descriptors {
-		track.mu.Lock()
-		track.endLocked(ErrDisconnected)
-		track.mu.Unlock()
+		track.end(ErrDisconnected)
 	}
 	clear(m.descriptors)
 	clear(m.subHandles)
@@ -350,13 +321,15 @@ type subscribeResult struct {
 type RemoteTrack struct {
 	manager           *RemoteManager
 	publisherIdentity string
+	pubHandle         trackHandle
 	unpublished       core.Fuse
 	maxPartialFrames  atomic.Int64
 
 	// streamList is an immutable snapshot of streams, read by the worker without the lock
 	streamList atomic.Pointer[[]*Stream]
 
-	// mu guards the fields below. A method that also needs manager.mu must acquire it first.
+	// mu guards the fields below. It is never held while calling into the manager. Methods
+	// suffixed Locked expect it.
 	mu           sync.Mutex
 	info         Info
 	subscription subscriptionState
@@ -372,6 +345,7 @@ func newRemoteTrack(manager *RemoteManager, info Info, publisherIdentity string)
 	track := &RemoteTrack{
 		manager:           manager,
 		publisherIdentity: publisherIdentity,
+		pubHandle:         info.pubHandle,
 		info:              info,
 		streams:           make(map[*Stream]struct{}),
 	}
@@ -495,8 +469,53 @@ func (t *RemoteTrack) removeWaiterLocked(waiter chan subscribeResult) {
 	}
 }
 
-// activateLocked turns a pending subscription into an active one and hands every waiter a stream.
-func (t *RemoteTrack) activateLocked(handle trackHandle) {
+// reassignSID moves the track to the SID it was republished under after its publisher's full
+// reconnect. It reports the SID replaced and whether a subscription must be re-requested, or false
+// when the info differs in more than the SID.
+func (t *RemoteTrack) reassignSID(info Info) (oldSID SID, subscribed bool, ok bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	// other than the SID, the info should not have changed
+	if t.info.Name != info.Name || t.info.UsesE2EE != info.UsesE2EE ||
+		!schemaEqual(t.info.Schema, info.Schema) || t.info.FrameEncoding != info.FrameEncoding {
+		t.manager.params.Logger.Warnw("data track info mismatch, treating as new publication", nil, "sid", t.info.SID)
+		return "", false, false
+	}
+	oldSID = t.info.SID
+	t.manager.params.Logger.Debugw("data track SID reassigned", "oldSid", oldSID, "newSid", info.SID)
+	t.info.SID = info.SID
+	return oldSID, t.subscription != subscriptionNone, true
+}
+
+// subscribedSID reports the track's SID when it has a pending or active subscription.
+func (t *RemoteTrack) subscribedSID() (SID, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.info.SID, t.subscription != subscriptionNone
+}
+
+// usesHandle reports whether the track's active subscription is routed by handle.
+func (t *RemoteTrack) usesHandle(handle trackHandle) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.subscription == subscriptionActive && t.subHandle == handle
+}
+
+// activate records the handle the SFU assigned to the subscription. A pending subscription
+// becomes active and every waiter receives a stream; an active one takes the new handle, as
+// happens after a full reconnect, and the handle it replaces is returned. It reports false when
+// the track has no subscription.
+func (t *RemoteTrack) activate(handle trackHandle) (previous trackHandle, replaced bool, ok bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	switch t.subscription {
+	case subscriptionNone:
+		return 0, false, false
+	case subscriptionActive:
+		previous, t.subHandle = t.subHandle, handle
+		return previous, true, true
+	}
+
 	var decryptor Decryptor
 	if t.info.UsesE2EE {
 		decryptor = t.manager.params.Decryptor
@@ -509,6 +528,24 @@ func (t *RemoteTrack) activateLocked(handle trackHandle) {
 		waiter <- subscribeResult{stream: t.addStreamLocked(t.bufferSize)}
 	}
 	t.waiters = nil
+	return 0, false, true
+}
+
+// deliver hands a packet to the subscription's worker. The packet is dropped when the subscription
+// ended, or moved to another handle, since the manager looked the track up.
+func (t *RemoteTrack) deliver(handle trackHandle, packet *dtp.Packet) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.subscription != subscriptionActive || t.subHandle != handle {
+		t.manager.params.Logger.Debugw("dropping data track packet without subscription", "handle", packet.Handle)
+		return
+	}
+	// the send happens under the lock so the channel is never closed underneath it
+	select {
+	case t.packets <- packet:
+	default:
+		t.manager.params.Logger.Debugw("dropping data track packet, pipeline is behind", "sid", t.info.SID)
+	}
 }
 
 // runPipeline reassembles the subscription's packets on its own goroutine, so tracks never wait on
@@ -548,8 +585,12 @@ func (t *RemoteTrack) addStreamLocked(bufferSize int) *Stream {
 	return stream
 }
 
-// endLocked marks the track unpublished, fails waiters with err, and closes every stream.
-func (t *RemoteTrack) endLocked(err error) {
+// end marks the track unpublished, fails waiters with err, and closes every stream. It reports the
+// handle of the active subscription it ended, if there was one.
+func (t *RemoteTrack) end(err error) (handle trackHandle, wasActive bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	handle, wasActive = t.subHandle, t.subscription == subscriptionActive
 	t.unpublished.Break()
 	for _, waiter := range t.waiters {
 		waiter <- subscribeResult{err: err}
@@ -562,16 +603,17 @@ func (t *RemoteTrack) endLocked(err error) {
 	t.refreshStreamListLocked()
 	t.subscription = subscriptionNone
 	t.deactivateLocked()
+	return handle, wasActive
 }
 
 // removeStream is the subscriber side of Stream.Close: the last stream to leave ends the SFU
 // subscription.
 func (t *RemoteTrack) removeStream(stream *Stream) {
-	m := t.manager
-	var withdraw *subscriptionUpdate
-
-	// the manager lock comes first: ending the subscription removes its handle
-	m.mu.Lock()
+	var (
+		ended  bool
+		handle trackHandle
+		sid    SID
+	)
 	t.mu.Lock()
 	stream.close()
 	if _, present := t.streams[stream]; present {
@@ -580,15 +622,14 @@ func (t *RemoteTrack) removeStream(stream *Stream) {
 		if len(t.streams) == 0 && t.subscription == subscriptionActive {
 			t.subscription = subscriptionNone
 			t.deactivateLocked()
-			delete(m.subHandles, t.subHandle)
-			withdraw = &subscriptionUpdate{sid: t.info.SID, subscribe: false}
+			ended, handle, sid = true, t.subHandle, t.info.SID
 		}
 	}
 	t.mu.Unlock()
-	m.mu.Unlock()
 
-	if withdraw != nil {
-		m.sendSubscriptionUpdate(*withdraw)
+	if ended {
+		t.manager.releaseHandle(t, handle)
+		t.manager.sendSubscriptionUpdate(subscriptionUpdate{sid: sid, subscribe: false})
 	}
 }
 
