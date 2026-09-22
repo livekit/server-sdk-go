@@ -419,8 +419,8 @@ func (t *RemoteTrack) Subscribe(ctx context.Context, opts ...SubscribeOption) (*
 		t.mu.Unlock()
 		return nil, ErrUnpublished
 	}
-	if t.info.UsesE2EE && m.decryptor() == nil {
-		m.mu.Unlock()
+	if t.info.UsesE2EE && t.manager.decryptor() == nil {
+		t.mu.Unlock()
 		return nil, ErrEncryptionDisabled
 	}
 	if t.subscription == subscriptionActive {
