@@ -17,6 +17,7 @@ package datatrack
 import (
 	"bytes"
 	"context"
+	"math"
 	"testing"
 	"time"
 
@@ -177,6 +178,14 @@ func TestLocalManager_PublishSfuError(t *testing.T) {
 
 	res := expectEvent(t, result)
 	require.ErrorIs(t, res.err, ErrLimitReached)
+}
+
+func TestLocalManager_PublishHandlesExhausted(t *testing.T) {
+	m := NewLocalManager(LocalManagerParams{Transport: newFakeLocalTransport()})
+	m.handles.value = math.MaxUint16
+
+	_, err := m.Publish(context.Background(), PublishOptions{Name: "test"})
+	require.ErrorIs(t, err, ErrLimitReached)
 }
 
 func TestLocalManager_PublishCancelled(t *testing.T) {

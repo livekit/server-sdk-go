@@ -117,7 +117,7 @@ func (m *LocalManager) Publish(ctx context.Context, options PublishOptions) (*Lo
 	handle, err := m.handles.get()
 	if err != nil {
 		m.mu.Unlock()
-		return nil, err
+		return nil, ErrLimitReached
 	}
 	result := make(chan publishResult, 1)
 	m.pending[handle] = result
