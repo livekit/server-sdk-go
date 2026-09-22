@@ -68,7 +68,11 @@ func subscribe(ctx context.Context, track *datatrack.RemoteTrack) {
 	}
 	defer stream.Close()
 
-	for frame := range stream.Frames() {
+	for {
+		frame, err := stream.Next(ctx)
+		if err != nil {
+			break
+		}
 		logger.Infow("received frame", "bytes", len(frame.Payload))
 
 		if latency, ok := frame.DurationSinceTimestamp(); ok {
