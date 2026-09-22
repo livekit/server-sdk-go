@@ -17,6 +17,7 @@ package datatrack
 import (
 	"bytes"
 	"context"
+	"io"
 	"testing"
 	"time"
 
@@ -71,15 +72,29 @@ func expectNoEvent[T any](t *testing.T, ch <-chan T) {
 	}
 }
 
-// expectClosed waits for ch to be closed.
-func expectClosed(t *testing.T, ch <-chan Frame) {
+func expectFrame(t *testing.T, stream *Stream) Frame {
 	t.Helper()
-	select {
-	case _, ok := <-ch:
-		require.False(t, ok, "expected channel to be closed")
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for channel to close")
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	frame, err := stream.Next(ctx)
+	require.NoError(t, err)
+	return frame
+}
+
+func expectNoFrame(t *testing.T, stream *Stream) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	_, err := stream.Next(ctx)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
+func expectClosed(t *testing.T, stream *Stream) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, err := stream.Next(ctx)
+	require.ErrorIs(t, err, io.EOF)
 }
 
 // publishTrack simulates the SFU announcing a publication and returns the track handed to the
@@ -313,7 +328,7 @@ func TestRemoteManager_SidReassignmentResubscribesActiveSubscription(t *testing.
 	// Frames received on the new handle reach the existing subscriber
 	m.HandlePacket(singlePacket(t, newSubHandle, []byte{1, 2, 3, 4, 5}, Extensions{}))
 
-	frame := expectEvent(t, stream.Frames())
+	frame := expectFrame(t, stream)
 	require.Equal(t, []byte{1, 2, 3, 4, 5}, frame.Payload)
 }
 
@@ -332,7 +347,7 @@ func TestRemoteManager_SubscribeReceivesFrame(t *testing.T) {
 	// Simulate receiving a single-frame packet
 	m.HandlePacket(singlePacket(t, subHandle, []byte{1, 2, 3, 4, 5}, Extensions{}))
 
-	frame := expectEvent(t, stream.Frames())
+	frame := expectFrame(t, stream)
 	require.Equal(t, []byte{1, 2, 3, 4, 5}, frame.Payload)
 }
 
@@ -353,7 +368,7 @@ func TestRemoteManager_SubscribeWithE2EE(t *testing.T) {
 	m.HandlePacket(singlePacket(t, subHandle, payload, Extensions{E2EE: &E2EEExtension{}}))
 
 	// Payload should have fake encryption prefix stripped by decryptor
-	frame := expectEvent(t, stream.Frames())
+	frame := expectFrame(t, stream)
 	require.Equal(t, []byte{1, 2, 3, 4, 5}, frame.Payload)
 }
 
@@ -381,7 +396,7 @@ func TestRemoteManager_SubscribeFanOutToMultipleSubscribers(t *testing.T) {
 
 	// All subscribers should receive the same frame
 	for _, stream := range []*Stream{stream1, stream2, stream3} {
-		frame := expectEvent(t, stream.Frames())
+		frame := expectFrame(t, stream)
 		require.Equal(t, []byte{1, 2, 3, 4, 5}, frame.Payload)
 	}
 }
@@ -437,7 +452,7 @@ func TestRemoteManager_UnpublishTerminatesActiveSubscription(t *testing.T) {
 	// Simulate track unpublished while subscription is active
 	m.handlePublicationUpdates(map[string][]Info{"id": nil})
 
-	expectClosed(t, stream.Frames())
+	expectClosed(t, stream)
 
 	unpublished := expectEvent(t, transport.unpublished)
 	require.Equal(t, trackSID, unpublished.Info().SID)
@@ -481,8 +496,8 @@ func TestRemoteManager_MaxPartialFramesSetBeforeSubscribe(t *testing.T) {
 	// MaxPartialFrames of 1 frame 1 would be evicted by frame 2; with 3 both frames coexist and emerge.
 	pushInterleavedTwoFramePair(t, m, subHandle, 1, 0, [2][]byte{{0xa1}, {0xa2}}, 2, 100, [2][]byte{{0xb1}, {0xb2}})
 
-	require.Equal(t, []byte{0xa1, 0xa2}, expectEvent(t, stream.Frames()).Payload)
-	require.Equal(t, []byte{0xb1, 0xb2}, expectEvent(t, stream.Frames()).Payload)
+	require.Equal(t, []byte{0xa1, 0xa2}, expectFrame(t, stream).Payload)
+	require.Equal(t, []byte{0xb1, 0xb2}, expectFrame(t, stream).Payload)
 }
 
 // Should pick up MaxPartialFrames live on an already-active subscription.
@@ -500,8 +515,8 @@ func TestRemoteManager_MaxPartialFramesSetLive(t *testing.T) {
 
 	pushInterleavedTwoFramePair(t, m, subHandle, 1, 0, [2][]byte{{0xa1}, {0xa2}}, 2, 100, [2][]byte{{0xb1}, {0xb2}})
 
-	require.Equal(t, []byte{0xa1, 0xa2}, expectEvent(t, stream.Frames()).Payload)
-	require.Equal(t, []byte{0xb1, 0xb2}, expectEvent(t, stream.Frames()).Payload)
+	require.Equal(t, []byte{0xa1, 0xa2}, expectFrame(t, stream).Payload)
+	require.Equal(t, []byte{0xb1, 0xb2}, expectFrame(t, stream).Payload)
 }
 
 // Should drop the older partial frame by default (no MaxPartialFrames set).
@@ -517,6 +532,18 @@ func TestRemoteManager_DefaultDropsOlderPartialFrame(t *testing.T) {
 	// Default cap of 1: Start(2) evicts Start(1), so Final(1) is unknown and only frame 2 makes it through
 	pushInterleavedTwoFramePair(t, m, subHandle, 1, 0, [2][]byte{{0xa1}, {0xa2}}, 2, 100, [2][]byte{{0xb1}, {0xb2}})
 
-	require.Equal(t, []byte{0xb1, 0xb2}, expectEvent(t, stream.Frames()).Payload)
-	expectNoEvent(t, stream.Frames())
+	require.Equal(t, []byte{0xb1, 0xb2}, expectFrame(t, stream).Payload)
+	expectNoFrame(t, stream)
+}
+
+func TestStream_DropsOldestWhenFull(t *testing.T) {
+	stream := &Stream{buf: make([]Frame, 2), ready: make(chan struct{}, 1)}
+	for i := byte(1); i <= 3; i++ {
+		stream.push(Frame{Payload: []byte{i}})
+	}
+	require.Equal(t, []byte{2}, expectFrame(t, stream).Payload)
+	require.Equal(t, []byte{3}, expectFrame(t, stream).Payload)
+	expectNoFrame(t, stream)
+	stream.close()
+	expectClosed(t, stream)
 }
