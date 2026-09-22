@@ -17,6 +17,7 @@ package datatrack
 import (
 	"context"
 	"errors"
+	"io"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -579,7 +580,7 @@ func (t *RemoteTrack) refreshStreamListLocked() {
 }
 
 func (t *RemoteTrack) addStreamLocked(bufferSize int) *Stream {
-	stream := &Stream{track: t, frames: make(chan Frame, bufferSize)}
+	stream := &Stream{track: t, buf: make([]Frame, bufferSize), ready: make(chan struct{}, 1)}
 	t.streams[stream] = struct{}{}
 	t.refreshStreamListLocked()
 	return stream
@@ -637,14 +638,37 @@ func (t *RemoteTrack) removeStream(stream *Stream) {
 type Stream struct {
 	track  *RemoteTrack
 	mu     sync.Mutex
-	frames chan Frame
+	buf    []Frame
+	head   int
+	n      int
+	ready  chan struct{}
 	closed bool
 }
 
-// Frames yields frames as they arrive. The channel is closed when the stream is closed, the track
-// is unpublished, or the room disconnects.
-func (s *Stream) Frames() <-chan Frame {
-	return s.frames
+// Next blocks until a frame arrives. It returns io.EOF once the stream is closed, the track is
+// unpublished, or the room disconnects, and ctx's error when ctx ends first.
+func (s *Stream) Next(ctx context.Context) (Frame, error) {
+	for {
+		s.mu.Lock()
+		if s.n > 0 {
+			frame := s.buf[s.head]
+			s.buf[s.head] = Frame{}
+			s.head = (s.head + 1) % len(s.buf)
+			s.n--
+			s.mu.Unlock()
+			return frame, nil
+		}
+		closed := s.closed
+		s.mu.Unlock()
+		if closed {
+			return Frame{}, io.EOF
+		}
+		select {
+		case <-s.ready:
+		case <-ctx.Done():
+			return Frame{}, ctx.Err()
+		}
+	}
 }
 
 // Close ends the subscription. It is safe to call more than once.
@@ -652,24 +676,22 @@ func (s *Stream) Close() {
 	s.track.removeStream(s)
 }
 
-// push delivers a frame without blocking, dropping the oldest buffered frame when full.
+// push buffers a frame, dropping the oldest buffered frame when full.
 func (s *Stream) push(frame Frame) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
 		return
 	}
-	select {
-	case s.frames <- frame:
-		return
-	default:
+	if s.n == len(s.buf) {
+		s.buf[s.head] = frame
+		s.head = (s.head + 1) % len(s.buf)
+	} else {
+		s.buf[(s.head+s.n)%len(s.buf)] = frame
+		s.n++
 	}
 	select {
-	case <-s.frames:
-	default:
-	}
-	select {
-	case s.frames <- frame:
+	case s.ready <- struct{}{}:
 	default:
 	}
 }
@@ -679,7 +701,7 @@ func (s *Stream) close() {
 	defer s.mu.Unlock()
 	if !s.closed {
 		s.closed = true
-		close(s.frames)
+		close(s.ready)
 	}
 }
 
