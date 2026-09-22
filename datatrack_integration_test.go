@@ -114,14 +114,11 @@ func waitForRemoteTrack(t *testing.T, r testRoom) *datatrack.RemoteTrack {
 // receiveFrame waits for the next frame on the stream.
 func receiveFrame(t *testing.T, stream *datatrack.Stream, timeout time.Duration) datatrack.Frame {
 	t.Helper()
-	select {
-	case frame, ok := <-stream.Frames():
-		require.True(t, ok, "Stream closed before a frame was received")
-		return frame
-	case <-time.After(timeout):
-		t.Fatal("No frame received")
-		return datatrack.Frame{}
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	frame, err := stream.Next(ctx)
+	require.NoError(t, err, "No frame received")
+	return frame
 }
 
 // pushEvery pushes payload on track at the given interval until ctx ends.
