@@ -262,7 +262,7 @@ func (m *RemoteManager) HandlePacket(data []byte) {
 	track := m.subHandles[handle]
 	m.mu.Unlock()
 	if track == nil {
-		m.params.Logger.Debugw("dropping data track packet without subscription", "handle", packet.Handle)
+		m.params.Logger.Warnw("dropping data track packet without subscription", nil, "handle", packet.Handle)
 		return
 	}
 	track.deliver(handle, packet)
@@ -537,7 +537,7 @@ func (t *RemoteTrack) deliver(handle trackHandle, packet *dtp.Packet) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.subscription != subscriptionActive || t.subHandle != handle {
-		t.manager.params.Logger.Debugw("dropping data track packet without subscription", "handle", packet.Handle)
+		t.manager.params.Logger.Warnw("dropping data track packet without subscription", nil, "handle", packet.Handle)
 		return
 	}
 	// the send happens under the lock so the channel is never closed underneath it
