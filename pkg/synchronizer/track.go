@@ -215,9 +215,11 @@ func (t *TrackSynchronizer) initialize(extPkt jitter.ExtPacket) {
 	t.lastPTS = 0
 	t.lastPTSAdjusted = t.currentPTSOffset
 	t.initialized = true
-	t.logger.Infow(
-		"initialized track synchronizer",
-		"state", t,
+	t.logger.Debugw("initialized track synchronizer", "state", t)
+}
+
+func (t *TrackSynchronizer) configLoggingFields() []interface{} {
+	return []interface{}{
 		"SSRC", t.track.SSRC(),
 		"maxTsDiff", t.maxTsDiff,
 		"maxDriftAdjustment", t.maxDriftAdjustment,
@@ -226,7 +228,7 @@ func (t *TrackSynchronizer) initialize(extPkt jitter.ExtPacket) {
 		"audioPTSAdjustmentDisabled", t.audioPTSAdjustmentsDisabled,
 		"oldPacketThreshold", t.oldPacketThreshold,
 		"enableStartGate", t.enableStartGate,
-	)
+	}
 }
 
 func (t *TrackSynchronizer) LastPTSAdjusted() time.Duration {
@@ -265,9 +267,11 @@ func (t *TrackSynchronizer) getPTSWithoutRebase(pkt jitter.ExtPacket) (time.Dura
 		t.firstTime = now
 		t.logger.Infow(
 			"starting track synchronizer",
-			"state", t,
-			"pktReceiveTime", pkt.ReceivedAt,
-			"startDelay", t.firstTime.Sub(pkt.ReceivedAt),
+			append([]interface{}{
+				"state", t,
+				"pktReceiveTime", pkt.ReceivedAt,
+				"startDelay", t.firstTime.Sub(pkt.ReceivedAt),
+			}, t.configLoggingFields()...)...,
 		)
 	} else {
 		t.updateGapHistogram(pkt.SequenceNumber - t.lastSN)
@@ -372,9 +376,11 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 		t.firstTime = now
 		t.logger.Infow(
 			"starting track synchronizer",
-			"state", t,
-			"pktReceiveTime", pkt.ReceivedAt,
-			"startDelay", t.firstTime.Sub(pkt.ReceivedAt),
+			append([]interface{}{
+				"state", t,
+				"pktReceiveTime", pkt.ReceivedAt,
+				"startDelay", t.firstTime.Sub(pkt.ReceivedAt),
+			}, t.configLoggingFields()...)...,
 		)
 	} else {
 		t.updateGapHistogram(pkt.SequenceNumber - t.lastSN)
