@@ -23,7 +23,7 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/twitchtv/twirp v8.1.3+incompatible
 	go.uber.org/atomic v1.11.0
-	golang.org/x/crypto v0.56.0
+	golang.org/x/crypto v0.57.0
 	google.golang.org/protobuf v1.36.12
 )
 
@@ -40,7 +40,7 @@ require (
 	github.com/prometheus/common v0.70.1 // indirect
 	github.com/puzpuzpuz/xsync/v4 v4.5.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/mod v0.40.0 // indirect
+	golang.org/x/mod v0.41.0 // indirect
 )
 
 require (
@@ -83,7 +83,7 @@ require (
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/lithammer/shortuuid/v4 v4.2.0 // indirect
 	github.com/livekit/psrpc v0.7.6 // indirect
-	github.com/maxbrunsfeld/counterfeiter/v6 v6.12.2 // indirect
+	github.com/maxbrunsfeld/counterfeiter/v6 v6.13.0 // indirect
 	github.com/moby/locker v1.0.1 // indirect
 	github.com/moby/sys/signal v0.7.1 // indirect
 	github.com/morikuni/aec v1.1.0 // indirect
@@ -128,12 +128,12 @@ require (
 	go.uber.org/zap v1.28.0
 	go.uber.org/zap/exp v0.3.0 // indirect
 	golang.org/x/exp v0.0.0-20260603202125-055de637280b // indirect
-	golang.org/x/net v0.58.0 // indirect
-	golang.org/x/sync v0.22.0
-	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.41.0 // indirect
+	golang.org/x/net v0.59.0 // indirect
+	golang.org/x/sync v0.23.0
+	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
-	golang.org/x/tools v0.49.0 // indirect
+	golang.org/x/tools v0.50.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260803160001-6ac0973c030d // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260803160001-6ac0973c030d // indirect
 	google.golang.org/grpc v1.83.2
