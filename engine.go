@@ -848,7 +848,7 @@ func (e *RTCEngine) handleDisconnect(reason string, fullReconnect bool, regionSe
 	)
 
 	if e.closed.Load() {
-		e.log.Infow(
+		e.log.Debugw(
 			"ignoring disconnect",
 			"reason", reason,
 			"fullReconnect", fullReconnect,
