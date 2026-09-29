@@ -68,6 +68,10 @@ func TestTruncateBytes(t *testing.T) {
 		{"cut inside 3-byte rune", "a€", 3, "a"},
 		{"cut inside 4-byte rune", "a😀", 4, "a"},
 		{"limit smaller than first rune", "é", 1, ""},
+		{"invalid byte within limit", "ba\xffd", 10, "bad"},
+		{"invalid byte before the cut", "ab\xffcdef", 4, "abcd"},
+		{"invalid byte after the cut", "abcdef\xff", 3, "abc"},
+		{"truncated sequence at the end", "ab\xe2\x82", 10, "ab"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -91,5 +95,16 @@ func TestNewRpcErrorTruncatesToValidUTF8(t *testing.T) {
 	}
 	if len(err.Message) > MaxMessageBytes {
 		t.Errorf("message is %d bytes, want <= %d", len(err.Message), MaxMessageBytes)
+	}
+}
+
+func TestNewRpcErrorDropsMalformedUTF8(t *testing.T) {
+	data := "d\xffata"
+	err := NewRpcError(RpcApplicationError, "bad\xff", &data)
+	if _, mErr := proto.Marshal(err.toProto()); mErr != nil {
+		t.Fatalf("marshal RpcError with malformed text: %v", mErr)
+	}
+	if err.Message != "bad" || *err.Data != "data" {
+		t.Errorf("got message %q and data %q, want %q and %q", err.Message, *err.Data, "bad", "data")
 	}
 }

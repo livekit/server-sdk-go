@@ -26,7 +26,9 @@ func byteLength(str string) int {
 
 // truncateBytes shortens str to at most maxBytes bytes without splitting a
 // multi-byte UTF-8 sequence, so the result stays valid for protobuf string fields.
+// Malformed UTF-8 in str is dropped first, because protobuf rejects it too.
 func truncateBytes(str string, maxBytes int) string {
+	str = strings.ToValidUTF8(str, "")
 	if len(str) <= maxBytes {
 		return str
 	}
@@ -34,7 +36,8 @@ func truncateBytes(str string, maxBytes int) string {
 	for end > 0 && !utf8.RuneStart(str[end]) {
 		end--
 	}
-	return str[:end]
+	// Clone so the result does not keep the discarded tail of str alive.
+	return strings.Clone(str[:end])
 }
 
 func compareVersions(v1, v2 string) int {
