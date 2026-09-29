@@ -17,19 +17,24 @@ package lksdk
 import (
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 func byteLength(str string) int {
 	return len([]byte(str))
 }
 
+// truncateBytes shortens str to at most maxBytes bytes without splitting a
+// multi-byte UTF-8 sequence, so the result stays valid for protobuf string fields.
 func truncateBytes(str string, maxBytes int) string {
-	if byteLength(str) <= maxBytes {
+	if len(str) <= maxBytes {
 		return str
-	} else {
-		byteStr := []byte(str)
-		return string(byteStr[:maxBytes])
 	}
+	end := maxBytes
+	for end > 0 && !utf8.RuneStart(str[end]) {
+		end--
+	}
+	return str[:end]
 }
 
 func compareVersions(v1, v2 string) int {

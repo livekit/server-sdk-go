@@ -14,7 +14,13 @@
 
 package lksdk
 
-import "testing"
+import (
+	"strings"
+	"testing"
+	"unicode/utf8"
+
+	"google.golang.org/protobuf/proto"
+)
 
 func TestCompareVersions(t *testing.T) {
 	cases := []struct {
@@ -44,5 +50,46 @@ func TestCompareVersions(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("compareVersions(%q, %q) = %d, want %d", tc.v1, tc.v2, got, tc.want)
 		}
+	}
+}
+
+func TestTruncateBytes(t *testing.T) {
+	cases := []struct {
+		name     string
+		str      string
+		maxBytes int
+		want     string
+	}{
+		{"shorter than limit", "abc", 5, "abc"},
+		{"exactly at limit", "abc", 3, "abc"},
+		{"ascii over limit", "abcdef", 3, "abc"},
+		{"multibyte on boundary", "aé", 3, "aé"},
+		{"cut inside 2-byte rune", "aéb", 2, "a"},
+		{"cut inside 3-byte rune", "a€", 3, "a"},
+		{"cut inside 4-byte rune", "a😀", 4, "a"},
+		{"limit smaller than first rune", "é", 1, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := truncateBytes(tc.str, tc.maxBytes)
+			if got != tc.want {
+				t.Errorf("truncateBytes(%q, %d) = %q, want %q", tc.str, tc.maxBytes, got, tc.want)
+			}
+			if !utf8.ValidString(got) {
+				t.Errorf("truncateBytes(%q, %d) = %q is not valid UTF-8", tc.str, tc.maxBytes, got)
+			}
+		})
+	}
+}
+
+func TestNewRpcErrorTruncatesToValidUTF8(t *testing.T) {
+	// The leading ASCII byte shifts the 2-byte runes so the 256 byte limit falls inside one.
+	msg := "a" + strings.Repeat("é", 200)
+	err := NewRpcError(RpcApplicationError, msg, nil)
+	if _, mErr := proto.Marshal(err.toProto()); mErr != nil {
+		t.Fatalf("marshal truncated RpcError: %v", mErr)
+	}
+	if len(err.Message) > MaxMessageBytes {
+		t.Errorf("message is %d bytes, want <= %d", len(err.Message), MaxMessageBytes)
 	}
 }
