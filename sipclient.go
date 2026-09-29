@@ -143,10 +143,6 @@ func (s *SIPClient) GetSIPInboundTrunksByIDs(ctx context.Context, ids []string) 
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.prepareContext(ctx, withSIPGrant{Admin: true})
-	if err != nil {
-		return nil, err
-	}
 	req := &livekit.ListSIPInboundTrunkRequest{
 		TrunkIds: ids,
 	}
@@ -165,10 +161,6 @@ func (s *SIPClient) GetSIPOutboundTrunksByIDs(ctx context.Context, ids []string)
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.prepareContext(ctx, withSIPGrant{Admin: true})
-	if err != nil {
-		return nil, err
-	}
 	req := &livekit.ListSIPOutboundTrunkRequest{
 		TrunkIds: ids,
 	}
@@ -267,10 +259,6 @@ func (s *SIPClient) GetSIPDispatchRulesByIDs(ctx context.Context, ids []string) 
 		return nil, ErrInvalidParameter
 	}
 
-	ctx, err := s.prepareContext(ctx, withSIPGrant{Admin: true})
-	if err != nil {
-		return nil, err
-	}
 	req := &livekit.ListSIPDispatchRuleRequest{
 		DispatchRuleIds: ids,
 	}
