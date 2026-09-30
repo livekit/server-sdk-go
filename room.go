@@ -323,6 +323,7 @@ type Room struct {
 	name                    string
 	LocalParticipant        *LocalParticipant
 	localDataTracks         *datatrack.LocalManager
+	remoteDataTracks        *datatrack.RemoteManager
 	callback                *RoomCallback
 	sidReady                chan struct{}
 	disconnectReason        livekit.DisconnectReason
@@ -369,6 +370,7 @@ func NewRoom(callback *RoomCallback) *Room {
 	r.LocalParticipant = newLocalParticipant(r.engine, r.callback, r.serverInfo, r.log)
 	r.localDataTracks = datatrack.NewLocalManager(datatrack.LocalManagerParams{Transport: localDataTrackTransport{engine: r.engine}, Logger: r.log})
 	r.LocalParticipant.dataTracks = r.localDataTracks
+	r.remoteDataTracks = datatrack.NewRemoteManager(datatrack.RemoteManagerParams{Transport: remoteDataTrackTransport{room: r}, Logger: r.log})
 	return r
 }
 
@@ -790,6 +792,7 @@ func (r *Room) cleanup() {
 	r.engine.Close()
 	r.LocalParticipant.closeTracks()
 	r.localDataTracks.Shutdown()
+	r.remoteDataTracks.Shutdown()
 	r.setSid("", true)
 
 	r.byteStreamHandlers.Clear()
@@ -1064,6 +1067,7 @@ func (r *Room) OnRoomJoined(
 		r.clearParticipantDefers(livekit.ParticipantID(pi.Sid), pi)
 		// no need to run participant defers here, since we are connected for the first time
 	}
+	r.remoteDataTracks.HandleParticipantSnapshot(otherParticipants, r.LocalParticipant.Identity())
 }
 
 func (r *Room) OnDisconnected(reason livekit.DisconnectReason) {
@@ -1110,6 +1114,8 @@ func (r *Room) OnRestarted(
 
 	r.LocalParticipant.republishTracks()
 	r.localDataTracks.RepublishTracks()
+	r.remoteDataTracks.HandleParticipantSnapshot(otherParticipants, r.LocalParticipant.Identity())
+	r.remoteDataTracks.ResendSubscriptionUpdates()
 
 	r.callback.OnReconnected()
 }
@@ -1186,6 +1192,7 @@ func (r *Room) OnParticipantUpdate(participants []*livekit.ParticipantInfo) {
 			r.runParticipantDefers(newSid, rp)
 		}
 	}
+	r.remoteDataTracks.HandleParticipantUpdate(participants, r.LocalParticipant.Identity())
 }
 
 func (r *Room) OnParticipantDisconnect(rp *RemoteParticipant, reason livekit.DisconnectReason) {
@@ -1301,6 +1308,7 @@ func (r *Room) OnRoomMoved(moved *livekit.RoomMovedResponse) {
 	infos = append(infos, moved.Participant)
 	infos = append(infos, moved.OtherParticipants...)
 	r.OnParticipantUpdate(infos)
+	r.remoteDataTracks.HandleParticipantSnapshot(moved.OtherParticipants, r.LocalParticipant.Identity())
 }
 
 func (r *Room) OnTrackRemoteMuted(msg *livekit.MuteTrackRequest) {
@@ -1425,9 +1433,11 @@ func (r *Room) OnUnpublishDataTrackResponse(unpublishDataTrackResponse *livekit.
 }
 
 func (r *Room) OnDataTrackSubscriberHandles(dataTrackSubscriberHandles *livekit.DataTrackSubscriberHandles) {
+	r.remoteDataTracks.HandleSubscriberHandles(dataTrackSubscriberHandles)
 }
 
 func (r *Room) OnDataTrackPacket(data []byte) {
+	r.remoteDataTracks.HandlePacket(data)
 }
 
 func (r *Room) OnStreamHeader(streamHeader *livekit.DataStream_Header, participantIdentity string) {
