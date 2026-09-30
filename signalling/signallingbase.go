@@ -16,9 +16,7 @@ package signalling
 
 import (
 	"context"
-	"fmt"
 	"net/http"
-	"net/url"
 
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
@@ -63,12 +61,12 @@ func (s *signallingBase) HTTPRequestForValidate(
 		return nil, ErrURLNotProvided
 	}
 
-	u, err := url.Parse(ToHttpURL(urlPrefix) + s.ValidatePath() + fmt.Sprintf("?%s", queryParams))
+	u, err := buildURL(ToHttpURL(urlPrefix), s.ValidatePath(), queryParams)
 	if err != nil {
 		return nil, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		s.params.Logger.Errorw("error creating validate request", err)
 		return nil, err

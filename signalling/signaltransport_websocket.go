@@ -19,7 +19,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -203,16 +202,15 @@ func (s *signalTransportWebSocket) connect(
 		return nil, err
 	}
 
-	u, err := url.Parse(urlPrefix + s.params.Signalling.Path() + fmt.Sprintf("?%s", queryParams))
+	dialURL, err := buildURL(urlPrefix, s.params.Signalling.Path(), queryParams)
 	if err != nil {
 		return nil, err
 	}
 
 	header := NewHTTPHeaderWithToken(token)
-	path := u.String()
 
 	startedAt := time.Now()
-	conn, hresp, err := websocket.DefaultDialer.DialContext(ctx, path, header)
+	conn, hresp, err := websocket.DefaultDialer.DialContext(ctx, dialURL, header)
 	if err != nil {
 		fields := []interface{}{
 			"duration", time.Since(startedAt),
