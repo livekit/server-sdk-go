@@ -834,7 +834,7 @@ func TestForceTLS(t *testing.T) {
 	pub.LocalParticipant.PublishDataPacket(UserData([]byte("test")), WithDataPublishReliable(true))
 
 	pub.Simulate(SimulateForceTLS)
-	require.Eventually(t, func() bool { return reconnected.Load() && pub.engine.ensurePublisherConnected(true) == nil }, 15*time.Second, 100*time.Millisecond)
+	require.Eventually(t, func() bool { return reconnected.Load() && pub.engine.ensurePublisherConnected(context.Background(), true) == nil }, 15*time.Second, 100*time.Millisecond)
 
 	pub.log.Infow("reconnected")
 
