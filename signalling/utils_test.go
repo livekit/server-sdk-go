@@ -37,3 +37,62 @@ func TestToWebsocketURL(t *testing.T) {
 		require.Equal(t, "wss://url.com", ToWebsocketURL("https://url.com"))
 	})
 }
+
+func TestBuildURL(t *testing.T) {
+	tests := []struct {
+		name   string
+		prefix string
+		path   string
+		query  string
+		want   string
+	}{
+		{"no trailing slash", "wss://host", "/rtc", "a=1&b=2", "wss://host/rtc?a=1&b=2"},
+		{"trailing slash", "wss://host/", "/rtc", "a=1", "wss://host/rtc?a=1"},
+		{"path without leading slash", "wss://host", "rtc", "a=1", "wss://host/rtc?a=1"},
+		{"trailing slash and path without leading slash", "wss://host/", "rtc", "a=1", "wss://host/rtc?a=1"},
+		{"path prefix with trailing slash", "wss://host/livekit/", "/rtc", "a=1", "wss://host/livekit/rtc?a=1"},
+		{"query on prefix is replaced", "wss://host/?x=1", "/rtc", "a=1", "wss://host/rtc?a=1"},
+		{"repeated trailing slashes", "wss://host//", "/rtc", "a=1", "wss://host/rtc?a=1"},
+		{"validate path over https", "https://host/", "/rtc/validate", "a=1", "https://host/rtc/validate?a=1"},
+		{"dot segments are resolved", "wss://host/a/../", "/rtc", "a=1", "wss://host/rtc?a=1"},
+		{"percent-encoded dots are preserved", "wss://host/a/%2e%2e/", "/rtc", "a=1", "wss://host/a/%2e%2e/rtc?a=1"},
+		{"port", "wss://host:7880/", "/rtc", "a=1", "wss://host:7880/rtc?a=1"},
+		{"empty path", "wss://host/", "", "a=1", "wss://host/?a=1"},
+		{"empty query", "wss://host/", "/rtc", "", "wss://host/rtc"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			u, err := buildURL(tt.prefix, tt.path, tt.query)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, u)
+		})
+	}
+	t.Run("unparseable prefix", func(t *testing.T) {
+		_, err := buildURL("://bad", "/rtc", "a=1")
+		require.Error(t, err)
+	})
+}
+
+func TestBuildURLMissingHost(t *testing.T) {
+	tests := []struct {
+		name   string
+		prefix string
+	}{
+		{"scheme-less host and port", "localhost:7880"},
+		{"scheme-less host", "localhost"},
+		{"opaque url", "wss:host"},
+		{"path only", "/just/a/path"},
+		{"empty host", "wss:///rtc"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := buildURL(tt.prefix, "/rtc", "a=1")
+			require.ErrorIs(t, err, ErrInvalidParameter)
+		})
+	}
+	t.Run("password is redacted from the error", func(t *testing.T) {
+		_, err := buildURL("wss://user:secret@", "/rtc", "a=1")
+		require.ErrorIs(t, err, ErrInvalidParameter)
+		require.NotContains(t, err.Error(), "secret")
+	})
+}

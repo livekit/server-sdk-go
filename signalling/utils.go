@@ -15,26 +15,47 @@
 package signalling
 
 import (
+	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
-func ToHttpURL(url string) string {
-	if strings.HasPrefix(url, "ws") {
-		return strings.Replace(url, "ws", "http", 1)
+func ToHttpURL(rawURL string) string {
+	if strings.HasPrefix(rawURL, "ws") {
+		return strings.Replace(rawURL, "ws", "http", 1)
 	}
-	return url
+	return rawURL
 }
 
-func ToWebsocketURL(url string) string {
-	if strings.HasPrefix(url, "http") {
-		return strings.Replace(url, "http", "ws", 1)
+func ToWebsocketURL(rawURL string) string {
+	if strings.HasPrefix(rawURL, "http") {
+		return strings.Replace(rawURL, "http", "ws", 1)
 	}
-	return url
+	return rawURL
 }
 
 func NewHTTPHeaderWithToken(token string) http.Header {
 	header := make(http.Header)
 	header.Set("Authorization", "Bearer "+token)
 	return header
+}
+
+// buildURL cleans the path of prefix (duplicate slashes and dot segments are resolved),
+// appends path, and sets the query to rawQuery. Any query already on prefix is replaced.
+// It returns ErrInvalidParameter if prefix has no host.
+func buildURL(prefix, path, rawQuery string) (string, error) {
+	u, err := url.Parse(prefix)
+	if err != nil {
+		return "", err
+	}
+	// url.Parse accepts scheme-less input such as "localhost:7880", reading
+	// "localhost" as the scheme. String() then drops the path for such opaque
+	// URLs, so reject anything without a host.
+	if u.Host == "" {
+		return "", fmt.Errorf("%w: server url %q has no host", ErrInvalidParameter, u.Redacted())
+	}
+	u = u.JoinPath(path)
+	u.RawQuery = rawQuery
+	return u.String(), nil
 }
