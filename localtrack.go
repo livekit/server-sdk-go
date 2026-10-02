@@ -55,6 +55,25 @@ type SampleWriteOptions struct {
 	AudioLevel *uint8
 }
 
+// SampleWriteResult describes one attempt to write a sample. Timestamps are
+// captured around WriteSample. Skipped is true when the track was muted or
+// disabled and no write was attempted.
+type SampleWriteResult struct {
+	ReadCompletedAt  time.Time
+	WriteStartedAt   time.Time
+	WriteCompletedAt time.Time
+	Err              error
+	Skipped          bool
+}
+
+// SampleObserver observes the synchronous sample read/write/pacing lifecycle.
+// Implementations must return quickly and must not block the track write loop.
+type SampleObserver interface {
+	OnSampleRead(sample media.Sample, readCompletedAt time.Time)
+	OnSampleWriteComplete(sample media.Sample, result SampleWriteResult)
+	OnSamplePacingLag(sample media.Sample, lag time.Duration)
+}
+
 // LocalTrack is a local track that simplifies writing samples.
 // It handles timing and publishing of things, so as long as a SampleProvider is provided, the class takes care of
 // publishing tracks at the right frequency
@@ -81,6 +100,7 @@ type LocalTrack struct {
 	simulcastID              string
 	videoLayer               *livekit.VideoLayer
 	onRTCP                   func(rtcp.Packet)
+	sampleObserver           SampleObserver
 
 	muted          atomic.Bool
 	disabled       atomic.Bool
@@ -122,6 +142,13 @@ func WithFrameEncryptor(enc e2eetypes.FrameEncryptor) LocalTrackOptions {
 func WithRTCPHandler(cb func(rtcp.Packet)) LocalTrackOptions {
 	return func(s *LocalTrack) {
 		s.onRTCP = cb
+	}
+}
+
+// WithSampleObserver attaches a non-blocking observer to the sample write loop.
+func WithSampleObserver(observer SampleObserver) LocalTrackOptions {
+	return func(s *LocalTrack) {
+		s.sampleObserver = observer
 	}
 }
 
@@ -659,6 +686,9 @@ func (s *LocalTrack) writeWorker(provider SampleProvider, onComplete func()) {
 	defer close(writeClosed)
 
 	audioProvider, isAudioProvider := provider.(AudioSampleProvider)
+	s.lock.RLock()
+	observer := s.sampleObserver
+	s.lock.RUnlock()
 
 	nextSampleTime := time.Now()
 
@@ -675,6 +705,10 @@ func (s *LocalTrack) writeWorker(provider SampleProvider, onComplete func()) {
 			s.log.Errorw("could not get sample from provider", err)
 			return
 		}
+		readCompletedAt := time.Now()
+		if observer != nil {
+			observer.OnSampleRead(sample, readCompletedAt)
+		}
 
 		if !s.muted.Load() && !s.disabled.Load() {
 			var opts *SampleWriteOptions
@@ -686,15 +720,38 @@ func (s *LocalTrack) writeWorker(provider SampleProvider, onComplete func()) {
 			}
 
 			sample.Timestamp = nextSampleTime
-			if err := s.WriteSample(sample, opts); err != nil {
-				s.log.Errorw("could not write sample", err)
+			writeStartedAt := time.Now()
+			writeErr := s.WriteSample(sample, opts)
+			writeCompletedAt := time.Now()
+			if observer != nil {
+				observer.OnSampleWriteComplete(sample, SampleWriteResult{
+					ReadCompletedAt:  readCompletedAt,
+					WriteStartedAt:   writeStartedAt,
+					WriteCompletedAt: writeCompletedAt,
+					Err:              writeErr,
+				})
+			}
+			if writeErr != nil {
+				s.log.Errorw("could not write sample", writeErr)
 				return
 			}
+		} else if observer != nil {
+			observer.OnSampleWriteComplete(sample, SampleWriteResult{
+				ReadCompletedAt: readCompletedAt,
+				Skipped:         true,
+			})
 		}
 
 		// account for clock drift
 		nextSampleTime = nextSampleTime.Add(sample.Duration)
 		sleepDuration := time.Until(nextSampleTime)
+		if observer != nil {
+			lag := -sleepDuration
+			if lag < 0 {
+				lag = 0
+			}
+			observer.OnSamplePacingLag(sample, lag)
+		}
 		if sleepDuration <= 0 {
 			continue
 		}
