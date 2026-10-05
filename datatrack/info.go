@@ -18,25 +18,23 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/utils/guid"
 )
 
 var ErrInvalidSID = errors.New("invalid data track SID")
 
-// SID is the server-assigned identifier of a data track.
-type SID string
-
-func parseSID(raw string) (SID, error) {
+func parseSID(raw string) (livekit.TrackID, error) {
 	if !strings.HasPrefix(raw, guid.DataTrackPrefix) {
 		return "", ErrInvalidSID
 	}
-	return SID(raw), nil
+	return livekit.TrackID(raw), nil
 }
 
 // Info describes a published data track. The SID changes when the publisher completes a
 // full reconnect; Name is stable. Schema and FrameEncoding are nil when not specified.
 type Info struct {
-	SID           SID
+	SID           livekit.TrackID
 	pubHandle     trackHandle
 	Name          string
 	UsesE2EE      bool
