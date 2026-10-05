@@ -57,10 +57,10 @@ type depacketizerPushResult struct {
 type depacketizerDropReason int
 
 const (
-	dropReasonInterrupted depacketizerDropReason = iota
-	dropReasonUnknownFrame
-	dropReasonBufferFull
-	dropReasonIncomplete
+	depacketizerDropReasonInterrupted depacketizerDropReason = iota
+	depacketizerDropReasonUnknownFrame
+	depacketizerDropReasonBufferFull
+	depacketizerDropReasonIncomplete
 )
 
 // depacketizerDropError records a dropped frame.
@@ -76,13 +76,13 @@ type depacketizerDropError struct {
 func (e *depacketizerDropError) Error() string {
 	var reason string
 	switch e.reason {
-	case dropReasonInterrupted:
+	case depacketizerDropReasonInterrupted:
 		reason = fmt.Sprintf("interrupted by new frame %d", e.newFrameNumber)
-	case dropReasonUnknownFrame:
+	case depacketizerDropReasonUnknownFrame:
 		reason = "unknown frame"
-	case dropReasonBufferFull:
+	case depacketizerDropReasonBufferFull:
 		reason = "buffer full"
-	case dropReasonIncomplete:
+	case depacketizerDropReasonIncomplete:
 		reason = fmt.Sprintf("incomplete (%d/%d)", e.received, e.expected)
 	}
 	return fmt.Sprintf("frame %d dropped: %s", e.frameNumber, reason)
@@ -121,7 +121,7 @@ func (d *depacketizer) evictOldest(newFrameNumber uint16) *depacketizerDropError
 	}
 	oldest := d.order[0]
 	d.remove(oldest)
-	return &depacketizerDropError{frameNumber: oldest, reason: dropReasonInterrupted, newFrameNumber: newFrameNumber}
+	return &depacketizerDropError{frameNumber: oldest, reason: depacketizerDropReasonInterrupted, newFrameNumber: newFrameNumber}
 }
 
 func (d *depacketizer) remove(frameNumber uint16) {
@@ -158,12 +158,12 @@ func (d *depacketizer) pushToPartial(packet dtp.Packet) depacketizerPushResult {
 	frameNumber := packet.FrameNumber
 	partial, ok := d.partials[frameNumber]
 	if !ok {
-		return depacketizerPushResult{drop: &depacketizerDropError{frameNumber: frameNumber, reason: dropReasonUnknownFrame}}
+		return depacketizerPushResult{drop: &depacketizerDropError{frameNumber: frameNumber, reason: depacketizerDropReasonUnknownFrame}}
 	}
 
 	if len(partial.payloads) >= maxBufferPackets {
 		d.remove(frameNumber)
-		return depacketizerPushResult{drop: &depacketizerDropError{frameNumber: frameNumber, reason: dropReasonBufferFull}}
+		return depacketizerPushResult{drop: &depacketizerDropError{frameNumber: frameNumber, reason: depacketizerDropReasonBufferFull}}
 	}
 
 	partial.payloads[packet.SequenceNumber] = packet.Payload
@@ -181,7 +181,7 @@ func finalize(frameNumber uint16, partial *partialFrame, endSequence uint16) dep
 	if received != expected {
 		return depacketizerPushResult{drop: &depacketizerDropError{
 			frameNumber: frameNumber,
-			reason:      dropReasonIncomplete,
+			reason:      depacketizerDropReasonIncomplete,
 			received:    received,
 			expected:    expected,
 		}}
@@ -205,7 +205,7 @@ func finalize(frameNumber uint16, partial *partialFrame, endSequence uint16) dep
 	}
 	return depacketizerPushResult{drop: &depacketizerDropError{
 		frameNumber: frameNumber,
-		reason:      dropReasonIncomplete,
+		reason:      depacketizerDropReasonIncomplete,
 		received:    received,
 		expected:    expected,
 	}}
