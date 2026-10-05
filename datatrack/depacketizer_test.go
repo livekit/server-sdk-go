@@ -23,7 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var defaultPushOptions = depacketizerPushOptions{maxPartialFrames: 1}
+var testDefaultPushOptions = depacketizerPushOptions{maxPartialFrames: 1}
 
 // derive returns a copy of base with the given marker, sequence and frame number.
 func derive(base dtp.Packet, marker FrameMarker, sequence, frameNumber uint16) dtp.Packet {
@@ -45,7 +45,7 @@ func TestDepacketizer_SinglePacket(t *testing.T) {
 	packet := testPacket()
 	FrameMarkerSingle.apply(&packet.Header)
 
-	result := d.push(packet, defaultPushOptions)
+	result := d.push(packet, testDefaultPushOptions)
 	require.Nil(t, result.drop)
 	require.NotNil(t, result.frame)
 	require.Equal(t, packet.Payload, result.frame.payload)
@@ -67,21 +67,21 @@ func TestDepacketizer_MultiPacket(t *testing.T) {
 			packet := testPacket()
 			FrameMarkerStart.apply(&packet.Header)
 
-			result := d.push(packet, defaultPushOptions)
+			result := d.push(packet, testDefaultPushOptions)
 			require.True(t, result.frame == nil && result.drop == nil)
 
 			for range tc.interPackets {
 				FrameMarkerInter.apply(&packet.Header)
 				packet.SequenceNumber++
 
-				result = d.push(packet, defaultPushOptions)
+				result = d.push(packet, testDefaultPushOptions)
 				require.True(t, result.frame == nil && result.drop == nil)
 			}
 
 			FrameMarkerFinal.apply(&packet.Header)
 			packet.SequenceNumber++
 
-			result = d.push(packet, defaultPushOptions)
+			result = d.push(packet, testDefaultPushOptions)
 			require.Nil(t, result.drop)
 			require.NotNil(t, result.frame)
 			require.Equal(t, extensionsOf(&packet.Header), result.frame.extensions)
@@ -96,14 +96,14 @@ func TestDepacketizer_Interrupted(t *testing.T) {
 	packet := testPacket()
 	FrameMarkerStart.apply(&packet.Header)
 
-	result := d.push(packet, defaultPushOptions)
+	result := d.push(packet, testDefaultPushOptions)
 	require.True(t, result.frame == nil && result.drop == nil)
 
 	firstFrameNumber := packet.FrameNumber
 	newFrameNumber := packet.FrameNumber + 1
 	packet.FrameNumber = newFrameNumber
 
-	result = d.push(packet, defaultPushOptions)
+	result = d.push(packet, testDefaultPushOptions)
 	require.Nil(t, result.frame)
 	require.Equal(t, &depacketizerDropError{
 		frameNumber:    firstFrameNumber,
@@ -119,12 +119,12 @@ func TestDepacketizer_Incomplete(t *testing.T) {
 	frameNumber := packet.FrameNumber
 	FrameMarkerStart.apply(&packet.Header)
 
-	d.push(packet, defaultPushOptions)
+	d.push(packet, testDefaultPushOptions)
 
 	packet.SequenceNumber += 3
 	FrameMarkerFinal.apply(&packet.Header)
 
-	result := d.push(packet, defaultPushOptions)
+	result := d.push(packet, testDefaultPushOptions)
 	require.Nil(t, result.frame)
 	require.Equal(t, &depacketizerDropError{
 		frameNumber: frameNumber,
@@ -141,7 +141,7 @@ func TestDepacketizer_UnknownFrame(t *testing.T) {
 	frameNumber := packet.FrameNumber
 	FrameMarkerInter.apply(&packet.Header)
 
-	result := d.push(packet, defaultPushOptions)
+	result := d.push(packet, testDefaultPushOptions)
 	require.Equal(t, &depacketizerDropError{frameNumber: frameNumber, reason: depacketizerDropReasonUnknownFrame}, result.drop)
 }
 
@@ -160,17 +160,17 @@ func TestDepacketizer_MultiFrame(t *testing.T) {
 
 		FrameMarkerStart.apply(&packet.Header)
 		packet.SequenceNumber = next()
-		result := d.push(packet, defaultPushOptions)
+		result := d.push(packet, testDefaultPushOptions)
 		require.True(t, result.drop == nil && result.frame == nil)
 
 		FrameMarkerInter.apply(&packet.Header)
 		packet.SequenceNumber = next()
-		result = d.push(packet, defaultPushOptions)
+		result = d.push(packet, testDefaultPushOptions)
 		require.True(t, result.drop == nil && result.frame == nil)
 
 		FrameMarkerFinal.apply(&packet.Header)
 		packet.SequenceNumber = next()
-		result = d.push(packet, defaultPushOptions)
+		result = d.push(packet, testDefaultPushOptions)
 		require.True(t, result.drop == nil && result.frame != nil)
 	}
 }
@@ -183,21 +183,21 @@ func TestDepacketizer_DuplicateSequenceNumbers(t *testing.T) {
 	packet.SequenceNumber = 1
 	packet.Payload = bytes.Repeat([]byte{0xab}, 3)
 
-	result := d.push(packet, defaultPushOptions)
+	result := d.push(packet, testDefaultPushOptions)
 	require.True(t, result.drop == nil && result.frame == nil)
 
 	FrameMarkerInter.apply(&packet.Header)
 	packet.SequenceNumber = 1 // same sequence number
 	packet.Payload = bytes.Repeat([]byte{0xcd}, 3)
 
-	result = d.push(packet, defaultPushOptions)
+	result = d.push(packet, testDefaultPushOptions)
 	require.True(t, result.drop == nil && result.frame == nil)
 
 	FrameMarkerFinal.apply(&packet.Header)
 	packet.SequenceNumber = 2
 	packet.Payload = bytes.Repeat([]byte{0xef}, 3)
 
-	result = d.push(packet, defaultPushOptions)
+	result = d.push(packet, testDefaultPushOptions)
 	require.Nil(t, result.drop)
 	require.NotNil(t, result.frame)
 	require.True(t, bytes.HasPrefix(result.frame.payload, bytes.Repeat([]byte{0xcd}, 3)))
