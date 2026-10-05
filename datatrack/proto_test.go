@@ -40,7 +40,7 @@ func TestProto_InfoFromProto(t *testing.T) {
 	info, err := infoFromProto(response.Info)
 	require.NoError(t, err)
 	require.Equal(t, trackHandle(1), info.pubHandle)
-	require.Equal(t, SID("DTR_1234"), info.SID)
+	require.Equal(t, livekit.TrackID("DTR_1234"), info.SID)
 	require.Equal(t, "track", info.Name)
 	require.Equal(t, &SchemaID{Name: "schema", Encoding: SchemaEncodingJSONSchema}, info.Schema)
 	require.Equal(t, FrameEncodingJSON, info.FrameEncoding)
@@ -94,8 +94,8 @@ func TestProto_SubscriberHandlesFromProto(t *testing.T) {
 
 	mapping, err := subscriberHandlesFromProto(subscriberHandles)
 	require.NoError(t, err)
-	require.Equal(t, SID("DTR_1234"), mapping[1])
-	require.Equal(t, SID("DTR_4567"), mapping[2])
+	require.Equal(t, livekit.TrackID("DTR_1234"), mapping[1])
+	require.Equal(t, livekit.TrackID("DTR_4567"), mapping[2])
 }
 
 func TestProto_ExtractTrackInfo(t *testing.T) {
@@ -113,5 +113,5 @@ func TestProto_ExtractTrackInfo(t *testing.T) {
 	require.Len(t, infos, 1)
 	require.Equal(t, trackHandle(1), infos[0].pubHandle)
 	require.Equal(t, "track1", infos[0].Name)
-	require.Equal(t, SID("DTR_1234"), infos[0].SID)
+	require.Equal(t, livekit.TrackID("DTR_1234"), infos[0].SID)
 }

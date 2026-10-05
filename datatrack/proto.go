@@ -175,8 +175,8 @@ func publishResponsesForSyncState(published []Info) []*livekit.PublishDataTrackR
 }
 
 // subscriberHandlesFromProto maps the handles of incoming packets to the tracks they belong to.
-func subscriberHandlesFromProto(msg *livekit.DataTrackSubscriberHandles) (map[trackHandle]SID, error) {
-	mapping := make(map[trackHandle]SID, len(msg.GetSubHandles()))
+func subscriberHandlesFromProto(msg *livekit.DataTrackSubscriberHandles) (map[trackHandle]livekit.TrackID, error) {
+	mapping := make(map[trackHandle]livekit.TrackID, len(msg.GetSubHandles()))
 	for rawHandle, track := range msg.GetSubHandles() {
 		handle, err := handleFromUint32(rawHandle)
 		if err != nil {
