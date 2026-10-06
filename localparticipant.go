@@ -316,6 +316,7 @@ func (p *LocalParticipant) prepareSimulcastTrackPublication(tracks []*LocalTrack
 		Width:                 mainTrack.videoLayer.Width,
 		Height:                mainTrack.videoLayer.Height,
 		Layers:                layers,
+		Encryption:            opts.Encryption,
 		PacketTrailerFeatures: packetTrailerFeaturesFromOpts(opts),
 		SimulcastCodecs: []*livekit.SimulcastCodec{
 			{
