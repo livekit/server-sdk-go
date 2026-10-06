@@ -39,20 +39,22 @@ func testHeader() dtp.Header {
 }
 
 func testExtensions() Extensions {
-	var iv [e2eeIVLength]byte
+	var iv [dtp.ExtensionE2EEIVLength]byte
 	for i := range iv {
 		iv[i] = 0x3c
 	}
 	return Extensions{
 		UserTimestamp: pointer.To(uint64(0x4411221111118811)),
-		E2EE:          &E2EEExtension{KeyIndex: 0xfa, IV: iv},
+		E2EE:          dtp.NewExtensionE2EE(0xfa, iv),
 	}
 }
 
 // testPacket is the packet used by the Rust serialization tests.
 func testPacket() dtp.Packet {
 	header := testHeader()
-	testExtensions().apply(&header)
+	if err := testExtensions().apply(&header); err != nil {
+		panic(err)
+	}
 	return dtp.Packet{Header: header, Payload: bytes.Repeat([]byte{0xfa}, 1024)}
 }
 
@@ -83,7 +85,7 @@ func TestPacket_Roundtrip(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			header := testHeader()
 			tc.marker.apply(&header)
-			tc.extensions.apply(&header)
+			require.NoError(t, tc.extensions.apply(&header))
 			original := dtp.Packet{Header: header, Payload: bytes.Repeat([]byte{0xab}, 300)}
 
 			raw, err := original.Marshal()
@@ -143,8 +145,9 @@ func TestPacket_ExtE2EE(t *testing.T) {
 	require.NoError(t, err)
 	e2ee := extensionsOf(&packet.Header).E2EE
 	require.NotNil(t, e2ee)
-	require.Equal(t, uint8(0xfa), e2ee.KeyIndex)
-	require.Equal(t, bytes.Repeat([]byte{0x3c}, 12), e2ee.IV[:])
+	require.Equal(t, uint8(0xfa), e2ee.KeyIndex())
+	iv := e2ee.IV()
+	require.Equal(t, bytes.Repeat([]byte{0x3c}, 12), iv[:])
 }
 
 func TestPacket_ExtUserTimestamp(t *testing.T) {

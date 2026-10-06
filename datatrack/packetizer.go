@@ -41,7 +41,9 @@ func (p *packetizer) packetize(payload []byte, extensions Extensions) ([]dtp.Pac
 		Handle:    uint16(p.handle),
 		Timestamp: uint32(p.clock.now()),
 	}
-	extensions.apply(&header)
+	if err := extensions.apply(&header); err != nil {
+		return nil, err
+	}
 
 	maxPayloadSize := p.mtu - header.MarshalSize()
 	if maxPayloadSize <= 0 {
