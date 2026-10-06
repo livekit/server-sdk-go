@@ -15,23 +15,13 @@
 package datatrack
 
 import (
-	"encoding/binary"
 	"errors"
 	"fmt"
 
 	dtp "github.com/livekit/protocol/datatrack"
 )
 
-const (
-	supportedVersion = 0
-
-	extensionIDE2EE          uint8 = 1
-	extensionIDUserTimestamp uint8 = 2
-
-	e2eeIVLength                 = 12
-	e2eeExtensionLength          = 1 + e2eeIVLength
-	userTimestampExtensionLength = 8
-)
+const supportedVersion = 0
 
 var (
 	ErrUnsupportedVersion = errors.New("unsupported data track packet version")
@@ -66,47 +56,47 @@ func (m FrameMarker) apply(h *dtp.Header) {
 	h.IsFinalOfFrame = m == FrameMarkerFinal || m == FrameMarkerSingle
 }
 
-// E2EEExtension carries what is needed to decrypt an end-to-end encrypted payload.
-type E2EEExtension struct {
-	KeyIndex uint8
-	IV       [e2eeIVLength]byte
-}
-
 // Extensions are the header extensions understood by this SDK.
 type Extensions struct {
 	UserTimestamp *uint64
-	E2EE          *E2EEExtension
+	E2EE          *dtp.ExtensionE2EE
 }
 
-func (e Extensions) apply(h *dtp.Header) {
+func (e Extensions) apply(h *dtp.Header) error {
 	if e.E2EE != nil {
-		data := make([]byte, e2eeExtensionLength)
-		data[0] = e.E2EE.KeyIndex
-		copy(data[1:], e.E2EE.IV[:])
-		h.AddExtension(dtp.NewExtension(extensionIDE2EE, data))
+		ext, err := e.E2EE.Marshal()
+		if err != nil {
+			return err
+		}
+		h.AddExtension(ext)
 	}
 	if e.UserTimestamp != nil {
-		data := make([]byte, userTimestampExtensionLength)
-		binary.BigEndian.PutUint64(data, *e.UserTimestamp)
-		h.AddExtension(dtp.NewExtension(extensionIDUserTimestamp, data))
+		ext, err := dtp.NewExtensionUserTimestamp(*e.UserTimestamp).Marshal()
+		if err != nil {
+			return err
+		}
+		h.AddExtension(ext)
 	}
+	return nil
 }
 
-// extensionsOf reads the known extensions. Unknown ids and known ids with less than the
-// expected data are skipped; extra data is ignored so a newer version of an extension
-// remains readable.
+// extensionsOf reads the known extensions. Unknown ids and known ids that fail to
+// unmarshal (e.g. less than the expected data) are skipped.
 func extensionsOf(h *dtp.Header) Extensions {
 	var extensions Extensions
 	for _, ext := range h.Extensions {
-		data := ext.Data()
-		switch {
-		case ext.ID() == extensionIDE2EE && len(data) >= e2eeExtensionLength:
-			e2ee := &E2EEExtension{KeyIndex: data[0]}
-			copy(e2ee.IV[:], data[1:e2eeExtensionLength])
-			extensions.E2EE = e2ee
-		case ext.ID() == extensionIDUserTimestamp && len(data) >= userTimestampExtensionLength:
-			timestamp := binary.BigEndian.Uint64(data)
-			extensions.UserTimestamp = &timestamp
+		switch ext.ID() {
+		case dtp.ExtensionE2EEID:
+			var e2ee dtp.ExtensionE2EE
+			if e2ee.Unmarshal(ext) == nil {
+				extensions.E2EE = &e2ee
+			}
+		case dtp.ExtensionUserTimestampID:
+			var userTimestamp dtp.ExtensionUserTimestamp
+			if userTimestamp.Unmarshal(ext) == nil {
+				timestamp := userTimestamp.Timestamp()
+				extensions.UserTimestamp = &timestamp
+			}
 		}
 	}
 	return extensions
