@@ -425,8 +425,9 @@ func (s *LocalTrack) WriteSample(sample media.Sample, opts *SampleWriteOptions) 
 	//   2. Timestamp
 	//   3. Duration
 	//
+	packetCount := uint32(sample.PrevDroppedPackets) + 1
 	sampleDurationSeconds := sample.Duration.Seconds()
-	elapsedDurationSeconds := float64(sample.PrevDroppedPackets+1) * sampleDurationSeconds // +1 to include given sample
+	elapsedDurationSeconds := float64(packetCount) * sampleDurationSeconds
 	elapsedDurationSamples := uint32(elapsedDurationSeconds * s.clockRate)
 	currentRTPTimestamp := uint32(0)
 	if s.lastRTPTimestamp == 0 {
@@ -516,7 +517,7 @@ func (s *LocalTrack) WriteSample(sample media.Sample, opts *SampleWriteOptions) 
 		s.sequencer.NextSequenceNumber()
 	}
 
-	samplesPerPacket := samples / uint32(sample.PrevDroppedPackets+1)
+	samplesPerPacket := samples / packetCount
 	if sample.PrevDroppedPackets > 0 {
 		s.packetizer.SkipSamples(samplesPerPacket * uint32(sample.PrevDroppedPackets))
 	}
