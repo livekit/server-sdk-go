@@ -865,7 +865,7 @@ func (e *RTCEngine) handleDisconnect(reason string, fullReconnect bool, regionSe
 	}
 
 	go func() {
-		for reconnectCount := 0; reconnectCount < maxReconnectCount && !e.closed.Load(); reconnectCount++ {
+		for reconnectCount := 0; reconnectCount < maxReconnectCount && !e.closed.Load(); {
 			if e.connectionManager.isReconnectingState() {
 				if reconnectCount == 0 {
 					e.engineHandler.OnRestarting()
@@ -914,6 +914,7 @@ func (e *RTCEngine) handleDisconnect(reason string, fullReconnect bool, regionSe
 				e.log.Infow("reconnecting...", "reconnectCount", reconnectCount, "delay", delay)
 				time.Sleep(delay)
 			}
+			reconnectCount++
 		}
 
 		// gave up (or closed): release the worker slot so a later disconnect can

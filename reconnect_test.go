@@ -15,9 +15,12 @@
 package lksdk
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -28,6 +31,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/livekit/protocol/livekit"
+	"github.com/livekit/server-sdk-go/v2/signalling"
 )
 
 // stallRegion is a fake LiveKit signal endpoint that accepts the WebSocket,
@@ -280,4 +284,43 @@ func TestRegionFallbackSignalFailure(t *testing.T) {
 		return room.ConnectionState() != ConnectionStateConnected || room.engine.IsConnected() == false
 	}, 2*time.Second, 200*time.Millisecond, "connection should stay up after signal-failure fallback")
 	require.EqualValues(t, 0, disconnects.Load(), "should not disconnect after a successful fallback connect")
+}
+
+type recoveryRecorder struct {
+	engineHandler
+	mu     sync.Mutex
+	events []string
+}
+
+func (r *recoveryRecorder) record(event string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = append(r.events, event)
+}
+
+func (r *recoveryRecorder) recorded() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.events)
+}
+
+func (r *recoveryRecorder) OnResuming()                             { r.record("OnResuming") }
+func (r *recoveryRecorder) OnRestarting()                           { r.record("OnRestarting") }
+func (r *recoveryRecorder) OnDisconnected(livekit.DisconnectReason) { r.record("OnDisconnected") }
+
+func TestResumeFailureEscalationFiresRestarting(t *testing.T) {
+	region := newSignalFailRegion(t)
+	recorder := &recoveryRecorder{}
+	e := NewRTCEngine(false, recorder, func() string { return "PA_test" }, nil)
+	e.connectionManager.setIncomingRequestParams(context.Background(), region.wsURL, "token", &signalling.ConnectParams{}, true)
+	e.connectionManager.setConnected(&livekit.RegionInfo{Url: region.wsURL})
+	t.Cleanup(func() { e.closed.Store(true) })
+
+	e.handleDisconnect("test", false, nil)
+
+	require.Eventually(t, func() bool {
+		return slices.Contains(recorder.recorded(), "OnRestarting")
+	}, time.Second, 10*time.Millisecond, "escalating a failed resume must announce the restart")
+	got := recorder.recorded()
+	require.Equal(t, []string{"OnResuming", "OnRestarting"}, got[:min(2, len(got))])
 }
