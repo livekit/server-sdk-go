@@ -1247,20 +1247,22 @@ func TestDynacastRepublish(t *testing.T) {
 		livekit.VideoQuality_HIGH:   simTracks[2],
 	}
 
-	// OnReconnected fires right after OnRestarted -> republishTracks (which resets
-	// the disabled flags) and before the new SFU issues its own dynacast update.
-	// Snapshot the flags here so the "re-enabled" assertion is race-free against a
-	// later server update that could re-disable unwatched layers.
+	// republishTracks resets the disabled flags and then fires OnLocalTrackPublished, before the
+	// new SFU can send its own dynacast update, so snapshot there rather than after the reconnect.
 	var reconnected, allEnabledAfterRepublish atomic.Bool
 	pubCB := &RoomCallback{
-		OnReconnected: func() {
-			allEnabled := true
-			for _, tr := range simTracks {
-				if tr.disabled.Load() {
-					allEnabled = false
+		ParticipantCallback: ParticipantCallback{
+			OnLocalTrackPublished: func(*LocalTrackPublication, *LocalParticipant) {
+				allEnabled := true
+				for _, tr := range simTracks {
+					if tr.disabled.Load() {
+						allEnabled = false
+					}
 				}
-			}
-			allEnabledAfterRepublish.Store(allEnabled)
+				allEnabledAfterRepublish.Store(allEnabled)
+			},
+		},
+		OnReconnected: func() {
 			reconnected.Store(true)
 		},
 	}
@@ -1305,13 +1307,14 @@ func TestDynacastRepublish(t *testing.T) {
 	// (2) re-publish reset via a full reconnect: OnRestarted -> republishTracks
 	// re-publishes these same tracks, which must clear the disabled flags.
 	reconnected.Store(false)
+	allEnabledAfterRepublish.Store(false)
 	pub.Simulate(SimulateNodeFailure)
 	require.Eventually(t, func() bool {
 		return reconnected.Load()
 	}, 20*time.Second, 100*time.Millisecond, "publisher should complete a full reconnect")
 
 	// re-publishing the (previously dynacast-disabled) tracks reset every layer's
-	// disabled flag to false, captured at reconnect time.
+	// disabled flag to false, captured at republish time.
 	require.True(t, allEnabledAfterRepublish.Load(), "re-published layers must reset disabled to false")
 
 	// end-to-end: video RTP resumes after the re-publish

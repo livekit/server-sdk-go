@@ -335,8 +335,46 @@ func TestRecoveryAnnouncesReconnectingOncePerOutage(t *testing.T) {
 	r.OnResuming()
 	r.OnRestarting()
 	r.OnRestarted(&livekit.Room{}, &livekit.ParticipantInfo{}, nil)
+	r.OnRestarted(&livekit.Room{}, &livekit.ParticipantInfo{}, nil)
+	r.OnRestartConnected()
 	r.OnResuming()
 	r.OnResumed()
 	require.Equal(t, 2, reconnecting)
 	require.Equal(t, 2, reconnected)
+}
+
+func TestRestartFailoverReportsReconnectedOnceConnected(t *testing.T) {
+	if apiKey == "" || apiSecret == "" {
+		t.Skip("no LIVEKIT_KEYS; requires a running livekit-server")
+	}
+	stall := newStallRegion(t)
+	const connectTimeout = 2 * time.Second
+
+	var reconnected atomic.Int32
+	var stateAtReconnected atomic.String
+	var room *Room
+	room = NewRoom(&RoomCallback{
+		OnReconnected: func() {
+			reconnected.Inc()
+			stateAtReconnected.Store(string(room.ConnectionState()))
+		},
+	})
+	require.NoError(t, room.Join(host, ConnectInfo{
+		APIKey:              apiKey,
+		APISecret:           apiSecret,
+		RoomName:            "restart-failover-" + t.Name(),
+		ParticipantIdentity: "restart-failover",
+	}, WithConnectTimeout(connectTimeout)))
+	defer room.Disconnect()
+
+	room.engine.handleDisconnect("test", true, &livekit.RegionSettings{
+		Regions: []*livekit.RegionInfo{{Region: "stall", Url: stall.wsURL}},
+	})
+
+	require.Eventually(t, func() bool {
+		return reconnected.Load() > 0 && room.ConnectionState() == ConnectionStateConnected
+	}, 20*time.Second, 50*time.Millisecond, "the restart should fall through the stalled region and recover")
+	require.EqualValues(t, 1, stall.dialCount.Load(), "the restart must try the stalled region first")
+	require.EqualValues(t, 1, reconnected.Load(), "one restart reports one recovery")
+	require.Equal(t, string(ConnectionStateConnected), stateAtReconnected.Load(), "OnReconnected must fire once the connection is up")
 }

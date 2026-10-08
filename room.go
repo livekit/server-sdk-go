@@ -1105,7 +1105,9 @@ func (r *Room) OnRestarted(
 	r.OnParticipantUpdate(otherParticipants)
 
 	r.LocalParticipant.republishTracks()
+}
 
+func (r *Room) OnRestartConnected() {
 	r.announceReconnected()
 }
 

@@ -429,7 +429,7 @@ func TestConnectionManager_SetResumedIgnoredWhenReconnectPending(t *testing.T) {
 	require.Equal(t, connectionManagerStateReconnecting, cm.state)
 
 	// resume then completes "successfully" and tries to restore Connected
-	cm.setResumed(&livekit.RegionInfo{Region: "a", Url: "wss://a"})
+	require.False(t, cm.setResumed(&livekit.RegionInfo{Region: "a", Url: "wss://a"}), "a resume superseded by a reconnect must not report recovery")
 
 	require.Equal(t, connectionManagerStateReconnecting, cm.state, "pending reconnect must not be clobbered")
 	require.Equal(t, "reconnect", cm.regionSettings.GetRegions()[0].Region, "reconnect region settings preserved")
