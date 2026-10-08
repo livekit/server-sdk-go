@@ -324,3 +324,19 @@ func TestResumeFailureEscalationFiresRestarting(t *testing.T) {
 	got := recorder.recorded()
 	require.Equal(t, []string{"OnResuming", "OnRestarting"}, got[:min(2, len(got))])
 }
+
+func TestRecoveryAnnouncesReconnectingOncePerOutage(t *testing.T) {
+	var reconnecting, reconnected int
+	cb := NewRoomCallback()
+	cb.OnReconnecting = func() { reconnecting++ }
+	cb.OnReconnected = func() { reconnected++ }
+	r := NewRoom(cb)
+
+	r.OnResuming()
+	r.OnRestarting()
+	r.OnRestarted(&livekit.Room{}, &livekit.ParticipantInfo{}, nil)
+	r.OnResuming()
+	r.OnResumed()
+	require.Equal(t, 2, reconnecting)
+	require.Equal(t, 2, reconnected)
+}
