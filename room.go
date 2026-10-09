@@ -1394,6 +1394,18 @@ func (r *Room) OnMediaSectionsRequirement(mediaSectionsRequirement *livekit.Medi
 	publisher.Negotiate()
 }
 
+// OnRequestResponse handles responses to signal requests that no caller is waiting on.
+func (r *Room) OnRequestResponse(res *livekit.RequestResponse) {
+	if res.GetReason() != livekit.RequestResponse_OK {
+		r.log.Warnw(
+			"signal request failed", nil,
+			"requestID", res.GetRequestId(),
+			"reason", res.GetReason(),
+			"message", res.GetMessage(),
+		)
+	}
+}
+
 func (r *Room) OnStreamHeader(streamHeader *livekit.DataStream_Header, participantIdentity string) {
 	switch header := streamHeader.ContentHeader.(type) {
 	case *livekit.DataStream_Header_TextHeader:
