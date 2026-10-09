@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/livekit/server-sdk-go/v2/e2ee"
+	"github.com/livekit/server-sdk-go/v2/e2ee/types"
 )
 
 // stubEncryptFunc writes [KID, payload...] — lets us assert which KID was used
@@ -171,4 +172,22 @@ func TestGCMFrameEncryptorUsesRealCipher(t *testing.T) {
 
 	_, err = e2ee.NewGCMFrameEncryptor(kp, stubEncryptFunc)
 	require.NoError(t, err)
+}
+
+// unboundedKeyProvider stands in for a custom provider that does not enforce the index bound.
+type unboundedKeyProvider struct {
+	index uint32
+}
+
+func (p *unboundedKeyProvider) GetKey(uint32) ([]byte, error) { return bytes16(0x11), nil }
+func (p *unboundedKeyProvider) CurrentKeyIndex() uint32       { return p.index }
+
+func TestGCMFrameEncryptorRejectsOutOfRangeIndex(t *testing.T) {
+	kp := &unboundedKeyProvider{}
+	enc, err := e2ee.NewGCMFrameEncryptor(kp, stubEncryptFunc)
+	require.NoError(t, err)
+
+	kp.index = 256
+	_, err = enc.EncryptFrame([]byte{0x01, 0x02})
+	require.ErrorIs(t, err, types.ErrKeyIndexOutOfRange)
 }
