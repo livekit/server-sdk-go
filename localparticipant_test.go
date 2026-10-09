@@ -65,7 +65,6 @@ func TestPrepareSimulcastTrackPublication(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			p := newParticipant(t)
 
@@ -91,4 +90,59 @@ func TestPrepareSimulcastTrackPublication(t *testing.T) {
 			require.Greater(t, len(req.SimulcastCodecs), 0)
 		})
 	}
+
+	t.Run("backup codec with encryption", func(t *testing.T) {
+		p := newParticipant(t)
+
+		tracks := newSimulcastSampleTracks(t, codec, "sim_test")
+		// use a different codec capability for the backup tracks than the
+		// primary; the prepare path only reads Codec().MimeType from them
+		backupCodec := webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264, ClockRate: 90000}
+		backupTracks := newSimulcastSampleTracks(t, backupCodec, "sim_backup_test")
+		require.Len(t, backupTracks, 3)
+
+		opts := &TrackPublicationOptions{
+			Name:       "test",
+			Source:     livekit.TrackSource_CAMERA,
+			Encryption: livekit.Encryption_GCM,
+		}
+
+		pub, req, _, err := p.prepareSimulcastTrackPublication(
+			tracks, opts, WithBackupCodecForSimulcastTrack(backupTracks),
+		)
+		require.NoError(t, err)
+
+		// backup codec must be ignored when encryption is requested
+		require.Len(t, req.SimulcastCodecs, 1) // only the primary codec entry
+		_, backupTracksOnPub := pub.getBackupCodecTrack()
+		require.Len(t, backupTracksOnPub, 0)
+	})
+
+	t.Run("backup codec without encryption", func(t *testing.T) {
+		p := newParticipant(t)
+
+		tracks := newSimulcastSampleTracks(t, codec, "sim_test")
+		// use a different codec capability for the backup tracks than the
+		// primary; the prepare path only reads Codec().MimeType from them
+		backupCodec := webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264, ClockRate: 90000}
+		backupTracks := newSimulcastSampleTracks(t, backupCodec, "sim_backup_test")
+		require.Len(t, backupTracks, 3)
+
+		opts := &TrackPublicationOptions{
+			Name:       "test",
+			Source:     livekit.TrackSource_CAMERA,
+			Encryption: livekit.Encryption_NONE,
+		}
+
+		pub, req, _, err := p.prepareSimulcastTrackPublication(
+			tracks, opts, WithBackupCodecForSimulcastTrack(backupTracks),
+		)
+		require.NoError(t, err)
+
+		// backup codec must be kept when no encryption is requested
+		require.Len(t, req.SimulcastCodecs, 2) // primary + backup codec entries
+		require.Len(t, req.SimulcastCodecs[1].Layers, 3)
+		_, backupTracksOnPub := pub.getBackupCodecTrack()
+		require.Len(t, backupTracksOnPub, 3)
+	})
 }
