@@ -56,6 +56,7 @@ type engineHandler interface {
 		participant *livekit.ParticipantInfo,
 		otherParticipants []*livekit.ParticipantInfo,
 	)
+	OnRestartConnected()
 	OnResuming()
 	OnResumed()
 	OnTranscription(*livekit.Transcription)
@@ -865,7 +866,7 @@ func (e *RTCEngine) handleDisconnect(reason string, fullReconnect bool, regionSe
 	}
 
 	go func() {
-		for reconnectCount := 0; reconnectCount < maxReconnectCount && !e.closed.Load(); reconnectCount++ {
+		for reconnectCount := 0; reconnectCount < maxReconnectCount && !e.closed.Load(); {
 			if e.connectionManager.isReconnectingState() {
 				if reconnectCount == 0 {
 					e.engineHandler.OnRestarting()
@@ -914,6 +915,7 @@ func (e *RTCEngine) handleDisconnect(reason string, fullReconnect bool, regionSe
 				e.log.Infow("reconnecting...", "reconnectCount", reconnectCount, "delay", delay)
 				time.Sleep(delay)
 			}
+			reconnectCount++
 		}
 
 		// gave up (or closed): release the worker slot so a later disconnect can
@@ -1014,8 +1016,9 @@ func (e *RTCEngine) resumeConnection() error {
 		// up fresh server region settings) and connectedRegion tracks where we are.
 		// setResumed is a no-op if a reconnect was requested while resuming, so it
 		// won't clobber a pending full reconnect.
-		e.connectionManager.setResumed(attempt.region)
-		e.engineHandler.OnResumed()
+		if e.connectionManager.setResumed(attempt.region) {
+			e.engineHandler.OnResumed()
+		}
 		return nil
 	}
 
@@ -1039,7 +1042,13 @@ func (e *RTCEngine) cleanupConnection() {
 
 func (e *RTCEngine) restartConnection() error {
 	e.cleanupConnection()
-	return e.join(nil, nil)
+	if err := e.join(nil, nil); err != nil {
+		return err
+	}
+	if e.connectionManager.currentState() == connectionManagerStateConnected {
+		e.engineHandler.OnRestartConnected()
+	}
+	return nil
 }
 
 func (e *RTCEngine) createSubscriberPCAnswerAndSend() error {

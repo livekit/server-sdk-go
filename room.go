@@ -28,6 +28,7 @@ import (
 	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v4"
+	"go.uber.org/atomic"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 
@@ -324,6 +325,7 @@ type Room struct {
 	callback                *RoomCallback
 	sidReady                chan struct{}
 	disconnectReason        livekit.DisconnectReason
+	reconnectingAnnounced   atomic.Bool
 
 	remoteParticipants map[livekit.ParticipantIdentity]*RemoteParticipant
 	sidToIdentity      map[livekit.ParticipantID]livekit.ParticipantIdentity
@@ -1083,7 +1085,7 @@ func (r *Room) DisconnectReason() livekit.DisconnectReason {
 }
 
 func (r *Room) OnRestarting() {
-	r.callback.OnReconnecting()
+	r.announceReconnectingOnce()
 
 	for _, rp := range r.GetRemoteParticipants() {
 		r.OnParticipantDisconnect(rp, livekit.DisconnectReason_UNKNOWN_REASON)
@@ -1103,18 +1105,31 @@ func (r *Room) OnRestarted(
 	r.OnParticipantUpdate(otherParticipants)
 
 	r.LocalParticipant.republishTracks()
+}
 
-	r.callback.OnReconnected()
+func (r *Room) OnRestartConnected() {
+	r.announceReconnected()
 }
 
 func (r *Room) OnResuming() {
-	r.callback.OnReconnecting()
+	r.announceReconnectingOnce()
 }
 
 func (r *Room) OnResumed() {
-	r.callback.OnReconnected()
+	r.announceReconnected()
 	r.sendSyncState()
 	r.LocalParticipant.updateSubscriptionPermission()
+}
+
+func (r *Room) announceReconnectingOnce() {
+	if r.reconnectingAnnounced.CompareAndSwap(false, true) {
+		r.callback.OnReconnecting()
+	}
+}
+
+func (r *Room) announceReconnected() {
+	r.reconnectingAnnounced.Store(false)
+	r.callback.OnReconnected()
 }
 
 func (r *Room) OnDataPacket(identity string, dataPacket DataPacket) {
