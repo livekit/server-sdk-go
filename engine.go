@@ -865,9 +865,14 @@ func (e *RTCEngine) handleDisconnect(reason string, fullReconnect bool, regionSe
 	}
 
 	go func() {
-		for reconnectCount := 0; reconnectCount < maxReconnectCount && !e.closed.Load(); reconnectCount++ {
+		// announced is the recovery mode the handler has been told about; a mode
+		// switch always delivers OnResuming or OnRestarting before its first attempt
+		reconnectCount := 0
+		announced := connectionManagerStateConnected
+		for reconnectCount < maxReconnectCount && !e.closed.Load() {
 			if e.connectionManager.isReconnectingState() {
-				if reconnectCount == 0 {
+				if announced != connectionManagerStateReconnecting {
+					announced = connectionManagerStateReconnecting
 					e.engineHandler.OnRestarting()
 				}
 				e.log.Infow("restarting connection...", "reconnectCount", reconnectCount)
@@ -877,13 +882,15 @@ func (e *RTCEngine) handleDisconnect(reason string, fullReconnect bool, regionSe
 					// keep the worker running
 					if e.connectionManager.recoveryWorkerShouldContinue() {
 						reconnectCount = 0
+						announced = connectionManagerStateConnected
 						continue
 					}
 					return
 				}
 				e.log.Errorw("restart connection failed", err)
 			} else {
-				if reconnectCount == 0 {
+				if announced != connectionManagerStateResuming {
+					announced = connectionManagerStateResuming
 					e.engineHandler.OnResuming()
 				}
 				e.log.Infow("resuming connection...", "reconnectCount", reconnectCount)
@@ -893,6 +900,7 @@ func (e *RTCEngine) handleDisconnect(reason string, fullReconnect bool, regionSe
 					// while resume was settling; if so, keep the worker running
 					if e.connectionManager.recoveryWorkerShouldContinue() {
 						reconnectCount = 0
+						announced = connectionManagerStateConnected
 						continue
 					}
 					return
@@ -914,6 +922,7 @@ func (e *RTCEngine) handleDisconnect(reason string, fullReconnect bool, regionSe
 				e.log.Infow("reconnecting...", "reconnectCount", reconnectCount, "delay", delay)
 				time.Sleep(delay)
 			}
+			reconnectCount++
 		}
 
 		// gave up (or closed): release the worker slot so a later disconnect can
@@ -1396,6 +1405,17 @@ func (e *RTCEngine) Simulate(scenario SimulateScenario) {
 				&livekit.SimulateScenario{
 					Scenario: &livekit.SimulateScenario_LeaveRequestFullReconnect{
 						LeaveRequestFullReconnect: true,
+					},
+				},
+			),
+		)
+
+	case SimulateDisconnectSignalOnResume:
+		e.signalTransport.SendMessage(
+			e.signalling.SignalSimulateScenario(
+				&livekit.SimulateScenario{
+					Scenario: &livekit.SimulateScenario_DisconnectSignalOnResumeNoMessages{
+						DisconnectSignalOnResumeNoMessages: true,
 					},
 				},
 			),

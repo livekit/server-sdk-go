@@ -64,6 +64,9 @@ const (
 	// SimulateLeaveRequestFullReconnect asks the server to send a reconnect
 	// LeaveRequest that drops the current region, exercising region failover.
 	SimulateLeaveRequestFullReconnect
+	// SimulateDisconnectSignalOnResume asks the server to close the signal
+	// connection on the next resume, so the client escalates to a full reconnect.
+	SimulateDisconnectSignalOnResume
 )
 
 type ConnectionState string

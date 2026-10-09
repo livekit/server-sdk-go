@@ -816,6 +816,67 @@ func TestResume(t *testing.T) {
 	sub.Disconnect()
 }
 
+// A resume the server refuses escalates to a full reconnect, which must tear the
+// stale room state down and rebuild it, so the subscriber sees its track leave
+// and come back on the new session.
+func TestResumeFailureRestartsWithTeardown(t *testing.T) {
+	pub, err := createAgent(t.Name(), &RoomCallback{}, "publisher")
+	require.NoError(t, err)
+	defer pub.Disconnect()
+
+	var subscribed, unsubscribed, reconnecting, reconnected atomic.Int32
+	subCB := &RoomCallback{
+		ParticipantCallback: ParticipantCallback{
+			OnTrackSubscribed: func(*webrtc.TrackRemote, *RemoteTrackPublication, *RemoteParticipant) {
+				subscribed.Add(1)
+			},
+			OnTrackUnsubscribed: func(*webrtc.TrackRemote, *RemoteTrackPublication, *RemoteParticipant) {
+				unsubscribed.Add(1)
+			},
+		},
+		OnReconnecting: func() { reconnecting.Add(1) },
+		OnReconnected:  func() { reconnected.Add(1) },
+	}
+	sub, err := createAgent(t.Name(), subCB, "subscriber")
+	require.NoError(t, err)
+	defer sub.Disconnect()
+
+	pubNullTrack(t, pub, "audio_of_pub", webrtc.RTPCodecCapability{
+		MimeType:  webrtc.MimeTypeOpus,
+		ClockRate: 48000,
+		Channels:  2,
+	})
+	require.Eventually(t, func() bool { return subscribed.Load() == 1 }, 5*time.Second, 100*time.Millisecond)
+
+	// the server refuses the next resume; the client must escalate to a full reconnect.
+	// The scenario carries no ack, so a resume that lands before it is applied succeeds
+	// and keeps the participant SID; only a restart hands out a new one. Re-arm in that case.
+	var subscribedBefore, unsubscribedBefore, reconnectingBefore int32
+	restarted := false
+	for attempt := 0; attempt < 3 && !restarted; attempt++ {
+		sidBefore := sub.LocalParticipant.SID()
+		reconnectedBefore := reconnected.Load()
+		subscribedBefore = subscribed.Load()
+		unsubscribedBefore = unsubscribed.Load()
+		reconnectingBefore = reconnecting.Load()
+
+		sub.Simulate(SimulateDisconnectSignalOnResume)
+		time.Sleep(100 * time.Millisecond)
+		sub.Simulate(SimulateSignalReconnect)
+
+		require.Eventually(t, func() bool { return reconnected.Load() == reconnectedBefore+1 }, 10*time.Second, 100*time.Millisecond)
+		// OnReconnected runs from the join response; the state turns Connected once the peer connection is up
+		require.Eventually(t, func() bool { return sub.ConnectionState() == ConnectionStateConnected }, 10*time.Second, 100*time.Millisecond)
+		restarted = sub.LocalParticipant.SID() != sidBefore
+	}
+	require.True(t, restarted, "the server never refused a resume, so no full reconnect happened")
+
+	require.EqualValues(t, unsubscribedBefore+1, unsubscribed.Load(), "the restart must unsubscribe the stale track")
+	require.Eventually(t, func() bool { return subscribed.Load() == subscribedBefore+1 }, 10*time.Second, 100*time.Millisecond,
+		"the new session must subscribe again")
+	require.EqualValues(t, reconnectingBefore+2, reconnecting.Load(), "once for the resume, once for the restart")
+}
+
 // This test case can't pass with CI's environment (docker + embedded turn), will be skipped with CI running
 func TestForceTLS(t *testing.T) {
 	if os.Getenv("CI") != "" {
