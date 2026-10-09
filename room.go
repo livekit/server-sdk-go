@@ -1406,6 +1406,15 @@ func (r *Room) OnRequestResponse(res *livekit.RequestResponse) {
 	}
 }
 
+func (r *Room) OnPublishDataTrackResponse(publishDataTrackResponse *livekit.PublishDataTrackResponse) {
+}
+
+func (r *Room) OnUnpublishDataTrackResponse(unpublishDataTrackResponse *livekit.UnpublishDataTrackResponse) {
+}
+
+func (r *Room) OnDataTrackSubscriberHandles(dataTrackSubscriberHandles *livekit.DataTrackSubscriberHandles) {
+}
+
 func (r *Room) OnStreamHeader(streamHeader *livekit.DataStream_Header, participantIdentity string) {
 	switch header := streamHeader.ContentHeader.(type) {
 	case *livekit.DataStream_Header_TextHeader:
