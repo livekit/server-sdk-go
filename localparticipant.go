@@ -316,6 +316,7 @@ func (p *LocalParticipant) prepareSimulcastTrackPublication(tracks []*LocalTrack
 		Width:                 mainTrack.videoLayer.Width,
 		Height:                mainTrack.videoLayer.Height,
 		Layers:                layers,
+		Encryption:            opts.Encryption,
 		PacketTrailerFeatures: packetTrailerFeaturesFromOpts(opts),
 		SimulcastCodecs: []*livekit.SimulcastCodec{
 			{
@@ -326,7 +327,15 @@ func (p *LocalParticipant) prepareSimulcastTrackPublication(tracks []*LocalTrack
 			},
 		},
 	}
-	if len(pubOptions.backupCodecTracks) > 0 {
+
+	withBackupCodec := len(pubOptions.backupCodecTracks) > 0
+	if withBackupCodec && req.Encryption != livekit.Encryption_NONE {
+		// TODO: support e2ee for backup codecs
+		p.log.Warnw("backup codec publication with encryption is not supported, ignoring backup codec", nil)
+		withBackupCodec = false
+	}
+
+	if withBackupCodec {
 		for _, track := range pubOptions.backupCodecTracks {
 			// disable dynacast on a re-publication
 			track.setDisabled(false)
