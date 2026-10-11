@@ -83,7 +83,7 @@ require (
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/lithammer/shortuuid/v4 v4.3.0 // indirect
 	github.com/livekit/psrpc v0.8.0 // indirect
-	github.com/maxbrunsfeld/counterfeiter/v6 v6.13.0 // indirect
+	github.com/maxbrunsfeld/counterfeiter/v6 v6.14.0 // indirect
 	github.com/moby/locker v1.0.1 // indirect
 	github.com/moby/sys/signal v0.7.1 // indirect
 	github.com/morikuni/aec v1.1.0 // indirect
