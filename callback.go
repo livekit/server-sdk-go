@@ -36,6 +36,11 @@ type ParticipantCallback struct {
 	// only in response to a server message: publishing or re-publishing a track does
 	// not invoke it. codecs is the server's per-codec list of the qualities that
 	// subscribers currently need.
+	//
+	// It is called on the signal handling goroutine, in the order the updates
+	// arrive, so it must not block: in particular it must not synchronously call
+	// SDK methods that wait for a signal response (such as PublishTrack); hand
+	// such work off to another goroutine.
 	OnLocalTrackSubscribedQualityUpdate func(publication *LocalTrackPublication, codecs []*livekit.SubscribedCodec, lp *LocalParticipant)
 
 	// for all participants
