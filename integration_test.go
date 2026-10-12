@@ -732,7 +732,7 @@ func runSimulcastPubSub(t *testing.T, prepublish bool) {
 func TestResume(t *testing.T) {
 	var reconnected atomic.Bool
 	pubCB := &RoomCallback{
-		OnReconnected: func() {
+		OnSignalReconnected: func() {
 			reconnected.Store(true)
 		},
 	}
@@ -756,7 +756,7 @@ func TestResume(t *testing.T) {
 				trackLock.Unlock()
 			},
 		},
-		OnReconnected: func() {
+		OnSignalReconnected: func() {
 			subReconnected.Store(true)
 		},
 	}
@@ -1247,8 +1247,6 @@ func TestDynacastRepublish(t *testing.T) {
 		livekit.VideoQuality_HIGH:   simTracks[2],
 	}
 
-	// republishTracks resets the disabled flags and then fires OnLocalTrackPublished, before the
-	// new SFU can send its own dynacast update, so snapshot there rather than after the reconnect.
 	var reconnected, allEnabledAfterRepublish atomic.Bool
 	pubCB := &RoomCallback{
 		ParticipantCallback: ParticipantCallback{
@@ -1313,8 +1311,6 @@ func TestDynacastRepublish(t *testing.T) {
 		return reconnected.Load()
 	}, 20*time.Second, 100*time.Millisecond, "publisher should complete a full reconnect")
 
-	// re-publishing the (previously dynacast-disabled) tracks reset every layer's
-	// disabled flag to false, captured at republish time.
 	require.True(t, allEnabledAfterRepublish.Load(), "re-published layers must reset disabled to false")
 
 	// end-to-end: video RTP resumes after the re-publish

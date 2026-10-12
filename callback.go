@@ -175,6 +175,8 @@ type RoomCallback struct {
 	OnRoomMovedWithSID        func(roomName string, roomSID string, token string)
 	OnReconnecting            func()
 	OnReconnected             func()
+	OnSignalReconnecting      func()
+	OnSignalReconnected       func()
 	OnLocalTrackSubscribed    func(publication *LocalTrackPublication, lp *LocalParticipant)
 
 	// participant events are sent to the room as well
@@ -198,6 +200,8 @@ func NewRoomCallback() *RoomCallback {
 		OnRoomMovedWithSID:        func(roomName string, roomSID string, token string) {},
 		OnReconnecting:            func() {},
 		OnReconnected:             func() {},
+		OnSignalReconnecting:      func() {},
+		OnSignalReconnected:       func() {},
 		OnLocalTrackSubscribed:    func(publication *LocalTrackPublication, lp *LocalParticipant) {},
 	}
 }
@@ -240,6 +244,12 @@ func (cb *RoomCallback) Merge(other *RoomCallback) {
 	}
 	if other.OnReconnected != nil {
 		cb.OnReconnected = other.OnReconnected
+	}
+	if other.OnSignalReconnecting != nil {
+		cb.OnSignalReconnecting = other.OnSignalReconnecting
+	}
+	if other.OnSignalReconnected != nil {
+		cb.OnSignalReconnected = other.OnSignalReconnected
 	}
 	if other.OnLocalTrackSubscribed != nil {
 		cb.OnLocalTrackSubscribed = other.OnLocalTrackSubscribed

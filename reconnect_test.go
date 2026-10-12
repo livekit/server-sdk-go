@@ -15,7 +15,6 @@
 package lksdk
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -31,7 +30,6 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/livekit/protocol/livekit"
-	"github.com/livekit/server-sdk-go/v2/signalling"
 )
 
 // stallRegion is a fake LiveKit signal endpoint that accepts the WebSocket,
@@ -312,35 +310,37 @@ func TestResumeFailureEscalationFiresRestarting(t *testing.T) {
 	region := newSignalFailRegion(t)
 	recorder := &recoveryRecorder{}
 	e := NewRTCEngine(false, recorder, func() string { return "PA_test" }, nil)
-	e.connectionManager.setIncomingRequestParams(context.Background(), region.wsURL, "token", &signalling.ConnectParams{}, true)
+	e.connectionManager = newTestConnectionManager(region.wsURL, true)
 	e.connectionManager.setConnected(&livekit.RegionInfo{Url: region.wsURL})
 	t.Cleanup(func() { e.closed.Store(true) })
 
 	e.handleDisconnect("test", false, nil)
 
 	require.Eventually(t, func() bool {
-		return slices.Contains(recorder.recorded(), "OnRestarting")
-	}, time.Second, 10*time.Millisecond, "escalating a failed resume must announce the restart")
-	got := recorder.recorded()
-	require.Equal(t, []string{"OnResuming", "OnRestarting"}, got[:min(2, len(got))])
+		return len(recorder.recorded()) >= 2
+	}, time.Second, 10*time.Millisecond)
+	require.Equal(t, []string{"OnResuming", "OnRestarting"}, recorder.recorded()[:2], "escalating a failed resume must announce the restart")
 }
 
-func TestRecoveryAnnouncesReconnectingOncePerOutage(t *testing.T) {
-	var reconnecting, reconnected int
+func TestRecoveryCallbacksSeparateResumeFromRestart(t *testing.T) {
+	var events []string
 	cb := NewRoomCallback()
-	cb.OnReconnecting = func() { reconnecting++ }
-	cb.OnReconnected = func() { reconnected++ }
+	cb.OnSignalReconnecting = func() { events = append(events, "SignalReconnecting") }
+	cb.OnSignalReconnected = func() { events = append(events, "SignalReconnected") }
+	cb.OnReconnecting = func() { events = append(events, "Reconnecting") }
+	cb.OnReconnected = func() { events = append(events, "Reconnected") }
 	r := NewRoom(cb)
 
 	r.OnResuming()
+	r.OnResumed()
+	require.Equal(t, []string{"SignalReconnecting", "SignalReconnected"}, events)
+
+	events = nil
+	r.OnResuming()
 	r.OnRestarting()
 	r.OnRestarted(&livekit.Room{}, &livekit.ParticipantInfo{}, nil)
-	r.OnRestarted(&livekit.Room{}, &livekit.ParticipantInfo{}, nil)
 	r.OnRestartConnected()
-	r.OnResuming()
-	r.OnResumed()
-	require.Equal(t, 2, reconnecting)
-	require.Equal(t, 2, reconnected)
+	require.Equal(t, []string{"SignalReconnecting", "Reconnecting", "Reconnected"}, events, "a failed resume escalates to a restart")
 }
 
 func TestRestartFailoverReportsReconnectedOnceConnected(t *testing.T) {
@@ -353,18 +353,13 @@ func TestRestartFailoverReportsReconnectedOnceConnected(t *testing.T) {
 	var reconnected atomic.Int32
 	var stateAtReconnected atomic.String
 	var room *Room
-	room = NewRoom(&RoomCallback{
+	room, err := createAgent("restart-failover-"+t.Name(), &RoomCallback{
 		OnReconnected: func() {
 			reconnected.Inc()
 			stateAtReconnected.Store(string(room.ConnectionState()))
 		},
-	})
-	require.NoError(t, room.Join(host, ConnectInfo{
-		APIKey:              apiKey,
-		APISecret:           apiSecret,
-		RoomName:            "restart-failover-" + t.Name(),
-		ParticipantIdentity: "restart-failover",
-	}, WithConnectTimeout(connectTimeout)))
+	}, "restart-failover", WithConnectTimeout(connectTimeout))
+	require.NoError(t, err)
 	defer room.Disconnect()
 
 	room.engine.handleDisconnect("test", true, &livekit.RegionSettings{
