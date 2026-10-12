@@ -29,6 +29,14 @@ type ParticipantCallback struct {
 	// for local participant
 	OnLocalTrackPublished   func(publication *LocalTrackPublication, lp *LocalParticipant)
 	OnLocalTrackUnpublished func(publication *LocalTrackPublication, lp *LocalParticipant)
+	// OnLocalTrackSubscribedQualityUpdate is called for every SubscribedQualityUpdate
+	// (dynacast) the server sends for a track published by the local participant,
+	// after the update has been applied to the publication's layers. It is called for
+	// every update, including one that does not change which layers are enabled, and
+	// only in response to a server message: publishing or re-publishing a track does
+	// not invoke it. codecs is the server's per-codec list of the qualities that
+	// subscribers currently need.
+	OnLocalTrackSubscribedQualityUpdate func(publication *LocalTrackPublication, codecs []*livekit.SubscribedCodec, lp *LocalParticipant)
 
 	// for all participants
 	OnTrackMuted               func(pub TrackPublication, p Participant)
@@ -52,8 +60,9 @@ type ParticipantCallback struct {
 // NewParticipantCallback creates a new ParticipantCallback with default no-op handlers.
 func NewParticipantCallback() *ParticipantCallback {
 	return &ParticipantCallback{
-		OnLocalTrackPublished:   func(publication *LocalTrackPublication, lp *LocalParticipant) {},
-		OnLocalTrackUnpublished: func(publication *LocalTrackPublication, lp *LocalParticipant) {},
+		OnLocalTrackPublished:               func(publication *LocalTrackPublication, lp *LocalParticipant) {},
+		OnLocalTrackUnpublished:             func(publication *LocalTrackPublication, lp *LocalParticipant) {},
+		OnLocalTrackSubscribedQualityUpdate: func(publication *LocalTrackPublication, codecs []*livekit.SubscribedCodec, lp *LocalParticipant) {},
 
 		OnTrackMuted:               func(pub TrackPublication, p Participant) {},
 		OnTrackUnmuted:             func(pub TrackPublication, p Participant) {},
@@ -79,6 +88,9 @@ func (cb *ParticipantCallback) Merge(other *ParticipantCallback) {
 	}
 	if other.OnLocalTrackUnpublished != nil {
 		cb.OnLocalTrackUnpublished = other.OnLocalTrackUnpublished
+	}
+	if other.OnLocalTrackSubscribedQualityUpdate != nil {
+		cb.OnLocalTrackSubscribedQualityUpdate = other.OnLocalTrackSubscribedQualityUpdate
 	}
 	if other.OnTrackMuted != nil {
 		cb.OnTrackMuted = other.OnTrackMuted
