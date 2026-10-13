@@ -732,7 +732,7 @@ func runSimulcastPubSub(t *testing.T, prepublish bool) {
 func TestResume(t *testing.T) {
 	var reconnected atomic.Bool
 	pubCB := &RoomCallback{
-		OnSignalReconnected: func() {
+		OnReconnected: func() {
 			reconnected.Store(true)
 		},
 	}
@@ -743,7 +743,9 @@ func TestResume(t *testing.T) {
 	audioTrackName := "audio_of_pub1"
 	var trackLock sync.Mutex
 	var trackReceived, subReconnected atomic.Bool
+	var stateAtSignalReconnecting atomic.String
 	var subTrack *webrtc.TrackRemote
+	var sub *Room
 	subCB := &RoomCallback{
 		ParticipantCallback: ParticipantCallback{
 			OnTrackSubscribed: func(track *webrtc.TrackRemote, publication *RemoteTrackPublication, rp *RemoteParticipant) {
@@ -756,19 +758,15 @@ func TestResume(t *testing.T) {
 				trackLock.Unlock()
 			},
 		},
-		OnSignalReconnected: func() {
+		OnSignalReconnecting: func() {
+			stateAtSignalReconnecting.Store(string(sub.ConnectionState()))
+		},
+		OnReconnected: func() {
 			subReconnected.Store(true)
 		},
 	}
-	sub, err := createAgent(t.Name(), subCB, "subscriber")
+	sub, err = createAgent(t.Name(), subCB, "subscriber")
 	require.NoError(t, err)
-
-	subCB.OnReconnecting = func() {
-		require.Equal(t, ConnectionStateReconnecting, sub.ConnectionState())
-	}
-	subCB.OnReconnected = func() {
-		require.Equal(t, ConnectionStateConnected, sub.ConnectionState())
-	}
 
 	localPub := pubNullTrack(t, pub, audioTrackName, webrtc.RTPCodecCapability{
 		MimeType:  webrtc.MimeTypeOpus,
@@ -799,6 +797,7 @@ func TestResume(t *testing.T) {
 
 	sub.Simulate(SimulateSignalReconnect)
 	require.Eventually(t, func() bool { return subReconnected.Load() }, 5*time.Second, 100*time.Millisecond)
+	require.Equal(t, string(ConnectionStateSignalReconnecting), stateAtSignalReconnecting.Load())
 
 	// confirm track is still working after resume
 	exitConsume.Store(true)

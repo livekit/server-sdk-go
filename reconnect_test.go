@@ -326,14 +326,13 @@ func TestRecoveryCallbacksSeparateResumeFromRestart(t *testing.T) {
 	var events []string
 	cb := NewRoomCallback()
 	cb.OnSignalReconnecting = func() { events = append(events, "SignalReconnecting") }
-	cb.OnSignalReconnected = func() { events = append(events, "SignalReconnected") }
 	cb.OnReconnecting = func() { events = append(events, "Reconnecting") }
 	cb.OnReconnected = func() { events = append(events, "Reconnected") }
 	r := NewRoom(cb)
 
 	r.OnResuming()
 	r.OnResumed()
-	require.Equal(t, []string{"SignalReconnecting", "SignalReconnected"}, events)
+	require.Equal(t, []string{"SignalReconnecting", "Reconnected"}, events)
 
 	events = nil
 	r.OnResuming()
@@ -341,6 +340,17 @@ func TestRecoveryCallbacksSeparateResumeFromRestart(t *testing.T) {
 	r.OnRestarted(&livekit.Room{}, &livekit.ParticipantInfo{}, nil)
 	r.OnRestartConnected()
 	require.Equal(t, []string{"SignalReconnecting", "Reconnecting", "Reconnected"}, events, "a failed resume escalates to a restart")
+}
+
+func TestConnectionStateSeparatesResumeFromRestart(t *testing.T) {
+	r := NewRoom(nil)
+	r.engine.setConnected(nil)
+
+	r.engine.setResuming(nil)
+	require.Equal(t, ConnectionStateSignalReconnecting, r.ConnectionState())
+
+	r.engine.setReconnecting(nil)
+	require.Equal(t, ConnectionStateReconnecting, r.ConnectionState(), "a failed resume escalates to a restart")
 }
 
 func TestRestartFailoverReportsReconnectedOnceConnected(t *testing.T) {
