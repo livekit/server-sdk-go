@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/frostbyte73/core"
 	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v4"
@@ -342,6 +343,10 @@ type Room struct {
 	textStreamReaders  *sync.Map
 	rpcHandlers        *sync.Map
 
+	subReconcileKick  chan struct{}
+	subReconcileStart sync.Once
+	subReconcileStop  core.Fuse
+
 	lock sync.RWMutex
 }
 
@@ -360,11 +365,13 @@ func NewRoom(callback *RoomCallback) *Room {
 		textStreamHandlers: &sync.Map{},
 		textStreamReaders:  &sync.Map{},
 		rpcHandlers:        &sync.Map{},
+		subReconcileKick:   make(chan struct{}, 1),
 	}
 	r.callback.Merge(callback)
 
 	r.engine = NewRTCEngine(r.useSinglePeerConnection, r, r.getLocalParticipantSID, r.regionURLProvider)
 	r.LocalParticipant = newLocalParticipant(r.engine, r.callback, r.serverInfo, r.log)
+	r.engine.subscriptionDesires.setOnDirty(r.ensureSubscriptionReconciler)
 	return r
 }
 
@@ -729,7 +736,13 @@ func (r *Room) sendSyncState() {
 	sendUnsub := r.engine.getConnectParams().AutoSubscribe
 	for _, rp := range r.GetRemoteParticipants() {
 		for _, t := range rp.TrackPublications() {
-			if t.IsSubscribed() != sendUnsub {
+			// use recorded intent when present so a subscription whose request
+			// was lost in flight is replayed by the sync state
+			subscribed := t.IsSubscribed()
+			if desired, ok := r.engine.subscriptionDesires.desired(t.SID()); ok {
+				subscribed = desired
+			}
+			if subscribed != sendUnsub {
 				trackSids = append(trackSids, t.SID())
 			}
 
@@ -806,6 +819,9 @@ func (r *Room) cleanup() {
 
 	r.rpcHandlers.Clear()
 	r.LocalParticipant.cleanup()
+
+	r.subReconcileStop.Break()
+	r.engine.subscriptionDesires.clearAll()
 }
 
 func (r *Room) setSid(sid string, allowEmpty bool) {
@@ -1103,6 +1119,8 @@ func (r *Room) OnRestarted(
 	r.OnParticipantUpdate(otherParticipants)
 
 	r.LocalParticipant.republishTracks()
+	r.engine.subscriptionDesires.resetAttempts()
+	r.kickSubscriptionReconcile()
 
 	r.callback.OnReconnected()
 }
@@ -1115,6 +1133,8 @@ func (r *Room) OnResumed() {
 	r.callback.OnReconnected()
 	r.sendSyncState()
 	r.LocalParticipant.updateSubscriptionPermission()
+	r.engine.subscriptionDesires.resetAttempts()
+	r.kickSubscriptionReconcile()
 }
 
 func (r *Room) OnDataPacket(identity string, dataPacket DataPacket) {
@@ -1392,6 +1412,30 @@ func (r *Room) OnMediaSectionsRequirement(mediaSectionsRequirement *livekit.Medi
 	addTransceivers(publisher, webrtc.RTPCodecTypeAudio, mediaSectionsRequirement.NumAudios)
 	addTransceivers(publisher, webrtc.RTPCodecTypeVideo, mediaSectionsRequirement.NumVideos)
 	publisher.Negotiate()
+}
+
+func (r *Room) OnSubscriptionResponse(subscriptionResponse *livekit.SubscriptionResponse) {
+	if subscriptionResponse == nil || subscriptionResponse.GetErr() == livekit.SubscriptionError_SE_UNKNOWN {
+		return
+	}
+
+	trackSID := subscriptionResponse.GetTrackSid()
+
+	// the server rejected the subscription; stop re-asserting it and surface
+	// the failure instead of letting consumers wait on a timeout
+	r.engine.subscriptionDesires.clear(trackSID)
+	r.log.Warnw(
+		"server rejected subscription", errors.New(subscriptionResponse.GetErr().String()),
+		"trackID", trackSID,
+	)
+
+	for _, rp := range r.GetRemoteParticipants() {
+		if rp.getPublication(trackSID) != nil {
+			rp.Callback.OnTrackSubscriptionFailed(trackSID, rp)
+			r.callback.OnTrackSubscriptionFailed(trackSID, rp)
+			return
+		}
+	}
 }
 
 func (r *Room) OnStreamHeader(streamHeader *livekit.DataStream_Header, participantIdentity string) {
