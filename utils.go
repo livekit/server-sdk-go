@@ -17,6 +17,7 @@ package lksdk
 import (
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 func byteLength(str string) int {
@@ -24,12 +25,15 @@ func byteLength(str string) int {
 }
 
 func truncateBytes(str string, maxBytes int) string {
-	if byteLength(str) <= maxBytes {
+	if len(str) <= maxBytes {
 		return str
-	} else {
-		byteStr := []byte(str)
-		return string(byteStr[:maxBytes])
 	}
+	// back up to a rune boundary so we never emit a partial UTF-8 character
+	end := maxBytes
+	for end > 0 && !utf8.RuneStart(str[end]) {
+		end--
+	}
+	return str[:end]
 }
 
 func compareVersions(v1, v2 string) int {
