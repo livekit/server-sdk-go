@@ -31,6 +31,8 @@ type Participant interface {
 	Name() string
 	Kind() ParticipantKind
 	IsSpeaking() bool
+	IsActive() bool
+	GetState() livekit.ParticipantInfo_State
 	AudioLevel() float32
 	TrackPublications() []TrackPublication
 	IsCameraEnabled() bool
@@ -137,6 +139,14 @@ func (p *baseParticipant) AudioLevel() float32 {
 	return float32(p.audioLevel.Load())
 }
 
+func (p *baseParticipant) IsActive() bool { return p.GetState() == livekit.ParticipantInfo_ACTIVE }
+
+func (p *baseParticipant) GetState() livekit.ParticipantInfo_State {
+	p.lock.RLock()
+	defer p.lock.RUnlock()
+	return p.info.GetState()
+}
+
 func (p *baseParticipant) DisconnectReason() livekit.DisconnectReason {
 	p.lock.RLock()
 	defer p.lock.RUnlock()
@@ -145,24 +155,28 @@ func (p *baseParticipant) DisconnectReason() livekit.DisconnectReason {
 
 func (p *baseParticipant) TrackPublications() []TrackPublication {
 	tracks := make([]TrackPublication, 0)
-	p.tracks.Range(func(_, value interface{}) bool {
-		track := value.(TrackPublication)
-		tracks = append(tracks, track)
-		return true
-	})
+	p.tracks.Range(
+		func(_, value interface{}) bool {
+			track := value.(TrackPublication)
+			tracks = append(tracks, track)
+			return true
+		},
+	)
 	return tracks
 }
 
 func (p *baseParticipant) GetTrackPublication(source livekit.TrackSource) TrackPublication {
 	var pub TrackPublication
-	p.tracks.Range(func(_, value interface{}) bool {
-		trackPub := value.(TrackPublication)
-		if trackPub.Source() == source {
-			pub = trackPub
-			return false
-		}
-		return true
-	})
+	p.tracks.Range(
+		func(_, value interface{}) bool {
+			trackPub := value.(TrackPublication)
+			if trackPub.Source() == source {
+				pub = trackPub
+				return false
+			}
+			return true
+		},
+	)
 	return pub
 }
 
