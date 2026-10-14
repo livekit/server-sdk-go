@@ -14,7 +14,11 @@
 
 package lksdk
 
-import "testing"
+import (
+	"strings"
+	"testing"
+	"unicode/utf8"
+)
 
 func TestCompareVersions(t *testing.T) {
 	cases := []struct {
@@ -44,5 +48,19 @@ func TestCompareVersions(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("compareVersions(%q, %q) = %d, want %d", tc.v1, tc.v2, got, tc.want)
 		}
+	}
+}
+
+func TestTruncateBytesUTF8(t *testing.T) {
+	s := "a" + strings.Repeat("é", 200) // 401 bytes
+	got := truncateBytes(s, 256)
+	if !utf8.ValidString(got) {
+		t.Fatalf("invalid UTF-8: %q", got)
+	}
+	if len(got) != 255 {
+		t.Fatalf("expected 255 bytes, got %d", len(got))
+	}
+	if truncateBytes("abc", 3) != "abc" {
+		t.Fatal("string within limit should be unchanged")
 	}
 }
