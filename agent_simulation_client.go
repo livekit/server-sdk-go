@@ -75,6 +75,14 @@ func (c *AgentSimulationClient) CancelSimulationRun(ctx context.Context, req *li
 	return c.simulationClient.CancelSimulationRun(ctx, req)
 }
 
+func (c *AgentSimulationClient) ReportSimulationIssue(ctx context.Context, req *livekit.SimulationRun_ReportIssue_Request) (*livekit.SimulationRun_ReportIssue_Response, error) {
+	ctx, err := c.prepareContext(ctx, withAgentGrant{SimulationAdmin: true})
+	if err != nil {
+		return nil, err
+	}
+	return c.simulationClient.ReportSimulationIssue(ctx, req)
+}
+
 func (c *AgentSimulationClient) CreateScenarioFromSession(ctx context.Context, req *livekit.Scenario_CreateFromSession_Request) (*livekit.Scenario_CreateFromSession_Response, error) {
 	ctx, err := c.prepareContext(ctx, withAgentGrant{SimulationAdmin: true})
 	if err != nil {
