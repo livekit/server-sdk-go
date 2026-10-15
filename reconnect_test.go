@@ -383,3 +383,28 @@ func TestRestartFailoverReportsReconnectedOnceConnected(t *testing.T) {
 	require.EqualValues(t, 1, reconnected.Load(), "one restart reports one recovery")
 	require.Equal(t, string(ConnectionStateConnected), stateAtReconnected.Load(), "OnReconnected must fire once the connection is up")
 }
+
+func TestRestartReannouncesRemoteParticipants(t *testing.T) {
+	if apiKey == "" || apiSecret == "" {
+		t.Skip("no LIVEKIT_KEYS; requires a running livekit-server")
+	}
+	var connected, disconnected atomic.Int32
+	var reconnected atomic.Bool
+	sub, err := createAgent(t.Name(), &RoomCallback{
+		OnParticipantConnected:    func(*RemoteParticipant) { connected.Inc() },
+		OnParticipantDisconnected: func(*RemoteParticipant) { disconnected.Inc() },
+		OnReconnected:             func() { reconnected.Store(true) },
+	}, "sub")
+	require.NoError(t, err)
+	defer sub.Disconnect()
+
+	pub, err := createAgent(t.Name(), nil, "pub")
+	require.NoError(t, err)
+	defer pub.Disconnect()
+	require.Eventually(t, func() bool { return connected.Load() == 1 }, 5*time.Second, 50*time.Millisecond)
+
+	sub.Simulate(SimulateNodeFailure)
+	require.Eventually(t, reconnected.Load, 15*time.Second, 50*time.Millisecond)
+	require.Eventually(t, func() bool { return connected.Load() == 2 }, 5*time.Second, 50*time.Millisecond, "the restart disconnected pub, so it must announce pub again")
+	require.EqualValues(t, 1, disconnected.Load())
+}
