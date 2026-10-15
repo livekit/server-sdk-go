@@ -1482,10 +1482,14 @@ func (e *RTCEngine) OnJoinResponse(res *livekit.JoinResponse) error {
 		return err
 	}
 
+	var initialParticipants []*livekit.ParticipantInfo
+	if !isRestarting {
+		initialParticipants = res.OtherParticipants
+	}
 	e.engineHandler.OnRoomJoined(
 		res.Room,
 		res.Participant,
-		res.OtherParticipants,
+		initialParticipants,
 		res.ServerInfo,
 		res.SifTrailer,
 	)
