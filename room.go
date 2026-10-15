@@ -69,9 +69,10 @@ const (
 type ConnectionState string
 
 const (
-	ConnectionStateConnected    ConnectionState = "connected"
-	ConnectionStateReconnecting ConnectionState = "reconnecting"
-	ConnectionStateDisconnected ConnectionState = "disconnected"
+	ConnectionStateConnected          ConnectionState = "connected"
+	ConnectionStateReconnecting       ConnectionState = "reconnecting"
+	ConnectionStateSignalReconnecting ConnectionState = "signalReconnecting"
+	ConnectionStateDisconnected       ConnectionState = "disconnected"
 )
 
 // -----------------------------------------------
@@ -539,7 +540,9 @@ func (r *Room) ConnectionState() ConnectionState {
 	switch r.engine.currentState() {
 	case connectionManagerStateInitial, connectionManagerStateClosed:
 		return ConnectionStateDisconnected
-	case connectionManagerStateResuming, connectionManagerStateReconnecting:
+	case connectionManagerStateResuming:
+		return ConnectionStateSignalReconnecting
+	case connectionManagerStateReconnecting:
 		return ConnectionStateReconnecting
 	case connectionManagerStateConnected:
 		return ConnectionStateConnected
@@ -1103,12 +1106,14 @@ func (r *Room) OnRestarted(
 	r.OnParticipantUpdate(otherParticipants)
 
 	r.LocalParticipant.republishTracks()
+}
 
+func (r *Room) OnRestartConnected() {
 	r.callback.OnReconnected()
 }
 
 func (r *Room) OnResuming() {
-	r.callback.OnReconnecting()
+	r.callback.OnSignalReconnecting()
 }
 
 func (r *Room) OnResumed() {
