@@ -433,3 +433,18 @@ func TestRestartAppliesUpdatesReceivedBeforeRestarted(t *testing.T) {
 
 	require.Nil(t, r.GetParticipantByIdentity("pub"), "pub left after the join response the restart reports")
 }
+
+func TestRestartStopsWhenOnReconnectedDisconnects(t *testing.T) {
+	var r *Room
+	r = NewRoom(&RoomCallback{OnReconnected: func() { r.Disconnect() }})
+	me := &livekit.ParticipantInfo{Sid: "PA_me", Identity: "me"}
+	pub := &livekit.ParticipantInfo{Sid: "PA_pub", Identity: "pub"}
+	room := &livekit.Room{Sid: "RM", Name: "r"}
+	r.OnRoomJoined(room, me, nil, &livekit.ServerInfo{}, nil)
+
+	r.OnRestarting()
+	r.OnRoomJoined(room, me, []*livekit.ParticipantInfo{pub}, &livekit.ServerInfo{}, nil)
+	r.OnRestarted(room, me, []*livekit.ParticipantInfo{pub})
+
+	require.Nil(t, r.GetParticipantByIdentity("pub"), "OnReconnected disconnected the room")
+}

@@ -323,6 +323,7 @@ type Room struct {
 	name                    string
 	LocalParticipant        *LocalParticipant
 	callback                *RoomCallback
+	callbackQueue           callbackQueue
 	sidReady                chan struct{}
 	disconnectReason        livekit.DisconnectReason
 
@@ -346,6 +347,38 @@ type Room struct {
 	rpcHandlers        *sync.Map
 
 	lock sync.RWMutex
+}
+
+type callbackQueue struct {
+	lock    sync.Mutex
+	pending []func()
+	running bool
+}
+
+func (q *callbackQueue) enqueue(callback func()) {
+	q.lock.Lock()
+	defer q.lock.Unlock()
+	q.pending = append(q.pending, callback)
+	if !q.running {
+		q.running = true
+		go q.drain()
+	}
+}
+
+func (q *callbackQueue) drain() {
+	for {
+		q.lock.Lock()
+		callbacks := q.pending
+		q.pending = nil
+		q.running = len(callbacks) > 0
+		q.lock.Unlock()
+		if len(callbacks) == 0 {
+			return
+		}
+		for _, callback := range callbacks {
+			callback()
+		}
+	}
 }
 
 // NewRoom can be used to update callbacks before calling Join
@@ -1123,6 +1156,9 @@ func (r *Room) OnRestarted(
 	r.LocalParticipant.republishTracks()
 
 	r.callback.OnReconnected()
+	if r.engine.closed.Load() {
+		return
+	}
 
 	r.applyRoomUpdate(room)
 	r.applyParticipantUpdate(otherParticipants)
@@ -1207,7 +1243,7 @@ func (r *Room) applyParticipantUpdate(participants []*livekit.ParticipantInfo) {
 			rp = r.addRemoteParticipant(pi, true)
 			r.clearParticipantDefers(livekit.ParticipantID(pi.Sid), pi)
 			r.runParticipantDefers(livekit.ParticipantID(pi.Sid), rp)
-			go r.callback.OnParticipantConnected(rp)
+			r.callbackQueue.enqueue(func() { r.callback.OnParticipantConnected(rp) })
 		} else {
 			oldSid := livekit.ParticipantID(rp.SID())
 			rp.updateInfo(pi)
@@ -1246,7 +1282,7 @@ func (r *Room) OnParticipantDisconnect(rp *RemoteParticipant, reason livekit.Dis
 	r.LocalParticipant.handleParticipantDisconnected(rp.Identity())
 
 	rp.info.DisconnectReason = reason
-	go r.callback.OnParticipantDisconnected(rp)
+	r.callbackQueue.enqueue(func() { r.callback.OnParticipantDisconnected(rp) })
 }
 
 func (r *Room) OnSpeakersChanged(speakerUpdates []*livekit.SpeakerInfo) {
@@ -1286,7 +1322,7 @@ func (r *Room) applySpeakersChanged(speakerUpdates []*livekit.SpeakerInfo) {
 	r.lock.Lock()
 	r.activeSpeakers = activeSpeakers
 	r.lock.Unlock()
-	go r.callback.OnActiveSpeakersChanged(activeSpeakers)
+	r.callbackQueue.enqueue(func() { r.callback.OnActiveSpeakersChanged(activeSpeakers) })
 }
 
 func (r *Room) OnConnectionQuality(updates []*livekit.ConnectionQualityInfo) {
@@ -1328,10 +1364,10 @@ func (r *Room) applyRoomUpdate(room *livekit.Room) {
 	r.lock.Unlock()
 	r.setSid(room.Sid, false)
 	if metadataChanged {
-		go r.callback.OnRoomMetadataChanged(room.Metadata)
+		r.callbackQueue.enqueue(func() { r.callback.OnRoomMetadataChanged(room.Metadata) })
 	}
 	if recordingChanged {
-		go r.callback.OnRecordingStatusChanged(room.ActiveRecording)
+		r.callbackQueue.enqueue(func() { r.callback.OnRecordingStatusChanged(room.ActiveRecording) })
 	}
 }
 
@@ -1353,8 +1389,8 @@ func (r *Room) applyRoomMoved(moved *livekit.RoomMovedResponse) {
 		r.OnParticipantDisconnect(rp, livekit.DisconnectReason_MIGRATION)
 	}
 
-	go r.callback.OnRoomMoved(moved.Room.Name, moved.Token)
-	go r.callback.OnRoomMovedWithSID(moved.Room.Name, moved.Room.Sid, moved.Token)
+	r.callbackQueue.enqueue(func() { r.callback.OnRoomMoved(moved.Room.Name, moved.Token) })
+	r.callbackQueue.enqueue(func() { r.callback.OnRoomMovedWithSID(moved.Room.Name, moved.Room.Sid, moved.Token) })
 
 	infos := make([]*livekit.ParticipantInfo, 0, len(moved.OtherParticipants)+1)
 	infos = append(infos, moved.Participant)
