@@ -28,6 +28,9 @@ type Sync interface {
 	AddTrack(track TrackRemote, participantID string) TrackSync
 	RemoveTrack(trackID string)
 	OnRTCP(packet rtcp.Packet)
+	// OnRTCPAt is OnRTCP for a packet received at receivedAt, on the same clock as
+	// the ReceivedAt of the tracks' media packets.
+	OnRTCPAt(packet rtcp.Packet, receivedAt time.Time)
 	End()
 	GetStartedAt() int64
 	GetEndedAt() int64

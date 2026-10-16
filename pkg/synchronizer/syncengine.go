@@ -269,9 +269,16 @@ func (e *SyncEngine) removeTrackLocked(st *syncEngineTrack) {
 	st.logger.Infow("track removed", "lastPTS", lastPTS)
 }
 
-// OnRTCP processes an RTCP packet, dispatching sender reports to the appropriate
-// track's NTP estimator and ParticipantClock.
+// OnRTCP processes an RTCP packet received now, dispatching sender reports to the
+// appropriate track's NTP estimator and ParticipantClock.
 func (e *SyncEngine) OnRTCP(packet rtcp.Packet) {
+	e.OnRTCPAt(packet, time.Now())
+}
+
+// OnRTCPAt is OnRTCP for a packet received at receivedAt, on the same clock as the
+// ReceivedAt of the track's media packets. A consumer replaying recorded media faster
+// than realtime passes each sender report's original arrival time.
+func (e *SyncEngine) OnRTCPAt(packet rtcp.Packet, receivedAt time.Time) {
 	sr, ok := packet.(*rtcp.SenderReport)
 	if !ok {
 		return
@@ -289,8 +296,6 @@ func (e *SyncEngine) OnRTCP(packet rtcp.Packet) {
 	kind := st.track.Kind()
 	e.mu.Unlock()
 
-	now := time.Now()
-
 	// Feed the SR to the session timeline UNDER st.mu so that a concurrent
 	// removeTrackLocked (which takes st.mu via closeLocked) cannot delete the
 	// track's NtpEstimator from pc.tracks between our lookup and our update —
@@ -306,9 +311,9 @@ func (e *SyncEngine) OnRTCP(packet rtcp.Packet) {
 		st.mu.Unlock()
 		return
 	}
-	if gap, ok := st.rtpVsWallGapLocked(sr.RTPTime, now); ok && e.srDomainThreshold > 0 &&
+	if gap, ok := st.rtpVsWallGapLocked(sr.RTPTime, receivedAt); ok && e.srDomainThreshold > 0 &&
 		(gap > e.srDomainThreshold || gap < -e.srDomainThreshold) {
-		if st.noteSRDomainRejectLocked(gap, now) {
+		if st.noteSRDomainRejectLocked(gap, receivedAt) {
 			st.logger.Warnw("rejecting sender report outside media RTP domain", nil,
 				"rtpTimestamp", sr.RTPTime,
 				"lastTS", st.lastTS,
@@ -323,7 +328,7 @@ func (e *SyncEngine) OnRTCP(packet rtcp.Packet) {
 	if !st.initialized && e.srDomainThreshold > 0 {
 		st.srBeforeInit = true
 	}
-	e.timeline.OnSenderReport(participantID, trackID, clockRate, sr.NTPTime, sr.RTPTime, now)
+	e.timeline.OnSenderReport(participantID, trackID, clockRate, sr.NTPTime, sr.RTPTime, receivedAt)
 	onSR := st.onSR
 	st.mu.Unlock()
 
@@ -347,7 +352,7 @@ func (e *SyncEngine) OnRTCP(packet rtcp.Packet) {
 		// tempo controller closes the gap between what we emit and the NTP
 		// regression. Report `wallPTS - sessionPTS`: positive = wall PTS ahead
 		// (slow down), negative = behind (speed up).
-		wallPTS, ok := st.wallClockPTSForRTP(sr.RTPTime, now)
+		wallPTS, ok := st.wallClockPTSForRTP(sr.RTPTime, receivedAt)
 		if !ok {
 			return
 		}
@@ -356,7 +361,7 @@ func (e *SyncEngine) OnRTCP(packet rtcp.Packet) {
 		// Diagnostic: how far the NTP regression is from wall clock since
 		// session start. Not used for closed-loop correction.
 		sessionStart := time.Unix(0, startedAt)
-		drift = sessionPTS - now.Sub(sessionStart)
+		drift = sessionPTS - receivedAt.Sub(sessionStart)
 	}
 
 	st.logger.Debugw("sender report",

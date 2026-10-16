@@ -714,3 +714,64 @@ func TestSyncEngine_OnRTCP_AcceptsSRAcrossMediaGap(t *testing.T) {
 	require.Zero(t, srDomainRejectCount(st), "a 10s media gap must not read as a domain mismatch")
 	require.True(t, estimatorReady(engine, "alice", "audio-1"))
 }
+
+func TestSyncEngine_OnRTCPAt_RecordedArrivalTimes(t *testing.T) {
+	// media recorded a day ago and replayed faster than realtime with its stored arrival times
+	recordedAt := time.Now().Add(-24 * time.Hour)
+
+	replay := func(t *testing.T, feedSR func(e *SyncEngine, sr *rtcp.SenderReport, receivedAt time.Time)) (*SyncEngine, TrackSync, *[]time.Duration) {
+		engine := NewSyncEngine(WithSyncEngineOldPacketThreshold(0))
+		ts := engine.AddTrack(newMockAudioTrack("audio-1", 1000), "alice")
+
+		drifts := &[]time.Duration{}
+		ts.OnSenderReport(func(d time.Duration) { *drifts = append(*drifts, d) })
+
+		// 50 packets at 20ms, so lastTS=48000 and the track sits at about 1s
+		for i := 0; i <= 50; i++ {
+			pkt := makeExtPacket(uint32(i)*960, uint16(i), recordedAt.Add(time.Duration(i)*20*time.Millisecond))
+			if i == 0 {
+				ts.PrimeForStart(pkt)
+			}
+			_, err := ts.GetPTS(pkt)
+			require.NoError(t, err)
+		}
+
+		// NTP and arrival agree, as for a publisher whose SRs reached the SFU without delay
+		for i := 1; i <= 5; i++ {
+			srAt := recordedAt.Add(time.Duration(i) * 200 * time.Millisecond)
+			feedSR(engine, makeSenderReport(1000, ntpToUint64(srAt), uint32(i)*9600), srAt)
+		}
+		return engine, ts, drifts
+	}
+
+	t.Run("OnRTCPAt", func(t *testing.T) {
+		engine, ts, drifts := replay(t, func(e *SyncEngine, sr *rtcp.SenderReport, receivedAt time.Time) {
+			e.OnRTCPAt(sr, receivedAt)
+		})
+
+		require.Zero(t, srDomainRejectCount(ts.(*syncEngineTrack)), "SRs at their recorded arrival time are in the media domain")
+		require.True(t, estimatorReady(engine, "alice", "audio-1"), "NTP regression should be ready")
+
+		// the diagnostic drift is measured from the SR's arrival, not from the replay's wall clock
+		require.NotEmpty(t, *drifts)
+		sessionPTS, err := engine.timeline.GetSessionPTS("alice", "audio-1", 5*9600)
+		require.NoError(t, err)
+		require.InDelta(t, float64(sessionPTS-time.Second), float64((*drifts)[len(*drifts)-1]), float64(50*time.Millisecond))
+
+		pkt := makeExtPacket(51*960, 51, recordedAt.Add(51*20*time.Millisecond))
+		pts, err := ts.GetPTS(pkt)
+		require.NoError(t, err)
+		require.InDelta(t, float64(51*20*time.Millisecond), float64(pts), float64(defaultNtpTrustThreshold),
+			"NTP-driven PTS stays within the trust threshold of the recorded arrival")
+	})
+
+	t.Run("OnRTCP", func(t *testing.T) {
+		engine, ts, drifts := replay(t, func(e *SyncEngine, sr *rtcp.SenderReport, _ time.Time) {
+			e.OnRTCP(sr)
+		})
+
+		require.Equal(t, 5, srDomainRejectCount(ts.(*syncEngineTrack)), "judged against the replay's wall clock, every SR is a day out of domain")
+		require.False(t, estimatorReady(engine, "alice", "audio-1"))
+		require.Empty(t, *drifts)
+	})
+}
