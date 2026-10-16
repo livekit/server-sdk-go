@@ -409,6 +409,7 @@ func (r *Room) Name() string {
 
 // SID returns the unique session ID of the room.
 // This will block until session ID is available, which could take up to 2s after joining the room.
+// The ID can change while connected, see RoomCallback.OnRoomSIDChanged.
 func (r *Room) SID() string {
 	<-r.sidReady
 	r.lock.RLock()
@@ -811,18 +812,26 @@ func (r *Room) cleanup() {
 	r.LocalParticipant.cleanup()
 }
 
-func (r *Room) setSid(sid string, allowEmpty bool) {
+// setSid records the room's session ID and unblocks SID(). Once the ID is known, a
+// different non-empty ID replaces it and reports changed, so callers can notify
+// OnRoomSIDChanged when the server re-keys the session the room belongs to.
+func (r *Room) setSid(sid string, allowEmpty bool) (changed bool) {
 	r.lock.Lock()
-	if sid != "" || allowEmpty {
-		select {
-		case <-r.sidReady:
-		// already closed
-		default:
+	defer r.lock.Unlock()
+
+	select {
+	case <-r.sidReady:
+		if sid != "" && sid != r.sid {
+			changed = r.sid != ""
+			r.sid = sid
+		}
+	default:
+		if sid != "" || allowEmpty {
 			r.sid = sid
 			close(r.sidReady)
 		}
 	}
-	r.lock.Unlock()
+	return changed
 }
 
 // Simulate triggers various test scenarios for debugging and testing purposes.
@@ -1269,7 +1278,9 @@ func (r *Room) OnRoomUpdate(room *livekit.Room) {
 		r.activeRecording = room.ActiveRecording
 	}
 	r.lock.Unlock()
-	r.setSid(room.Sid, false)
+	if r.setSid(room.Sid, false) {
+		go r.callback.OnRoomSIDChanged(room.Sid)
+	}
 	if metadataChanged {
 		go r.callback.OnRoomMetadataChanged(room.Metadata)
 	}
@@ -1280,13 +1291,12 @@ func (r *Room) OnRoomUpdate(room *livekit.Room) {
 
 func (r *Room) OnRoomMoved(moved *livekit.RoomMovedResponse) {
 	r.log.Infow("room moved", "newRoom", moved.Room.Name)
-	r.OnRoomUpdate(moved.Room)
 
-	// setSid is one-shot; update name/sid directly so the getters report the destination room.
+	// set the name first so OnRoomSIDChanged observes the destination room's name
 	r.lock.Lock()
 	r.name = moved.Room.Name
-	r.sid = moved.Room.Sid
 	r.lock.Unlock()
+	r.OnRoomUpdate(moved.Room)
 
 	for _, rp := range r.GetRemoteParticipants() {
 		r.OnParticipantDisconnect(rp, livekit.DisconnectReason_MIGRATION)

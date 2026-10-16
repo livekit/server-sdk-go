@@ -178,6 +178,11 @@ type RoomCallback struct {
 	OnSignalReconnecting      func()
 	OnLocalTrackSubscribed    func(publication *LocalTrackPublication, lp *LocalParticipant)
 
+	// OnRoomSIDChanged is called when the room's session ID changes after it was first
+	// known, either because the server started a new session for the room or because
+	// the participant was moved to another room.
+	OnRoomSIDChanged func(roomSID string)
+
 	// participant events are sent to the room as well
 	ParticipantCallback
 }
@@ -197,6 +202,7 @@ func NewRoomCallback() *RoomCallback {
 		OnRecordingStatusChanged:  func(isRecording bool) {},
 		OnRoomMoved:               func(roomName string, token string) {},
 		OnRoomMovedWithSID:        func(roomName string, roomSID string, token string) {},
+		OnRoomSIDChanged:          func(roomSID string) {},
 		OnReconnecting:            func() {},
 		OnReconnected:             func() {},
 		OnSignalReconnecting:      func() {},
@@ -236,6 +242,9 @@ func (cb *RoomCallback) Merge(other *RoomCallback) {
 	}
 	if other.OnRoomMovedWithSID != nil {
 		cb.OnRoomMovedWithSID = other.OnRoomMovedWithSID
+	}
+	if other.OnRoomSIDChanged != nil {
+		cb.OnRoomSIDChanged = other.OnRoomSIDChanged
 	}
 	if other.OnReconnecting != nil {
 		cb.OnReconnecting = other.OnReconnecting
