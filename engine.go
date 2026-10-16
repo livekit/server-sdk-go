@@ -56,7 +56,6 @@ type engineHandler interface {
 		participant *livekit.ParticipantInfo,
 		otherParticipants []*livekit.ParticipantInfo,
 	)
-	OnRestartConnected()
 	OnResuming()
 	OnResumed()
 	OnTranscription(*livekit.Transcription)
@@ -133,6 +132,7 @@ type RTCEngine struct {
 	subscriberPrimary bool
 	hasPublish        atomic.Bool
 	closed            atomic.Bool
+	joinResponse      atomic.Pointer[livekit.JoinResponse]
 
 	dataCryptor *e2ee.DataCryptor // E2EE data channel encryption (nil = disabled)
 
@@ -1047,7 +1047,8 @@ func (e *RTCEngine) restartConnection() error {
 		return err
 	}
 	if !e.closed.Load() {
-		e.engineHandler.OnRestartConnected()
+		res := e.joinResponse.Load()
+		e.engineHandler.OnRestarted(res.Room, res.Participant, res.OtherParticipants)
 	}
 	return nil
 }
@@ -1474,22 +1475,17 @@ func (e *RTCEngine) OnTransportClose() {
 
 // signalling.SignalProcessor implementation
 func (e *RTCEngine) OnJoinResponse(res *livekit.JoinResponse) error {
-	isRestarting := e.connectionManager.isReconnectingState()
-
 	err := e.configure(res.IceServers, res.ClientConfiguration, proto.Bool(res.SubscriberPrimary))
 	if err != nil {
 		e.log.Warnw("could not configure", err)
 		return err
 	}
+	e.joinResponse.Store(res)
 
-	var initialParticipants []*livekit.ParticipantInfo
-	if !isRestarting {
-		initialParticipants = res.OtherParticipants
-	}
 	e.engineHandler.OnRoomJoined(
 		res.Room,
 		res.Participant,
-		initialParticipants,
+		res.OtherParticipants,
 		res.ServerInfo,
 		res.SifTrailer,
 	)
@@ -1516,10 +1512,6 @@ func (e *RTCEngine) OnJoinResponse(res *livekit.JoinResponse) error {
 				e.log.Warnw("no publisher peer connection", ErrNoPeerConnection)
 			}
 		}
-	}
-
-	if isRestarting {
-		e.engineHandler.OnRestarted(res.Room, res.Participant, res.OtherParticipants)
 	}
 	return nil
 }

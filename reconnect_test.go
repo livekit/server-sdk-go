@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/pion/webrtc/v4"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -44,7 +45,7 @@ type stallRegion struct {
 	leaveCount atomic.Int32
 }
 
-func newStallRegion(t *testing.T) *stallRegion {
+func newStallRegion(t *testing.T, otherParticipants ...*livekit.ParticipantInfo) *stallRegion {
 	t.Helper()
 	sr := &stallRegion{}
 	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
@@ -67,6 +68,7 @@ func newStallRegion(t *testing.T) *stallRegion {
 				Join: &livekit.JoinResponse{
 					Room:              &livekit.Room{Sid: "RM_stall", Name: "stall"},
 					Participant:       &livekit.ParticipantInfo{Sid: "PA_stall", Identity: "stall"},
+					OtherParticipants: otherParticipants,
 					SubscriberPrimary: true,
 					ServerInfo:        &livekit.ServerInfo{Edition: livekit.ServerInfo_Standard},
 				},
@@ -338,7 +340,6 @@ func TestRecoveryCallbacksSeparateResumeFromRestart(t *testing.T) {
 	r.OnResuming()
 	r.OnRestarting()
 	r.OnRestarted(&livekit.Room{}, &livekit.ParticipantInfo{}, nil)
-	r.OnRestartConnected()
 	require.Equal(t, []string{"SignalReconnecting", "Reconnecting", "Reconnected"}, events, "a failed resume escalates to a restart")
 }
 
@@ -353,17 +354,18 @@ func TestConnectionStateSeparatesResumeFromRestart(t *testing.T) {
 	require.Equal(t, ConnectionStateReconnecting, r.ConnectionState(), "a failed resume escalates to a restart")
 }
 
-func TestRestartFailoverReportsReconnectedOnceConnected(t *testing.T) {
+func TestRestartFailoverAppliesOnlyTheConnectedRegion(t *testing.T) {
 	if apiKey == "" || apiSecret == "" {
 		t.Skip("no LIVEKIT_KEYS; requires a running livekit-server")
 	}
-	stall := newStallRegion(t)
+	stall := newStallRegion(t, &livekit.ParticipantInfo{Sid: "PA_ghost", Identity: "ghost"})
 	const connectTimeout = 2 * time.Second
 
-	var reconnected atomic.Int32
+	var reconnected, announced atomic.Int32
 	var stateAtReconnected atomic.String
 	var room *Room
 	room, err := createAgent("restart-failover-"+t.Name(), &RoomCallback{
+		OnParticipantConnected: func(*RemoteParticipant) { announced.Inc() },
 		OnReconnected: func() {
 			reconnected.Inc()
 			stateAtReconnected.Store(string(room.ConnectionState()))
@@ -372,16 +374,24 @@ func TestRestartFailoverReportsReconnectedOnceConnected(t *testing.T) {
 	require.NoError(t, err)
 	defer room.Disconnect()
 
+	track, err := NewLocalTrack(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2})
+	require.NoError(t, err)
+	_, err = room.LocalParticipant.PublishTrack(track, &TrackPublicationOptions{Name: "audio"})
+	require.NoError(t, err)
+
 	room.engine.handleDisconnect("test", true, &livekit.RegionSettings{
 		Regions: []*livekit.RegionInfo{{Region: "stall", Url: stall.wsURL}},
 	})
 
 	require.Eventually(t, func() bool {
 		return reconnected.Load() > 0 && room.ConnectionState() == ConnectionStateConnected
-	}, 20*time.Second, 50*time.Millisecond, "the restart should fall through the stalled region and recover")
+	}, 30*time.Second, 50*time.Millisecond, "the restart should fall through the stalled region and recover")
 	require.EqualValues(t, 1, stall.dialCount.Load(), "the restart must try the stalled region first")
 	require.EqualValues(t, 1, reconnected.Load(), "one restart reports one recovery")
 	require.Equal(t, string(ConnectionStateConnected), stateAtReconnected.Load(), "OnReconnected must fire once the connection is up")
+	require.Nil(t, room.GetParticipantByIdentity("ghost"), "only the region the restart connected to reports who is in the room")
+	require.Zero(t, announced.Load(), "the failed region's participants must never be announced")
+	require.Len(t, room.LocalParticipant.TrackPublications(), 1, "the track must be republished to the region the restart connected to")
 }
 
 func TestRestartReannouncesRemoteParticipants(t *testing.T) {
@@ -407,4 +417,19 @@ func TestRestartReannouncesRemoteParticipants(t *testing.T) {
 	require.Eventually(t, reconnected.Load, 15*time.Second, 50*time.Millisecond)
 	require.Eventually(t, func() bool { return connected.Load() == 2 }, 5*time.Second, 50*time.Millisecond, "the restart disconnected pub, so it must announce pub again")
 	require.EqualValues(t, 1, disconnected.Load())
+}
+
+func TestRestartAppliesUpdatesReceivedBeforeRestarted(t *testing.T) {
+	r := NewRoom(nil)
+	me := &livekit.ParticipantInfo{Sid: "PA_me", Identity: "me"}
+	pub := &livekit.ParticipantInfo{Sid: "PA_pub", Identity: "pub"}
+	room := &livekit.Room{Sid: "RM", Name: "r"}
+	r.OnRoomJoined(room, me, []*livekit.ParticipantInfo{pub}, &livekit.ServerInfo{}, nil)
+
+	r.OnRestarting()
+	r.OnRoomJoined(room, me, []*livekit.ParticipantInfo{pub}, &livekit.ServerInfo{}, nil)
+	r.OnParticipantUpdate([]*livekit.ParticipantInfo{{Sid: "PA_pub", Identity: "pub", State: livekit.ParticipantInfo_DISCONNECTED}})
+	r.OnRestarted(room, me, []*livekit.ParticipantInfo{pub})
+
+	require.Nil(t, r.GetParticipantByIdentity("pub"), "pub left after the join response the restart reports")
 }
