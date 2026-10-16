@@ -116,3 +116,16 @@ func TestOnRoomUpdateDeliversLateSID(t *testing.T) {
 		return room.SID() == "RM_late"
 	}, time.Second, 10*time.Millisecond, "SID() never returned the SID delivered via OnRoomUpdate")
 }
+
+func TestRoomCallbacksArriveInOrder(t *testing.T) {
+	events := make(chan string, 2)
+	r := NewRoom(&RoomCallback{
+		OnParticipantConnected:    func(*RemoteParticipant) { events <- "connected" },
+		OnParticipantDisconnected: func(*RemoteParticipant) { events <- "disconnected" },
+	})
+	r.OnParticipantUpdate([]*livekit.ParticipantInfo{{Sid: "PA_pub", Identity: "pub"}})
+	r.OnParticipantUpdate([]*livekit.ParticipantInfo{{Sid: "PA_pub", Identity: "pub", State: livekit.ParticipantInfo_DISCONNECTED}})
+
+	require.Equal(t, "connected", <-events)
+	require.Equal(t, "disconnected", <-events)
+}

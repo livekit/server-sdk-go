@@ -323,6 +323,7 @@ type Room struct {
 	name                    string
 	LocalParticipant        *LocalParticipant
 	callback                *RoomCallback
+	callbackQueue           callbackQueue
 	sidReady                chan struct{}
 	disconnectReason        livekit.DisconnectReason
 
@@ -331,6 +332,8 @@ type Room struct {
 	sidDefers          map[livekit.ParticipantID]map[livekit.TrackID]func(p *RemoteParticipant)
 	metadata           string
 	activeRecording    bool
+	restarting         bool
+	restartUpdates     []func()
 	activeSpeakers     []Participant
 	serverInfo         *livekit.ServerInfo
 	regionURLProvider  *regionURLProvider
@@ -344,6 +347,38 @@ type Room struct {
 	rpcHandlers        *sync.Map
 
 	lock sync.RWMutex
+}
+
+type callbackQueue struct {
+	lock    sync.Mutex
+	pending []func()
+	running bool
+}
+
+func (q *callbackQueue) enqueue(callback func()) {
+	q.lock.Lock()
+	defer q.lock.Unlock()
+	q.pending = append(q.pending, callback)
+	if !q.running {
+		q.running = true
+		go q.drain()
+	}
+}
+
+func (q *callbackQueue) drain() {
+	for {
+		q.lock.Lock()
+		callbacks := q.pending
+		q.pending = nil
+		q.running = len(callbacks) > 0
+		q.lock.Unlock()
+		if len(callbacks) == 0 {
+			return
+		}
+		for _, callback := range callbacks {
+			callback()
+		}
+	}
 }
 
 // NewRoom can be used to update callbacks before calling Join
@@ -1008,6 +1043,10 @@ func (r *Room) UnregisterByteStreamHandler(topic string) {
 
 // engineHandler implementation
 func (r *Room) OnMediaTrack(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
+	r.applyNowOrAfterRestart(func() { r.applyMediaTrack(track, receiver) })
+}
+
+func (r *Room) applyMediaTrack(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
 	// ensure we have the participant
 	participantID, streamID := unpackStreamID(track.StreamID())
 	trackID := track.ID()
@@ -1043,9 +1082,14 @@ func (r *Room) OnRoomJoined(
 	sifTrailer []byte,
 ) {
 	r.lock.Lock()
+	restarting := r.restarting
 	r.name = room.Name
-	r.metadata = room.Metadata
-	r.activeRecording = room.ActiveRecording
+	if restarting {
+		r.restartUpdates = nil
+	} else {
+		r.metadata = room.Metadata
+		r.activeRecording = room.ActiveRecording
+	}
 	r.serverInfo = serverInfo
 	r.sifTrailer = make([]byte, len(sifTrailer))
 	copy(r.sifTrailer, sifTrailer)
@@ -1056,6 +1100,9 @@ func (r *Room) OnRoomJoined(
 	r.LocalParticipant.updateInfo(participant)
 	r.LocalParticipant.updateSubscriptionPermission()
 
+	if restarting {
+		return
+	}
 	for _, pi := range otherParticipants {
 		r.addRemoteParticipant(pi, true)
 		r.clearParticipantDefers(livekit.ParticipantID(pi.Sid), pi)
@@ -1086,6 +1133,11 @@ func (r *Room) DisconnectReason() livekit.DisconnectReason {
 }
 
 func (r *Room) OnRestarting() {
+	r.lock.Lock()
+	r.restarting = true
+	r.restartUpdates = nil
+	r.lock.Unlock()
+
 	r.callback.OnReconnecting()
 
 	for _, rp := range r.GetRemoteParticipants() {
@@ -1098,18 +1150,43 @@ func (r *Room) OnRestarted(
 	participant *livekit.ParticipantInfo,
 	otherParticipants []*livekit.ParticipantInfo,
 ) {
-	r.OnRoomUpdate(room)
-
 	r.LocalParticipant.updateInfo(participant)
 	r.LocalParticipant.updateSubscriptionPermission()
 
-	r.OnParticipantUpdate(otherParticipants)
-
 	r.LocalParticipant.republishTracks()
+
+	r.callback.OnReconnected()
+	if r.engine.closed.Load() {
+		return
+	}
+
+	r.applyRoomUpdate(room)
+	r.applyParticipantUpdate(otherParticipants)
+	for updates := r.takeUpdatesOrFinishRestart(); len(updates) > 0; updates = r.takeUpdatesOrFinishRestart() {
+		for _, update := range updates {
+			update()
+		}
+	}
 }
 
-func (r *Room) OnRestartConnected() {
-	r.callback.OnReconnected()
+func (r *Room) takeUpdatesOrFinishRestart() []func() {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	updates := r.restartUpdates
+	r.restartUpdates = nil
+	r.restarting = len(updates) > 0
+	return updates
+}
+
+func (r *Room) applyNowOrAfterRestart(update func()) {
+	r.lock.Lock()
+	if r.restarting {
+		r.restartUpdates = append(r.restartUpdates, update)
+		r.lock.Unlock()
+		return
+	}
+	r.lock.Unlock()
+	update()
 }
 
 func (r *Room) OnResuming() {
@@ -1147,6 +1224,10 @@ func (r *Room) OnDataPacket(identity string, dataPacket DataPacket) {
 }
 
 func (r *Room) OnParticipantUpdate(participants []*livekit.ParticipantInfo) {
+	r.applyNowOrAfterRestart(func() { r.applyParticipantUpdate(participants) })
+}
+
+func (r *Room) applyParticipantUpdate(participants []*livekit.ParticipantInfo) {
 	for _, pi := range participants {
 		if pi.Sid == r.LocalParticipant.SID() || pi.Identity == r.LocalParticipant.Identity() {
 			r.LocalParticipant.updateInfo(pi)
@@ -1162,7 +1243,7 @@ func (r *Room) OnParticipantUpdate(participants []*livekit.ParticipantInfo) {
 			rp = r.addRemoteParticipant(pi, true)
 			r.clearParticipantDefers(livekit.ParticipantID(pi.Sid), pi)
 			r.runParticipantDefers(livekit.ParticipantID(pi.Sid), rp)
-			go r.callback.OnParticipantConnected(rp)
+			r.callbackQueue.enqueue(func() { r.callback.OnParticipantConnected(rp) })
 		} else {
 			oldSid := livekit.ParticipantID(rp.SID())
 			rp.updateInfo(pi)
@@ -1201,10 +1282,14 @@ func (r *Room) OnParticipantDisconnect(rp *RemoteParticipant, reason livekit.Dis
 	r.LocalParticipant.handleParticipantDisconnected(rp.Identity())
 
 	rp.info.DisconnectReason = reason
-	go r.callback.OnParticipantDisconnected(rp)
+	r.callbackQueue.enqueue(func() { r.callback.OnParticipantDisconnected(rp) })
 }
 
 func (r *Room) OnSpeakersChanged(speakerUpdates []*livekit.SpeakerInfo) {
+	r.applyNowOrAfterRestart(func() { r.applySpeakersChanged(speakerUpdates) })
+}
+
+func (r *Room) applySpeakersChanged(speakerUpdates []*livekit.SpeakerInfo) {
 	speakerMap := make(map[string]Participant)
 	for _, p := range r.ActiveSpeakers() {
 		speakerMap[p.SID()] = p
@@ -1237,10 +1322,14 @@ func (r *Room) OnSpeakersChanged(speakerUpdates []*livekit.SpeakerInfo) {
 	r.lock.Lock()
 	r.activeSpeakers = activeSpeakers
 	r.lock.Unlock()
-	go r.callback.OnActiveSpeakersChanged(activeSpeakers)
+	r.callbackQueue.enqueue(func() { r.callback.OnActiveSpeakersChanged(activeSpeakers) })
 }
 
 func (r *Room) OnConnectionQuality(updates []*livekit.ConnectionQualityInfo) {
+	r.applyNowOrAfterRestart(func() { r.applyConnectionQuality(updates) })
+}
+
+func (r *Room) applyConnectionQuality(updates []*livekit.ConnectionQualityInfo) {
 	for _, update := range updates {
 		if update.ParticipantSid == r.LocalParticipant.SID() {
 			r.LocalParticipant.setConnectionQualityInfo(update)
@@ -1257,6 +1346,10 @@ func (r *Room) OnConnectionQuality(updates []*livekit.ConnectionQualityInfo) {
 }
 
 func (r *Room) OnRoomUpdate(room *livekit.Room) {
+	r.applyNowOrAfterRestart(func() { r.applyRoomUpdate(room) })
+}
+
+func (r *Room) applyRoomUpdate(room *livekit.Room) {
 	metadataChanged := false
 	recordingChanged := false
 	r.lock.Lock()
@@ -1271,16 +1364,20 @@ func (r *Room) OnRoomUpdate(room *livekit.Room) {
 	r.lock.Unlock()
 	r.setSid(room.Sid, false)
 	if metadataChanged {
-		go r.callback.OnRoomMetadataChanged(room.Metadata)
+		r.callbackQueue.enqueue(func() { r.callback.OnRoomMetadataChanged(room.Metadata) })
 	}
 	if recordingChanged {
-		go r.callback.OnRecordingStatusChanged(room.ActiveRecording)
+		r.callbackQueue.enqueue(func() { r.callback.OnRecordingStatusChanged(room.ActiveRecording) })
 	}
 }
 
 func (r *Room) OnRoomMoved(moved *livekit.RoomMovedResponse) {
+	r.applyNowOrAfterRestart(func() { r.applyRoomMoved(moved) })
+}
+
+func (r *Room) applyRoomMoved(moved *livekit.RoomMovedResponse) {
 	r.log.Infow("room moved", "newRoom", moved.Room.Name)
-	r.OnRoomUpdate(moved.Room)
+	r.applyRoomUpdate(moved.Room)
 
 	// setSid is one-shot; update name/sid directly so the getters report the destination room.
 	r.lock.Lock()
@@ -1292,13 +1389,13 @@ func (r *Room) OnRoomMoved(moved *livekit.RoomMovedResponse) {
 		r.OnParticipantDisconnect(rp, livekit.DisconnectReason_MIGRATION)
 	}
 
-	go r.callback.OnRoomMoved(moved.Room.Name, moved.Token)
-	go r.callback.OnRoomMovedWithSID(moved.Room.Name, moved.Room.Sid, moved.Token)
+	r.callbackQueue.enqueue(func() { r.callback.OnRoomMoved(moved.Room.Name, moved.Token) })
+	r.callbackQueue.enqueue(func() { r.callback.OnRoomMovedWithSID(moved.Room.Name, moved.Room.Sid, moved.Token) })
 
 	infos := make([]*livekit.ParticipantInfo, 0, len(moved.OtherParticipants)+1)
 	infos = append(infos, moved.Participant)
 	infos = append(infos, moved.OtherParticipants...)
-	r.OnParticipantUpdate(infos)
+	r.applyParticipantUpdate(infos)
 }
 
 func (r *Room) OnTrackRemoteMuted(msg *livekit.MuteTrackRequest) {
