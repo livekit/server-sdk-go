@@ -91,7 +91,8 @@ type syncEngineTrack struct {
 
 	srRejected     int
 	srAccepted     int
-	srRejectFirst  time.Time
+	srRejectFirst  time.Time // receive time of the episode's first rejected SR
+	srRejectLast   time.Time // receive time of the episode's latest rejected SR
 	srRejectMaxGap time.Duration
 	srBeforeInit   bool // an SR reached the timeline while the domain guard was still disarmed
 
@@ -526,11 +527,12 @@ func (st *syncEngineTrack) endClampEpisodeLocked(wallPTS time.Duration) {
 	st.clampMaxDiff = 0
 }
 
-func (st *syncEngineTrack) noteSRDomainRejectLocked(gap time.Duration, now time.Time) bool {
+func (st *syncEngineTrack) noteSRDomainRejectLocked(gap time.Duration, receivedAt time.Time) bool {
 	st.srRejected++
 	st.srAccepted = 0
+	st.srRejectLast = receivedAt
 	if st.srRejected == 1 {
-		st.srRejectFirst = now
+		st.srRejectFirst = receivedAt
 		st.srRejectMaxGap = gap
 		return true
 	}
@@ -559,12 +561,13 @@ func (st *syncEngineTrack) endSRDomainEpisodeLocked() {
 
 	st.logger.Infow("sender report domain rejection episode ended",
 		"rejected", st.srRejected,
-		"episodeSpan", time.Since(st.srRejectFirst),
+		"episodeSpan", st.srRejectLast.Sub(st.srRejectFirst),
 		"maxGap", st.srRejectMaxGap,
 	)
 	st.srRejected = 0
 	st.srAccepted = 0
 	st.srRejectFirst = time.Time{}
+	st.srRejectLast = time.Time{}
 	st.srRejectMaxGap = 0
 }
 
