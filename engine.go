@@ -77,6 +77,7 @@ type engineHandler interface {
 	OnSubscribedQualityUpdate(subscribedQualityUpdate *livekit.SubscribedQualityUpdate)
 	OnSubscribedAudioCodecUpdate(subscribedAudioCodecUpdate *livekit.SubscribedAudioCodecUpdate)
 	OnMediaSectionsRequirement(mediaSectionsRequirement *livekit.MediaSectionsRequirement)
+	OnRequestResponse(requestResponse *livekit.RequestResponse)
 }
 
 // -------------------------------------------
@@ -130,6 +131,11 @@ type RTCEngine struct {
 	trackPublishedListenersLock sync.Mutex
 	trackPublishedListeners     map[string]chan *livekit.TrackPublishedResponse
 
+	// signal requests waiting for a response, keyed by request id
+	pendingRequestsLock sync.Mutex
+	nextRequestID       uint32 // guarded by pendingRequestsLock
+	pendingRequests     map[uint32]chan proto.Message
+
 	subscriberPrimary bool
 	hasPublish        atomic.Bool
 	closed            atomic.Bool
@@ -154,6 +160,7 @@ func NewRTCEngine(
 		engineHandler:            engineHandler,
 		cbGetLocalParticipantSID: getLocalParticipantSID,
 		trackPublishedListeners:  make(map[string]chan *livekit.TrackPublishedResponse),
+		pendingRequests:          make(map[uint32]chan proto.Message),
 		reliableMsgSeq:           1,
 		connectionManager:        newConnectionManager(regionProvider),
 	}
@@ -359,6 +366,7 @@ func (e *RTCEngine) Close() {
 	}
 
 	e.connectionManager.setClosed()
+	e.abortPendingRequests()
 
 	e.pclock.Lock()
 	e.pendingPublisherOffer = webrtc.SessionDescription{}
@@ -755,6 +763,76 @@ func (e *RTCEngine) UnregisterTrackPublishedListener(cid string) {
 	e.trackPublishedListenersLock.Unlock()
 }
 
+func (e *RTCEngine) newPendingRequest() *pendingRequest {
+	p := &pendingRequest{
+		engine: e,
+		ch:     make(chan proto.Message, 1),
+	}
+
+	e.pendingRequestsLock.Lock()
+	p.id = e.allocateRequestIDLocked()
+	if e.closed.Load() {
+		// nothing will answer, fail Await right away
+		close(p.ch)
+	} else {
+		e.pendingRequests[p.id] = p.ch
+	}
+	e.pendingRequestsLock.Unlock()
+
+	return p
+}
+
+// allocateRequestIDLocked returns the next request id not in use by a pending request, skipping
+// zero. Wrapping around is harmless: an id is reused only once its previous request is done.
+func (e *RTCEngine) allocateRequestIDLocked() uint32 {
+	for {
+		e.nextRequestID++
+		if e.nextRequestID == 0 {
+			continue
+		}
+		if _, inUse := e.pendingRequests[e.nextRequestID]; !inUse {
+			return e.nextRequestID
+		}
+	}
+}
+
+func (e *RTCEngine) removePendingRequest(requestID uint32) {
+	e.pendingRequestsLock.Lock()
+	delete(e.pendingRequests, requestID)
+	e.pendingRequestsLock.Unlock()
+}
+
+// deliverResponse hands res to the request waiting for requestID, if any.
+func (e *RTCEngine) deliverResponse(requestID uint32, res proto.Message) bool {
+	if requestID == 0 {
+		return false
+	}
+
+	e.pendingRequestsLock.Lock()
+	ch, ok := e.pendingRequests[requestID]
+	delete(e.pendingRequests, requestID)
+	e.pendingRequestsLock.Unlock()
+	if !ok {
+		return false
+	}
+
+	// buffered, and removed from the map above so this is the only send
+	ch <- res
+	return true
+}
+
+// abortPendingRequests fails every request still waiting for a response.
+func (e *RTCEngine) abortPendingRequests() {
+	e.pendingRequestsLock.Lock()
+	pending := e.pendingRequests
+	e.pendingRequests = make(map[uint32]chan proto.Message)
+	e.pendingRequestsLock.Unlock()
+
+	for _, ch := range pending {
+		close(ch)
+	}
+}
+
 func (e *RTCEngine) handleDataPacket(msg webrtc.DataChannelMessage) {
 	packet, err := e.readDataPacket(msg)
 	if err != nil {
@@ -1042,6 +1120,8 @@ func (e *RTCEngine) cleanupConnection() {
 }
 
 func (e *RTCEngine) restartConnection() error {
+	// the new session will never answer requests made on the old one
+	e.abortPendingRequests()
 	e.cleanupConnection()
 	if err := e.join(nil, nil); err != nil {
 		return err
@@ -1675,6 +1755,14 @@ func (e *RTCEngine) OnSubscribedAudioCodecUpdate(subscribedAudioCodecUpdate *liv
 
 func (e *RTCEngine) OnMediaSectionsRequirement(mediaSectionsRequirement *livekit.MediaSectionsRequirement) {
 	e.engineHandler.OnMediaSectionsRequirement(mediaSectionsRequirement)
+}
+
+func (e *RTCEngine) OnRequestResponse(res *livekit.RequestResponse) {
+	if e.deliverResponse(res.GetRequestId(), res) {
+		return
+	}
+
+	e.engineHandler.OnRequestResponse(res)
 }
 
 // ------------------------------------
