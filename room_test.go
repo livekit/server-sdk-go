@@ -116,3 +116,57 @@ func TestOnRoomUpdateDeliversLateSID(t *testing.T) {
 		return room.SID() == "RM_late"
 	}, time.Second, 10*time.Millisecond, "SID() never returned the SID delivered via OnRoomUpdate")
 }
+
+func TestOnRoomUpdateReportsSIDChange(t *testing.T) {
+	changed := make(chan string, 4)
+	room := NewRoom(&RoomCallback{
+		OnRoomSIDChanged: func(sid string) { changed <- sid },
+	})
+
+	room.OnRoomUpdate(&livekit.Room{Sid: "RM_first"})
+	require.Equal(t, "RM_first", room.SID())
+
+	// the same ID or an empty one is not a change
+	room.OnRoomUpdate(&livekit.Room{Sid: "RM_first"})
+	room.OnRoomUpdate(&livekit.Room{})
+	require.Equal(t, "RM_first", room.SID())
+
+	room.OnRoomUpdate(&livekit.Room{Sid: "RM_second"})
+	require.Equal(t, "RM_second", room.SID())
+
+	select {
+	case sid := <-changed:
+		require.Equal(t, "RM_second", sid)
+	case <-time.After(time.Second):
+		t.Fatal("OnRoomSIDChanged not called")
+	}
+	select {
+	case sid := <-changed:
+		t.Fatalf("unexpected OnRoomSIDChanged(%q)", sid)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestOnRoomMovedReportsSIDChangeWithNewName(t *testing.T) {
+	names := make(chan string, 1)
+	var room *Room
+	room = NewRoom(&RoomCallback{
+		OnRoomSIDChanged: func(string) { names <- room.Name() },
+	})
+	room.LocalParticipant.updateInfo(&livekit.ParticipantInfo{Sid: "local", Identity: "local-identity"})
+	room.name = "old-room"
+	room.setSid("RM_old", false)
+
+	room.OnRoomMoved(&livekit.RoomMovedResponse{
+		Room:        &livekit.Room{Name: "new-room", Sid: "RM_new"},
+		Participant: &livekit.ParticipantInfo{Sid: "local", Identity: "local-identity"},
+		Token:       "token",
+	})
+
+	select {
+	case name := <-names:
+		require.Equal(t, "new-room", name)
+	case <-time.After(time.Second):
+		t.Fatal("OnRoomSIDChanged not called")
+	}
+}
