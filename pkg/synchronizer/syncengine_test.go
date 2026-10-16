@@ -74,6 +74,7 @@ func TestSyncEngine_ImplementsSyncInterface(t *testing.T) {
 	// AddTrack return-type assignment sites — which would be reported as a
 	// confusing assignment error rather than a missing-method error.
 	var _ Sync = (*SyncEngine)(nil)
+	var _ Sync = (*SynchronizerAdapter)(nil)
 	var _ TrackSync = (*syncEngineTrack)(nil)
 }
 

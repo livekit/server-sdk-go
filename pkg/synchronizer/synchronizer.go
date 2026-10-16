@@ -364,6 +364,12 @@ func (s *Synchronizer) OnRTCP(packet rtcp.Packet) {
 	}
 }
 
+// OnRTCPAt is OnRTCP. The legacy synchronizer judges sender reports against the
+// current time, so receivedAt is ignored.
+func (s *Synchronizer) OnRTCPAt(packet rtcp.Packet, _ time.Time) {
+	s.OnRTCP(packet)
+}
+
 func (s *Synchronizer) End() {
 	s.Lock()
 	defer s.Unlock()
