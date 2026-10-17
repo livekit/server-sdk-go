@@ -15,6 +15,7 @@
 package lksdk
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -24,6 +25,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -407,4 +409,56 @@ func TestRestartReannouncesRemoteParticipants(t *testing.T) {
 	require.Eventually(t, reconnected.Load, 15*time.Second, 50*time.Millisecond)
 	require.Eventually(t, func() bool { return connected.Load() == 2 }, 5*time.Second, 50*time.Millisecond, "the restart disconnected pub, so it must announce pub again")
 	require.EqualValues(t, 1, disconnected.Load())
+}
+
+type restartingHook struct {
+	engineHandler
+	onRestarting func()
+}
+
+func (h *restartingHook) OnRestarting() {
+	h.engineHandler.OnRestarting()
+	h.onRestarting()
+}
+
+func TestRestartIgnoresUpdatesFromTheReplacedConnection(t *testing.T) {
+	if apiKey == "" || apiSecret == "" {
+		t.Skip("no LIVEKIT_KEYS; requires a running livekit-server")
+	}
+	watchSawMetadata := make(chan struct{}, 1)
+	watch, err := createAgent(t.Name(), &RoomCallback{ParticipantCallback: ParticipantCallback{
+		OnMetadataChanged: func(_ string, p Participant) {
+			if p.Identity() == "pub" {
+				watchSawMetadata <- struct{}{}
+			}
+		},
+	}}, "watch")
+	require.NoError(t, err)
+	defer watch.Disconnect()
+	pub, err := createAgent(t.Name(), nil, "pub")
+	require.NoError(t, err)
+	defer pub.Disconnect()
+
+	client := NewRoomServiceClient(host, apiKey, apiSecret)
+	var reconnected atomic.Bool
+	sub := NewRoom(&RoomCallback{OnReconnected: func() { reconnected.Store(true) }})
+	sub.engine.engineHandler = &restartingHook{engineHandler: sub, onRestarting: func() {
+		_, err := client.UpdateParticipant(context.Background(), &livekit.UpdateParticipantRequest{Room: t.Name(), Identity: "pub", Metadata: "changed during restart"})
+		assert.NoError(t, err)
+		select {
+		case <-watchSawMetadata:
+		case <-time.After(10 * time.Second):
+			t.Error("the server never broadcast pub's metadata")
+		}
+		assert.Never(t, func() bool { return sub.GetParticipantByIdentity("pub") != nil }, time.Second, 50*time.Millisecond,
+			"an update from the connection the restart replaces brought pub back")
+	}}
+	require.NoError(t, sub.Join(host, ConnectInfo{APIKey: apiKey, APISecret: apiSecret, RoomName: t.Name(), ParticipantIdentity: "sub"}))
+	defer sub.Disconnect()
+	require.Eventually(t, func() bool {
+		return sub.GetParticipantByIdentity("pub") != nil && watch.GetParticipantByIdentity("pub") != nil
+	}, 10*time.Second, 50*time.Millisecond)
+
+	sub.engine.handleDisconnect("test", true, nil)
+	require.Eventually(t, reconnected.Load, 20*time.Second, 50*time.Millisecond)
 }

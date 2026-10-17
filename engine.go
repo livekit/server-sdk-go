@@ -869,6 +869,7 @@ func (e *RTCEngine) handleDisconnect(reason string, fullReconnect bool, regionSe
 		reconnectCount := 0
 		for reconnectCount < maxReconnectCount && !e.closed.Load() {
 			if e.connectionManager.isReconnectingState() {
+				e.cleanupConnection()
 				if reconnectCount == 0 {
 					e.engineHandler.OnRestarting()
 				}
@@ -1042,7 +1043,6 @@ func (e *RTCEngine) cleanupConnection() {
 }
 
 func (e *RTCEngine) restartConnection() error {
-	e.cleanupConnection()
 	if err := e.join(nil, nil); err != nil {
 		return err
 	}
