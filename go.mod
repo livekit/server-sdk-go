@@ -12,7 +12,7 @@ require (
 	github.com/livekit/mediatransportutil v0.0.0-20260821083140-f234b534b095
 	github.com/livekit/protocol v1.52.1
 	github.com/magefile/mage v1.17.2
-	github.com/moby/buildkit v0.33.0
+	github.com/moby/buildkit v0.33.1
 	github.com/moby/patternmatcher v0.6.1
 	github.com/pion/dtls/v3 v3.1.8
 	github.com/pion/interceptor v0.1.47
