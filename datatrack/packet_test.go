@@ -25,7 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// testHeader is the header of the packet used by the Rust serialization tests, without extensions.
+// testHeader is a representative packet header without extensions.
 func testHeader() dtp.Header {
 	header := dtp.Header{
 		Version:        supportedVersion,
@@ -49,7 +49,7 @@ func testExtensions() Extensions {
 	}
 }
 
-// testPacket is the packet used by the Rust serialization tests.
+// testPacket is a representative packet with all extensions.
 func testPacket() dtp.Packet {
 	header := testHeader()
 	if err := testExtensions().apply(&header); err != nil {

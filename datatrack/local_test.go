@@ -62,7 +62,8 @@ func (prefixingEncryptor) Encrypt(payload []byte) ([]byte, E2EEExtension, error)
 	return append([]byte{0xde, 0xad, 0xbe, 0xef}, payload...), E2EEExtension{}, nil
 }
 
-// expectEvent receives from ch or fails after the 500 ms the Rust tests allow.
+// expectEvent receives from ch or fails fast. The 500 ms timeout is generous
+// enough to avoid flakes on slow CI while keeping failures quick.
 func expectEvent[T any](t *testing.T, ch <-chan T) T {
 	t.Helper()
 	select {
