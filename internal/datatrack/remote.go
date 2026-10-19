@@ -502,7 +502,7 @@ func (t *RemoteTrack) reassignSID(info Info) (oldSID livekit.TrackID, subscribed
 		return "", false, false
 	}
 	oldSID = t.info.SID
-	t.manager.logger().Debugw("data track SID reassigned", "oldSid", oldSID, "newSid", info.SID)
+	t.manager.logger().Infow("data track SID reassigned", "oldSid", oldSID, "newSid", info.SID)
 	t.info.SID = info.SID
 	return oldSID, t.subscription != subscriptionNone, true
 }
