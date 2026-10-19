@@ -28,11 +28,12 @@ func TestPublishDataTrackDeadlineInterruptsConnectionWait(t *testing.T) {
 	room := NewRoom(&RoomCallback{})
 	t.Cleanup(room.engine.Close)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	const deadline = 50 * time.Millisecond
+	start := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), deadline)
 	defer cancel()
 
-	start := time.Now()
 	_, err := room.LocalParticipant.PublishDataTrack(ctx, "test")
 	require.ErrorIs(t, err, context.DeadlineExceeded)
-	require.Less(t, time.Since(start), time.Second)
+	require.WithinRange(t, time.Now(), start.Add(deadline), start.Add(time.Second))
 }
