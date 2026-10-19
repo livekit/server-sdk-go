@@ -148,7 +148,6 @@ func subscribeAndActivate(t *testing.T, m *RemoteManager, transport *fakeRemoteT
 	return res.stream
 }
 
-// rawPacket marshals a packet derived from the Rust vector header.
 func rawPacket(t *testing.T, marker FrameMarker, handle trackHandle, sequence, frameNumber uint16, payload []byte, extensions Extensions) []byte {
 	t.Helper()
 	header := testHeader()
