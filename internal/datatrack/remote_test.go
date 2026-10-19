@@ -58,23 +58,6 @@ func (f *fakeRemoteTransport) OnTrackUnpublished(track *RemoteTrack) {
 	f.unpublished <- track
 }
 
-// prefixStrippingDecryptor undoes prefixingEncryptor.
-type prefixStrippingDecryptor struct{}
-
-func (prefixStrippingDecryptor) Decrypt(payload []byte, _ dtp.ExtensionE2EE) ([]byte, error) {
-	return payload[4:], nil
-}
-
-// expectNoEvent fails if ch delivers anything within the grace period.
-func expectNoEvent[T any](t *testing.T, ch <-chan T) {
-	t.Helper()
-	select {
-	case event := <-ch:
-		t.Fatalf("unexpected event %v", event)
-	case <-time.After(50 * time.Millisecond):
-	}
-}
-
 func expectFrame(t *testing.T, stream *Stream) Frame {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
@@ -366,7 +349,7 @@ func TestRemoteManager_SubscribeWithE2EE(t *testing.T) {
 	stream := subscribeAndActivate(t, m, transport, track, subHandle)
 
 	// Simulate receiving an encrypted single-frame packet
-	payload := []byte{0xde, 0xad, 0xbe, 0xef, 1, 2, 3, 4, 5}
+	payload := append(bytes.Clone(testE2EEPrefix), 1, 2, 3, 4, 5)
 	m.HandlePacket(singlePacket(t, subHandle, payload, Extensions{E2EE: &dtp.ExtensionE2EE{}}))
 
 	// Payload should have fake encryption prefix stripped by decryptor
