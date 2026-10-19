@@ -17,6 +17,7 @@ package datatrack
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"testing"
 	"time"
@@ -32,6 +33,8 @@ type fakeRemoteTransport struct {
 	subscriptionUpdates chan *livekit.UpdateDataSubscription
 	published           chan *RemoteTrack
 	unpublished         chan *RemoteTrack
+	// sendErr, when set, fails subscription updates after recording them
+	sendErr error
 }
 
 func newFakeRemoteTransport() *fakeRemoteTransport {
@@ -44,7 +47,7 @@ func newFakeRemoteTransport() *fakeRemoteTransport {
 
 func (f *fakeRemoteTransport) SendUpdateSubscription(req *livekit.UpdateDataSubscription) error {
 	f.subscriptionUpdates <- req
-	return nil
+	return f.sendErr
 }
 
 func (f *fakeRemoteTransport) OnTrackPublished(track *RemoteTrack) {
@@ -411,6 +414,37 @@ func TestRemoteManager_SubscribeUnknownTrackFails(t *testing.T) {
 
 	_, err := track.Subscribe(context.Background())
 	require.ErrorIs(t, err, ErrUnpublished)
+}
+
+// Should fail Subscribe with the error of a request that could not be sent, rather than time out.
+func TestRemoteManager_SubscribeFailsWhenRequestNotSent(t *testing.T) {
+	transport := newFakeRemoteTransport()
+	m := NewRemoteManager(RemoteManagerParams{Transport: transport})
+
+	trackSID := livekit.TrackID("DTR_1234")
+
+	// Simulate track published
+	track := publishTrack(t, m, transport, "id", Info{SID: trackSID, pubHandle: 1, Name: "test"})
+
+	// Subscribe while the signal connection is down
+	sendErr := errors.New("signal transport is not connected")
+	transport.sendErr = sendErr
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, err := track.Subscribe(ctx)
+	require.ErrorIs(t, err, sendErr)
+	_, subscribe := expectSubscriptionUpdate(t, transport)
+	require.True(t, subscribe)
+
+	// Once the connection is back, subscribing requests the subscription again
+	transport.sendErr = nil
+	result := subscribeAsync(context.Background(), track)
+	_, subscribe = expectSubscriptionUpdate(t, transport)
+	require.True(t, subscribe)
+
+	assignHandle(m, 0x1234, trackSID)
+	res := expectEvent(t, result)
+	require.NoError(t, res.err)
 }
 
 func TestRemoteManager_UnpublishTerminatesPendingSubscription(t *testing.T) {

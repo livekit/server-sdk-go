@@ -307,10 +307,12 @@ func (m *RemoteManager) Shutdown() {
 	m.mu.Unlock()
 }
 
-func (m *RemoteManager) sendSubscriptionUpdate(update subscriptionUpdate) {
-	if err := m.params.Transport.SendUpdateSubscription(update.toProto()); err != nil {
+func (m *RemoteManager) sendSubscriptionUpdate(update subscriptionUpdate) error {
+	err := m.params.Transport.SendUpdateSubscription(update.toProto())
+	if err != nil {
 		m.logger().Warnw("could not send data track subscription update", err, "sid", update.sid, "subscribe", update.subscribe)
 	}
+	return err
 }
 
 type subscriptionState int
@@ -438,7 +440,18 @@ func (t *RemoteTrack) Subscribe(ctx context.Context, opts ...SubscribeOption) (*
 		t.bufferSize = options.BufferSize
 		request = &subscriptionUpdate{sid: t.info.SID, subscribe: true}
 	}
-	t.unlockAndSend(request)
+	if err := t.unlockAndSend(request); err != nil {
+		// fail the subscription the request was for, unless it already ended
+		t.mu.Lock()
+		if t.subscription == subscriptionPending {
+			t.subscription = subscriptionNone
+			for _, waiter := range t.waiters {
+				waiter <- subscribeResult{err: err}
+			}
+			t.waiters = nil
+		}
+		t.mu.Unlock()
+	}
 
 	select {
 	case res := <-waiter:
@@ -506,15 +519,15 @@ func (t *RemoteTrack) resendSubscription() {
 
 // unlockAndSend releases mu and sends update, if any, ordered after the updates of earlier
 // subscription changes.
-func (t *RemoteTrack) unlockAndSend(update *subscriptionUpdate) {
+func (t *RemoteTrack) unlockAndSend(update *subscriptionUpdate) error {
 	if update == nil {
 		t.mu.Unlock()
-		return
+		return nil
 	}
 	t.sendMu.Lock()
 	defer t.sendMu.Unlock()
 	t.mu.Unlock()
-	t.manager.sendSubscriptionUpdate(*update)
+	return t.manager.sendSubscriptionUpdate(*update)
 }
 
 // usesHandle reports whether the track's active subscription is routed by handle.
