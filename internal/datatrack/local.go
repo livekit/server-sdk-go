@@ -206,10 +206,14 @@ func (m *LocalManager) resolvePublish(response publishResponse) {
 		return
 	}
 	track, isActive := m.active[response.handle]
+	if isActive && response.err != nil {
+		delete(m.active, response.handle)
+	}
 	m.mu.Unlock()
 
 	switch {
 	case isActive && response.err != nil:
+		track.markUnpublished()
 		m.logger().Warnw("republish failed for data track", response.err, "handle", response.handle)
 	case isActive:
 		if track.completeRepublish(response.info.SID) {
@@ -264,7 +268,8 @@ func (m *LocalManager) sendUnpublish(handle trackHandle) {
 }
 
 // RepublishTracks re-requests every publication after a full reconnect. Pending publications fail
-// with ErrDisconnected; published tracks drop frames until the SFU answers with their new SID.
+// with ErrDisconnected; published tracks drop frames until the SFU answers with their new SID, and
+// are unpublished if it rejects them.
 func (m *LocalManager) RepublishTracks() {
 	m.mu.Lock()
 	for handle, result := range m.pending {

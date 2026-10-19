@@ -304,6 +304,39 @@ func TestLocalManager_RepublishTracks(t *testing.T) {
 	require.NoError(t, track.TryPush(Frame{Payload: []byte{0xff}}))
 }
 
+func TestLocalManager_RepublishRejected(t *testing.T) {
+	transport := newFakeLocalTransport()
+	m := NewLocalManager(LocalManagerParams{Transport: transport})
+
+	result := publishAsync(context.Background(), m, "track")
+	request := expectEvent(t, transport.publishRequests)
+	m.HandlePublishResponse(accepted(request, "DTR_1234"))
+	track := expectEvent(t, result).track
+
+	// Simulate reconnect
+	m.RepublishTracks()
+	request = expectEvent(t, transport.publishRequests)
+
+	// SFU rejects the republish
+	handled := m.HandleRequestResponse(&livekit.RequestResponse{
+		Request: &livekit.RequestResponse_PublishDataTrack{PublishDataTrack: request},
+		Reason:  livekit.RequestResponse_LIMIT_EXCEEDED,
+	})
+	require.True(t, handled)
+
+	// Track is unpublished and no longer republished on the next reconnect
+	expectEvent(t, track.Unpublished())
+	require.False(t, track.IsPublished())
+	require.ErrorIs(t, track.TryPush(Frame{Payload: []byte{0xff}}), ErrUnpublished)
+
+	m.RepublishTracks()
+	select {
+	case request := <-transport.publishRequests:
+		require.Failf(t, "unexpected republish", "handle %d", request.GetPubHandle())
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
 func TestLocalManager_QueryPublished(t *testing.T) {
 	transport := newFakeLocalTransport()
 	m := NewLocalManager(LocalManagerParams{Transport: transport})
