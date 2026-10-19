@@ -65,11 +65,12 @@ func run(ctx context.Context, cmd *cli.Command) error {
 
 // subscribe subscribes to the given data track and logs received frames.
 func subscribe(ctx context.Context, track *datatrack.RemoteTrack) {
-	logger.Infow("subscribing", "track", track.Info().Name, "publisher", track.PublisherIdentity())
+	lgr := logger.GetLogger().WithValues("trackSID", track.Info().SID, "trackName", track.Info().Name, "publisher", track.PublisherIdentity())
+	lgr.Infow("subscribing")
 
 	stream, err := track.Subscribe(ctx)
 	if err != nil {
-		logger.Warnw("failed to subscribe", err)
+		lgr.Warnw("failed to subscribe", err)
 		return
 	}
 	defer stream.Close()
@@ -79,11 +80,11 @@ func subscribe(ctx context.Context, track *datatrack.RemoteTrack) {
 		if err != nil {
 			break
 		}
-		logger.Infow("received frame", "bytes", len(frame.Payload))
+		lgr.Infow("received frame", "bytes", len(frame.Payload))
 
 		if latency, ok := frame.DurationSinceTimestamp(); ok {
-			logger.Infow("latency", "duration", latency)
+			lgr.Infow("latency", "duration", latency)
 		}
 	}
-	logger.Infow("unsubscribed")
+	lgr.Infow("unsubscribed")
 }
