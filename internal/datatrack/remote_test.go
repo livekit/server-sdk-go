@@ -658,7 +658,7 @@ func TestRemotePipeline_DropsEncryptedFrameWithoutDecryptor(t *testing.T) {
 
 	header := testHeader()
 	FrameMarkerSingle.apply(&header)
-	Extensions{E2EE: &E2EEExtension{}}.apply(&header)
+	Extensions{E2EE: &dtp.ExtensionE2EE{}}.apply(&header)
 	packet := &dtp.Packet{Header: header, Payload: []byte{1, 2, 3, 4, 5}}
 
 	_, ok := pipeline.processPacket(packet, defaultMaxPartialFrames)

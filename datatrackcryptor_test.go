@@ -44,7 +44,7 @@ func TestDataTrackCryptorRoundTrip(t *testing.T) {
 
 	ciphertext, ext, err := c.Encrypt([]byte("hello encrypted world"))
 	require.NoError(t, err)
-	require.Equal(t, uint8(3), ext.KeyIndex)
+	require.Equal(t, uint8(3), ext.KeyIndex())
 	require.NotEqual(t, []byte("hello encrypted world"), ciphertext)
 
 	plaintext, err := c.Decrypt(ciphertext, ext)

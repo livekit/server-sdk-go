@@ -18,6 +18,7 @@ import (
 	"math"
 
 	dtp "github.com/livekit/protocol/datatrack"
+
 	"github.com/livekit/server-sdk-go/v2/e2ee"
 	"github.com/livekit/server-sdk-go/v2/e2ee/types"
 	"github.com/livekit/server-sdk-go/v2/internal/datatrack"
