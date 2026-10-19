@@ -327,7 +327,7 @@ func (m *LocalManager) Shutdown() {
 	}
 }
 
-type publishState int32
+type publishState int
 
 const (
 	statePublished publishState = iota
@@ -338,13 +338,12 @@ const (
 // LocalTrack is a data track published by the local participant. Methods are safe for concurrent
 // use.
 type LocalTrack struct {
-	manager       *LocalManager
-	handle        trackHandle
-	state         atomic.Int32
-	unpublished   chan struct{}
-	unpublishOnce sync.Once
+	manager     *LocalManager
+	handle      trackHandle
+	unpublished chan struct{}
 
 	mu       sync.Mutex
+	state    publishState
 	info     Info
 	pipeline localPipeline
 }
@@ -374,7 +373,9 @@ func (t *LocalTrack) Info() Info {
 // IsPublished reports whether the track is published. A track being republished after a
 // reconnect still counts as published.
 func (t *LocalTrack) IsPublished() bool {
-	return publishState(t.state.Load()) != stateUnpublished
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.state != stateUnpublished
 }
 
 // Unpublished is closed once the track is no longer published, whether by Unpublish, the SFU, or
@@ -387,14 +388,15 @@ func (t *LocalTrack) Unpublished() <-chan struct{} {
 // unpublished and ErrQueueFull while it is being republished after a reconnect. Frames are never
 // retained, so the caller may reuse the payload immediately.
 func (t *LocalTrack) TryPush(frame Frame) error {
-	switch publishState(t.state.Load()) {
+	t.mu.Lock()
+	switch t.state {
 	case stateRepublishing:
+		t.mu.Unlock()
 		return ErrQueueFull
 	case stateUnpublished:
+		t.mu.Unlock()
 		return ErrUnpublished
 	}
-
-	t.mu.Lock()
 	packets, err := t.pipeline.processFrame(frame)
 	t.mu.Unlock()
 	if err != nil {
@@ -410,23 +412,31 @@ func (t *LocalTrack) Unpublish() {
 }
 
 func (t *LocalTrack) markUnpublished() {
-	t.state.Store(int32(stateUnpublished))
-	t.unpublishOnce.Do(func() { close(t.unpublished) })
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.state == stateUnpublished {
+		return
+	}
+	t.state = stateUnpublished
+	close(t.unpublished)
 }
 
 func (t *LocalTrack) beginRepublish() Info {
-	t.state.Store(int32(stateRepublishing))
-	return t.Info()
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.state = stateRepublishing
+	return t.info
 }
 
 // completeRepublish reports false if the track was not being republished.
 func (t *LocalTrack) completeRepublish(sid livekit.TrackID) bool {
-	if !t.state.CompareAndSwap(int32(stateRepublishing), int32(statePublished)) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.state != stateRepublishing {
 		return false
 	}
-	t.mu.Lock()
+	t.state = statePublished
 	t.info.SID = sid
-	t.mu.Unlock()
 	return true
 }
 
