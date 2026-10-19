@@ -104,9 +104,10 @@ type baseStreamWriter[T any] struct {
 	totalSize             *uint64
 	onProgress            func(progress float64)
 
-	chunkIndex uint64
-	closed     core.Fuse
-	lock       sync.Mutex
+	chunkIndex   uint64
+	bytesWritten uint64
+	closed       core.Fuse
+	lock         sync.Mutex
 
 	writeQueue chan writeTask
 }
@@ -201,8 +202,9 @@ func (w *baseStreamWriter[T]) writeStreamBytes(chunks [][]byte, onDone *func()) 
 			ChunkIndex: chunkIndex,
 		}, w.destinationIdentities)
 
+		w.bytesWritten += uint64(len(chunk))
 		if w.onProgress != nil && w.totalSize != nil {
-			progress := float64(len(chunk)) / float64(*w.totalSize)
+			progress := float64(w.bytesWritten) / float64(*w.totalSize)
 			w.onProgress(progress)
 		}
 
