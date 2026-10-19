@@ -23,6 +23,10 @@ import (
 type (
 	// LocalTrack is a data track published by the local participant.
 	LocalTrack = backend.LocalTrack
+	// RemoteTrack is a data track published by a remote participant.
+	RemoteTrack = backend.RemoteTrack
+	// Stream delivers the frames of a subscription.
+	Stream = backend.Stream
 	// Info describes a published data track.
 	Info = backend.Info
 	// Frame is a frame published on a data track.
@@ -32,6 +36,13 @@ type (
 	PublishOptions = backend.PublishOptions
 	// PublishOption customizes a publication.
 	PublishOption = backend.PublishOption
+
+	// SubscribeOptions configure a subscription.
+	SubscribeOptions = backend.SubscribeOptions
+	// SubscribeOption customizes a subscription.
+	SubscribeOption = backend.SubscribeOption
+	// PipelineOptions configure how a remote track's packets are reassembled.
+	PipelineOptions = backend.PipelineOptions
 
 	// SchemaID identifies a data track schema.
 	SchemaID = backend.SchemaID
@@ -53,14 +64,15 @@ type (
 )
 
 var (
-	ErrNotAllowed     = backend.ErrNotAllowed
-	ErrDuplicateName  = backend.ErrDuplicateName
-	ErrInvalidName    = backend.ErrInvalidName
-	ErrLimitReached   = backend.ErrLimitReached
-	ErrPublishTimeout = backend.ErrPublishTimeout
-	ErrDisconnected   = backend.ErrDisconnected
-	ErrUnpublished    = backend.ErrUnpublished
-	ErrQueueFull      = backend.ErrQueueFull
+	ErrNotAllowed       = backend.ErrNotAllowed
+	ErrDuplicateName    = backend.ErrDuplicateName
+	ErrInvalidName      = backend.ErrInvalidName
+	ErrLimitReached     = backend.ErrLimitReached
+	ErrPublishTimeout   = backend.ErrPublishTimeout
+	ErrSubscribeTimeout = backend.ErrSubscribeTimeout
+	ErrDisconnected     = backend.ErrDisconnected
+	ErrUnpublished      = backend.ErrUnpublished
+	ErrQueueFull        = backend.ErrQueueFull
 
 	ErrSchemaMissingFrameEncoding = backend.ErrSchemaMissingFrameEncoding
 	ErrSchemaMissingID            = backend.ErrSchemaMissingID
@@ -99,6 +111,12 @@ func WithSchema(schema SchemaID) PublishOption {
 // WithFrameEncoding declares the encoding of the track's frames.
 func WithFrameEncoding(encoding FrameEncoding) PublishOption {
 	return backend.WithFrameEncoding(encoding)
+}
+
+// WithBufferSize sets the number of received frames buffered for the subscriber. It has no
+// effect when the track already has an active subscription.
+func WithBufferSize(frames int) SubscribeOption {
+	return backend.WithBufferSize(frames)
 }
 
 // UserTimestampNow returns the current Unix time in milliseconds, the interpretation
