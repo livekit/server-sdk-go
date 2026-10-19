@@ -34,6 +34,7 @@ import (
 	protosignalling "github.com/livekit/protocol/signalling"
 
 	"github.com/livekit/server-sdk-go/v2/e2ee"
+	dtbackend "github.com/livekit/server-sdk-go/v2/internal/datatrack"
 	"github.com/livekit/server-sdk-go/v2/signalling"
 )
 
@@ -1865,6 +1866,6 @@ func waitUntilConnected(ctx context.Context, d time.Duration, test func() bool) 
 	}
 }
 
-func (e *RTCEngine) sendDataTrackFrame(frame dataTrackFramePackets) {
+func (e *RTCEngine) sendDataTrackFrame(frame dtbackend.FramePackets) {
 	e.dataTrackSender.send(frame)
 }

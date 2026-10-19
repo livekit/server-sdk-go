@@ -21,6 +21,7 @@ import (
 
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/server-sdk-go/v2/datatrack"
+	dtbackend "github.com/livekit/server-sdk-go/v2/internal/datatrack"
 )
 
 const dataTrackPublishTimeout = 10 * time.Second
@@ -41,8 +42,8 @@ func (t localDataTrackTransport) SendUnpublishRequest(req *livekit.UnpublishData
 	return t.engine.SendUnpublishDataTrack(req)
 }
 
-func (t localDataTrackTransport) SendFrame(packets [][]byte) {
-	t.engine.sendDataTrackFrame(packets)
+func (t localDataTrackTransport) SendFrame(frame dtbackend.FramePackets) {
+	t.engine.sendDataTrackFrame(frame)
 }
 
 // PublishDataTrack publishes a data track and waits for the server to accept it. A 10 second

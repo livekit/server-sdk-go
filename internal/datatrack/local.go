@@ -27,14 +27,17 @@ import (
 // transportMTU is the largest packet sent over the data channel.
 const transportMTU = 16_000
 
+// FramePackets is one frame serialized into data track packets.
+type FramePackets [][]byte
+
 // LocalTransport carries what the local manager produces: signal requests to the SFU and frame
 // packets over the data channel.
 type LocalTransport interface {
 	// SendPublishRequest may block until the connection is ready; it returns ctx.Err() when ctx ends first.
 	SendPublishRequest(ctx context.Context, req *livekit.PublishDataTrackRequest) error
 	SendUnpublishRequest(req *livekit.UnpublishDataTrackRequest) error
-	// SendFrame queues all packets of one frame; it must not block.
-	SendFrame(packets [][]byte)
+	// SendFrame queues a frame's packets; it must not block.
+	SendFrame(frame FramePackets)
 }
 
 // Encryptor seals frame payloads for end-to-end encryption.
@@ -420,7 +423,7 @@ func newLocalPipeline(handle trackHandle, encryptor Encryptor) localPipeline {
 	return localPipeline{encryptor: encryptor, packetizer: newPacketizer(handle, transportMTU)}
 }
 
-func (p *localPipeline) processFrame(frame Frame) ([][]byte, error) {
+func (p *localPipeline) processFrame(frame Frame) (FramePackets, error) {
 	payload := frame.Payload
 	extensions := Extensions{UserTimestamp: frame.UserTimestamp}
 	if p.encryptor != nil {
@@ -438,8 +441,8 @@ func (p *localPipeline) processFrame(frame Frame) ([][]byte, error) {
 	return marshalPackets(packets)
 }
 
-func marshalPackets(packets []dtp.Packet) ([][]byte, error) {
-	raw := make([][]byte, len(packets))
+func marshalPackets(packets []dtp.Packet) (FramePackets, error) {
+	raw := make(FramePackets, len(packets))
 	for i := range packets {
 		buf, err := packets[i].Marshal()
 		if err != nil {

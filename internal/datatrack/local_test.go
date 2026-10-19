@@ -31,14 +31,14 @@ import (
 type fakeLocalTransport struct {
 	publishRequests   chan *livekit.PublishDataTrackRequest
 	unpublishRequests chan *livekit.UnpublishDataTrackRequest
-	frames            chan [][]byte
+	frames            chan FramePackets
 }
 
 func newFakeLocalTransport() *fakeLocalTransport {
 	return &fakeLocalTransport{
 		publishRequests:   make(chan *livekit.PublishDataTrackRequest, 16),
 		unpublishRequests: make(chan *livekit.UnpublishDataTrackRequest, 16),
-		frames:            make(chan [][]byte, 16),
+		frames:            make(chan FramePackets, 16),
 	}
 }
 
@@ -52,8 +52,8 @@ func (f *fakeLocalTransport) SendUnpublishRequest(req *livekit.UnpublishDataTrac
 	return nil
 }
 
-func (f *fakeLocalTransport) SendFrame(packets [][]byte) {
-	f.frames <- packets
+func (f *fakeLocalTransport) SendFrame(frame FramePackets) {
+	f.frames <- frame
 }
 
 // prefixingEncryptor marks payloads instead of encrypting them.
