@@ -22,6 +22,7 @@ require (
 	github.com/pion/webrtc/v4 v4.2.24
 	github.com/stretchr/testify v1.12.1
 	github.com/twitchtv/twirp v8.1.3+incompatible
+	github.com/urfave/cli/v3 v3.9.0
 	go.uber.org/atomic v1.12.0
 	golang.org/x/crypto v0.57.0
 	google.golang.org/protobuf v1.36.12
