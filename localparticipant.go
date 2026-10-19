@@ -49,13 +49,15 @@ type LocalParticipant struct {
 }
 
 func newLocalParticipant(engine *RTCEngine, roomcallback *RoomCallback, serverInfo *livekit.ServerInfo, log protoLogger.Logger) *LocalParticipant {
-	return &LocalParticipant{
+	p := &LocalParticipant{
 		baseParticipant:     *newBaseParticipant(roomcallback, log.WithValues("isLocal", true)),
 		engine:              engine,
 		serverInfo:          serverInfo,
 		rpcPendingAcks:      &sync.Map{},
 		rpcPendingResponses: &sync.Map{},
 	}
+	p.dataTracks = datatrack.NewLocalManager(datatrack.LocalManagerParams{Transport: localDataTrackTransport{engine: engine}, Logger: p.log})
+	return p
 }
 
 func (p *LocalParticipant) prepareTrackPublication(track webrtc.TrackLocal, opts *TrackPublicationOptions, pubOpts ...LocalTrackPublishOption) (*LocalTrackPublication, *livekit.AddTrackRequest, error) {

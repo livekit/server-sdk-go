@@ -35,7 +35,6 @@ import (
 	protosignalling "github.com/livekit/protocol/signalling"
 
 	"github.com/livekit/server-sdk-go/v2/e2ee"
-	"github.com/livekit/server-sdk-go/v2/internal/datatrack"
 	"github.com/livekit/server-sdk-go/v2/signalling"
 
 	"github.com/livekit/mediatransportutil/pkg/pacer"
@@ -323,7 +322,6 @@ type Room struct {
 	sid                     string
 	name                    string
 	LocalParticipant        *LocalParticipant
-	localDataTracks         *datatrack.LocalManager
 	callback                *RoomCallback
 	sidReady                chan struct{}
 	disconnectReason        livekit.DisconnectReason
@@ -368,8 +366,6 @@ func NewRoom(callback *RoomCallback) *Room {
 
 	r.engine = NewRTCEngine(r.useSinglePeerConnection, r, r.getLocalParticipantSID, r.regionURLProvider)
 	r.LocalParticipant = newLocalParticipant(r.engine, r.callback, r.serverInfo, r.log)
-	r.localDataTracks = datatrack.NewLocalManager(datatrack.LocalManagerParams{Transport: localDataTrackTransport{engine: r.engine}, Logger: r.LocalParticipant.log})
-	r.LocalParticipant.dataTracks = r.localDataTracks
 	return r
 }
 
@@ -782,7 +778,7 @@ func (r *Room) sendSyncState() {
 			Subscribe: !sendUnsub,
 		},
 		PublishTracks:     publishedTracks,
-		PublishDataTracks: r.localDataTracks.PublishResponsesForSyncState(),
+		PublishDataTracks: r.LocalParticipant.dataTracks.PublishResponsesForSyncState(),
 		DataChannels:      dataChannels,
 		TrackSidsDisabled: trackSidsDisabled,
 		// MIGRATION-TODO DatachannelReceiveStates
@@ -792,7 +788,7 @@ func (r *Room) sendSyncState() {
 func (r *Room) cleanup() {
 	r.engine.Close()
 	r.LocalParticipant.closeTracks()
-	r.localDataTracks.Shutdown()
+	r.LocalParticipant.dataTracks.Shutdown()
 	r.setSid("", true)
 
 	r.byteStreamHandlers.Clear()
@@ -1112,7 +1108,7 @@ func (r *Room) OnRestarted(
 	r.OnParticipantUpdate(otherParticipants)
 
 	r.LocalParticipant.republishTracks()
-	r.localDataTracks.RepublishTracks()
+	r.LocalParticipant.dataTracks.RepublishTracks()
 }
 
 func (r *Room) OnRestartConnected() {
@@ -1408,7 +1404,7 @@ func (r *Room) OnMediaSectionsRequirement(mediaSectionsRequirement *livekit.Medi
 
 // OnRequestResponse handles responses to signal requests that no caller is waiting on.
 func (r *Room) OnRequestResponse(res *livekit.RequestResponse) {
-	if r.localDataTracks.HandleRequestResponse(res) {
+	if r.LocalParticipant.dataTracks.HandleRequestResponse(res) {
 		return
 	}
 	if res.GetReason() != livekit.RequestResponse_OK {
@@ -1422,11 +1418,11 @@ func (r *Room) OnRequestResponse(res *livekit.RequestResponse) {
 }
 
 func (r *Room) OnPublishDataTrackResponse(publishDataTrackResponse *livekit.PublishDataTrackResponse) {
-	r.localDataTracks.HandlePublishResponse(publishDataTrackResponse)
+	r.LocalParticipant.dataTracks.HandlePublishResponse(publishDataTrackResponse)
 }
 
 func (r *Room) OnUnpublishDataTrackResponse(unpublishDataTrackResponse *livekit.UnpublishDataTrackResponse) {
-	r.localDataTracks.HandleUnpublishResponse(unpublishDataTrackResponse)
+	r.LocalParticipant.dataTracks.HandleUnpublishResponse(unpublishDataTrackResponse)
 }
 
 func (r *Room) OnDataTrackSubscriberHandles(dataTrackSubscriberHandles *livekit.DataTrackSubscriberHandles) {
