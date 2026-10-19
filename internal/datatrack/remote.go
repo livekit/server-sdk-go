@@ -84,6 +84,7 @@ type RemoteManagerParams struct {
 // participant's subscriptions to them. Methods are safe for concurrent use.
 type RemoteManager struct {
 	params RemoteManagerParams
+	log    atomic.Pointer[logger.Logger]
 
 	// mu guards descriptors and subHandles. Each RemoteTrack guards its own state: the manager
 	// reaches it through methods, which may take the track's lock while mu is held, and a track
@@ -97,23 +98,34 @@ func NewRemoteManager(params RemoteManagerParams) *RemoteManager {
 	if params.Logger == nil {
 		params.Logger = logger.GetLogger()
 	}
-	return &RemoteManager{
+	m := &RemoteManager{
 		params:      params,
 		descriptors: make(map[livekit.TrackID]*RemoteTrack),
 		subHandles:  make(map[trackHandle]*RemoteTrack),
 	}
+	m.SetLogger(params.Logger)
+	return m
+}
+
+// SetLogger replaces the logger given at construction.
+func (m *RemoteManager) SetLogger(l logger.Logger) {
+	m.log.Store(&l)
+}
+
+func (m *RemoteManager) logger() logger.Logger {
+	return *m.log.Load()
 }
 
 // HandleParticipantUpdate applies the data tracks listed for each participant in a
 // ParticipantUpdate; tracks a participant no longer lists are unpublished.
 func (m *RemoteManager) HandleParticipantUpdate(participants []*livekit.ParticipantInfo, localIdentity string) {
-	m.handlePublicationUpdates(publicationUpdatesFromProto(participants, localIdentity, m.params.Logger))
+	m.handlePublicationUpdates(publicationUpdatesFromProto(participants, localIdentity, m.logger()))
 }
 
 // HandleParticipantSnapshot applies a complete list of the room's participants, as carried by a
 // JoinResponse. Publishers absent from the list are treated as gone.
 func (m *RemoteManager) HandleParticipantSnapshot(participants []*livekit.ParticipantInfo, localIdentity string) {
-	updates := publicationUpdatesFromProto(participants, localIdentity, m.params.Logger)
+	updates := publicationUpdatesFromProto(participants, localIdentity, m.logger())
 	m.mu.Lock()
 	for _, track := range m.descriptors {
 		if _, present := updates[track.publisherIdentity]; !present {
@@ -216,7 +228,7 @@ func schemaEqual(a, b *SchemaID) bool {
 func (m *RemoteManager) HandleSubscriberHandles(msg *livekit.DataTrackSubscriberHandles) {
 	mapping, err := subscriberHandlesFromProto(msg)
 	if err != nil {
-		m.params.Logger.Warnw("ignoring invalid data track subscriber handles", err)
+		m.logger().Warnw("ignoring invalid data track subscriber handles", err)
 		return
 	}
 
@@ -225,12 +237,12 @@ func (m *RemoteManager) HandleSubscriberHandles(msg *livekit.DataTrackSubscriber
 	for handle, sid := range mapping {
 		track, known := m.descriptors[sid]
 		if !known {
-			m.params.Logger.Warnw("subscriber handle for unknown data track", nil, "sid", sid)
+			m.logger().Warnw("subscriber handle for unknown data track", nil, "sid", sid)
 			continue
 		}
 		previous, replaced, ok := track.activate(handle)
 		if !ok {
-			m.params.Logger.Warnw("subscriber handle for data track without subscription", nil, "sid", sid)
+			m.logger().Warnw("subscriber handle for data track without subscription", nil, "sid", sid)
 			continue
 		}
 		if replaced {
@@ -254,7 +266,7 @@ func (m *RemoteManager) releaseHandle(track *RemoteTrack, handle trackHandle) {
 func (m *RemoteManager) HandlePacket(data []byte) {
 	packet, err := parsePacket(data)
 	if err != nil {
-		m.params.Logger.Warnw("dropping invalid data track packet", err)
+		m.logger().Warnw("dropping invalid data track packet", err)
 		return
 	}
 
@@ -263,7 +275,7 @@ func (m *RemoteManager) HandlePacket(data []byte) {
 	track := m.subHandles[handle]
 	m.mu.Unlock()
 	if track == nil {
-		m.params.Logger.Warnw("dropping data track packet without subscription", nil, "handle", packet.Handle)
+		m.logger().Warnw("dropping data track packet without subscription", nil, "handle", packet.Handle)
 		return
 	}
 	track.deliver(handle, packet)
@@ -300,7 +312,7 @@ func (m *RemoteManager) Shutdown() {
 
 func (m *RemoteManager) sendSubscriptionUpdate(update subscriptionUpdate) {
 	if err := m.params.Transport.SendUpdateSubscription(update.toProto()); err != nil {
-		m.params.Logger.Warnw("could not send data track subscription update", err, "sid", update.sid, "subscribe", update.subscribe)
+		m.logger().Warnw("could not send data track subscription update", err, "sid", update.sid, "subscribe", update.subscribe)
 	}
 }
 
@@ -383,7 +395,7 @@ func (t *RemoteTrack) Unpublished() <-chan struct{} {
 // current and future subscriptions and take effect with the next packet.
 func (t *RemoteTrack) SetPipelineOptions(options PipelineOptions) {
 	if options.MaxPartialFrames < 1 {
-		t.manager.params.Logger.Warnw("zero is not a valid value for MaxPartialFrames, using one", nil)
+		t.manager.logger().Warnw("zero is not a valid value for MaxPartialFrames, using one", nil)
 		options.MaxPartialFrames = 1
 	}
 	t.maxPartialFrames.Store(int64(options.MaxPartialFrames))
@@ -398,7 +410,7 @@ func (t *RemoteTrack) Subscribe(ctx context.Context, opts ...SubscribeOption) (*
 		opt(&options)
 	}
 	if options.BufferSize < 1 {
-		t.manager.params.Logger.Warnw("zero is not a valid buffer size, using one", nil)
+		t.manager.logger().Warnw("zero is not a valid buffer size, using one", nil)
 		options.BufferSize = 1
 	}
 
@@ -479,11 +491,11 @@ func (t *RemoteTrack) reassignSID(info Info) (oldSID livekit.TrackID, subscribed
 	// other than the SID, the info should not have changed
 	if t.info.Name != info.Name || t.info.UsesE2EE != info.UsesE2EE ||
 		!schemaEqual(t.info.Schema, info.Schema) || t.info.FrameEncoding != info.FrameEncoding {
-		t.manager.params.Logger.Warnw("data track info mismatch, treating as new publication", nil, "sid", t.info.SID)
+		t.manager.logger().Warnw("data track info mismatch, treating as new publication", nil, "sid", t.info.SID)
 		return "", false, false
 	}
 	oldSID = t.info.SID
-	t.manager.params.Logger.Debugw("data track SID reassigned", "oldSid", oldSID, "newSid", info.SID)
+	t.manager.logger().Debugw("data track SID reassigned", "oldSid", oldSID, "newSid", info.SID)
 	t.info.SID = info.SID
 	return oldSID, t.subscription != subscriptionNone, true
 }
@@ -522,7 +534,7 @@ func (t *RemoteTrack) activate(handle trackHandle) (previous trackHandle, replac
 		decryptor = t.manager.params.Decryptor
 	}
 	t.packets = make(chan *dtp.Packet, packetBufferCount)
-	go t.runPipeline(t.packets, newRemotePipeline(decryptor, t.manager.params.Logger))
+	go t.runPipeline(t.packets, newRemotePipeline(decryptor, t.manager.logger()))
 	t.subHandle = handle
 	t.subscription = subscriptionActive
 	for _, waiter := range t.waiters {
@@ -538,14 +550,14 @@ func (t *RemoteTrack) deliver(handle trackHandle, packet *dtp.Packet) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.subscription != subscriptionActive || t.subHandle != handle {
-		t.manager.params.Logger.Warnw("dropping data track packet without subscription", nil, "handle", packet.Handle)
+		t.manager.logger().Warnw("dropping data track packet without subscription", nil, "handle", packet.Handle)
 		return
 	}
 	// the send happens under the lock so the channel is never closed underneath it
 	select {
 	case t.packets <- packet:
 	default:
-		t.manager.params.Logger.Debugw("dropping data track packet, pipeline is behind", "sid", t.info.SID)
+		t.manager.logger().Debugw("dropping data track packet, pipeline is behind", "sid", t.info.SID)
 	}
 }
 

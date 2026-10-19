@@ -397,6 +397,7 @@ func (r *Room) SetLogger(l protoLogger.Logger) {
 	r.log = l
 	r.engine.SetLogger(l)
 	r.LocalParticipant.SetLogger(l)
+	r.remoteDataTracks.SetLogger(l)
 	r.lock.RLock()
 	for _, rp := range r.remoteParticipants {
 		rp.SetLogger(l)
