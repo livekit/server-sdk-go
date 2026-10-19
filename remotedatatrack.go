@@ -15,6 +15,8 @@
 package lksdk
 
 import (
+	"sync"
+
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/server-sdk-go/v2/datatrack"
 )
@@ -23,16 +25,22 @@ import (
 // callbacks.
 type remoteDataTrackTransport struct {
 	room *Room
+	// publishers maps each published track to its publisher, which a disconnect removes from the
+	// room before the track is unpublished
+	publishers sync.Map // *datatrack.RemoteTrack -> *RemoteParticipant
 }
 
-func (t remoteDataTrackTransport) SendUpdateSubscription(req *livekit.UpdateDataSubscription) error {
+func (t *remoteDataTrackTransport) SendUpdateSubscription(req *livekit.UpdateDataSubscription) error {
 	return t.room.engine.SendUpdateDataSubscription(req)
 }
 
 // OnTrackPublished runs the callbacks on their own goroutine so they may block, for example on
 // Subscribe, without stalling signal handling.
-func (t remoteDataTrackTransport) OnTrackPublished(track *datatrack.RemoteTrack) {
+func (t *remoteDataTrackTransport) OnTrackPublished(track *datatrack.RemoteTrack) {
 	rp := t.room.GetParticipantByIdentity(track.PublisherIdentity())
+	if rp != nil {
+		t.publishers.Store(track, rp)
+	}
 	go func() {
 		if rp != nil {
 			rp.Callback.OnDataTrackPublished(track, rp)
@@ -41,8 +49,11 @@ func (t remoteDataTrackTransport) OnTrackPublished(track *datatrack.RemoteTrack)
 	}()
 }
 
-func (t remoteDataTrackTransport) OnTrackUnpublished(track *datatrack.RemoteTrack) {
+func (t *remoteDataTrackTransport) OnTrackUnpublished(track *datatrack.RemoteTrack) {
 	rp := t.room.GetParticipantByIdentity(track.PublisherIdentity())
+	if publisher, ok := t.publishers.LoadAndDelete(track); ok && rp == nil {
+		rp = publisher.(*RemoteParticipant)
+	}
 	go func() {
 		if rp != nil {
 			rp.Callback.OnDataTrackUnpublished(track, rp)
