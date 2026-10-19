@@ -1208,4 +1208,5 @@ func (p *LocalParticipant) SetLogger(log protoLogger.Logger) {
 		pub.SetLogger(p.log)
 		return true
 	})
+	p.dataTracks.SetLogger(p.log)
 }

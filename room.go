@@ -368,7 +368,7 @@ func NewRoom(callback *RoomCallback) *Room {
 
 	r.engine = NewRTCEngine(r.useSinglePeerConnection, r, r.getLocalParticipantSID, r.regionURLProvider)
 	r.LocalParticipant = newLocalParticipant(r.engine, r.callback, r.serverInfo, r.log)
-	r.localDataTracks = datatrack.NewLocalManager(datatrack.LocalManagerParams{Transport: localDataTrackTransport{engine: r.engine}, Logger: r.log})
+	r.localDataTracks = datatrack.NewLocalManager(datatrack.LocalManagerParams{Transport: localDataTrackTransport{engine: r.engine}, Logger: r.LocalParticipant.log})
 	r.LocalParticipant.dataTracks = r.localDataTracks
 	return r
 }

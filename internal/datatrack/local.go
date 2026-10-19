@@ -80,6 +80,7 @@ type LocalManagerParams struct {
 // concurrent use.
 type LocalManager struct {
 	params LocalManagerParams
+	log    atomic.Pointer[logger.Logger]
 
 	mu      sync.Mutex
 	handles handleAllocator
@@ -96,11 +97,22 @@ func NewLocalManager(params LocalManagerParams) *LocalManager {
 	if params.Logger == nil {
 		params.Logger = logger.GetLogger()
 	}
-	return &LocalManager{
+	m := &LocalManager{
 		params:  params,
 		pending: make(map[trackHandle]chan publishResult),
 		active:  make(map[trackHandle]*LocalTrack),
 	}
+	m.SetLogger(params.Logger)
+	return m
+}
+
+// SetLogger replaces the logger given at construction.
+func (m *LocalManager) SetLogger(l logger.Logger) {
+	m.log.Store(&l)
+}
+
+func (m *LocalManager) logger() logger.Logger {
+	return *m.log.Load()
 }
 
 // Publish requests a publication and waits for the SFU's answer. Ending ctx abandons the request;
@@ -163,7 +175,7 @@ func (m *LocalManager) Publish(ctx context.Context, options PublishOptions) (*Lo
 func (m *LocalManager) HandlePublishResponse(msg *livekit.PublishDataTrackResponse) {
 	info, err := infoFromProto(msg.GetInfo())
 	if err != nil {
-		m.params.Logger.Warnw("ignoring invalid publish data track response", err)
+		m.logger().Warnw("ignoring invalid publish data track response", err)
 		return
 	}
 	m.resolvePublish(publishResponse{handle: info.pubHandle, info: info})
@@ -198,12 +210,12 @@ func (m *LocalManager) resolvePublish(response publishResponse) {
 
 	switch {
 	case isActive && response.err != nil:
-		m.params.Logger.Warnw("republish failed for data track", response.err, "handle", response.handle)
+		m.logger().Warnw("republish failed for data track", response.err, "handle", response.handle)
 	case isActive:
 		if track.completeRepublish(response.info.SID) {
-			m.params.Logger.Debugw("data track republished", "handle", response.handle, "sid", response.info.SID)
+			m.logger().Debugw("data track republished", "handle", response.handle, "sid", response.info.SID)
 		} else {
-			m.params.Logger.Warnw("data track already published", nil, "handle", response.handle)
+			m.logger().Warnw("data track already published", nil, "handle", response.handle)
 		}
 	case response.err == nil:
 		// accepted after the request was abandoned, unpublish to keep the SFU consistent
@@ -215,7 +227,7 @@ func (m *LocalManager) resolvePublish(response publishResponse) {
 func (m *LocalManager) HandleUnpublishResponse(msg *livekit.UnpublishDataTrackResponse) {
 	handle, err := handleFromUint32(msg.GetInfo().GetPubHandle())
 	if err != nil {
-		m.params.Logger.Warnw("ignoring invalid unpublish data track response", err)
+		m.logger().Warnw("ignoring invalid unpublish data track response", err)
 		return
 	}
 
@@ -247,7 +259,7 @@ func (m *LocalManager) unpublish(handle trackHandle) {
 
 func (m *LocalManager) sendUnpublish(handle trackHandle) {
 	if err := m.params.Transport.SendUnpublishRequest(unpublishRequestToProto(handle)); err != nil {
-		m.params.Logger.Debugw("could not send unpublish data track request", "handle", handle, "error", err)
+		m.logger().Debugw("could not send unpublish data track request", "handle", handle, "error", err)
 	}
 }
 
@@ -274,7 +286,7 @@ func (m *LocalManager) RepublishTracks() {
 
 	for _, request := range requests {
 		if err := m.params.Transport.SendPublishRequest(context.Background(), request.toProto()); err != nil {
-			m.params.Logger.Warnw("could not republish data track", err, "handle", request.handle)
+			m.logger().Warnw("could not republish data track", err, "handle", request.handle)
 		}
 	}
 }
