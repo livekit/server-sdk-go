@@ -233,9 +233,9 @@ func TestLocalManager_PublishCancelledWhileTransportBlocked(t *testing.T) {
 
 	// The abandoned request released its handle and left nothing pending
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	require.Empty(t, m.pending)
 	require.Empty(t, m.active)
+	m.mu.Unlock()
 }
 
 func TestLocalManager_PublishWithE2EE(t *testing.T) {
