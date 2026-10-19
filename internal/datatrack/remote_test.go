@@ -519,6 +519,54 @@ func TestRemoteManager_ResubscribeAfterLastSubscriberDroppedKeepsOrder(t *testin
 	require.NoError(t, res.err)
 }
 
+// blockingDecryptor pauses the worker until release is closed, signaling entered first, so the
+// test below can hold the previous subscription's worker mid-frame.
+type blockingDecryptor struct{ entered, release chan struct{} }
+
+func (d blockingDecryptor) Decrypt(payload []byte, _ dtp.ExtensionE2EE) ([]byte, error) {
+	select {
+	case d.entered <- struct{}{}:
+	default:
+	}
+	<-d.release
+	return payload, nil
+}
+
+// Should not deliver frames of an ended subscription to the streams of a later one, even when its
+// worker is still draining.
+func TestRemoteManager_ResubscribeDoesNotReceivePreviousSubscriptionFrames(t *testing.T) {
+	decryptor := blockingDecryptor{entered: make(chan struct{}, 1), release: make(chan struct{})}
+	transport := newFakeRemoteTransport()
+	m := NewRemoteManager(RemoteManagerParams{Transport: transport, Decryptor: decryptor})
+
+	trackSID := livekit.TrackID("DTR_1234")
+	oldHandle, newHandle := trackHandle(0x1234), trackHandle(0x1235)
+	e2ee := Extensions{E2EE: &dtp.ExtensionE2EE{}}
+
+	// Simulate track published (with e2ee)
+	track := publishTrack(t, m, transport, "id", Info{SID: trackSID, pubHandle: 1, Name: "test", UsesE2EE: true})
+
+	// Subscribe, and pause the worker on a frame
+	oldStream := subscribeAndActivate(t, m, transport, track, oldHandle)
+	m.HandlePacket(singlePacket(t, oldHandle, []byte{1}, e2ee))
+	expectEvent(t, decryptor.entered)
+
+	// Close the only subscriber, ending the subscription
+	oldStream.Close()
+	_, subscribe := expectSubscriptionUpdate(t, transport)
+	require.False(t, subscribe)
+
+	// Subscribe again, then let the previous worker finish its frame
+	newStream := subscribeAndActivate(t, m, transport, track, newHandle)
+	close(decryptor.release)
+	expectNoFrame(t, newStream)
+
+	// The new subscription still receives its own frames
+	m.HandlePacket(singlePacket(t, newHandle, []byte{2}, e2ee))
+	frame := expectFrame(t, newStream)
+	require.Equal(t, []byte{2}, frame.Payload)
+}
+
 // Should depacketize multiple interleaved partial frames when MaxPartialFrames is set before subscribe.
 func TestRemoteManager_MaxPartialFramesSetBeforeSubscribe(t *testing.T) {
 	transport := newFakeRemoteTransport()

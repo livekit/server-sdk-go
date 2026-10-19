@@ -335,9 +335,6 @@ type RemoteTrack struct {
 	unpublished       core.Fuse
 	maxPartialFrames  atomic.Int64
 
-	// streamList is an immutable snapshot of streams, read by the worker without the lock
-	streamList atomic.Pointer[[]*Stream]
-
 	// sendMu orders the track's subscription updates as its subscription changed. It is taken
 	// before mu is released, so a later change cannot send ahead of an earlier one.
 	sendMu sync.Mutex
@@ -353,6 +350,9 @@ type RemoteTrack struct {
 	// packets feeds the worker goroutine of the active subscription
 	packets chan *dtp.Packet
 	streams map[*Stream]struct{}
+	// streamList holds an immutable snapshot of streams, read by the subscription's worker without
+	// the lock. Each subscription has its own, so a draining worker cannot reach later streams.
+	streamList *atomic.Pointer[[]*Stream]
 }
 
 func newRemoteTrack(manager *RemoteManager, info Info, publisherIdentity string) *RemoteTrack {
@@ -364,6 +364,7 @@ func newRemoteTrack(manager *RemoteManager, info Info, publisherIdentity string)
 		streams:           make(map[*Stream]struct{}),
 	}
 	track.maxPartialFrames.Store(defaultMaxPartialFrames)
+	track.streamList = new(atomic.Pointer[[]*Stream])
 	track.streamList.Store(&[]*Stream{})
 	return track
 }
@@ -543,7 +544,9 @@ func (t *RemoteTrack) activate(handle trackHandle) (previous trackHandle, replac
 		decryptor = t.manager.params.Decryptor
 	}
 	t.packets = make(chan *dtp.Packet, packetBufferCount)
-	go t.runPipeline(t.packets, newRemotePipeline(decryptor, t.manager.logger()))
+	t.streamList = new(atomic.Pointer[[]*Stream])
+	t.streamList.Store(&[]*Stream{})
+	go t.runPipeline(t.packets, t.streamList, newRemotePipeline(decryptor, t.manager.logger()))
 	t.subHandle = handle
 	t.subscription = subscriptionActive
 	for _, waiter := range t.waiters {
@@ -572,13 +575,13 @@ func (t *RemoteTrack) deliver(handle trackHandle, packet *dtp.Packet) {
 
 // runPipeline reassembles the subscription's packets on its own goroutine, so tracks never wait on
 // one another, and delivers completed frames to every stream. It ends when packets is closed.
-func (t *RemoteTrack) runPipeline(packets <-chan *dtp.Packet, pipeline *remotePipeline) {
+func (t *RemoteTrack) runPipeline(packets <-chan *dtp.Packet, streamList *atomic.Pointer[[]*Stream], pipeline *remotePipeline) {
 	for packet := range packets {
 		frame, ok := pipeline.processPacket(packet, int(t.maxPartialFrames.Load()))
 		if !ok {
 			continue
 		}
-		for _, stream := range *t.streamList.Load() {
+		for _, stream := range *streamList.Load() {
 			stream.push(frame)
 		}
 	}
