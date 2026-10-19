@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package datatrack is the public API for data tracks. Publish a track with
-// [github.com/livekit/server-sdk-go/v2.LocalParticipant.PublishDataTrack].
+// Package datatrack is the public API for data tracks.
 package datatrack
 
 import (
