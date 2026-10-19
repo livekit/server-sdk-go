@@ -277,7 +277,7 @@ func publishRejectionFromRequestResponse(msg *livekit.RequestResponse) (rejectio
 
 // subscriptionUpdate asks the SFU to start or stop delivering a track's packets.
 type subscriptionUpdate struct {
-	sid       SID
+	sid       livekit.TrackID
 	subscribe bool
 }
 

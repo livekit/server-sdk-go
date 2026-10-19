@@ -160,6 +160,6 @@ func TestProto_PublicationUpdatesFromProto(t *testing.T) {
 	updates := publicationUpdatesFromProto(participants, "local", logger.GetLogger())
 	require.Len(t, updates, 2)
 	require.Len(t, updates["publisher"], 1)
-	require.Equal(t, SID("DTR_1234"), updates["publisher"][0].SID)
+	require.Equal(t, livekit.TrackID("DTR_1234"), updates["publisher"][0].SID)
 	require.Empty(t, updates["leaving"])
 }

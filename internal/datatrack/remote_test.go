@@ -58,7 +58,7 @@ func (f *fakeRemoteTransport) OnTrackUnpublished(track *RemoteTrack) {
 // prefixStrippingDecryptor undoes prefixingEncryptor.
 type prefixStrippingDecryptor struct{}
 
-func (prefixStrippingDecryptor) Decrypt(payload []byte, _ E2EEExtension) ([]byte, error) {
+func (prefixStrippingDecryptor) Decrypt(payload []byte, _ dtp.ExtensionE2EE) ([]byte, error) {
 	return payload[4:], nil
 }
 
@@ -105,16 +105,16 @@ func publishTrack(t *testing.T, m *RemoteManager, transport *fakeRemoteTransport
 	return expectEvent(t, transport.published)
 }
 
-func expectSubscriptionUpdate(t *testing.T, transport *fakeRemoteTransport) (SID, bool) {
+func expectSubscriptionUpdate(t *testing.T, transport *fakeRemoteTransport) (livekit.TrackID, bool) {
 	t.Helper()
 	msg := expectEvent(t, transport.subscriptionUpdates)
 	require.Len(t, msg.GetUpdates(), 1)
 	update := msg.GetUpdates()[0]
-	return SID(update.GetTrackSid()), update.GetSubscribe()
+	return livekit.TrackID(update.GetTrackSid()), update.GetSubscribe()
 }
 
 // assignHandle simulates the SFU assigning a subscriber handle.
-func assignHandle(m *RemoteManager, handle trackHandle, sid SID) {
+func assignHandle(m *RemoteManager, handle trackHandle, sid livekit.TrackID) {
 	m.HandleSubscriberHandles(&livekit.DataTrackSubscriberHandles{
 		SubHandles: map[uint32]*livekit.DataTrackSubscriberHandles_PublishedDataTrack{
 			uint32(handle): {TrackSid: string(sid)},
@@ -209,7 +209,7 @@ func TestRemoteManager_Shutdown(t *testing.T) {
 }
 
 func TestRemoteManager_Subscribe(t *testing.T) {
-	publisherIdentity, trackName, trackSID := "publisher", "track", SID("DTR_1234")
+	publisherIdentity, trackName, trackSID := "publisher", "track", livekit.TrackID("DTR_1234")
 	subHandle := trackHandle(0x1234)
 
 	transport := newFakeRemoteTransport()
@@ -241,7 +241,7 @@ func TestRemoteManager_TrackPublicationAddAndRemove(t *testing.T) {
 	transport := newFakeRemoteTransport()
 	m := NewRemoteManager(RemoteManagerParams{Transport: transport})
 
-	trackSID := SID("DTR_1234")
+	trackSID := livekit.TrackID("DTR_1234")
 
 	// Simulate track published
 	track := publishTrack(t, m, transport, "identity1", Info{SID: trackSID, pubHandle: 1, Name: "test"})
@@ -282,7 +282,7 @@ func TestRemoteManager_SidReassignmentDoesNotRepublish(t *testing.T) {
 	m := NewRemoteManager(RemoteManagerParams{Transport: transport})
 
 	pubHandle := trackHandle(7)
-	oldSID, newSID := SID("DTR_1234"), SID("DTR_5678")
+	oldSID, newSID := livekit.TrackID("DTR_1234"), livekit.TrackID("DTR_5678")
 
 	// Simulate track published
 	track := publishTrack(t, m, transport, "id", Info{SID: oldSID, pubHandle: pubHandle, Name: "test"})
@@ -303,7 +303,7 @@ func TestRemoteManager_SidReassignmentResubscribesActiveSubscription(t *testing.
 	m := NewRemoteManager(RemoteManagerParams{Transport: transport})
 
 	pubHandle := trackHandle(7)
-	oldSID, newSID := SID("DTR_1234"), SID("DTR_5678")
+	oldSID, newSID := livekit.TrackID("DTR_1234"), livekit.TrackID("DTR_5678")
 	oldSubHandle, newSubHandle := trackHandle(0x1001), trackHandle(0x1002)
 
 	// Simulate track published
@@ -336,7 +336,7 @@ func TestRemoteManager_SubscribeReceivesFrame(t *testing.T) {
 	transport := newFakeRemoteTransport()
 	m := NewRemoteManager(RemoteManagerParams{Transport: transport})
 
-	trackSID, subHandle := SID("DTR_1234"), trackHandle(0x1234)
+	trackSID, subHandle := livekit.TrackID("DTR_1234"), trackHandle(0x1234)
 
 	// Simulate track published
 	track := publishTrack(t, m, transport, "id", Info{SID: trackSID, pubHandle: 1, Name: "test"})
@@ -355,7 +355,7 @@ func TestRemoteManager_SubscribeWithE2EE(t *testing.T) {
 	transport := newFakeRemoteTransport()
 	m := NewRemoteManager(RemoteManagerParams{Transport: transport, Decryptor: prefixStrippingDecryptor{}})
 
-	trackSID, subHandle := SID("DTR_1234"), trackHandle(0x1234)
+	trackSID, subHandle := livekit.TrackID("DTR_1234"), trackHandle(0x1234)
 
 	// Simulate track published (with e2ee)
 	track := publishTrack(t, m, transport, "id", Info{SID: trackSID, pubHandle: 1, Name: "test", UsesE2EE: true})
@@ -365,7 +365,7 @@ func TestRemoteManager_SubscribeWithE2EE(t *testing.T) {
 
 	// Simulate receiving an encrypted single-frame packet
 	payload := []byte{0xde, 0xad, 0xbe, 0xef, 1, 2, 3, 4, 5}
-	m.HandlePacket(singlePacket(t, subHandle, payload, Extensions{E2EE: &E2EEExtension{}}))
+	m.HandlePacket(singlePacket(t, subHandle, payload, Extensions{E2EE: &dtp.ExtensionE2EE{}}))
 
 	// Payload should have fake encryption prefix stripped by decryptor
 	frame := expectFrame(t, stream)
@@ -376,7 +376,7 @@ func TestRemoteManager_SubscribeFanOutToMultipleSubscribers(t *testing.T) {
 	transport := newFakeRemoteTransport()
 	m := NewRemoteManager(RemoteManagerParams{Transport: transport})
 
-	trackSID, subHandle := SID("DTR_1234"), trackHandle(0x1234)
+	trackSID, subHandle := livekit.TrackID("DTR_1234"), trackHandle(0x1234)
 
 	// Simulate track published
 	track := publishTrack(t, m, transport, "id", Info{SID: trackSID, pubHandle: 1, Name: "test"})
@@ -418,7 +418,7 @@ func TestRemoteManager_UnpublishTerminatesPendingSubscription(t *testing.T) {
 	transport := newFakeRemoteTransport()
 	m := NewRemoteManager(RemoteManagerParams{Transport: transport})
 
-	trackSID := SID("DTR_1234")
+	trackSID := livekit.TrackID("DTR_1234")
 
 	// Simulate track published
 	track := publishTrack(t, m, transport, "id", Info{SID: trackSID, pubHandle: 1, Name: "test"})
@@ -441,7 +441,7 @@ func TestRemoteManager_UnpublishTerminatesActiveSubscription(t *testing.T) {
 	transport := newFakeRemoteTransport()
 	m := NewRemoteManager(RemoteManagerParams{Transport: transport})
 
-	trackSID, subHandle := SID("DTR_1234"), trackHandle(0x1234)
+	trackSID, subHandle := livekit.TrackID("DTR_1234"), trackHandle(0x1234)
 
 	// Simulate track published
 	track := publishTrack(t, m, transport, "id", Info{SID: trackSID, pubHandle: 1, Name: "test"})
@@ -462,7 +462,7 @@ func TestRemoteManager_AllSubscribersDroppedTerminatesSfuSubscription(t *testing
 	transport := newFakeRemoteTransport()
 	m := NewRemoteManager(RemoteManagerParams{Transport: transport})
 
-	trackSID, subHandle := SID("DTR_1234"), trackHandle(0x1234)
+	trackSID, subHandle := livekit.TrackID("DTR_1234"), trackHandle(0x1234)
 
 	// Simulate track published
 	track := publishTrack(t, m, transport, "id", Info{SID: trackSID, pubHandle: 1, Name: "test"})

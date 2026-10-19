@@ -45,7 +45,7 @@ type RemoteTransport interface {
 
 // Decryptor opens end-to-end encrypted frame payloads.
 type Decryptor interface {
-	Decrypt(payload []byte, e2ee E2EEExtension) ([]byte, error)
+	Decrypt(payload []byte, e2ee dtp.ExtensionE2EE) ([]byte, error)
 }
 
 // SubscribeOptions configure a subscription.
@@ -89,7 +89,7 @@ type RemoteManager struct {
 	// reaches it through methods, which may take the track's lock while mu is held, and a track
 	// never calls into the manager while holding its own lock. Methods suffixed Locked expect mu.
 	mu          sync.Mutex
-	descriptors map[SID]*RemoteTrack
+	descriptors map[livekit.TrackID]*RemoteTrack
 	subHandles  map[trackHandle]*RemoteTrack
 }
 
@@ -99,7 +99,7 @@ func NewRemoteManager(params RemoteManagerParams) *RemoteManager {
 	}
 	return &RemoteManager{
 		params:      params,
-		descriptors: make(map[SID]*RemoteTrack),
+		descriptors: make(map[livekit.TrackID]*RemoteTrack),
 		subHandles:  make(map[trackHandle]*RemoteTrack),
 	}
 }
@@ -133,7 +133,7 @@ func (m *RemoteManager) handlePublicationUpdates(updates map[string][]Info) {
 
 	m.mu.Lock()
 	for publisherIdentity, infos := range updates {
-		sidsInUpdate := make(map[SID]struct{}, len(infos))
+		sidsInUpdate := make(map[livekit.TrackID]struct{}, len(infos))
 		for _, info := range infos {
 			sidsInUpdate[info.SID] = struct{}{}
 			if _, known := m.descriptors[info.SID]; known {
@@ -473,7 +473,7 @@ func (t *RemoteTrack) removeWaiterLocked(waiter chan subscribeResult) {
 // reassignSID moves the track to the SID it was republished under after its publisher's full
 // reconnect. It reports the SID replaced and whether a subscription must be re-requested, or false
 // when the info differs in more than the SID.
-func (t *RemoteTrack) reassignSID(info Info) (oldSID SID, subscribed bool, ok bool) {
+func (t *RemoteTrack) reassignSID(info Info) (oldSID livekit.TrackID, subscribed bool, ok bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	// other than the SID, the info should not have changed
@@ -489,7 +489,7 @@ func (t *RemoteTrack) reassignSID(info Info) (oldSID SID, subscribed bool, ok bo
 }
 
 // subscribedSID reports the track's SID when it has a pending or active subscription.
-func (t *RemoteTrack) subscribedSID() (SID, bool) {
+func (t *RemoteTrack) subscribedSID() (livekit.TrackID, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.info.SID, t.subscription != subscriptionNone
@@ -613,7 +613,7 @@ func (t *RemoteTrack) removeStream(stream *Stream) {
 	var (
 		ended  bool
 		handle trackHandle
-		sid    SID
+		sid    livekit.TrackID
 	)
 	t.mu.Lock()
 	stream.close()
