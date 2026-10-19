@@ -140,8 +140,7 @@ func (m *RemoteManager) handlePublicationUpdates(updates map[string][]Info) {
 	if len(updates) == 0 {
 		return
 	}
-	var published, unpublished []*RemoteTrack
-	var resubscribe []subscriptionUpdate
+	var published, unpublished, resubscribe []*RemoteTrack
 
 	m.mu.Lock()
 	for publisherIdentity, infos := range updates {
@@ -151,9 +150,9 @@ func (m *RemoteManager) handlePublicationUpdates(updates map[string][]Info) {
 			if _, known := m.descriptors[info.SID]; known {
 				continue
 			}
-			if update, reassigned := m.reassignSIDLocked(publisherIdentity, info); reassigned {
-				if update != nil {
-					resubscribe = append(resubscribe, *update)
+			if track, reassigned := m.reassignSIDLocked(publisherIdentity, info); reassigned {
+				if track != nil {
+					resubscribe = append(resubscribe, track)
 				}
 				continue
 			}
@@ -177,8 +176,8 @@ func (m *RemoteManager) handlePublicationUpdates(updates map[string][]Info) {
 	}
 	m.mu.Unlock()
 
-	for _, update := range resubscribe {
-		m.sendSubscriptionUpdate(update)
+	for _, track := range resubscribe {
+		track.resendSubscription()
 	}
 	for _, track := range published {
 		m.params.Transport.OnTrackPublished(track)
@@ -191,8 +190,8 @@ func (m *RemoteManager) handlePublicationUpdates(updates map[string][]Info) {
 // reassignSIDLocked detects a track republished under a new SID after its publisher's full
 // reconnect: publisher identity and handle are stable across republications. It reports whether
 // the SID was reassigned and, if a subscription must be re-requested under the new SID, the
-// update to send.
-func (m *RemoteManager) reassignSIDLocked(publisherIdentity string, info Info) (*subscriptionUpdate, bool) {
+// track to resubscribe.
+func (m *RemoteManager) reassignSIDLocked(publisherIdentity string, info Info) (*RemoteTrack, bool) {
 	var track *RemoteTrack
 	for _, candidate := range m.descriptors {
 		if candidate.publisherIdentity == publisherIdentity && candidate.pubHandle == info.pubHandle {
@@ -211,7 +210,7 @@ func (m *RemoteManager) reassignSIDLocked(publisherIdentity string, info Info) (
 	m.descriptors[info.SID] = track
 	if subscribed {
 		// the SFU does not carry subscriptions across the publisher's full reconnect
-		return &subscriptionUpdate{sid: info.SID, subscribe: true}, true
+		return track, true
 	}
 	return nil, true
 }
@@ -285,16 +284,14 @@ func (m *RemoteManager) HandlePacket(data []byte) {
 // reconnect.
 func (m *RemoteManager) ResendSubscriptionUpdates() {
 	m.mu.Lock()
-	var updates []subscriptionUpdate
+	tracks := make([]*RemoteTrack, 0, len(m.descriptors))
 	for _, track := range m.descriptors {
-		if sid, subscribed := track.subscribedSID(); subscribed {
-			updates = append(updates, subscriptionUpdate{sid: sid, subscribe: true})
-		}
+		tracks = append(tracks, track)
 	}
 	m.mu.Unlock()
 
-	for _, update := range updates {
-		m.sendSubscriptionUpdate(update)
+	for _, track := range tracks {
+		track.resendSubscription()
 	}
 }
 
@@ -340,6 +337,10 @@ type RemoteTrack struct {
 
 	// streamList is an immutable snapshot of streams, read by the worker without the lock
 	streamList atomic.Pointer[[]*Stream]
+
+	// sendMu orders the track's subscription updates as its subscription changed. It is taken
+	// before mu is released, so a later change cannot send ahead of an earlier one.
+	sendMu sync.Mutex
 
 	// mu guards the fields below. It is never held while calling into the manager. Methods
 	// suffixed Locked expect it.
@@ -436,11 +437,7 @@ func (t *RemoteTrack) Subscribe(ctx context.Context, opts ...SubscribeOption) (*
 		t.bufferSize = options.BufferSize
 		request = &subscriptionUpdate{sid: t.info.SID, subscribe: true}
 	}
-	t.mu.Unlock()
-
-	if request != nil {
-		t.manager.sendSubscriptionUpdate(*request)
-	}
+	t.unlockAndSend(request)
 
 	select {
 	case res := <-waiter:
@@ -453,11 +450,7 @@ func (t *RemoteTrack) Subscribe(ctx context.Context, opts ...SubscribeOption) (*
 			t.subscription = subscriptionNone
 			withdraw = &subscriptionUpdate{sid: t.info.SID, subscribe: false}
 		}
-		t.mu.Unlock()
-
-		if withdraw != nil {
-			t.manager.sendSubscriptionUpdate(*withdraw)
-		}
+		t.unlockAndSend(withdraw)
 		select {
 		case res := <-waiter:
 			// the answer came first and was delivered under the lock
@@ -500,11 +493,27 @@ func (t *RemoteTrack) reassignSID(info Info) (oldSID livekit.TrackID, subscribed
 	return oldSID, t.subscription != subscriptionNone, true
 }
 
-// subscribedSID reports the track's SID when it has a pending or active subscription.
-func (t *RemoteTrack) subscribedSID() (livekit.TrackID, bool) {
+// resendSubscription re-requests the track's pending or active subscription.
+func (t *RemoteTrack) resendSubscription() {
 	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.info.SID, t.subscription != subscriptionNone
+	var request *subscriptionUpdate
+	if t.subscription != subscriptionNone {
+		request = &subscriptionUpdate{sid: t.info.SID, subscribe: true}
+	}
+	t.unlockAndSend(request)
+}
+
+// unlockAndSend releases mu and sends update, if any, ordered after the updates of earlier
+// subscription changes.
+func (t *RemoteTrack) unlockAndSend(update *subscriptionUpdate) {
+	if update == nil {
+		t.mu.Unlock()
+		return
+	}
+	t.sendMu.Lock()
+	defer t.sendMu.Unlock()
+	t.mu.Unlock()
+	t.manager.sendSubscriptionUpdate(*update)
 }
 
 // usesHandle reports whether the track's active subscription is routed by handle.
@@ -623,9 +632,8 @@ func (t *RemoteTrack) end(err error) (handle trackHandle, wasActive bool) {
 // subscription.
 func (t *RemoteTrack) removeStream(stream *Stream) {
 	var (
-		ended  bool
-		handle trackHandle
-		sid    livekit.TrackID
+		withdraw *subscriptionUpdate
+		handle   trackHandle
 	)
 	t.mu.Lock()
 	stream.close()
@@ -635,14 +643,14 @@ func (t *RemoteTrack) removeStream(stream *Stream) {
 		if len(t.streams) == 0 && t.subscription == subscriptionActive {
 			t.subscription = subscriptionNone
 			t.deactivateLocked()
-			ended, handle, sid = true, t.subHandle, t.info.SID
+			handle = t.subHandle
+			withdraw = &subscriptionUpdate{sid: t.info.SID, subscribe: false}
 		}
 	}
-	t.mu.Unlock()
+	t.unlockAndSend(withdraw)
 
-	if ended {
+	if withdraw != nil {
 		t.manager.releaseHandle(t, handle)
-		t.manager.sendSubscriptionUpdate(subscriptionUpdate{sid: sid, subscribe: false})
 	}
 }
 

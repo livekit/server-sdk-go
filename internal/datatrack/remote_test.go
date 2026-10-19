@@ -478,6 +478,47 @@ func TestRemoteManager_AllSubscribersDroppedTerminatesSfuSubscription(t *testing
 	require.Equal(t, trackSID, sid)
 }
 
+// Should send the unsubscribe of the last subscriber before a concurrent resubscribe, so the SFU
+// does not cancel the new subscription.
+func TestRemoteManager_ResubscribeAfterLastSubscriberDroppedKeepsOrder(t *testing.T) {
+	transport := newFakeRemoteTransport()
+	m := NewRemoteManager(RemoteManagerParams{Transport: transport})
+
+	trackSID, subHandle := livekit.TrackID("DTR_1234"), trackHandle(0x1234)
+
+	// Simulate track published
+	track := publishTrack(t, m, transport, "id", Info{SID: trackSID, pubHandle: 1, Name: "test"})
+
+	// Subscribe to the track
+	stream := subscribeAndActivate(t, m, transport, track, subHandle)
+
+	// Hold the manager so closing the last subscriber stalls after ending the subscription
+	m.mu.Lock()
+	closed := make(chan struct{})
+	go func() {
+		stream.Close()
+		close(closed)
+	}()
+
+	// The unsubscribe must not wait on the manager
+	sid, subscribe := expectSubscriptionUpdate(t, transport)
+	require.False(t, subscribe)
+	require.Equal(t, trackSID, sid)
+
+	// Subscribe again while the close is still in progress
+	result := subscribeAsync(context.Background(), track)
+	sid, subscribe = expectSubscriptionUpdate(t, transport)
+	require.True(t, subscribe)
+	require.Equal(t, trackSID, sid)
+
+	m.mu.Unlock()
+	expectEvent(t, closed)
+
+	assignHandle(m, subHandle+1, trackSID)
+	res := expectEvent(t, result)
+	require.NoError(t, res.err)
+}
+
 // Should depacketize multiple interleaved partial frames when MaxPartialFrames is set before subscribe.
 func TestRemoteManager_MaxPartialFramesSetBeforeSubscribe(t *testing.T) {
 	transport := newFakeRemoteTransport()
