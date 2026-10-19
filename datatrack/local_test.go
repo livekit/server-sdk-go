@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	dtp "github.com/livekit/protocol/datatrack"
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/utils/pointer"
 	"github.com/stretchr/testify/require"
@@ -58,8 +59,8 @@ func (f *fakeLocalTransport) SendFrame(packets [][]byte) {
 // prefixingEncryptor marks payloads instead of encrypting them.
 type prefixingEncryptor struct{}
 
-func (prefixingEncryptor) Encrypt(payload []byte) ([]byte, E2EEExtension, error) {
-	return append([]byte{0xde, 0xad, 0xbe, 0xef}, payload...), E2EEExtension{}, nil
+func (prefixingEncryptor) Encrypt(payload []byte) ([]byte, dtp.ExtensionE2EE, error) {
+	return append([]byte{0xde, 0xad, 0xbe, 0xef}, payload...), dtp.ExtensionE2EE{}, nil
 }
 
 // expectEvent receives from ch or fails fast. The 500 ms timeout is generous
@@ -87,7 +88,7 @@ func publishAsync(ctx context.Context, m *LocalManager, name string) <-chan publ
 }
 
 // accepted is the SFU's answer to a publish request.
-func accepted(request *livekit.PublishDataTrackRequest, sid SID) *livekit.PublishDataTrackResponse {
+func accepted(request *livekit.PublishDataTrackRequest, sid livekit.TrackID) *livekit.PublishDataTrackResponse {
 	return &livekit.PublishDataTrackResponse{Info: &livekit.DataTrackInfo{
 		PubHandle:  request.GetPubHandle(),
 		Sid:        string(sid),
@@ -126,7 +127,7 @@ func TestLocalManager_Shutdown(t *testing.T) {
 
 func TestLocalManager_Publish(t *testing.T) {
 	const payloadSize, packetCount = 256, 10
-	trackName, trackSID := "track", SID("DTR_1234")
+	trackName, trackSID := "track", livekit.TrackID("DTR_1234")
 
 	transport := newFakeLocalTransport()
 	m := NewLocalManager(LocalManagerParams{Transport: transport})
@@ -271,7 +272,7 @@ func TestLocalManager_RepublishTracks(t *testing.T) {
 	m := NewLocalManager(LocalManagerParams{Transport: transport})
 
 	// Publish a track through the full flow
-	trackName, trackSID := "track", SID("DTR_1234")
+	trackName, trackSID := "track", livekit.TrackID("DTR_1234")
 
 	result := publishAsync(context.Background(), m, trackName)
 	request := expectEvent(t, transport.publishRequests)
@@ -294,7 +295,7 @@ func TestLocalManager_RepublishTracks(t *testing.T) {
 	require.Equal(t, uint32(track.handle), request.GetPubHandle())
 	require.Equal(t, trackName, request.GetName())
 
-	newSID := SID("DTR_5678")
+	newSID := livekit.TrackID("DTR_5678")
 	m.HandlePublishResponse(accepted(request, newSID))
 	time.Sleep(50 * time.Millisecond)
 

@@ -39,7 +39,7 @@ type LocalTransport interface {
 
 // Encryptor seals frame payloads for end-to-end encryption.
 type Encryptor interface {
-	Encrypt(payload []byte) ([]byte, E2EEExtension, error)
+	Encrypt(payload []byte) ([]byte, dtp.ExtensionE2EE, error)
 }
 
 // PublishOptions describe a data track to publish.
@@ -400,7 +400,7 @@ func (t *LocalTrack) beginRepublish() Info {
 }
 
 // completeRepublish reports false if the track was not being republished.
-func (t *LocalTrack) completeRepublish(sid SID) bool {
+func (t *LocalTrack) completeRepublish(sid livekit.TrackID) bool {
 	if !t.state.CompareAndSwap(int32(stateRepublishing), int32(statePublished)) {
 		return false
 	}
