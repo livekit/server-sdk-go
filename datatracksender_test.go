@@ -19,11 +19,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	dtbackend "github.com/livekit/server-sdk-go/v2/internal/datatrack"
+	"github.com/livekit/server-sdk-go/v2/internal/datatrack"
 )
 
-func testFrame(marker byte, packets int) dtbackend.FramePackets {
-	frame := make(dtbackend.FramePackets, packets)
+func testFrame(marker byte, packets int) datatrack.FramePackets {
+	frame := make(datatrack.FramePackets, packets)
 	for i := range frame {
 		frame[i] = []byte{marker, byte(i)}
 	}

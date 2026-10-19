@@ -35,7 +35,7 @@ import (
 	protosignalling "github.com/livekit/protocol/signalling"
 
 	"github.com/livekit/server-sdk-go/v2/e2ee"
-	dtbackend "github.com/livekit/server-sdk-go/v2/internal/datatrack"
+	"github.com/livekit/server-sdk-go/v2/internal/datatrack"
 	"github.com/livekit/server-sdk-go/v2/signalling"
 
 	"github.com/livekit/mediatransportutil/pkg/pacer"
@@ -323,7 +323,7 @@ type Room struct {
 	sid                     string
 	name                    string
 	LocalParticipant        *LocalParticipant
-	localDataTracks         *dtbackend.LocalManager
+	localDataTracks         *datatrack.LocalManager
 	callback                *RoomCallback
 	sidReady                chan struct{}
 	disconnectReason        livekit.DisconnectReason
@@ -368,7 +368,7 @@ func NewRoom(callback *RoomCallback) *Room {
 
 	r.engine = NewRTCEngine(r.useSinglePeerConnection, r, r.getLocalParticipantSID, r.regionURLProvider)
 	r.LocalParticipant = newLocalParticipant(r.engine, r.callback, r.serverInfo, r.log)
-	r.localDataTracks = dtbackend.NewLocalManager(dtbackend.LocalManagerParams{Transport: localDataTrackTransport{engine: r.engine}, Logger: r.log})
+	r.localDataTracks = datatrack.NewLocalManager(datatrack.LocalManagerParams{Transport: localDataTrackTransport{engine: r.engine}, Logger: r.log})
 	r.LocalParticipant.dataTracks = r.localDataTracks
 	return r
 }

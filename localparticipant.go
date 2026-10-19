@@ -30,7 +30,7 @@ import (
 
 	"github.com/livekit/protocol/livekit"
 	protoLogger "github.com/livekit/protocol/logger"
-	dtbackend "github.com/livekit/server-sdk-go/v2/internal/datatrack"
+	"github.com/livekit/server-sdk-go/v2/internal/datatrack"
 )
 
 const (
@@ -40,7 +40,7 @@ const (
 type LocalParticipant struct {
 	baseParticipant
 	engine                 *RTCEngine
-	dataTracks             *dtbackend.LocalManager
+	dataTracks             *datatrack.LocalManager
 	subscriptionPermission *livekit.SubscriptionPermission
 	serverInfo             *livekit.ServerInfo
 
