@@ -389,7 +389,7 @@ func (t *LocalTrack) Unpublished() <-chan struct{} {
 
 // TryPush sends a frame to the track's subscribers. It returns ErrUnpublished once the track is
 // unpublished and ErrQueueFull while it is being republished after a reconnect. Frames are never
-// retained, so the caller may reuse the payload immediately.
+// retained, so the caller may reuse the payload immediately. Frames with empty payloads are dropped.
 func (t *LocalTrack) TryPush(frame Frame) error {
 	t.mu.Lock()
 	switch t.state {
