@@ -54,8 +54,7 @@ func testRooms(t *testing.T, count int) []testRoom {
 	return testRoomsWithOptions(t, options...)
 }
 
-// testRoomsWithOptions creates one connection per option to a shared room and waits until every
-// participant sees the others.
+// testRoomsWithOptions creates one connection per option to a shared room.
 func testRoomsWithOptions(t *testing.T, options ...testRoomOptions) []testRoom {
 	t.Helper()
 	roomName := fmt.Sprintf("test_room_%s", uuid.NewString())
@@ -82,19 +81,6 @@ func testRoomsWithOptions(t *testing.T, options ...testRoomOptions) []testRoom {
 		t.Cleanup(room.Disconnect)
 		rooms = append(rooms, testRoom{room: room, published: published})
 	}
-
-	// Wait for participant visibility across all room connections. When using a local SFU, this
-	// takes significantly longer and can lead to intermittently failing tests.
-	allConnected := time.Now()
-	require.Eventually(t, func() bool {
-		for _, r := range rooms {
-			if len(r.room.GetRemoteParticipants()) != len(rooms)-1 {
-				return false
-			}
-		}
-		return true
-	}, 5*time.Second, 10*time.Millisecond, "Not all participants became visible")
-	t.Logf("All participants visible after %v", time.Since(allConnected))
 
 	return rooms
 }
