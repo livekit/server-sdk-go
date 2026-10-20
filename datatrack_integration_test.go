@@ -68,7 +68,7 @@ func testRoomsWithOptions(t *testing.T, options ...testRoomOptions) []testRoom {
 			SetIdentity(fmt.Sprintf("p%d", id)).
 			SetName(fmt.Sprintf("Participant %d", id)).
 			ToJWT()
-		require.NoError(t, err, "Failed to generate JWT")
+		require.NoError(t, err, "failed to generate JWT")
 
 		published := make(chan *datatrack.RemoteTrack, 16)
 		callback := &RoomCallback{ParticipantCallback: ParticipantCallback{
@@ -77,7 +77,7 @@ func testRoomsWithOptions(t *testing.T, options ...testRoomOptions) []testRoom {
 			},
 		}}
 		room, err := ConnectToRoomWithToken(host, token, callback, option.connect...)
-		require.NoError(t, err, "Failed to connect to room")
+		require.NoError(t, err, "failed to connect to room")
 		t.Cleanup(room.Disconnect)
 		rooms = append(rooms, testRoom{room: room, published: published})
 	}
@@ -92,7 +92,7 @@ func waitForRemoteTrack(t *testing.T, r testRoom) *datatrack.RemoteTrack {
 	case track := <-r.published:
 		return track
 	case <-time.After(5 * time.Second):
-		t.Fatal("No track published")
+		t.Fatal("no track published")
 		return nil
 	}
 }
@@ -103,7 +103,7 @@ func receiveFrame(t *testing.T, stream *datatrack.Stream, timeout time.Duration)
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	frame, err := stream.Next(ctx)
-	require.NoError(t, err, "No frame received")
+	require.NoError(t, err, "no frame received")
 	return frame
 }
 
@@ -134,10 +134,10 @@ func TestDataTrack(t *testing.T) {
 
 			localTrack, err := pubRoom.room.LocalParticipant.PublishDataTrack(context.Background(), "my_track")
 			require.NoError(t, err)
-			t.Log("Track published")
+			t.Log("track published")
 
 			remoteTrack := waitForRemoteTrack(t, subRoom)
-			t.Logf("Got remote track: %s", remoteTrack.Info().SID)
+			t.Logf("got remote track: %s", remoteTrack.Info().SID)
 
 			const payloadValue = 0xfa
 
@@ -188,7 +188,7 @@ func TestDataTrack_PublishManyTracks(t *testing.T) {
 		tracks = append(tracks, track)
 	}
 	elapsed := time.Since(start)
-	t.Logf("Publishing %d tracks took %v (average %v per track)", trackCount, elapsed, elapsed/trackCount)
+	t.Logf("publishing %d tracks took %v (average %v per track)", trackCount, elapsed, elapsed/trackCount)
 
 	for _, track := range tracks {
 		// Publish a single large frame per track.
@@ -296,7 +296,7 @@ func TestDataTrack_PublishedState(t *testing.T) {
 	select {
 	case <-remoteTrack.Unpublished():
 	case <-time.After(5 * time.Second):
-		t.Fatal("Track was not unpublished")
+		t.Fatal("track was not unpublished")
 	}
 	elapsed := time.Since(start)
 	require.InDelta(t, publishDuration, elapsed, float64(20*time.Millisecond))
@@ -363,7 +363,7 @@ func TestDataTrack_FrameWithUserTimestamp(t *testing.T) {
 	frame := receiveFrame(t, stream, 5*time.Second)
 	require.NotEmpty(t, frame.Payload)
 	duration, ok := frame.DurationSinceTimestamp()
-	require.True(t, ok, "Missing timestamp")
+	require.True(t, ok, "missing timestamp")
 	require.Less(t, duration, time.Second)
 }
 
@@ -421,18 +421,18 @@ func TestDataTrack_PublisherSideFault(t *testing.T) {
 			initialSID := track.Info().SID
 
 			pubRoom.room.Simulate(tc.scenario)
-			require.True(t, track.IsPublished(), "Should still be reported as published")
+			require.True(t, track.IsPublished(), "should still be reported as published")
 
 			if tc.fullReconnect {
 				// Republish (full reconnect → new session → new sid) is async. Poll up to 8s for
 				// the new sid instead of unconditionally sleeping a fixed window.
 				require.Eventually(t, func() bool {
 					return track.Info().SID != initialSID
-				}, 8*time.Second, 100*time.Millisecond, "Should have new SID after full reconnect (still %s)", initialSID)
+				}, 8*time.Second, 100*time.Millisecond, "should have new SID after full reconnect (still %s)", initialSID)
 			}
 
-			require.True(t, track.IsPublished(), "Should still be reported as published")
-			require.NoError(t, track.TryPush(datatrack.Frame{Payload: bytes.Repeat([]byte{0xfa}, 64)}), "Should be able to push frame")
+			require.True(t, track.IsPublished(), "should still be reported as published")
+			require.NoError(t, track.TryPush(datatrack.Frame{Payload: bytes.Repeat([]byte{0xfa}, 64)}), "should be able to push frame")
 		})
 	}
 }
