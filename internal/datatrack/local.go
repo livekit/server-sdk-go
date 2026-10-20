@@ -128,6 +128,9 @@ func (m *LocalManager) Publish(ctx context.Context, options PublishOptions) (*Lo
 	if err := validateSchema(options.FrameEncoding, schemaEncoding); err != nil {
 		return nil, err
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	m.mu.Lock()
 	handle, err := m.handles.get()

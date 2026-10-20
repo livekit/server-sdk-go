@@ -213,6 +213,17 @@ func TestLocalManager_PublishCancelled(t *testing.T) {
 	require.Equal(t, request.GetPubHandle(), unpublish.GetPubHandle())
 }
 
+func TestLocalManager_PublishAlreadyCancelled(t *testing.T) {
+	transport := newFakeLocalTransport()
+	m := NewLocalManager(LocalManagerParams{Transport: transport})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := m.Publish(ctx, PublishOptions{Name: "test"})
+	require.ErrorIs(t, err, context.Canceled)
+	require.Empty(t, transport.publishRequests)
+}
+
 // blockingTransport never becomes ready: SendPublishRequest waits on ctx like the real transport
 // waits on the engine connection.
 type blockingTransport struct{ *fakeLocalTransport }
