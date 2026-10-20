@@ -1068,7 +1068,7 @@ func (r *Room) OnRoomJoined(
 		r.clearParticipantDefers(livekit.ParticipantID(pi.Sid), pi)
 		// no need to run participant defers here, since we are connected for the first time
 	}
-	r.remoteDataTracks.HandleParticipantSnapshot(otherParticipants, r.LocalParticipant.Identity())
+	r.remoteDataTracks.HandleParticipantUpdate(otherParticipants, r.LocalParticipant.Identity())
 }
 
 func (r *Room) OnDisconnected(reason livekit.DisconnectReason) {
