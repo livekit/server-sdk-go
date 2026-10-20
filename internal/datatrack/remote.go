@@ -407,7 +407,8 @@ func (t *RemoteTrack) SetPipelineOptions(options PipelineOptions) {
 
 // Subscribe starts receiving the track's frames. Only the first subscription talks to the SFU;
 // later ones share the pipeline and miss frames delivered before they were made. A 10 second
-// deadline applies when ctx has none.
+// deadline applies when ctx has none. Do not call it inline from the OnDataTrackPublished callback,
+// which runs on the goroutine that delivers the SFU's response.
 func (t *RemoteTrack) Subscribe(ctx context.Context, opts ...SubscribeOption) (*Stream, error) {
 	options := SubscribeOptions{BufferSize: defaultBufferSize}
 	for _, opt := range opts {

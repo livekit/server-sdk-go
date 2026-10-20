@@ -34,19 +34,17 @@ func (t *remoteDataTrackTransport) SendUpdateSubscription(req *livekit.UpdateDat
 	return t.room.engine.SendUpdateDataSubscription(req)
 }
 
-// OnTrackPublished runs the callbacks on their own goroutine so they may block, for example on
-// Subscribe, without stalling signal handling.
+// OnTrackPublished runs the callbacks on the signal goroutine, as for media tracks, so they must
+// not block. In particular, Subscribe waits on a signal response and must not be called inline.
 func (t *remoteDataTrackTransport) OnTrackPublished(track *datatrack.RemoteTrack) {
 	rp := t.room.GetParticipantByIdentity(track.PublisherIdentity())
 	if rp != nil {
 		t.publishers.Store(track, rp)
 	}
-	go func() {
-		if rp != nil {
-			rp.Callback.OnDataTrackPublished(track, rp)
-		}
-		t.room.callback.OnDataTrackPublished(track, rp)
-	}()
+	if rp != nil {
+		rp.Callback.OnDataTrackPublished(track, rp)
+	}
+	t.room.callback.OnDataTrackPublished(track, rp)
 }
 
 func (t *remoteDataTrackTransport) OnTrackUnpublished(track *datatrack.RemoteTrack) {
@@ -54,10 +52,8 @@ func (t *remoteDataTrackTransport) OnTrackUnpublished(track *datatrack.RemoteTra
 	if publisher, ok := t.publishers.LoadAndDelete(track); ok && rp == nil {
 		rp = publisher.(*RemoteParticipant)
 	}
-	go func() {
-		if rp != nil {
-			rp.Callback.OnDataTrackUnpublished(track, rp)
-		}
-		t.room.callback.OnDataTrackUnpublished(track, rp)
-	}()
+	if rp != nil {
+		rp.Callback.OnDataTrackUnpublished(track, rp)
+	}
+	t.room.callback.OnDataTrackUnpublished(track, rp)
 }

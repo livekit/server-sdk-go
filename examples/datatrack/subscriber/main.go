@@ -43,7 +43,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	callback := &lksdk.RoomCallback{
 		ParticipantCallback: lksdk.ParticipantCallback{
 			OnDataTrackPublished: func(track *datatrack.RemoteTrack, rp *lksdk.RemoteParticipant) {
-				subscribe(ctx, track)
+				go subscribe(ctx, track)
 			},
 		},
 	}
