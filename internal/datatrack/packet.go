@@ -19,6 +19,7 @@ import (
 	"fmt"
 
 	dtp "github.com/livekit/protocol/datatrack"
+	"github.com/livekit/protocol/livekit"
 )
 
 const supportedVersion = 0
@@ -86,12 +87,12 @@ func extensionsOf(h *dtp.Header) Extensions {
 	var extensions Extensions
 	for _, ext := range h.Extensions {
 		switch ext.ID() {
-		case dtp.ExtensionE2EEID:
+		case uint8(livekit.DataTrackExtensionID_DTEI_E2EE):
 			var e2ee dtp.ExtensionE2EE
 			if e2ee.Unmarshal(ext) == nil {
 				extensions.E2EE = &e2ee
 			}
-		case dtp.ExtensionUserTimestampID:
+		case uint8(livekit.DataTrackExtensionID_DTEI_USER_TIMESTAMP):
 			var userTimestamp dtp.ExtensionUserTimestamp
 			if userTimestamp.Unmarshal(ext) == nil {
 				timestamp := userTimestamp.Timestamp()
