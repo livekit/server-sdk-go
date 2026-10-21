@@ -19,12 +19,11 @@ import (
 
 	protoLogger "github.com/livekit/protocol/logger"
 	"github.com/pion/webrtc/v4"
+
+	"github.com/livekit/server-sdk-go/v2/internal/datatrack"
 )
 
 const dataTrackBufferedAmountLowThreshold = 8 * 1024
-
-// dataTrackFramePackets is one frame serialized into data track packets.
-type dataTrackFramePackets [][]byte
 
 // dataTrackSender paces frames onto the data track channel, keeping only the freshest frame
 // while the channel's send buffer is above the low threshold.
@@ -33,7 +32,7 @@ type dataTrackSender struct {
 
 	lock   sync.Mutex
 	dc     *webrtc.DataChannel
-	frame  dataTrackFramePackets
+	frame  datatrack.FramePackets
 	notify chan struct{}
 	done   chan struct{}
 }
@@ -61,7 +60,7 @@ func (s *dataTrackSender) setLogger(log protoLogger.Logger) {
 	s.log = log
 }
 
-func (s *dataTrackSender) send(frame dataTrackFramePackets) {
+func (s *dataTrackSender) send(frame datatrack.FramePackets) {
 	if dropped := s.push(frame); dropped != nil {
 		s.log.Debugw("dropping data track frame", "numPackets", len(dropped))
 	}
@@ -78,7 +77,7 @@ func (s *dataTrackSender) stop() {
 	close(s.done)
 }
 
-func (s *dataTrackSender) push(frame dataTrackFramePackets) (dropped dataTrackFramePackets) {
+func (s *dataTrackSender) push(frame datatrack.FramePackets) (dropped datatrack.FramePackets) {
 	if len(frame) == 0 {
 		return nil
 	}
@@ -91,7 +90,7 @@ func (s *dataTrackSender) push(frame dataTrackFramePackets) (dropped dataTrackFr
 	return dropped
 }
 
-func (s *dataTrackSender) pop() dataTrackFramePackets {
+func (s *dataTrackSender) pop() datatrack.FramePackets {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -103,7 +102,7 @@ func (s *dataTrackSender) pop() dataTrackFramePackets {
 func (s *dataTrackSender) run() {
 	var (
 		dc       *webrtc.DataChannel
-		inFlight dataTrackFramePackets
+		inFlight datatrack.FramePackets
 	)
 	for {
 		select {

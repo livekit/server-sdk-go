@@ -778,6 +778,7 @@ func (r *Room) sendSyncState() {
 			Subscribe: !sendUnsub,
 		},
 		PublishTracks:     publishedTracks,
+		PublishDataTracks: r.LocalParticipant.dataTracks.PublishResponsesForSyncState(),
 		DataChannels:      dataChannels,
 		TrackSidsDisabled: trackSidsDisabled,
 		// MIGRATION-TODO DatachannelReceiveStates
@@ -787,6 +788,7 @@ func (r *Room) sendSyncState() {
 func (r *Room) cleanup() {
 	r.engine.Close()
 	r.LocalParticipant.closeTracks()
+	r.LocalParticipant.dataTracks.Shutdown()
 	r.setSid("", true)
 
 	r.byteStreamHandlers.Clear()
@@ -1106,6 +1108,7 @@ func (r *Room) OnRestarted(
 	r.OnParticipantUpdate(otherParticipants)
 
 	r.LocalParticipant.republishTracks()
+	r.LocalParticipant.dataTracks.RepublishTracks()
 }
 
 func (r *Room) OnRestartConnected() {
@@ -1401,6 +1404,9 @@ func (r *Room) OnMediaSectionsRequirement(mediaSectionsRequirement *livekit.Medi
 
 // OnRequestResponse handles responses to signal requests that no caller is waiting on.
 func (r *Room) OnRequestResponse(res *livekit.RequestResponse) {
+	if r.LocalParticipant.dataTracks.HandleRequestResponse(res) {
+		return
+	}
 	if res.GetReason() != livekit.RequestResponse_OK {
 		r.log.Warnw(
 			"signal request failed", nil,
@@ -1412,9 +1418,11 @@ func (r *Room) OnRequestResponse(res *livekit.RequestResponse) {
 }
 
 func (r *Room) OnPublishDataTrackResponse(publishDataTrackResponse *livekit.PublishDataTrackResponse) {
+	r.LocalParticipant.dataTracks.HandlePublishResponse(publishDataTrackResponse)
 }
 
 func (r *Room) OnUnpublishDataTrackResponse(unpublishDataTrackResponse *livekit.UnpublishDataTrackResponse) {
+	r.LocalParticipant.dataTracks.HandleUnpublishResponse(unpublishDataTrackResponse)
 }
 
 func (r *Room) OnDataTrackSubscriberHandles(dataTrackSubscriberHandles *livekit.DataTrackSubscriberHandles) {

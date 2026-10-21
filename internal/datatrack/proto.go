@@ -203,3 +203,73 @@ func extractTrackInfo(participant *livekit.ParticipantInfo) ([]Info, error) {
 	}
 	return infos, nil
 }
+
+// publishRequest is what the local participant asks the SFU to publish.
+type publishRequest struct {
+	handle        trackHandle
+	name          string
+	usesE2EE      bool
+	schema        *SchemaID
+	frameEncoding FrameEncoding
+}
+
+func (r publishRequest) toProto() *livekit.PublishDataTrackRequest {
+	req := &livekit.PublishDataTrackRequest{
+		PubHandle:  uint32(r.handle),
+		Name:       r.name,
+		Encryption: livekit.Encryption_NONE,
+	}
+	if r.usesE2EE {
+		req.Encryption = livekit.Encryption_GCM
+	}
+	if r.schema != nil {
+		req.Schema = schemaIDToProto(*r.schema)
+	}
+	if r.frameEncoding != nil {
+		req.FrameEncoding = frameEncodingToProto(r.frameEncoding)
+	}
+	return req
+}
+
+func unpublishRequestToProto(handle trackHandle) *livekit.UnpublishDataTrackRequest {
+	return &livekit.UnpublishDataTrackRequest{PubHandle: uint32(handle)}
+}
+
+// publishResponse is the SFU's answer to a publishRequest: info when accepted, err when rejected.
+type publishResponse struct {
+	handle trackHandle
+	info   Info
+	err    error
+}
+
+// publishRejectionFromRequestResponse extracts a rejected publish request; ok is false when the
+// response is not a publish rejection.
+func publishRejectionFromRequestResponse(msg *livekit.RequestResponse) (rejection publishResponse, ok bool) {
+	request, isPublish := msg.GetRequest().(*livekit.RequestResponse_PublishDataTrack)
+	if !isPublish || msg.GetReason() == livekit.RequestResponse_OK {
+		return publishResponse{}, false
+	}
+	handle, err := handleFromUint32(request.PublishDataTrack.GetPubHandle())
+	if err != nil {
+		return publishResponse{}, false
+	}
+
+	rejection = publishResponse{handle: handle}
+	switch msg.GetReason() {
+	case livekit.RequestResponse_NOT_ALLOWED:
+		rejection.err = ErrNotAllowed
+	case livekit.RequestResponse_DUPLICATE_NAME:
+		rejection.err = ErrDuplicateName
+	case livekit.RequestResponse_INVALID_NAME:
+		rejection.err = ErrInvalidName
+	case livekit.RequestResponse_LIMIT_EXCEEDED:
+		rejection.err = ErrLimitReached
+	default:
+		rejection.err = fmt.Errorf("data track publish rejected (%s): %s", msg.GetReason(), msg.GetMessage())
+		return rejection, true
+	}
+	if message := msg.GetMessage(); message != "" {
+		rejection.err = fmt.Errorf("%w: %s", rejection.err, message)
+	}
+	return rejection, true
+}

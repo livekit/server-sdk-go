@@ -30,6 +30,7 @@ import (
 
 	"github.com/livekit/protocol/livekit"
 	protoLogger "github.com/livekit/protocol/logger"
+	"github.com/livekit/server-sdk-go/v2/internal/datatrack"
 )
 
 const (
@@ -39,6 +40,7 @@ const (
 type LocalParticipant struct {
 	baseParticipant
 	engine                 *RTCEngine
+	dataTracks             *datatrack.LocalManager
 	subscriptionPermission *livekit.SubscriptionPermission
 	serverInfo             *livekit.ServerInfo
 
@@ -47,13 +49,15 @@ type LocalParticipant struct {
 }
 
 func newLocalParticipant(engine *RTCEngine, roomcallback *RoomCallback, serverInfo *livekit.ServerInfo, log protoLogger.Logger) *LocalParticipant {
-	return &LocalParticipant{
+	p := &LocalParticipant{
 		baseParticipant:     *newBaseParticipant(roomcallback, log.WithValues("isLocal", true)),
 		engine:              engine,
 		serverInfo:          serverInfo,
 		rpcPendingAcks:      &sync.Map{},
 		rpcPendingResponses: &sync.Map{},
 	}
+	p.dataTracks = datatrack.NewLocalManager(datatrack.LocalManagerParams{Transport: localDataTrackTransport{engine: engine}, Logger: p.log})
+	return p
 }
 
 func (p *LocalParticipant) prepareTrackPublication(track webrtc.TrackLocal, opts *TrackPublicationOptions, pubOpts ...LocalTrackPublishOption) (*LocalTrackPublication, *livekit.AddTrackRequest, error) {
@@ -1206,4 +1210,5 @@ func (p *LocalParticipant) SetLogger(log protoLogger.Logger) {
 		pub.SetLogger(p.log)
 		return true
 	})
+	p.dataTracks.SetLogger(p.log)
 }
