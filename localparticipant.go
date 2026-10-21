@@ -430,6 +430,8 @@ func (p *LocalParticipant) handleSubscribedQualityUpdate(subscribedQualityUpdate
 		"subscribedQualityUpdate", protoLogger.Proto(subscribedQualityUpdate),
 	)
 	newCodecs := trackPublication.setPublishingCodecsQuality(subscribedQualityUpdate.SubscribedCodecs)
+	p.Callback.OnLocalTrackSubscribedQualityUpdate(trackPublication, subscribedQualityUpdate.SubscribedCodecs, p)
+	p.roomCallback.OnLocalTrackSubscribedQualityUpdate(trackPublication, subscribedQualityUpdate.SubscribedCodecs, p)
 	if len(newCodecs) > 0 {
 		go func() {
 			for _, codec := range newCodecs {
