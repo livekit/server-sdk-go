@@ -56,7 +56,7 @@ func newLocalParticipant(engine *RTCEngine, roomcallback *RoomCallback, serverIn
 		rpcPendingAcks:      &sync.Map{},
 		rpcPendingResponses: &sync.Map{},
 	}
-	p.dataTracks = datatrack.NewLocalManager(datatrack.LocalManagerParams{Transport: localDataTrackTransport{engine: engine}, Logger: p.log})
+	p.dataTracks = datatrack.NewLocalManager(datatrack.LocalManagerParams{Transport: localDataTrackTransport{engine: engine}, Encryptor: engine.dataTrackEncryptor, Logger: p.log})
 	return p
 }
 
