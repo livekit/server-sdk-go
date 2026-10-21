@@ -21,7 +21,6 @@ import (
 	"testing"
 	"time"
 
-	dtp "github.com/livekit/protocol/datatrack"
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/utils/pointer"
 	"github.com/stretchr/testify/require"
@@ -54,27 +53,6 @@ func (f *fakeLocalTransport) SendUnpublishRequest(req *livekit.UnpublishDataTrac
 
 func (f *fakeLocalTransport) SendFrame(frame FramePackets) {
 	f.frames <- frame
-}
-
-// prefixingEncryptor marks payloads instead of encrypting them.
-type prefixingEncryptor struct{}
-
-func (prefixingEncryptor) Encrypt(payload []byte) ([]byte, dtp.ExtensionE2EE, error) {
-	return append([]byte{0xde, 0xad, 0xbe, 0xef}, payload...), dtp.ExtensionE2EE{}, nil
-}
-
-// expectEvent receives from ch or fails fast. The 500 ms timeout is generous
-// enough to avoid flakes on slow CI while keeping failures quick.
-func expectEvent[T any](t *testing.T, ch <-chan T) T {
-	t.Helper()
-	select {
-	case event := <-ch:
-		return event
-	case <-time.After(500 * time.Millisecond):
-		var zero T
-		t.Fatalf("timed out waiting for %T", zero)
-		return zero
-	}
 }
 
 // publishAsync calls Publish on another goroutine and delivers its outcome on the returned channel.
@@ -273,8 +251,8 @@ func TestLocalManager_PublishWithE2EE(t *testing.T) {
 	packets := expectEvent(t, transport.frames)
 	packet, err := parsePacket(packets[0])
 	require.NoError(t, err)
-	require.Equal(t, []byte{0xde, 0xad, 0xbe, 0xef}, packet.Payload[:4])
-	require.Equal(t, []byte{1, 2, 3, 4, 5}, packet.Payload[4:])
+	require.Equal(t, testE2EEPrefix, packet.Payload[:len(testE2EEPrefix)])
+	require.Equal(t, []byte{1, 2, 3, 4, 5}, packet.Payload[len(testE2EEPrefix):])
 	require.NotNil(t, extensionsOf(&packet.Header).E2EE)
 }
 
