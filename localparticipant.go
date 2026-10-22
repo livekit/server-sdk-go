@@ -164,14 +164,16 @@ func (p *LocalParticipant) prepareTrackPublication(track webrtc.TrackLocal, opts
 	if primaryCodec.MimeType != "" && (kind == TrackKindVideo || withBackupCodec) {
 		req.SimulcastCodecs = []*livekit.SimulcastCodec{
 			{
-				Codec: primaryCodec.MimeType,
-				Cid:   track.ID(),
+				Codec:          primaryCodec.MimeType,
+				Cid:            track.ID(),
+				VideoLayerMode: sampleTrackLayerMode(kind, track),
 			},
 		}
 		if withBackupCodec {
 			req.SimulcastCodecs = append(req.SimulcastCodecs, &livekit.SimulcastCodec{
-				Codec: pubOptions.backupCodecTrack.Codec().MimeType,
-				Cid:   pubOptions.backupCodecTrack.ID(),
+				Codec:          pubOptions.backupCodecTrack.Codec().MimeType,
+				Cid:            pubOptions.backupCodecTrack.ID(),
+				VideoLayerMode: sampleTrackLayerMode(kind, pubOptions.backupCodecTrack),
 			})
 			pub.setBackupCodecTrack(pubOptions.backupCodecTrack)
 		}
@@ -179,6 +181,13 @@ func (p *LocalParticipant) prepareTrackPublication(track webrtc.TrackLocal, opts
 		p.log.Warnw("backup codec publication requires a known primary codec, ignoring backup codec", nil)
 	}
 	return pub, req, nil
+}
+
+func sampleTrackLayerMode(kind TrackKind, track webrtc.TrackLocal) livekit.VideoLayer_Mode {
+	if _, ok := track.(*LocalTrack); ok && kind == TrackKindVideo {
+		return livekit.VideoLayer_ONE_SPATIAL_LAYER_PER_STREAM
+	}
+	return livekit.VideoLayer_MODE_UNUSED
 }
 
 func (p *LocalParticipant) notifyTrackPublished(pub *LocalTrackPublication) {
