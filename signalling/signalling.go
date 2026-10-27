@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net/http"
 	"runtime"
+	"strings"
 
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
@@ -77,6 +78,13 @@ func (s *signalling) ConnectQueryParams(
 		queryParams += "&attributes=" + str
 	}
 	queryParams += "&sdk=go&os=" + runtime.GOOS
+	if len(connectParams.Capabilities) != 0 {
+		names := make([]string, len(connectParams.Capabilities))
+		for i, c := range connectParams.Capabilities {
+			names[i] = c.String()
+		}
+		queryParams += "&capabilities=" + strings.Join(names, ",")
+	}
 
 	return queryParams, nil
 }

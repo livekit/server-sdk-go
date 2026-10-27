@@ -59,10 +59,11 @@ func (s *signallingJoinRequest) ConnectQueryParams(
 	participantSID string,
 ) (string, error) {
 	clientInfo := &livekit.ClientInfo{
-		Version:  version,
-		Protocol: int32(protocol),
-		Os:       runtime.GOOS,
-		Sdk:      livekit.ClientInfo_GO,
+		Version:      version,
+		Protocol:     int32(protocol),
+		Os:           runtime.GOOS,
+		Sdk:          livekit.ClientInfo_GO,
+		Capabilities: connectParams.Capabilities,
 	}
 
 	connectionSettings := &livekit.ConnectionSettings{
