@@ -227,6 +227,15 @@ func WithExtraAttributes(attrs map[string]string) ConnectOption {
 	}
 }
 
+// WithCapabilities declares client capabilities to the server, such as
+// livekit.ClientInfo_CAP_PACKET_TRAILER to receive packet trailers (frame
+// metadata) instead of having the SFU strip them.
+func WithCapabilities(caps ...livekit.ClientInfo_Capability) ConnectOption {
+	return func(p *connParams) {
+		p.Capabilities = append(p.Capabilities, caps...)
+	}
+}
+
 func WithCodecs(codecs []livekit.Codec) ConnectOption {
 	return func(p *connParams) {
 		pCodecs := make([]webrtc.RTPCodecParameters, 0, len(codecs))

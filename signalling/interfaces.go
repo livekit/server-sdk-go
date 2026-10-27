@@ -87,6 +87,8 @@ type ConnectParams struct {
 
 	Attributes map[string]string // See WithExtraAttributes
 
+	Capabilities []livekit.ClientInfo_Capability // See WithCapabilities
+
 	Pacer pacer.Factory
 
 	Interceptors []interceptor.Factory
