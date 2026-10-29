@@ -49,6 +49,7 @@ const (
 var (
 	errInvalidDurationSample = errors.New("invalid duration sample")
 	errOutOfOrderSample      = errors.New("out-of-order sample")
+	errTrackUnbound          = errors.New("track unbound")
 )
 
 type SampleWriteOptions struct {
@@ -85,8 +86,10 @@ type LocalTrack struct {
 	muted          atomic.Bool
 	disabled       atomic.Bool
 	disconnected   atomic.Bool
-	cancelWrite    func()
+	cancelWrite    context.CancelCauseFunc
+	cancelWriteGen uint64
 	writeClosed    chan struct{}
+	writeGen       atomic.Uint64 // bumped by every StartWrite
 	provider       SampleProvider
 	frameEncryptor e2eetypes.FrameEncryptor // nil = no encryption
 	onBind         func()
@@ -251,12 +254,13 @@ func (s *LocalTrack) Bind(t webrtc.TrackLocalContext) (webrtc.RTPCodecParameters
 	onBind := s.onBind
 	provider := s.provider
 	onWriteComplete := s.onWriteComplete
+	writeGen := s.writeGen.Load()
 	s.bound.Store(true)
 	s.lock.Unlock()
 
 	if provider != nil {
 		err = provider.OnBind()
-		go s.writeWorker(provider, onWriteComplete)
+		go s.writeWorker(provider, onWriteComplete, writeGen)
 	}
 
 	go s.rtcpWorker(t.RTCPReader())
@@ -283,7 +287,7 @@ func (s *LocalTrack) Unbind(t webrtc.TrackLocalContext) error {
 		err = provider.OnUnbind()
 	}
 	if cancel != nil {
-		cancel()
+		cancel(errTrackUnbound)
 	}
 	if onUnbind != nil {
 		go onUnbind()
@@ -296,12 +300,15 @@ func (s *LocalTrack) Unbind(t webrtc.TrackLocalContext) error {
 }
 
 // StartWrite starts writing samples from the provided SampleProvider.
-// The onComplete callback is called when writing finishes.
+// The onComplete callback is called once, when the provider ends, is replaced, or the track is closed.
 func (s *LocalTrack) StartWrite(provider SampleProvider, onComplete func()) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	if s.provider == provider {
 		return nil
+	}
+	if onComplete != nil {
+		onComplete = sync.OnceFunc(onComplete)
 	}
 
 	// when bound and already writing, ignore
@@ -316,7 +323,12 @@ func (s *LocalTrack) StartWrite(provider SampleProvider, onComplete func()) erro
 			return err
 		}
 		// start new writer
-		go s.writeWorker(provider, onComplete)
+		go s.writeWorker(provider, onComplete, s.writeGen.Inc())
+	} else {
+		s.writeGen.Inc()
+		if s.onWriteComplete != nil {
+			go callAfterWriteClosed(s.writeClosed, s.onWriteComplete)
+		}
 	}
 	s.provider = provider
 	s.onWriteComplete = onComplete
@@ -564,12 +576,17 @@ func (s *LocalTrack) Close() error {
 	s.lock.Lock()
 	cancelWrite := s.cancelWrite
 	provider := s.provider
+	onWriteComplete := s.onWriteComplete
+	writeClosed := s.writeClosed
 	s.lock.Unlock()
 	if cancelWrite != nil {
-		cancelWrite()
+		cancelWrite(nil)
 	}
 	if provider != nil {
 		provider.Close()
+	}
+	if onWriteComplete != nil {
+		go callAfterWriteClosed(writeClosed, onWriteComplete)
 	}
 	return nil
 }
@@ -633,29 +650,50 @@ func (s *LocalTrack) rtcpWorker(rtcpReader interceptor.RTCPReader) {
 	}
 }
 
-func (s *LocalTrack) writeWorker(provider SampleProvider, onComplete func()) {
+func (s *LocalTrack) writeWorker(provider SampleProvider, onComplete func(), writeGen uint64) {
 	s.writeStartupLock.Lock()
 
 	s.lock.RLock()
 	previousCancel := s.cancelWrite
 	previousWriteClosed := s.writeClosed
+	previousWriteGen := s.cancelWriteGen
 	s.lock.RUnlock()
 
 	if previousCancel != nil {
-		previousCancel()
+		var cause error
+		if previousWriteGen == writeGen {
+			// the same StartWrite rebound after Unbind, its completion is still pending
+			cause = errTrackUnbound
+		}
+		previousCancel(cause)
 		// wait for previous write to finish to prevent multi-threaded provider reading
 		<-previousWriteClosed
 	}
 
 	s.lock.Lock()
+	if s.writeGen.Load() != writeGen && !s.IsBound() {
+		// replaced while unbound before it started: report without reading
+		s.lock.Unlock()
+		s.writeStartupLock.Unlock()
+		if onComplete != nil {
+			onComplete()
+		}
+		return
+	}
 	var ctx context.Context
-	ctx, s.cancelWrite = context.WithCancel(context.Background())
+	ctx, s.cancelWrite = context.WithCancelCause(context.Background())
+	s.cancelWriteGen = writeGen
 	writeClosed := make(chan struct{})
 	s.writeClosed = writeClosed
 	s.lock.Unlock()
 	s.writeStartupLock.Unlock()
 	if onComplete != nil {
-		defer onComplete()
+		defer func() {
+			// after Unbind the track may be bound again; otherwise StartWrite or Close report it
+			if s.writeGen.Load() != writeGen || !errors.Is(context.Cause(ctx), errTrackUnbound) {
+				onComplete()
+			}
+		}()
 	}
 	defer close(writeClosed)
 
@@ -708,6 +746,14 @@ func (s *LocalTrack) writeWorker(provider SampleProvider, onComplete func()) {
 			return
 		}
 	}
+}
+
+// callAfterWriteClosed calls onComplete once the writer that owned writeClosed has exited
+func callAfterWriteClosed(writeClosed chan struct{}, onComplete func()) {
+	if writeClosed != nil {
+		<-writeClosed
+	}
+	onComplete()
 }
 
 // duplicated from pion mediaengine.go
