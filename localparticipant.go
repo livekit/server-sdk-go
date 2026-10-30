@@ -185,6 +185,7 @@ func (p *LocalParticipant) prepareTrackPublication(track webrtc.TrackLocal, opts
 
 func sampleTrackLayerMode(kind TrackKind, track webrtc.TrackLocal) livekit.VideoLayer_Mode {
 	if _, ok := track.(*LocalTrack); ok && kind == TrackKindVideo {
+		//TODO: It is safe to declare ONE_SPATIAL_LAYER_PER_STREAM now, need to update once we support svc encoding.
 		return livekit.VideoLayer_ONE_SPATIAL_LAYER_PER_STREAM
 	}
 	return livekit.VideoLayer_MODE_UNUSED
