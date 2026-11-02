@@ -301,6 +301,9 @@ func (s *LocalTrack) Unbind(t webrtc.TrackLocalContext) error {
 func (s *LocalTrack) StartWrite(provider SampleProvider, onComplete func()) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
+	if s.closed {
+		return ErrTrackClosed
+	}
 	if s.provider == provider {
 		return nil
 	}
@@ -693,6 +696,7 @@ func (s *LocalTrack) writeWorker() {
 	ticker := time.NewTicker(time.Hour)
 	defer ticker.Stop()
 
+	writeFailing := false
 	for {
 		// Be mindful that NextSample is not thread-safe
 		sample, err := provider.NextSample(ctx)
@@ -714,9 +718,14 @@ func (s *LocalTrack) writeWorker() {
 			}
 
 			sample.Timestamp = nextSampleTime
+			// drop samples that can't be written, e.g. while the transport is down before a reconnect
 			if err := s.WriteSample(sample, opts); err != nil {
-				s.log.Errorw("could not write sample", err)
-				return
+				if !writeFailing {
+					s.log.Errorw("could not write sample", err)
+				}
+				writeFailing = true
+			} else {
+				writeFailing = false
 			}
 		}
 

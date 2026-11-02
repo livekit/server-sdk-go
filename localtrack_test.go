@@ -118,14 +118,38 @@ func TestWriterNotStartedAfterClose(t *testing.T) {
 	bindTrack(t, track)
 	provider := newIdleProvider()
 	var completed atomic.Int32
-	require.NoError(t, track.StartWrite(provider, func() { completed.Add(1) }))
 
 	// close before the writer started by StartWrite gets going
 	track.writeStartupLock.Lock()
+	require.NoError(t, track.StartWrite(provider, func() { completed.Add(1) }))
 	require.NoError(t, track.Close())
 	track.writeStartupLock.Unlock()
 	require.Eventually(t, func() bool { return completed.Load() == 1 }, time.Second, time.Millisecond)
 	require.Never(t, func() bool { return provider.reads.Load() != 0 }, 100*time.Millisecond, 10*time.Millisecond)
+
+	require.ErrorIs(t, track.StartWrite(newIdleProvider(), nil), ErrTrackClosed)
+}
+
+func TestWriterContinuesAfterWriteError(t *testing.T) {
+	track := newOpusTestTrack(t)
+	writer := &fakeTrackLocalWriter{}
+	writer.failing.Store(true)
+	_, err := track.Bind(&fakeTrackLocalContext{writer: writer})
+	require.NoError(t, err)
+	provider := &opusSampleProvider{eof: make(chan struct{})}
+	var completed atomic.Int32
+	require.NoError(t, track.StartWrite(provider, func() { completed.Add(1) }))
+
+	// e.g. ICE failed and the track is not unbound yet
+	require.Eventually(t, func() bool { return writer.attempts.Load() >= 3 }, time.Second, time.Millisecond)
+	require.Zero(t, completed.Load())
+
+	writer.failing.Store(false)
+	attempts := writer.attempts.Load()
+	require.Eventually(t, func() bool { return writer.attempts.Load() > attempts }, time.Second, time.Millisecond)
+
+	close(provider.eof)
+	require.Eventually(t, func() bool { return completed.Load() == 1 }, time.Second, time.Millisecond)
 }
 
 func newOpusTestTrack(t *testing.T) *LocalTrack {
@@ -169,7 +193,42 @@ func (p *idleProvider) OnBind() error   { return nil }
 func (p *idleProvider) OnUnbind() error { return nil }
 func (p *idleProvider) Close() error    { return nil }
 
-type fakeTrackLocalContext struct{}
+// opusSampleProvider returns 20ms samples until eof is closed
+type opusSampleProvider struct {
+	eof chan struct{}
+}
+
+func (p *opusSampleProvider) NextSample(ctx context.Context) (media.Sample, error) {
+	select {
+	case <-p.eof:
+		return media.Sample{}, io.EOF
+	default:
+		return media.Sample{Data: []byte{0xf8, 0xff, 0xfe}, Duration: 20 * time.Millisecond}, nil
+	}
+}
+
+func (p *opusSampleProvider) OnBind() error   { return nil }
+func (p *opusSampleProvider) OnUnbind() error { return nil }
+func (p *opusSampleProvider) Close() error    { return nil }
+
+type fakeTrackLocalWriter struct {
+	failing  atomic.Bool
+	attempts atomic.Int32
+}
+
+func (w *fakeTrackLocalWriter) WriteRTP(header *rtp.Header, payload []byte) (int, error) {
+	w.attempts.Add(1)
+	if w.failing.Load() {
+		return 0, io.ErrClosedPipe
+	}
+	return len(payload), nil
+}
+
+func (w *fakeTrackLocalWriter) Write(b []byte) (int, error) { return len(b), nil }
+
+type fakeTrackLocalContext struct {
+	writer webrtc.TrackLocalWriter
+}
 
 func (c *fakeTrackLocalContext) CodecParameters() []webrtc.RTPCodecParameters {
 	return []webrtc.RTPCodecParameters{{
@@ -182,7 +241,7 @@ func (c *fakeTrackLocalContext) HeaderExtensions() []webrtc.RTPHeaderExtensionPa
 func (c *fakeTrackLocalContext) SSRC() webrtc.SSRC                                      { return 1 }
 func (c *fakeTrackLocalContext) SSRCRetransmission() webrtc.SSRC                        { return 0 }
 func (c *fakeTrackLocalContext) SSRCForwardErrorCorrection() webrtc.SSRC                { return 0 }
-func (c *fakeTrackLocalContext) WriteStream() webrtc.TrackLocalWriter                   { return nil }
+func (c *fakeTrackLocalContext) WriteStream() webrtc.TrackLocalWriter                   { return c.writer }
 func (c *fakeTrackLocalContext) ID() string                                             { return "pc" }
 
 func (c *fakeTrackLocalContext) RTCPReader() interceptor.RTCPReader {

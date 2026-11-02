@@ -42,4 +42,5 @@ var (
 	ErrMissingPrimaryCodec      = errors.New("primary track must be TrackLocalWithCodec when backup codec is present")
 	ErrPublishRequiresSinglePC  = errors.New("WithTrack requires WithSinglePeerConnection() to be enabled")
 	ErrNALTooLarge              = errors.New("length-prefixed NAL exceeds the maximum size")
+	ErrTrackClosed              = errors.New("track is closed")
 )

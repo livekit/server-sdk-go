@@ -713,6 +713,8 @@ func (p *LocalParticipant) UnpublishTrack(sid string) error {
 
 	transport := p.getPublishTransport()
 	if transport == nil {
+		// no longer tracked, so close it here or its writer is never told it completed
+		pub.CloseTrack()
 		return ErrNoPeerConnection
 	}
 	err := pub.unpublish(transport)
