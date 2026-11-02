@@ -91,7 +91,7 @@ type LocalTrack struct {
 	frameEncryptor e2eetypes.FrameEncryptor // nil = no encryption
 	onBind         func()
 	onUnbind       func()
-	// notify when sample provider responds with EOF
+	// called once, when the provider ends, is replaced, or the track is closed
 	onWriteComplete func()
 }
 type LocalSampleTrack = LocalTrack
@@ -250,13 +250,12 @@ func (s *LocalTrack) Bind(t webrtc.TrackLocalContext) (webrtc.RTPCodecParameters
 	s.clockRate = float64(codec.ClockRate)
 	onBind := s.onBind
 	provider := s.provider
-	onWriteComplete := s.onWriteComplete
 	s.bound.Store(true)
 	s.lock.Unlock()
 
 	if provider != nil {
 		err = provider.OnBind()
-		go s.writeWorker(provider, onWriteComplete)
+		go s.writeWorker()
 	}
 
 	go s.rtcpWorker(t.RTCPReader())
@@ -296,15 +295,18 @@ func (s *LocalTrack) Unbind(t webrtc.TrackLocalContext) error {
 }
 
 // StartWrite starts writing samples from the provided SampleProvider.
-// The onComplete callback is called when writing finishes.
+// The onComplete callback is called once, when the provider ends, is replaced, or the track is closed.
+// It is not called when the track is only unbound, e.g. during a reconnect.
 func (s *LocalTrack) StartWrite(provider SampleProvider, onComplete func()) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	if s.provider == provider {
 		return nil
 	}
+	if onComplete != nil {
+		onComplete = sync.OnceFunc(onComplete)
+	}
 
-	// when bound and already writing, ignore
 	if s.IsBound() {
 		// unbind previous provider
 		if s.provider != nil {
@@ -316,7 +318,11 @@ func (s *LocalTrack) StartWrite(provider SampleProvider, onComplete func()) erro
 			return err
 		}
 		// start new writer
-		go s.writeWorker(provider, onComplete)
+		go s.writeWorker()
+	}
+	if s.onWriteComplete != nil {
+		// the previous provider is no longer read once its writer has exited
+		go callAfterClosed(s.writeClosed, s.onWriteComplete)
 	}
 	s.provider = provider
 	s.onWriteComplete = onComplete
@@ -563,13 +569,18 @@ func (s *LocalTrack) WriteSample(sample media.Sample, opts *SampleWriteOptions) 
 func (s *LocalTrack) Close() error {
 	s.lock.Lock()
 	cancelWrite := s.cancelWrite
+	writeClosed := s.writeClosed
 	provider := s.provider
+	onWriteComplete := s.onWriteComplete
 	s.lock.Unlock()
 	if cancelWrite != nil {
 		cancelWrite()
 	}
 	if provider != nil {
 		provider.Close()
+	}
+	if onWriteComplete != nil {
+		go callAfterClosed(writeClosed, onWriteComplete)
 	}
 	return nil
 }
@@ -633,7 +644,9 @@ func (s *LocalTrack) rtcpWorker(rtcpReader interceptor.RTCPReader) {
 	}
 }
 
-func (s *LocalTrack) writeWorker(provider SampleProvider, onComplete func()) {
+// writeWorker writes samples from the current provider until it ends or the write is cancelled.
+// It only reports completion when the provider ends; whoever cancels it (StartWrite, Close) reports it otherwise.
+func (s *LocalTrack) writeWorker() {
 	s.writeStartupLock.Lock()
 
 	s.lock.RLock()
@@ -648,6 +661,14 @@ func (s *LocalTrack) writeWorker(provider SampleProvider, onComplete func()) {
 	}
 
 	s.lock.Lock()
+	if !s.IsBound() || s.provider == nil {
+		// unbound before this writer started, the next Bind starts another
+		s.lock.Unlock()
+		s.writeStartupLock.Unlock()
+		return
+	}
+	provider := s.provider
+	onComplete := s.onWriteComplete
 	var ctx context.Context
 	ctx, s.cancelWrite = context.WithCancel(context.Background())
 	writeClosed := make(chan struct{})
@@ -655,7 +676,11 @@ func (s *LocalTrack) writeWorker(provider SampleProvider, onComplete func()) {
 	s.lock.Unlock()
 	s.writeStartupLock.Unlock()
 	if onComplete != nil {
-		defer onComplete()
+		defer func() {
+			if ctx.Err() == nil && s.IsBound() {
+				onComplete()
+			}
+		}()
 	}
 	defer close(writeClosed)
 
@@ -708,6 +733,13 @@ func (s *LocalTrack) writeWorker(provider SampleProvider, onComplete func()) {
 			return
 		}
 	}
+}
+
+func callAfterClosed(closed chan struct{}, f func()) {
+	if closed != nil {
+		<-closed
+	}
+	f()
 }
 
 // duplicated from pion mediaengine.go

@@ -602,15 +602,18 @@ func (p *LocalParticipant) republishTracks() {
 	for _, pub := range localPubs {
 		opt := pub.PublicationOptions()
 		backupCodecTrack, backupCodecTracksForSimulcast := pub.getBackupCodecTrack()
+		var err error
 		if tracks := pub.TrackLocalForSimulcast(); len(tracks) > 0 {
-			p.PublishSimulcastTrack(tracks, &opt, WithBackupCodecForSimulcastTrack(backupCodecTracksForSimulcast))
+			_, err = p.PublishSimulcastTrack(tracks, &opt, WithBackupCodecForSimulcastTrack(backupCodecTracksForSimulcast))
 		} else if track := pub.TrackLocal(); track != nil {
-			_, err := p.PublishTrack(track, &opt, WithBackupCodec(backupCodecTrack))
-			if err != nil {
-				p.engine.log.Warnw("could not republish track", err, "track", pub.SID())
-			}
+			_, err = p.PublishTrack(track, &opt, WithBackupCodec(backupCodecTrack))
 		} else {
 			p.engine.log.Warnw("could not republish track as no track local found", nil, "track", pub.SID())
+		}
+		if err != nil {
+			p.engine.log.Warnw("could not republish track", err, "track", pub.SID())
+			// no longer tracked, so close it here or its writer is never told it completed
+			pub.CloseTrack()
 		}
 	}
 }
