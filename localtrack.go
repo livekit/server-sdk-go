@@ -87,6 +87,7 @@ type LocalTrack struct {
 	disconnected   atomic.Bool
 	cancelWrite    func()
 	writeClosed    chan struct{}
+	closed         bool
 	provider       SampleProvider
 	frameEncryptor e2eetypes.FrameEncryptor // nil = no encryption
 	onBind         func()
@@ -568,6 +569,7 @@ func (s *LocalTrack) WriteSample(sample media.Sample, opts *SampleWriteOptions) 
 // Close stops the track and cleans up resources.
 func (s *LocalTrack) Close() error {
 	s.lock.Lock()
+	s.closed = true
 	cancelWrite := s.cancelWrite
 	writeClosed := s.writeClosed
 	provider := s.provider
@@ -661,8 +663,8 @@ func (s *LocalTrack) writeWorker() {
 	}
 
 	s.lock.Lock()
-	if !s.IsBound() || s.provider == nil {
-		// unbound before this writer started, the next Bind starts another
+	if s.closed || !s.IsBound() || s.provider == nil {
+		// closed or unbound before this writer started, a later Bind starts another if needed
 		s.lock.Unlock()
 		s.writeStartupLock.Unlock()
 		return

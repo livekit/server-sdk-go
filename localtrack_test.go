@@ -113,6 +113,21 @@ func TestWriterNotStartedAfterUnbind(t *testing.T) {
 	require.Eventually(t, func() bool { return completed.Load() == 1 }, time.Second, time.Millisecond)
 }
 
+func TestWriterNotStartedAfterClose(t *testing.T) {
+	track := newOpusTestTrack(t)
+	bindTrack(t, track)
+	provider := newIdleProvider()
+	var completed atomic.Int32
+	require.NoError(t, track.StartWrite(provider, func() { completed.Add(1) }))
+
+	// close before the writer started by StartWrite gets going
+	track.writeStartupLock.Lock()
+	require.NoError(t, track.Close())
+	track.writeStartupLock.Unlock()
+	require.Eventually(t, func() bool { return completed.Load() == 1 }, time.Second, time.Millisecond)
+	require.Never(t, func() bool { return provider.reads.Load() != 0 }, 100*time.Millisecond, 10*time.Millisecond)
+}
+
 func newOpusTestTrack(t *testing.T) *LocalTrack {
 	track, err := NewLocalTrack(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2})
 	require.NoError(t, err)
