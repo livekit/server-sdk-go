@@ -490,7 +490,12 @@ func (t *PCTransport) createAndSendOffer(options *webrtc.OfferOptions) error {
 	offer, err := t.pc.CreateOffer(options)
 	t.log.Debugw("create offer", "offer", offer.SDP)
 	if err != nil {
-		t.log.Errorw("could not negotiate", err)
+		if errors.Is(err, webrtc.ErrConnectionClosed) {
+			// A debounced negotiation can fire after the connection is closed.
+			t.log.Warnw("could not negotiate", err)
+		} else {
+			t.log.Errorw("could not negotiate", err)
+		}
 		return err
 	}
 	if err := t.pc.SetLocalDescription(offer); err != nil {
