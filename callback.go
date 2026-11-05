@@ -40,16 +40,17 @@ type ParticipantCallback struct {
 	OnConnectionQualityChanged func(update *livekit.ConnectionQualityInfo, p Participant)
 
 	// for remote participants
-	OnTrackSubscribed         func(track *webrtc.TrackRemote, publication *RemoteTrackPublication, rp *RemoteParticipant)
-	OnTrackUnsubscribed       func(track *webrtc.TrackRemote, publication *RemoteTrackPublication, rp *RemoteParticipant)
-	OnTrackSubscriptionFailed func(sid string, rp *RemoteParticipant)
-	OnTrackPublished          func(publication *RemoteTrackPublication, rp *RemoteParticipant)
-	OnTrackUnpublished        func(publication *RemoteTrackPublication, rp *RemoteParticipant)
-	OnDataTrackPublished      func(track *datatrack.RemoteTrack, rp *RemoteParticipant)
-	OnDataTrackUnpublished    func(track *datatrack.RemoteTrack, rp *RemoteParticipant)
-	OnDataReceived            func(data []byte, params DataReceiveParams) // Deprecated: Use OnDataPacket instead
-	OnDataPacket              func(data DataPacket, params DataReceiveParams)
-	OnTranscriptionReceived   func(transcriptionSegments []*TranscriptionSegment, p Participant, publication TrackPublication)
+	OnTrackSubscribed                    func(track *webrtc.TrackRemote, publication *RemoteTrackPublication, rp *RemoteParticipant)
+	OnTrackUnsubscribed                  func(track *webrtc.TrackRemote, publication *RemoteTrackPublication, rp *RemoteParticipant)
+	OnTrackSubscriptionFailed            func(sid string, rp *RemoteParticipant)
+	OnTrackSubscriptionPermissionChanged func(publication *RemoteTrackPublication, rp *RemoteParticipant, allowed bool)
+	OnTrackPublished                     func(publication *RemoteTrackPublication, rp *RemoteParticipant)
+	OnTrackUnpublished                   func(publication *RemoteTrackPublication, rp *RemoteParticipant)
+	OnDataTrackPublished                 func(track *datatrack.RemoteTrack, rp *RemoteParticipant)
+	OnDataTrackUnpublished               func(track *datatrack.RemoteTrack, rp *RemoteParticipant)
+	OnDataReceived                       func(data []byte, params DataReceiveParams) // Deprecated: Use OnDataPacket instead
+	OnDataPacket                         func(data DataPacket, params DataReceiveParams)
+	OnTranscriptionReceived              func(transcriptionSegments []*TranscriptionSegment, p Participant, publication TrackPublication)
 }
 
 // NewParticipantCallback creates a new ParticipantCallback with default no-op handlers.
@@ -58,22 +59,23 @@ func NewParticipantCallback() *ParticipantCallback {
 		OnLocalTrackPublished:   func(publication *LocalTrackPublication, lp *LocalParticipant) {},
 		OnLocalTrackUnpublished: func(publication *LocalTrackPublication, lp *LocalParticipant) {},
 
-		OnTrackMuted:               func(pub TrackPublication, p Participant) {},
-		OnTrackUnmuted:             func(pub TrackPublication, p Participant) {},
-		OnMetadataChanged:          func(oldMetadata string, p Participant) {},
-		OnAttributesChanged:        func(changed map[string]string, p Participant) {},
-		OnIsSpeakingChanged:        func(p Participant) {},
-		OnConnectionQualityChanged: func(update *livekit.ConnectionQualityInfo, p Participant) {},
-		OnTrackSubscribed:          func(track *webrtc.TrackRemote, publication *RemoteTrackPublication, rp *RemoteParticipant) {},
-		OnTrackUnsubscribed:        func(track *webrtc.TrackRemote, publication *RemoteTrackPublication, rp *RemoteParticipant) {},
-		OnTrackSubscriptionFailed:  func(sid string, rp *RemoteParticipant) {},
-		OnTrackPublished:           func(publication *RemoteTrackPublication, rp *RemoteParticipant) {},
-		OnTrackUnpublished:         func(publication *RemoteTrackPublication, rp *RemoteParticipant) {},
-		OnDataTrackPublished:       func(track *datatrack.RemoteTrack, rp *RemoteParticipant) {},
-		OnDataTrackUnpublished:     func(track *datatrack.RemoteTrack, rp *RemoteParticipant) {},
-		OnDataReceived:             func(data []byte, params DataReceiveParams) {},
-		OnDataPacket:               func(data DataPacket, params DataReceiveParams) {},
-		OnTranscriptionReceived:    func(transcriptionSegments []*TranscriptionSegment, p Participant, publication TrackPublication) {},
+		OnTrackMuted:                         func(pub TrackPublication, p Participant) {},
+		OnTrackUnmuted:                       func(pub TrackPublication, p Participant) {},
+		OnMetadataChanged:                    func(oldMetadata string, p Participant) {},
+		OnAttributesChanged:                  func(changed map[string]string, p Participant) {},
+		OnIsSpeakingChanged:                  func(p Participant) {},
+		OnConnectionQualityChanged:           func(update *livekit.ConnectionQualityInfo, p Participant) {},
+		OnTrackSubscribed:                    func(track *webrtc.TrackRemote, publication *RemoteTrackPublication, rp *RemoteParticipant) {},
+		OnTrackUnsubscribed:                  func(track *webrtc.TrackRemote, publication *RemoteTrackPublication, rp *RemoteParticipant) {},
+		OnTrackSubscriptionFailed:            func(sid string, rp *RemoteParticipant) {},
+		OnTrackSubscriptionPermissionChanged: func(publication *RemoteTrackPublication, rp *RemoteParticipant, allowed bool) {},
+		OnTrackPublished:                     func(publication *RemoteTrackPublication, rp *RemoteParticipant) {},
+		OnTrackUnpublished:                   func(publication *RemoteTrackPublication, rp *RemoteParticipant) {},
+		OnDataTrackPublished:                 func(track *datatrack.RemoteTrack, rp *RemoteParticipant) {},
+		OnDataTrackUnpublished:               func(track *datatrack.RemoteTrack, rp *RemoteParticipant) {},
+		OnDataReceived:                       func(data []byte, params DataReceiveParams) {},
+		OnDataPacket:                         func(data DataPacket, params DataReceiveParams) {},
+		OnTranscriptionReceived:              func(transcriptionSegments []*TranscriptionSegment, p Participant, publication TrackPublication) {},
 	}
 }
 
@@ -111,6 +113,9 @@ func (cb *ParticipantCallback) Merge(other *ParticipantCallback) {
 	}
 	if other.OnTrackSubscriptionFailed != nil {
 		cb.OnTrackSubscriptionFailed = other.OnTrackSubscriptionFailed
+	}
+	if other.OnTrackSubscriptionPermissionChanged != nil {
+		cb.OnTrackSubscriptionPermissionChanged = other.OnTrackSubscriptionPermissionChanged
 	}
 	if other.OnTrackPublished != nil {
 		cb.OnTrackPublished = other.OnTrackPublished
