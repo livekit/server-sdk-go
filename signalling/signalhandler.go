@@ -133,6 +133,9 @@ func (s *signalhandler) HandleMessage(msg proto.Message) error {
 
 	case *livekit.SignalResponse_DataTrackSubscriberHandles:
 		s.params.Processor.OnDataTrackSubscriberHandles(payload.DataTrackSubscriberHandles)
+
+	case *livekit.SignalResponse_SubscriptionPermissionUpdate:
+		s.params.Processor.OnSubscriptionPermissionUpdate(payload.SubscriptionPermissionUpdate)
 	}
 
 	return nil

@@ -140,7 +140,8 @@ type RemoteTrackPublication struct {
 	receiver      *webrtc.RTPReceiver
 	onRTCP        func(rtcp.Packet)
 
-	disabled bool
+	disabled   bool
+	notAllowed bool // the server refused the subscription
 
 	// preferred video dimensions to subscribe
 	videoWidth  *uint32
@@ -181,6 +182,15 @@ func (p *RemoteTrackPublication) SetSubscribed(subscribed bool) error {
 			},
 		},
 	)
+}
+
+// setAllowed reports whether the subscription permission changed.
+func (p *RemoteTrackPublication) setAllowed(allowed bool) bool {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	changed := p.notAllowed == allowed
+	p.notAllowed = !allowed
+	return changed
 }
 
 // IsEnabled returns whether the track is enabled (not disabled).

@@ -190,4 +190,5 @@ type SignalProcessor interface {
 	OnPublishDataTrackResponse(publishDataTrackResponse *livekit.PublishDataTrackResponse)
 	OnUnpublishDataTrackResponse(unpublishDataTrackResponse *livekit.UnpublishDataTrackResponse)
 	OnDataTrackSubscriberHandles(dataTrackSubscriberHandles *livekit.DataTrackSubscriberHandles)
+	OnSubscriptionPermissionUpdate(subscriptionPermissionUpdate *livekit.SubscriptionPermissionUpdate)
 }

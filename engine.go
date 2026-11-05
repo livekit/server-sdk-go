@@ -43,6 +43,7 @@ import (
 type engineHandler interface {
 	OnLocalTrackUnpublished(response *livekit.TrackUnpublishedResponse)
 	OnTrackRemoteMuted(request *livekit.MuteTrackRequest)
+	OnSubscriptionPermissionUpdate(update *livekit.SubscriptionPermissionUpdate)
 	OnDisconnected(protoReason livekit.DisconnectReason)
 	OnMediaTrack(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver)
 	OnParticipantUpdate([]*livekit.ParticipantInfo)
@@ -1765,6 +1766,10 @@ func (e *RTCEngine) OnRoomMoved(moved *livekit.RoomMovedResponse) {
 
 func (e *RTCEngine) OnTrackRemoteMuted(request *livekit.MuteTrackRequest) {
 	e.engineHandler.OnTrackRemoteMuted(request)
+}
+
+func (e *RTCEngine) OnSubscriptionPermissionUpdate(update *livekit.SubscriptionPermissionUpdate) {
+	e.engineHandler.OnSubscriptionPermissionUpdate(update)
 }
 
 func (e *RTCEngine) OnTokenRefresh(refreshToken string) {
