@@ -598,3 +598,127 @@ func TestNewSynchronizerWithOptions_ExplicitOneShotModeUsesThreshold(t *testing.
 	require.True(t, ts.usesOneShotSenderReportSync())
 	require.Equal(t, 100*time.Millisecond, ts.oneShotDriftCorrectionThreshold)
 }
+
+// oneShotSim drives a one-shot track on a virtual clock: advancing moves the track and media
+// start times back, so the real time.Now() used inside the synchronizer reads as later.
+type oneShotSim struct {
+	t     *testing.T
+	s     *Synchronizer
+	ts    *TrackSynchronizer
+	rtpTS uint32
+	sn    uint16
+}
+
+func newOneShotSim(t *testing.T) *oneShotSim {
+	s := NewSynchronizerWithOptions(
+		WithSenderReportSyncMode(SenderReportSyncModeOneShot),
+		WithOneShotDriftCorrectionThreshold(2200*time.Millisecond),
+		WithMaxTsDiff(5*time.Second),
+		WithMediaRunningTime(func() (time.Duration, bool) { return 0, true }, 2950*time.Millisecond),
+	)
+	ts := newTrackSynchronizer(s, fakeTrack{id: "one-shot", rate: 48000, kind: webrtc.RTPCodecTypeAudio})
+	ts.logger = logger.NewTestLogger(t)
+
+	sim := &oneShotSim{t: t, s: s, ts: ts, rtpTS: 100000, sn: 1}
+	ts.initialize(jitter.ExtPacket{
+		Packet:     &rtp.Packet{Header: rtp.Header{Timestamp: sim.rtpTS, SequenceNumber: sim.sn}},
+		ReceivedAt: time.Now(),
+	})
+	sim.syncMediaStart()
+	return sim
+}
+
+func (sim *oneShotSim) syncMediaStart() {
+	st := sim.ts.startTime
+	sim.s.externalMediaStartTime.Store(&st)
+}
+
+func (sim *oneShotSim) advance(d time.Duration) {
+	sim.ts.startTime = sim.ts.startTime.Add(-d)
+	sim.syncMediaStart()
+}
+
+// packet sends the next packet rtpStep after the previous one and returns its placement error
+// relative to arrival (positive = late).
+func (sim *oneShotSim) packet(rtpStep time.Duration) time.Duration {
+	sim.rtpTS += sim.ts.ToRTP(rtpStep)
+	sim.sn++
+	now := time.Now()
+	adjusted, err := sim.ts.getPTSWithRebase(jitter.ExtPacket{
+		Packet:     &rtp.Packet{Header: rtp.Header{Timestamp: sim.rtpTS, SequenceNumber: sim.sn}},
+		ReceivedAt: now,
+	})
+	require.NoError(sim.t, err)
+	return adjusted - (now.Sub(sim.ts.startTime) + sim.ts.basePTSOffset)
+}
+
+func (sim *oneShotSim) rawLag() time.Duration {
+	return time.Since(sim.ts.startTime) - sim.ts.lastPTS
+}
+
+// senderReport maps the latest sent RTP timestamp to the sender's current wall clock.
+func (sim *oneShotSim) senderReport() {
+	sim.ts.onSenderReport(&rtcp.SenderReport{
+		SSRC:    uint32(sim.ts.track.SSRC()),
+		NTPTime: uint64(mediatransportutil.ToNtpTime(time.Now())),
+		RTPTime: sim.rtpTS,
+	})
+}
+
+func TestOneShotRawPTSResetKeepsTrackAligned(t *testing.T) {
+	const (
+		frame      = 20 * time.Millisecond
+		gap        = 120 * time.Millisecond
+		gapEvery   = 50  // one 120 ms timeline step per second
+		srEvery    = 150 // one sender report every 3 s
+		numPackets = 4500
+	)
+
+	cases := []struct {
+		name string
+		// slow: wall clock skips a gap the RTP timeline never records (e.g. DTMF without silence fill).
+		// fast: RTP timeline skips a gap the wall clock never sees.
+		slow bool
+	}{
+		{name: "slow sender", slow: true},
+		{name: "fast sender", slow: false},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			sim := newOneShotSim(t)
+
+			var maxAbsErr, prevLagAbs time.Duration
+			resets := 0
+			for i := 1; i <= numPackets; i++ {
+				wallStep, rtpStep := frame, frame
+				if i%gapEvery == 0 {
+					if c.slow {
+						wallStep += gap
+					} else {
+						rtpStep += gap
+					}
+				}
+				sim.advance(wallStep)
+				placementErr := sim.packet(rtpStep)
+				if i%srEvery == 0 {
+					sim.senderReport()
+				}
+
+				maxAbsErr = max(maxAbsErr, placementErr.Abs())
+				lagAbs := sim.rawLag().Abs()
+				if prevLagAbs >= 4500*time.Millisecond && lagAbs < time.Second {
+					resets++
+				}
+				prevLagAbs = lagAbs
+			}
+
+			require.GreaterOrEqual(t, sim.ts.stats.numOneShotCorrections, uint32(2), "one-shot should correct before the raw reset")
+			require.GreaterOrEqual(t, resets, 1, "raw lag should reach maxTsDiff and reset")
+			require.GreaterOrEqual(t, sim.ts.stats.numOneShotCorrectionsCleared, uint32(1))
+			require.Equal(t, sim.ts.currentPTSOffset, sim.ts.desiredPTSOffset)
+			require.Less(t, maxAbsErr, sim.ts.maxMediaRunningTimeDelay,
+				"placement error must stay within the sender report acceptance window")
+		})
+	}
+}
