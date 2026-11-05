@@ -90,7 +90,8 @@ type PCTransportParams struct {
 	IsSender                   bool
 	DTLSEllipticCurves         []dtlsElliptic.Curve
 	IPv6Only                   bool
-	ICEProxyDialer             proxy.Dialer
+	// Unexported so callers cannot bypass the engine's turns: TLS wrapping.
+	iceProxyDialer proxy.Dialer
 }
 
 func (t *PCTransport) registerDefaultInterceptors(params PCTransportParams, i *interceptor.Registry) error {
@@ -225,8 +226,8 @@ func NewPCTransport(params PCTransportParams) (*PCTransport, error) {
 	}
 	se.SetDTLSRetransmissionInterval(dtlsRetransmissionInterval)
 	se.SetICETimeouts(iceDisconnectedTimeout, iceFailedTimeout, iceKeepaliveInterval)
-	if params.ICEProxyDialer != nil {
-		se.SetICEProxyDialer(params.ICEProxyDialer)
+	if params.iceProxyDialer != nil {
+		se.SetICEProxyDialer(params.iceProxyDialer)
 	}
 	if params.IPv6Only {
 		// Only gather IPv6 local candidates (so only IPv6 is sent to the server)
