@@ -443,6 +443,7 @@ func (t *TrackSynchronizer) getPTSWithRebase(pkt jitter.ExtPacket) (time.Duratio
 			"state", t,
 		)
 		pts = estimatedPTS
+		t.clearOneShotDriftCorrections()
 	}
 
 	t.maybeAdjustPTSOffset(ts, pts, estimatedPTS)
@@ -938,6 +939,32 @@ func (t *TrackSynchronizer) applyOneShotDriftCorrection(
 	)
 }
 
+// clearOneShotDriftCorrections restores the PTS offset to its base after PTS is re-anchored to arrival time,
+// since accumulated one-shot corrections describe the old anchor. caller must hold the lock.
+func (t *TrackSynchronizer) clearOneShotDriftCorrections() {
+	if !t.usesOneShotSenderReportSync() || t.currentPTSOffset == t.basePTSOffset {
+		return
+	}
+
+	prevOffset := t.currentPTSOffset
+	t.currentPTSOffset = t.basePTSOffset
+	t.desiredPTSOffset = t.basePTSOffset
+
+	if prevOffset > t.basePTSOffset {
+		t.totalPTSAdjustmentNegative += prevOffset - t.basePTSOffset
+	} else {
+		t.totalPTSAdjustmentPositive += t.basePTSOffset - prevOffset
+	}
+
+	t.stats.numOneShotCorrectionsCleared++
+	t.logger.Infow(
+		"cleared one-shot drift corrections",
+		"prevPTSOffset", prevOffset,
+		"newPTSOffset", t.currentPTSOffset,
+		"state", t,
+	)
+}
+
 func (t *TrackSynchronizer) isPacketTooOld(packetTime time.Time) bool {
 	return t.oldPacketThreshold != 0 && time.Since(packetTime) > t.oldPacketThreshold
 }
@@ -1100,6 +1127,7 @@ type stats struct {
 	numSenderReportsDroppedOutOfOrder uint32
 	numSenderReportsDroppedDuplicate  uint32
 	numOneShotCorrections             uint32
+	numOneShotCorrectionsCleared      uint32
 }
 
 func (s stats) MarshalLogObject(e zapcore.ObjectEncoder) error {
@@ -1137,5 +1165,6 @@ func (s stats) MarshalLogObject(e zapcore.ObjectEncoder) error {
 	e.AddUint32("numSenderReportsDroppedOutOfOrder", s.numSenderReportsDroppedOutOfOrder)
 	e.AddUint32("numSenderReportsDroppedDuplicate", s.numSenderReportsDroppedDuplicate)
 	e.AddUint32("numOneShotCorrections", s.numOneShotCorrections)
+	e.AddUint32("numOneShotCorrectionsCleared", s.numOneShotCorrectionsCleared)
 	return nil
 }
