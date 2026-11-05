@@ -28,6 +28,7 @@ import (
 	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v4"
+	"golang.org/x/net/proxy"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 
@@ -194,6 +195,17 @@ func WithDisableTURN() ConnectOption {
 func WithIPv6Only() ConnectOption {
 	return func(p *connParams) {
 		p.IPv6Only = true
+	}
+}
+
+// WithICEProxyDialer routes TCP TURN connections (turn:...?transport=tcp and
+// turns:) through dialer, e.g. one built with golang.org/x/net/proxy. The SDK
+// adds TLS for turns: servers, so dialer should return the plain tunnelled
+// connection, and its LocalAddr must be a *net.TCPAddr. Host, srflx and UDP
+// TURN candidates are not proxied; signalling uses HTTP(S)_PROXY instead.
+func WithICEProxyDialer(dialer proxy.Dialer) ConnectOption {
+	return func(p *connParams) {
+		p.ICEProxyDialer = dialer
 	}
 }
 
