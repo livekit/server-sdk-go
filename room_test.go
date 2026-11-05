@@ -6,6 +6,8 @@ import (
 
 	"github.com/livekit/protocol/livekit"
 	"github.com/stretchr/testify/require"
+
+	"github.com/livekit/server-sdk-go/v2/signalling"
 )
 
 func TestOnSpeakersChanged(t *testing.T) {
@@ -115,4 +117,45 @@ func TestOnRoomUpdateDeliversLateSID(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return room.SID() == "RM_late"
 	}, time.Second, 10*time.Millisecond, "SID() never returned the SID delivered via OnRoomUpdate")
+}
+
+func TestSubscriptionPermissionUpdate(t *testing.T) {
+	type call struct {
+		trackID string
+		allowed bool
+	}
+	calls := make(chan call, 1)
+	cb := NewRoomCallback()
+	cb.OnTrackSubscriptionPermissionChanged = func(pub *RemoteTrackPublication, rp *RemoteParticipant, allowed bool) {
+		calls <- call{pub.SID(), allowed}
+	}
+	room := NewRoom(cb)
+	room.addRemoteParticipant(&livekit.ParticipantInfo{
+		Sid:      "remote",
+		Identity: "remote-identity",
+		Tracks:   []*livekit.TrackInfo{{Sid: "track", Type: livekit.TrackType_AUDIO}},
+	}, false)
+
+	// Goes through the signal handler, to check that the dispatcher finds the optional processor method.
+	handler := signalling.NewSignalHandler(signalling.SignalHandlerParams{Logger: logger, Processor: room.engine})
+	send := func(participantSID, trackSID string, allowed bool) {
+		require.NoError(t, handler.HandleMessage(&livekit.SignalResponse{
+			Message: &livekit.SignalResponse_SubscriptionPermissionUpdate{
+				SubscriptionPermissionUpdate: &livekit.SubscriptionPermissionUpdate{
+					ParticipantSid: participantSID,
+					TrackSid:       trackSID,
+					Allowed:        allowed,
+				},
+			},
+		}))
+	}
+
+	send("remote", "track", false)
+	require.Equal(t, call{"track", false}, <-calls)
+	send("remote", "track", true)
+	require.Equal(t, call{"track", true}, <-calls)
+
+	send("unknown", "track", true)
+	send("remote", "unknown", true)
+	require.Empty(t, calls)
 }
