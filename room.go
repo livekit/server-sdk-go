@@ -1333,6 +1333,21 @@ func (r *Room) OnTrackRemoteMuted(msg *livekit.MuteTrackRequest) {
 	}
 }
 
+func (r *Room) OnSubscriptionPermissionUpdate(update *livekit.SubscriptionPermissionUpdate) {
+	rp := r.GetParticipantBySID(update.ParticipantSid)
+	if rp == nil {
+		r.log.Debugw("could not find participant", "sid", update.ParticipantSid)
+		return
+	}
+	pub := rp.getPublication(update.TrackSid)
+	if pub == nil {
+		r.log.Debugw("could not find track", "participant", rp.Identity(), "trackID", update.TrackSid)
+		return
+	}
+	rp.Callback.OnTrackSubscriptionPermissionChanged(pub, rp, update.Allowed)
+	rp.roomCallback.OnTrackSubscriptionPermissionChanged(pub, rp, update.Allowed)
+}
+
 func (r *Room) OnLocalTrackUnpublished(msg *livekit.TrackUnpublishedResponse) {
 	err := r.LocalParticipant.UnpublishTrack(msg.TrackSid)
 	if err != nil {
