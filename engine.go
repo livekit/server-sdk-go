@@ -26,6 +26,7 @@ import (
 
 	"github.com/pion/webrtc/v4"
 	"go.uber.org/atomic"
+	"golang.org/x/net/proxy"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
@@ -152,10 +153,16 @@ type RTCEngine struct {
 
 	dataCryptor *e2ee.DataCryptor // E2EE data channel encryption (nil = disabled)
 
+	iceProxyDialerFactory ICEProxyDialerFactory
+
 	onClose     []func()
 	onCloseLock sync.Mutex
 
 	*connectionManager
+}
+
+func (e *RTCEngine) SetICEProxyDialerFactory(f ICEProxyDialerFactory) {
+	e.iceProxyDialerFactory = f
 }
 
 func NewRTCEngine(
@@ -266,7 +273,7 @@ func (e *RTCEngine) join(
 
 			// clear & recreate publisher pc to ensure a clean slate for the publisher offer and any pre-added m-sections.
 			e.closePeerConnectionsLocked()
-			if err = e.createPublisherPCLocked(webrtc.Configuration{}); err != nil {
+			if err = e.createPublisherPCLocked(webrtc.Configuration{}, nil); err != nil {
 				e.pclock.Unlock()
 				return err
 			}
@@ -449,6 +456,11 @@ func (e *RTCEngine) configure(
 	e.log.Debugw("Using ICE servers", "servers", iceServers)
 	configuration := e.makeRTCConfiguration(iceServers, clientConfig)
 
+	var iceProxyDialer proxy.Dialer
+	if e.iceProxyDialerFactory != nil {
+		iceProxyDialer = e.iceProxyDialerFactory(iceServers)
+	}
+
 	// reset reliable message sequence
 	e.reliableMsgLock.Lock()
 	e.reliableMsgSeq = 1
@@ -464,7 +476,7 @@ func (e *RTCEngine) configure(
 	if e.publisher != nil {
 		setConfiguration(e.publisher, configuration)
 	} else {
-		if err := e.createPublisherPCLocked(configuration); err != nil {
+		if err := e.createPublisherPCLocked(configuration, iceProxyDialer); err != nil {
 			return err
 		}
 	}
@@ -472,7 +484,7 @@ func (e *RTCEngine) configure(
 	if e.subscriber != nil {
 		setConfiguration(e.subscriber, configuration)
 	} else {
-		if err := e.createSubscriberPCLocked(configuration); err != nil {
+		if err := e.createSubscriberPCLocked(configuration, iceProxyDialer); err != nil {
 			return err
 		}
 	}
@@ -480,7 +492,7 @@ func (e *RTCEngine) configure(
 	return nil
 }
 
-func (e *RTCEngine) createPublisherPCLocked(configuration webrtc.Configuration) error {
+func (e *RTCEngine) createPublisherPCLocked(configuration webrtc.Configuration, iceProxyDialer proxy.Dialer) error {
 	connParams := e.connectionManager.getConnectParams()
 	var err error
 	if e.publisher, err = NewPCTransport(PCTransportParams{
@@ -494,6 +506,7 @@ func (e *RTCEngine) createPublisherPCLocked(configuration webrtc.Configuration) 
 		IsSender:                   true,
 		DTLSEllipticCurves:         connParams.DTLSEllipticCurves,
 		IPv6Only:                   connParams.IPv6Only,
+		ICEProxyDialer:             iceProxyDialer,
 	}); err != nil {
 		return err
 	}
@@ -605,7 +618,7 @@ func (e *RTCEngine) addInitialMediaSectionsLocked(numAudio, numVideo int) error 
 	return nil
 }
 
-func (e *RTCEngine) createSubscriberPCLocked(configuration webrtc.Configuration) error {
+func (e *RTCEngine) createSubscriberPCLocked(configuration webrtc.Configuration, iceProxyDialer proxy.Dialer) error {
 	if e.useSinglePeerConnection {
 		return nil
 	}
@@ -620,6 +633,7 @@ func (e *RTCEngine) createSubscriberPCLocked(configuration webrtc.Configuration)
 		IncludeDefaultInterceptors: connParams.IncludeDefaultInterceptors,
 		DTLSEllipticCurves:         connParams.DTLSEllipticCurves,
 		IPv6Only:                   connParams.IPv6Only,
+		ICEProxyDialer:             iceProxyDialer,
 	}); err != nil {
 		return err
 	}

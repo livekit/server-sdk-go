@@ -28,6 +28,7 @@ import (
 	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v4"
+	"golang.org/x/net/proxy"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 
@@ -121,9 +122,22 @@ type connParams struct {
 	*signalling.ConnectParams
 
 	pubTracks []*connPubTrack
+
+	iceProxyDialerFactory ICEProxyDialerFactory
 }
 
 type ConnectOption func(*connParams)
+
+// ICEProxyDialerFactory builds a proxy dialer for TCP-based TURN/TURNS relay
+// connections using the ICE servers returned for the current join or reconnect.
+// Returning nil preserves direct dialing.
+type ICEProxyDialerFactory func(iceServers []*livekit.ICEServer) proxy.Dialer
+
+// WithICEProxyDialerFactory configures proxy dialing for TCP-based TURN/TURNS
+// relay connections. The SDK does not interpret the ICE servers or dialer.
+func WithICEProxyDialerFactory(f ICEProxyDialerFactory) ConnectOption {
+	return func(p *connParams) { p.iceProxyDialerFactory = f }
+}
 
 func WithConnectTimeout(timeout time.Duration) ConnectOption {
 	return func(p *connParams) {
@@ -485,6 +499,8 @@ func (r *Room) JoinWithContextAndToken(ctx context.Context, url, token string, o
 	for _, opt := range opts {
 		opt(params)
 	}
+
+	r.engine.SetICEProxyDialerFactory(params.iceProxyDialerFactory)
 
 	r.engine.setIncomingRequestParams(ctx, url, token, params.ConnectParams, params.DisableRegionDiscovery)
 
