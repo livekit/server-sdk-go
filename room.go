@@ -44,7 +44,7 @@ import (
 	protoCodecs "github.com/livekit/protocol/codecs"
 	"github.com/livekit/protocol/livekit"
 
-	dtlsElliptic "github.com/pion/dtls/v3/pkg/crypto/elliptic"
+	dtlsElliptic "github.com/pion/dtls/v4/pkg/crypto/elliptic"
 )
 
 var (

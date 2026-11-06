@@ -14,12 +14,13 @@ require (
 	github.com/magefile/mage v1.17.2
 	github.com/moby/buildkit v0.33.1
 	github.com/moby/patternmatcher v0.6.1
-	github.com/pion/dtls/v3 v3.1.13
+	github.com/pion/dtls/v4 v4.0.0-rc.8
 	github.com/pion/interceptor v0.1.49
-	github.com/pion/rtcp v1.2.19
-	github.com/pion/rtp v1.10.5
+	github.com/pion/rtcp v1.2.20
+	github.com/pion/rtp v1.10.6
 	github.com/pion/sdp/v3 v3.0.20
 	github.com/pion/stun/v4 v4.0.1
+	github.com/pion/turn/v5 v5.1.2
 	github.com/pion/webrtc/v4 v4.2.24
 	github.com/stretchr/testify v1.12.1
 	github.com/twitchtv/twirp v8.1.3+incompatible
@@ -36,8 +37,8 @@ require (
 	github.com/mackerelio/go-osstat v0.2.8 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/petermattis/goid v0.0.0-20260820044319-269ab09b5261 // indirect
-	github.com/pion/transport/v5 v5.1.1 // indirect
-	github.com/pion/turn/v5 v5.1.2 // indirect
+	github.com/pion/dtls/v3 v3.1.15 // indirect
+	github.com/pion/transport/v5 v5.1.4 // indirect
 	github.com/prometheus/client_golang v1.24.1 // indirect
 	github.com/prometheus/client_model v0.6.3 // indirect
 	github.com/prometheus/common v0.70.1 // indirect
@@ -139,3 +140,7 @@ require (
 )
 
 tool github.com/maxbrunsfeld/counterfeiter/v6
+
+replace github.com/pion/webrtc/v4 => github.com/livekit/webrtc-pion/v4 v4.2.25-warp.1
+
+replace github.com/pion/ice/v4 => github.com/livekit/ice/v4 v4.4.8-warp.2

@@ -23,7 +23,7 @@ import (
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
 	e2eetypes "github.com/livekit/server-sdk-go/v2/e2ee/types"
-	dtlsElliptic "github.com/pion/dtls/v3/pkg/crypto/elliptic"
+	dtlsElliptic "github.com/pion/dtls/v4/pkg/crypto/elliptic"
 	"github.com/pion/interceptor"
 	"github.com/pion/webrtc/v4"
 	"go.uber.org/zap/zapcore"
