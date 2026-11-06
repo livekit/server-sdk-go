@@ -121,6 +121,7 @@ func (c *Client) build(ctx context.Context, id string, attributes map[string]str
 		defer close(ch)
 		var lastQueue string
 		scanner := bufio.NewScanner(resp.Body)
+		scanner.Buffer(make([]byte, bufio.MaxScanTokenSize), 4*1024*1024)
 		for scanner.Scan() {
 			line := scanner.Bytes()
 			if bytes.HasPrefix(line, []byte("BUILD ERROR:")) {
