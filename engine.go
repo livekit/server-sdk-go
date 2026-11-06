@@ -26,6 +26,7 @@ import (
 
 	"github.com/pion/webrtc/v4"
 	"go.uber.org/atomic"
+	"golang.org/x/net/proxy"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
@@ -151,6 +152,8 @@ type RTCEngine struct {
 	closed            atomic.Bool
 
 	dataCryptor *e2ee.DataCryptor // E2EE data channel encryption (nil = disabled)
+
+	iceProxyDialer turnsProxyDialer
 
 	onClose     []func()
 	onCloseLock sync.Mutex
@@ -457,6 +460,8 @@ func (e *RTCEngine) configure(
 	e.pclock.Lock()
 	defer e.pclock.Unlock()
 
+	e.iceProxyDialer.setICEServers(iceServers)
+
 	if subscriberPrimary != nil {
 		e.subscriberPrimary = *subscriberPrimary
 	}
@@ -494,6 +499,7 @@ func (e *RTCEngine) createPublisherPCLocked(configuration webrtc.Configuration) 
 		IsSender:                   true,
 		DTLSEllipticCurves:         connParams.DTLSEllipticCurves,
 		IPv6Only:                   connParams.IPv6Only,
+		iceProxyDialer:             e.iceProxyDialerLocked(connParams.ICEProxyDialer),
 	}); err != nil {
 		return err
 	}
@@ -620,6 +626,7 @@ func (e *RTCEngine) createSubscriberPCLocked(configuration webrtc.Configuration)
 		IncludeDefaultInterceptors: connParams.IncludeDefaultInterceptors,
 		DTLSEllipticCurves:         connParams.DTLSEllipticCurves,
 		IPv6Only:                   connParams.IPv6Only,
+		iceProxyDialer:             e.iceProxyDialerLocked(connParams.ICEProxyDialer),
 	}); err != nil {
 		return err
 	}
@@ -1195,6 +1202,16 @@ func (e *RTCEngine) createSubscriberPCAnswerAndSend() error {
 	return nil
 }
 
+// iceProxyDialerLocked returns an untyped nil when no dialer is configured, so
+// pion keeps dialing TURN directly.
+func (e *RTCEngine) iceProxyDialerLocked(base proxy.Dialer) proxy.Dialer {
+	if base == nil {
+		return nil
+	}
+	e.iceProxyDialer.setBase(base)
+	return &e.iceProxyDialer
+}
+
 func (e *RTCEngine) makeRTCConfiguration(iceServers []*livekit.ICEServer, clientConfig *livekit.ClientConfiguration) webrtc.Configuration {
 	connParams := e.connectionManager.getConnectParams()
 	if connParams.DisableTURN {
@@ -1663,6 +1680,8 @@ func (e *RTCEngine) OnReconnectResponse(res *livekit.ReconnectResponse) error {
 
 	e.pclock.Lock()
 	defer e.pclock.Unlock()
+
+	e.iceProxyDialer.setICEServers(res.IceServers)
 
 	if e.publisher != nil {
 		if err := e.publisher.SetConfiguration(configuration); err != nil {

@@ -31,6 +31,7 @@ import (
 	"github.com/pion/interceptor/pkg/twcc"
 	"github.com/pion/sdp/v3"
 	"github.com/pion/webrtc/v4"
+	"golang.org/x/net/proxy"
 
 	lkinterceptor "github.com/livekit/mediatransportutil/pkg/interceptor"
 	"github.com/livekit/mediatransportutil/pkg/pacer"
@@ -89,6 +90,8 @@ type PCTransportParams struct {
 	IsSender                   bool
 	DTLSEllipticCurves         []dtlsElliptic.Curve
 	IPv6Only                   bool
+	// Unexported so callers cannot bypass the engine's turns: TLS wrapping.
+	iceProxyDialer proxy.Dialer
 }
 
 func (t *PCTransport) registerDefaultInterceptors(params PCTransportParams, i *interceptor.Registry) error {
@@ -223,6 +226,9 @@ func NewPCTransport(params PCTransportParams) (*PCTransport, error) {
 	}
 	se.SetDTLSRetransmissionInterval(dtlsRetransmissionInterval)
 	se.SetICETimeouts(iceDisconnectedTimeout, iceFailedTimeout, iceKeepaliveInterval)
+	if params.iceProxyDialer != nil {
+		se.SetICEProxyDialer(params.iceProxyDialer)
+	}
 	if params.IPv6Only {
 		// Only gather IPv6 local candidates (so only IPv6 is sent to the server)
 		// and reject any IPv4 remote candidates advertised by the server.

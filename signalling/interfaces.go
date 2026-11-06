@@ -27,6 +27,7 @@ import (
 	"github.com/pion/interceptor"
 	"github.com/pion/webrtc/v4"
 	"go.uber.org/zap/zapcore"
+	"golang.org/x/net/proxy"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -105,6 +106,9 @@ type ConnectParams struct {
 	// (and sent to the server), and any IPv4 remote candidates from the server
 	// are rejected before being added to the ICE agent.
 	IPv6Only bool
+
+	// ICEProxyDialer dials TCP TURN servers through a proxy. See WithICEProxyDialer.
+	ICEProxyDialer proxy.Dialer
 
 	DTLSEllipticCurves []dtlsElliptic.Curve // FIPS 140: override default DTLS curves
 
