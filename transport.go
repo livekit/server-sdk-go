@@ -24,8 +24,8 @@ import (
 	"time"
 
 	"github.com/bep/debounce"
-	"github.com/pion/dtls/v3"
-	dtlsElliptic "github.com/pion/dtls/v3/pkg/crypto/elliptic"
+	"github.com/pion/dtls/v4"
+	dtlsElliptic "github.com/pion/dtls/v4/pkg/crypto/elliptic"
 	"github.com/pion/interceptor"
 	"github.com/pion/interceptor/pkg/nack"
 	"github.com/pion/interceptor/pkg/twcc"
