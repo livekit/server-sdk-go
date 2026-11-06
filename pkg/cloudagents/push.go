@@ -70,8 +70,14 @@ func (c *Client) GetPushTarget(ctx context.Context, agentID string) (*PushTarget
 // request. Pass this to crane via crane.WithTransport when pushing to the cloud-agents
 // OCI proxy so the proxy's auth middleware accepts the requests. Any attributes are
 // forwarded to cloud-agents so they can be recorded on the resulting AgentVersion.
+// Requests are sent through the transport of the Client's HTTP client, or
+// http.DefaultTransport when it has none.
 func (c *Client) NewRegistryTransport(attributes map[string]string) http.RoundTripper {
-	return &lkRegistryTransport{base: http.DefaultTransport, client: c, attributes: attributes}
+	base := c.httpClient.Transport
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return &lkRegistryTransport{base: base, client: c, attributes: attributes}
 }
 
 // lkRegistryTransport injects LK auth headers on every HTTP request, allowing crane
