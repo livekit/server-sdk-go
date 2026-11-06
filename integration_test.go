@@ -19,6 +19,7 @@ import (
 	"errors"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -1004,6 +1005,65 @@ func TestStreamTextProgressAcrossWrites(t *testing.T) {
 	require.Len(t, progress, 4)
 	require.IsIncreasing(t, progress)
 	require.Equal(t, 1.0, progress[3])
+}
+
+func TestStreamBytesProgressAcrossWrites(t *testing.T) {
+	pub, err := createAgent(t.Name(), nil, "publisher")
+	require.NoError(t, err)
+	defer pub.Disconnect()
+
+	part := []byte(strings.Repeat("a", STREAM_CHUNK_SIZE+100))
+	var progress []float64
+	writer := pub.LocalParticipant.StreamBytes(StreamBytesOptions{
+		TotalSize:  uint64(2 * len(part)),
+		OnProgress: func(p float64) { progress = append(progress, p) },
+	})
+	defer writer.Close()
+
+	done := make(chan struct{})
+	onDone := func() { close(done) }
+	writer.Write(part, nil)
+	writer.Write(part, &onDone)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("write did not finish")
+	}
+
+	require.Len(t, progress, 4)
+	require.IsIncreasing(t, progress)
+	require.Equal(t, 1.0, progress[3])
+}
+
+func TestSendFileProgressReachesComplete(t *testing.T) {
+	pub, err := createAgent(t.Name(), nil, "publisher")
+	require.NoError(t, err)
+	defer pub.Disconnect()
+
+	filePath := filepath.Join(t.TempDir(), "sendfile-progress.bin")
+	content := []byte(strings.Repeat("a", 2*STREAM_CHUNK_SIZE+100))
+	require.NoError(t, os.WriteFile(filePath, content, 0o600))
+
+	var progress []float64
+	done := make(chan struct{})
+	_, err = pub.LocalParticipant.SendFile(filePath, StreamBytesOptions{
+		OnProgress: func(p float64) {
+			progress = append(progress, p)
+			if p == 1.0 {
+				close(done)
+			}
+		},
+	})
+	require.NoError(t, err)
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("send file did not finish")
+	}
+
+	require.NotEmpty(t, progress)
+	require.Equal(t, 1.0, progress[len(progress)-1])
 }
 
 // A plain video publish must come back with a mime type on its TrackInfo. The
