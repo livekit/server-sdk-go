@@ -1,10 +1,14 @@
 package lksdk
 
 import (
+	"context"
+	"io"
 	"math"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/pion/interceptor"
 	"github.com/pion/rtp"
 	"github.com/pion/rtp/codecs"
 	"github.com/pion/webrtc/v4"
@@ -28,4 +32,216 @@ func TestWriteSampleMaxPrevDroppedPackets(t *testing.T) {
 	require.NoError(t, track.WriteSample(sample, nil))
 	samplesPerFrame := uint32(sample.Duration.Seconds() * clockRate)
 	require.Equal(t, (math.MaxUint16+1)*samplesPerFrame, track.lastRTPTimestamp-before)
+}
+
+func TestWriteCompleteNotCalledOnRebind(t *testing.T) {
+	track, err := NewLocalTrack(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2})
+	require.NoError(t, err)
+	provider := &liveSampleProvider{eof: make(chan struct{}), stopDelay: 100 * time.Millisecond}
+	var completed atomic.Int32
+	require.NoError(t, track.StartWrite(provider, func() { completed.Add(1) }))
+
+	// a full reconnect unbinds the track from the old PeerConnection and binds it to a new one, here twice in a row
+	_, err = track.Bind(&fakeTrackLocalContext{id: "a"})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return provider.reads.Load() == 1 }, time.Second, time.Millisecond)
+	require.NoError(t, track.Unbind(&fakeTrackLocalContext{id: "a"}))
+	_, err = track.Bind(&fakeTrackLocalContext{id: "b"})
+	require.NoError(t, err)
+	require.NoError(t, track.Unbind(&fakeTrackLocalContext{id: "b"}))
+	_, err = track.Bind(&fakeTrackLocalContext{id: "c"})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return provider.reads.Load() == 3 }, time.Second, time.Millisecond)
+	require.Never(t, func() bool { return completed.Load() != 0 }, 300*time.Millisecond, 10*time.Millisecond)
+
+	close(provider.eof)
+	require.Eventually(t, func() bool { return completed.Load() == 1 }, time.Second, 10*time.Millisecond)
+	require.NoError(t, track.Close())
+	require.Never(t, func() bool { return completed.Load() != 1 }, 200*time.Millisecond, 10*time.Millisecond)
+}
+
+func TestWriteCompleteCalledOnCloseAfterUnbind(t *testing.T) {
+	track, err := NewLocalTrack(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2})
+	require.NoError(t, err)
+	provider := &liveSampleProvider{eof: make(chan struct{})}
+	var completed atomic.Int32
+	require.NoError(t, track.StartWrite(provider, func() { completed.Add(1) }))
+
+	// unpublishing unbinds the track, then closes it
+	_, err = track.Bind(&fakeTrackLocalContext{id: "pc"})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return provider.reads.Load() == 1 }, time.Second, time.Millisecond)
+	require.NoError(t, track.Unbind(&fakeTrackLocalContext{id: "pc"}))
+	require.NoError(t, track.Close())
+	require.Eventually(t, func() bool { return completed.Load() == 1 }, time.Second, 10*time.Millisecond)
+	require.Never(t, func() bool { return completed.Load() != 1 }, 200*time.Millisecond, 10*time.Millisecond)
+}
+
+func TestWriteCompleteCalledAfterWriterStops(t *testing.T) {
+	for name, stop := range map[string]func(*LocalTrack) error{
+		"replaced": func(track *LocalTrack) error {
+			return track.StartWrite(&liveSampleProvider{eof: make(chan struct{})}, nil)
+		},
+		"replaced while unbound": func(track *LocalTrack) error {
+			if err := track.Unbind(&fakeTrackLocalContext{id: "pc"}); err != nil {
+				return err
+			}
+			return track.StartWrite(&liveSampleProvider{eof: make(chan struct{})}, nil)
+		},
+		"closed": func(track *LocalTrack) error { return track.Close() },
+	} {
+		t.Run(name, func(t *testing.T) {
+			track, err := NewLocalTrack(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2})
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = track.Close() })
+			_, err = track.Bind(&fakeTrackLocalContext{id: "pc"})
+			require.NoError(t, err)
+
+			// the writer takes a moment to notice it was stopped, so an app closing its reader in onComplete must wait for it
+			provider := &liveSampleProvider{eof: make(chan struct{}), stopDelay: 100 * time.Millisecond}
+			readingAtComplete := make(chan int32, 1)
+			require.NoError(t, track.StartWrite(provider, func() { readingAtComplete <- provider.reading.Load() }))
+			require.Eventually(t, func() bool { return provider.reads.Load() == 1 }, time.Second, time.Millisecond)
+
+			require.NoError(t, stop(track))
+			select {
+			case reading := <-readingAtComplete:
+				require.Zero(t, reading, "onComplete ran while the writer was still reading")
+			case <-time.After(time.Second):
+				require.Fail(t, "onComplete not called")
+			}
+		})
+	}
+}
+
+func TestWriteCompleteCalledWhenReplacedAfterUnbind(t *testing.T) {
+	track, err := NewLocalTrack(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = track.Close() })
+	provider := &liveSampleProvider{eof: make(chan struct{})}
+	var completed atomic.Int32
+	require.NoError(t, track.StartWrite(provider, func() { completed.Add(1) }))
+	_, err = track.Bind(&fakeTrackLocalContext{id: "pc"})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return provider.reads.Load() == 1 }, time.Second, time.Millisecond)
+
+	// the writer stops on unbind; replacing the provider afterwards reports it
+	require.NoError(t, track.Unbind(&fakeTrackLocalContext{id: "pc"}))
+	require.Never(t, func() bool { return completed.Load() != 0 }, 100*time.Millisecond, 10*time.Millisecond)
+	require.NoError(t, track.StartWrite(&liveSampleProvider{eof: make(chan struct{})}, nil))
+	require.Eventually(t, func() bool { return completed.Load() == 1 }, time.Second, 10*time.Millisecond)
+}
+
+func TestWriteCompleteCalledWhenReplacedDuringUnbind(t *testing.T) {
+	// after StartWrite(next), the track is unbound before next's writer starts
+	for name, then := range map[string]func(*LocalTrack) error{
+		"replaced again while unbound": func(track *LocalTrack) error {
+			if err := track.Unbind(&fakeTrackLocalContext{id: "pc"}); err != nil {
+				return err
+			}
+			return track.StartWrite(&liveSampleProvider{eof: make(chan struct{})}, nil)
+		},
+		"replaced again before unbind": func(track *LocalTrack) error {
+			if err := track.StartWrite(&liveSampleProvider{eof: make(chan struct{})}, nil); err != nil {
+				return err
+			}
+			return track.Unbind(&fakeTrackLocalContext{id: "pc"})
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			track, err := NewLocalTrack(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2})
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = track.Close() })
+			_, err = track.Bind(&fakeTrackLocalContext{id: "pc"})
+			require.NoError(t, err)
+			provider := &liveSampleProvider{eof: make(chan struct{})}
+			var completed atomic.Int32
+			require.NoError(t, track.StartWrite(provider, func() { completed.Add(1) }))
+			require.Eventually(t, func() bool { return provider.reads.Load() == 1 }, time.Second, time.Millisecond)
+
+			next := &liveSampleProvider{eof: make(chan struct{})}
+			readingAtComplete := make(chan int32, 1)
+			track.writeStartupLock.Lock()
+			require.NoError(t, track.StartWrite(next, func() {
+				time.Sleep(50 * time.Millisecond) // a late writer would be reading by now
+				readingAtComplete <- next.reading.Load()
+			}))
+			require.NoError(t, then(track))
+			track.writeStartupLock.Unlock()
+
+			require.Eventually(t, func() bool { return completed.Load() == 1 }, time.Second, 10*time.Millisecond)
+			select {
+			case reading := <-readingAtComplete:
+				require.Zero(t, reading, "onComplete ran while the writer was still reading")
+			case <-time.After(time.Second):
+				require.Fail(t, "onComplete not called")
+			}
+		})
+	}
+}
+
+func TestWriteCompleteCalledWhenSwitchedBack(t *testing.T) {
+	track, err := NewLocalTrack(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = track.Close() })
+	_, err = track.Bind(&fakeTrackLocalContext{id: "pc"})
+	require.NoError(t, err)
+	provider := &liveSampleProvider{eof: make(chan struct{})}
+	var completed atomic.Int32
+	require.NoError(t, track.StartWrite(provider, func() { completed.Add(1) }))
+	require.Eventually(t, func() bool { return provider.reads.Load() == 1 }, time.Second, time.Millisecond)
+
+	// switching to another provider and straight back still ends the first write
+	require.NoError(t, track.StartWrite(&liveSampleProvider{eof: make(chan struct{})}, nil))
+	require.NoError(t, track.StartWrite(provider, nil))
+	require.Eventually(t, func() bool { return completed.Load() == 1 }, time.Second, 10*time.Millisecond)
+}
+
+// liveSampleProvider has no samples until eof is closed, like an idle live source
+type liveSampleProvider struct {
+	eof       chan struct{}
+	stopDelay time.Duration
+	reads     atomic.Int32
+	reading   atomic.Int32
+}
+
+func (p *liveSampleProvider) NextSample(ctx context.Context) (media.Sample, error) {
+	p.reads.Add(1)
+	p.reading.Add(1)
+	defer p.reading.Add(-1)
+	select {
+	case <-ctx.Done():
+		time.Sleep(p.stopDelay)
+		return media.Sample{}, ctx.Err()
+	case <-p.eof:
+		return media.Sample{}, io.EOF
+	}
+}
+
+func (p *liveSampleProvider) OnBind() error   { return nil }
+func (p *liveSampleProvider) OnUnbind() error { return nil }
+func (p *liveSampleProvider) Close() error    { return nil }
+
+type fakeTrackLocalContext struct {
+	id string
+}
+
+func (c *fakeTrackLocalContext) CodecParameters() []webrtc.RTPCodecParameters {
+	return []webrtc.RTPCodecParameters{{
+		RTPCodecCapability: webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2},
+		PayloadType:        111,
+	}}
+}
+
+func (c *fakeTrackLocalContext) HeaderExtensions() []webrtc.RTPHeaderExtensionParameter { return nil }
+func (c *fakeTrackLocalContext) SSRC() webrtc.SSRC                                      { return 1 }
+func (c *fakeTrackLocalContext) SSRCRetransmission() webrtc.SSRC                        { return 0 }
+func (c *fakeTrackLocalContext) SSRCForwardErrorCorrection() webrtc.SSRC                { return 0 }
+func (c *fakeTrackLocalContext) WriteStream() webrtc.TrackLocalWriter                   { return nil }
+func (c *fakeTrackLocalContext) ID() string                                             { return c.id }
+
+func (c *fakeTrackLocalContext) RTCPReader() interceptor.RTCPReader {
+	return interceptor.RTCPReaderFunc(func([]byte, interceptor.Attributes) (int, interceptor.Attributes, error) {
+		return 0, nil, io.EOF
+	})
 }
