@@ -128,7 +128,7 @@ func NewPCMLocalTrack(
 		encryptionHandler := newEncryptionHandler(track, params.Encryptor, sourceSampleRate)
 		opusWriter = media.FromSampleWriter[opus.Sample](encryptionHandler, sourceSampleRate, defaultPCMFrameDuration)
 	} else {
-		opusWriter = media.FromSampleWriter[opus.Sample](track, DefaultOpusSampleRate, defaultPCMFrameDuration)
+		opusWriter = media.FromSampleWriter[opus.Sample](track, DefaultOpusSampleRate, defaultPCMFrameDuration, media.WithSampleCopy(false))
 	}
 	encodedFrames := atomic.NewInt64(0)
 	pcmWriter, resampledPCMWriter, err := newLocalEncoder(opusWriter, sourceSampleRate, sourceChannels, encodedFrames, logger)

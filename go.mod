@@ -8,7 +8,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/livekit/mageutil v0.0.0-20250511045019-0f1ff63f7731
-	github.com/livekit/media-sdk v0.1.2-0.20261109223659-f3c313dec151
+	github.com/livekit/media-sdk v0.1.2-0.20261110211843-756e3cfaa8dd
 	github.com/livekit/mediatransportutil v0.0.0-20261014192331-dd8e31a0adc0
 	github.com/livekit/protocol v1.53.0
 	github.com/magefile/mage v1.17.2
@@ -94,7 +94,7 @@ require (
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/pion/datachannel v1.6.3 // indirect
-	github.com/pion/ice/v4 v4.4.8 // indirect
+	github.com/pion/ice/v4 v4.4.8
 	github.com/pion/logging v0.2.4 // indirect
 	github.com/pion/mdns/v2 v2.2.2 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
