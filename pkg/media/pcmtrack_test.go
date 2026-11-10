@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"go.uber.org/atomic"
 
 	"github.com/livekit/media-sdk"
 	"github.com/livekit/media-sdk/opus"
@@ -76,7 +77,7 @@ func TestRemoteDecoderKeepsStereoAtOtherRates(t *testing.T) {
 func TestLocalEncoderKeepsStereoAtOtherRates(t *testing.T) {
 	const rate = 16000
 	var pkts []opus.Sample
-	_, w, err := newLocalEncoder(media.NewFrameWriter[opus.Sample](&pkts, DefaultOpusSampleRate), rate, 2, protoLogger.GetLogger())
+	_, w, err := newLocalEncoder(media.NewFrameWriter[opus.Sample](&pkts, DefaultOpusSampleRate), rate, 2, atomic.NewInt64(0), protoLogger.GetLogger())
 	require.NoError(t, err)
 	for f := range slices.Chunk(stereoTone(rate, rate), 2*rate/100) {
 		require.NoError(t, w.WriteSample(f))
@@ -98,7 +99,7 @@ func TestLocalTrackPublishesEveryFrameRate(t *testing.T) {
 	for _, rate := range []int{8000, 11025, 22050, 44100} {
 		t.Run(fmt.Sprint(rate), func(t *testing.T) {
 			var pkts []opus.Sample
-			_, w, err := newLocalEncoder(media.NewFrameWriter[opus.Sample](&pkts, DefaultOpusSampleRate), rate, 1, protoLogger.GetLogger())
+			_, w, err := newLocalEncoder(media.NewFrameWriter[opus.Sample](&pkts, DefaultOpusSampleRate), rate, 1, atomic.NewInt64(0), protoLogger.GetLogger())
 			require.NoError(t, err)
 			written := 0
 			for n := range int64(frames) {

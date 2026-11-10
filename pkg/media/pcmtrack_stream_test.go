@@ -143,6 +143,12 @@ func (s *rtpSink) WriteRTP(hdr *rtp.Header, payload []byte) (int, error) {
 
 func (s *rtpSink) Write(b []byte) (int, error) { return len(b), nil }
 
+func (s *rtpSink) len() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.pkts)
+}
+
 // Returns the packets sent once done accepts them, or false if it never does.
 func (s *rtpSink) until(done func([]sentPacket) bool) ([]sentPacket, bool) {
 	timeout := time.After(hangGuard)
@@ -361,6 +367,40 @@ func TestLocalTrackWriteSizesDoNotChangeAudio(t *testing.T) {
 	}
 }
 
+// Callers use WaitForPlayout to learn their audio went out, e.g. before unpublishing. The transport holds the last
+// audio packet, so WaitForPlayout must still be waiting until it is let through.
+func TestLocalTrackWaitForPlayoutWaitsForLastFrame(t *testing.T) {
+	t.Parallel()
+	const frames, last = 10, 10
+	const grace = hangGuard / 10
+	// Holding the packet after the look-ahead frame keeps the count still while WaitForPlayout returns.
+	track, sink := newBoundTrack(t, DefaultOpusSampleRate, 1, 0, last, last+2)
+	sink.reached(t, 0)
+	require.NoError(t, track.WriteSample(tones(DefaultOpusSampleRate, packetTicks*frames, toneAmp, leftHz)))
+	sentAtReturn := make(chan int, 1)
+	go func() {
+		track.WaitForPlayout()
+		sentAtReturn <- sink.len()
+	}()
+	sink.release(0)
+	sink.reached(t, last)
+
+	var sent int
+	select {
+	case sent = <-sentAtReturn:
+	case <-time.After(grace):
+		// Still waiting, as it should be: let the last packet through.
+		sink.release(last)
+		select {
+		case sent = <-sentAtReturn:
+		case <-time.After(hangGuard):
+			t.Fatal("WaitForPlayout never returned")
+		}
+	}
+	// One frame past the last lets the encoder flush its look-ahead.
+	require.Equal(t, 2+frames, sent, "packets sent when WaitForPlayout returned")
+}
+
 func TestLocalTrackClearQueueLeavesSilence(t *testing.T) {
 	t.Parallel()
 	const frames, cut = 30, 5
@@ -404,6 +444,32 @@ func TestLocalTrackMuteSendsSilence(t *testing.T) {
 	requireLoud(t, peaks, 1, muteAt+1)
 	requireSilent(t, peaks, muteAt+1+codecTailPackets, unmuteAt+1)
 	requireLoud(t, peaks, unmuteAt+1, unmuteAt+1+resumed)
+}
+
+// Close lets the pacing loop drain the queue, so every frame written before Close is still published.
+func TestLocalTrackCloseDrainsQueue(t *testing.T) {
+	const frames = 20
+	for _, rate := range sourceRates {
+		t.Run(fmt.Sprint(rate), func(t *testing.T) {
+			t.Parallel()
+			track, sink := newBoundTrack(t, rate, 1, 0)
+			sink.reached(t, 0)
+			require.NoError(t, track.WriteSample(tones(rate, rate*frames/framesPerSecond, toneAmp, leftHz)))
+			require.NoError(t, track.Close())
+			require.Error(t, track.WriteSample(tones(rate, rate/framesPerSecond, toneAmp, leftHz)), "write after Close")
+			sink.release(0)
+
+			// The sine starts and ends below toneSpan's threshold for part of a cycle.
+			const edges = DefaultOpusSampleRate / leftHz
+			var got int
+			_, ok := sink.until(func(pkts []sentPacket) bool {
+				start, end := toneSpan(decodePackets(t, pkts, 1), 1, 0)
+				got = end - start
+				return got >= frames*packetTicks-edges
+			})
+			require.True(t, ok, "published %d of %d samples written before Close", got, frames*packetTicks)
+		})
+	}
 }
 
 // ---- remote track, over a loopback PeerConnection pair

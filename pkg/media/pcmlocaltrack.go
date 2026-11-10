@@ -55,6 +55,12 @@ type PCMLocalTrack struct {
 	frameDuration    time.Duration
 	sourceChannels   int
 	framesRead       int64
+	encodeRate       int
+
+	// Playout ends once the encoder has seen the stream up to the last real sample, plus a frame for its
+	// look-ahead. Both are stream positions in frames, counting the silence sent between writes.
+	realEnd       atomic.Int64
+	encodedFrames *atomic.Int64
 
 	// int16 to support a LE/BE PCM16 chunk that has a high byte and low byte
 	// TODO(anunaym14): switch out deque for a ring buffer
@@ -124,7 +130,8 @@ func NewPCMLocalTrack(
 	} else {
 		opusWriter = media.FromSampleWriter[opus.Sample](track, DefaultOpusSampleRate, defaultPCMFrameDuration)
 	}
-	pcmWriter, resampledPCMWriter, err := newLocalEncoder(opusWriter, sourceSampleRate, sourceChannels, logger)
+	encodedFrames := atomic.NewInt64(0)
+	pcmWriter, resampledPCMWriter, err := newLocalEncoder(opusWriter, sourceSampleRate, sourceChannels, encodedFrames, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -148,6 +155,8 @@ func NewPCMLocalTrack(
 		sourceSampleRate:       sourceSampleRate,
 		frameDuration:          defaultPCMFrameDuration,
 		sourceChannels:         sourceChannels,
+		encodeRate:             pcmWriter.SampleRate(),
+		encodedFrames:          encodedFrames,
 		chunkBuffer:            new(deque.Deque[media.PCM16Sample]),
 		logger:                 logger,
 		enableStats:            params.EnableStats,
@@ -174,18 +183,39 @@ func (t *PCMLocalTrack) Bind(trackLocal webrtc.TrackLocalContext) (webrtc.RTPCod
 }
 
 // Encodes PCM to opus at the opus writer's rate, resampling from the source rate first when they differ.
-func newLocalEncoder(w media.WriteCloser[opus.Sample], sourceRate, channels int, logger protoLogger.Logger) (enc, resampled media.WriteCloser[media.PCM16Sample], err error) {
+func newLocalEncoder(w media.WriteCloser[opus.Sample], sourceRate, channels int, encodedFrames *atomic.Int64, logger protoLogger.Logger) (enc, resampled media.WriteCloser[media.PCM16Sample], err error) {
 	enc, err = opus.Encode(w, channels, logger)
 	if err != nil {
 		return nil, nil, err
 	}
-	resampled = enc
+	var counted media.WriteCloser[media.PCM16Sample] = &frameCounter{WriteCloser: enc, channels: channels, frames: encodedFrames}
+	resampled = counted
 	if enc.SampleRate() != sourceRate {
 		// A resampled frame is not always a whole opus frame, and opus takes only whole frames, so a shorter tail is dropped.
-		framed := media.FullFrames(enc, frameSamples(0, enc.SampleRate(), channels, defaultPCMFrameDuration), media.DropTailOnClose[media.PCM16Sample]())
+		framed := media.FullFrames(counted, frameSamples(0, enc.SampleRate(), channels, defaultPCMFrameDuration), media.DropTailOnClose[media.PCM16Sample]())
 		resampled = media.ResampleWriter(framed, sourceRate, media.WithResampleChannels(channels))
 	}
 	return enc, resampled, nil
+}
+
+type frameCounter struct {
+	media.WriteCloser[media.PCM16Sample]
+	channels int
+	frames   *atomic.Int64
+}
+
+func (c *frameCounter) WriteSample(s media.PCM16Sample) error {
+	defer c.frames.Add(int64(len(s) / c.channels))
+	return c.WriteCloser.WriteSample(s)
+}
+
+func (t *PCMLocalTrack) playedOut() bool {
+	end := t.realEnd.Load()
+	if end == 0 {
+		return true
+	}
+	lookAhead := int64(frameSamples(0, t.encodeRate, 1, t.frameDuration))
+	return t.encodedFrames.Load()*int64(t.sourceSampleRate) >= end*int64(t.encodeRate)+lookAhead*int64(t.sourceSampleRate)
 }
 
 // Sizes alternate when a frame is not a whole number of samples, so frames add up to exactly the source rate.
@@ -195,10 +225,11 @@ func frameSamples(n int64, rate, channels int, frameDur time.Duration) int {
 }
 
 func (t *PCMLocalTrack) getFrameFromChunkBuffer() media.PCM16Sample {
-	if t.closed.IsBroken() && t.numSamples.Load() == 0 {
+	if t.closed.IsBroken() && t.numSamples.Load() == 0 && t.playedOut() {
 		return nil
 	}
 
+	start := t.framesRead * int64(t.sourceSampleRate) / int64(time.Second/t.frameDuration)
 	samples := frameSamples(t.framesRead, t.sourceSampleRate, t.sourceChannels, t.frameDuration)
 	t.framesRead++
 	frame := make(media.PCM16Sample, 0, samples)
@@ -209,19 +240,14 @@ func (t *PCMLocalTrack) getFrameFromChunkBuffer() media.PCM16Sample {
 		if remaining < len(chunk) {
 			t.chunkBuffer.PushFront(chunk[remaining:])
 		}
+		// Set before the queue count drops, so a waiter that sees an empty queue also sees where the audio ends.
+		t.realEnd.Store(start + int64(len(frame)/t.sourceChannels))
 		t.numSamples.Sub(int64(remaining))
 	}
 
 	if len(frame) < samples {
 		frame = append(frame, make(media.PCM16Sample, samples-len(frame))...)
 	}
-
-	if t.chunkBuffer.Len() == 0 {
-		t.emptyBufMu.Lock()
-		t.emptyBufCond.Broadcast()
-		t.emptyBufMu.Unlock()
-	}
-
 	return frame
 }
 
@@ -257,7 +283,7 @@ func (t *PCMLocalTrack) processSamples() {
 	ticker := time.NewTicker(t.frameDuration)
 	defer ticker.Stop()
 
-	for !t.closed.IsBroken() || t.numSamples.Load() != 0 {
+	for !t.closed.IsBroken() || t.numSamples.Load() != 0 || !t.playedOut() {
 		var frame media.PCM16Sample
 		var snapshot *pcmLocalTrackLogSnapshot
 
@@ -274,6 +300,11 @@ func (t *PCMLocalTrack) processSamples() {
 			if snapshot != nil {
 				t.emitLogSnapshot(snapshot)
 			}
+		}
+		if t.numSamples.Load() == 0 {
+			t.emptyBufMu.Lock()
+			t.emptyBufCond.Broadcast()
+			t.emptyBufMu.Unlock()
 		}
 
 		<-ticker.C
@@ -308,7 +339,7 @@ func (t *PCMLocalTrack) WaitForPlayout() {
 	t.emptyBufMu.Lock()
 	defer t.emptyBufMu.Unlock()
 
-	for t.numSamples.Load() > 0 {
+	for t.numSamples.Load() > 0 || !t.playedOut() {
 		t.emptyBufCond.Wait()
 	}
 }
