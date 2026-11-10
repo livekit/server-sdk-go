@@ -5,6 +5,7 @@ import (
 	"math"
 	"net"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -653,4 +654,124 @@ func TestRemoteTrackDeliversAudioInOrder(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Signals when the remote track reports that its read loop stopped on an error.
+type loopErrorWatch struct {
+	*testing.T
+	once    sync.Once
+	stopped chan struct{}
+}
+
+func (w *loopErrorWatch) Logf(format string, args ...any) { w.Log(fmt.Sprintf(format, args...)) }
+
+func (w *loopErrorWatch) Log(args ...any) {
+	if strings.Contains(fmt.Sprint(args...), "error handling rtp from track") {
+		w.once.Do(func() { close(w.stopped) })
+	}
+	w.T.Log(args...)
+}
+
+// After Close the writer must be closed once and get nothing more, while the sender keeps sending.
+func TestRemoteTrackCloseStopsWrites(t *testing.T) {
+	for _, rate := range []int{48000, 16000} {
+		t.Run(fmt.Sprint(rate), func(t *testing.T) {
+			t.Parallel()
+			local := newLocalTrack(t, DefaultOpusSampleRate, 1)
+			t.Cleanup(func() { _ = local.Close() })
+			col := newCollector()
+			watch := &loopErrorWatch{T: t, stopped: make(chan struct{})}
+			remote := newRemoteTrack(t, loopback(t, local), col, WithTargetSampleRate(rate),
+				WithLogger(protoLogger.NewTestLogger(watch)))
+			col.wait(t, rate/10)
+
+			remote.Close()
+			select {
+			case <-remote.done:
+			case <-time.After(hangGuard):
+				t.Fatal("the remote track's rtp loop kept running after Close")
+			}
+			col.mu.Lock()
+			defer col.mu.Unlock()
+			require.Equal(t, 1, col.closes, "writer closes")
+			require.Zero(t, col.writesAfterClose, "writes after Close")
+			select {
+			case <-watch.stopped:
+				t.Fatal("a normal Close logged an rtp loop error")
+			default:
+			}
+		})
+	}
+}
+
+type blockingWriter struct {
+	mu                    sync.Mutex
+	entered, closed       chan struct{}
+	release               chan struct{}
+	releaseOnce           sync.Once
+	writes                int
+	closes, afterCloseHit int
+}
+
+func (w *blockingWriter) WriteSample(media.PCM16Sample) error {
+	w.mu.Lock()
+	w.writes++
+	first := w.writes == 1
+	if w.closes > 0 {
+		w.afterCloseHit++
+	}
+	w.mu.Unlock()
+	if first {
+		close(w.entered)
+		<-w.release
+	}
+	return nil
+}
+
+func (w *blockingWriter) Close() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.closes++
+	if w.closes == 1 {
+		close(w.closed)
+	}
+	return nil
+}
+
+func (w *blockingWriter) unblock() { w.releaseOnce.Do(func() { close(w.release) }) }
+
+func waitFor(t *testing.T, ch <-chan struct{}, what string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(hangGuard):
+		t.Fatalf("timed out waiting for %s", what)
+	}
+}
+
+// A caller's writer can block, for example on a channel that only the closing goroutine reads, so Close must not
+// wait for it.
+func TestRemoteTrackCloseDoesNotWaitForABlockedWriter(t *testing.T) {
+	t.Parallel()
+	local := newLocalTrack(t, DefaultOpusSampleRate, 1)
+	t.Cleanup(func() { _ = local.Close() })
+	w := &blockingWriter{entered: make(chan struct{}), closed: make(chan struct{}), release: make(chan struct{})}
+	t.Cleanup(w.unblock)
+	remote := newRemoteTrack(t, loopback(t, local), w)
+	waitFor(t, w.entered, "a write to reach the writer")
+
+	closed := make(chan struct{})
+	go func() {
+		remote.Close()
+		close(closed)
+	}()
+	waitFor(t, closed, "Close to return while a write is blocked")
+
+	w.unblock()
+	waitFor(t, w.closed, "the writer to close once its write returns")
+	waitFor(t, remote.done, "the rtp loop to stop")
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	require.Equal(t, 1, w.closes, "writer closes")
+	require.Zero(t, w.afterCloseHit, "writes after the writer closed")
 }

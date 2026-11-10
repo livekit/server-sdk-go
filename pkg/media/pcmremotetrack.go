@@ -4,12 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/livekit/media-sdk"
 	"github.com/livekit/media-sdk/opus"
 	"github.com/livekit/media-sdk/rtp"
 	protoLogger "github.com/livekit/protocol/logger"
 	"github.com/pion/webrtc/v4"
+	"go.uber.org/atomic"
 )
 
 type PCMRemoteTrackWriter interface {
@@ -83,6 +85,12 @@ type PCMRemoteTrack struct {
 	logger             protoLogger.Logger
 
 	decryptor Decryptor
+
+	// Close runs while the loop may be handling a packet, so handling holds the lock and stops once closed.
+	// done closes when the loop exits.
+	mu     sync.Mutex
+	closed atomic.Bool
+	done   chan struct{}
 }
 
 // PCMRemoteTrack takes a remote track (currently only opus is supported)
@@ -139,6 +147,7 @@ func NewPCMRemoteTrack(track *webrtc.TrackRemote, writer PCMRemoteTrackWriter, o
 		channels:           targetChannels,
 		logger:             logger,
 		decryptor:          options.Decryptor,
+		done:               make(chan struct{}),
 	}
 
 	go t.processSamples(options.HandleJitter)
@@ -156,8 +165,16 @@ func newRemoteDecoder(w media.WriteCloser[media.PCM16Sample], channels int, logg
 }
 
 func (t *PCMRemoteTrack) processSamples(handleJitter bool) {
-	// Handler takes RTP packets and writes the payload to opusWriter
-	var h rtp.Handler = rtp.NewMediaStreamIn[opus.Sample](t.opusWriter)
+	defer close(t.done)
+	in := rtp.NewMediaStreamIn[opus.Sample](t.opusWriter)
+	var h rtp.Handler = rtp.HandlerFunc(func(hdr *rtp.Header, payload []byte) error {
+		t.mu.Lock()
+		defer t.mu.Unlock()
+		if t.closed.Load() {
+			return io.EOF
+		}
+		return in.HandleRTP(hdr, payload)
+	})
 
 	if t.decryptor != nil {
 		// Ideally, we should check if the track is encrypted with the
@@ -181,7 +198,24 @@ func (t *PCMRemoteTrack) processSamples(handleJitter bool) {
 }
 
 func (t *PCMRemoteTrack) Close() {
-	// The decoder closes the resampler, which drains into the writer before closing it.
+	if t.closed.Swap(true) {
+		return
+	}
+	if t.mu.TryLock() {
+		defer t.mu.Unlock()
+		t.closeWriters()
+		return
+	}
+	// A packet's write may be blocked in the caller's writer, so the writers close once it returns.
+	go func() {
+		t.mu.Lock()
+		defer t.mu.Unlock()
+		t.closeWriters()
+	}()
+}
+
+// The decoder closes the resampler, which drains into the writer before closing it.
+func (t *PCMRemoteTrack) closeWriters() {
 	t.opusWriter.Close()
 }
 
