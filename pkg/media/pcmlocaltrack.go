@@ -54,7 +54,7 @@ type PCMLocalTrack struct {
 	sourceSampleRate int
 	frameDuration    time.Duration
 	sourceChannels   int
-	samplesPerFrame  int
+	framesRead       int64
 
 	// int16 to support a LE/BE PCM16 chunk that has a high byte and low byte
 	// TODO(anunaym14): switch out deque for a ring buffer
@@ -149,7 +149,6 @@ func NewPCMLocalTrack(
 		frameDuration:          defaultPCMFrameDuration,
 		sourceChannels:         sourceChannels,
 		chunkBuffer:            new(deque.Deque[media.PCM16Sample]),
-		samplesPerFrame:        (sourceSampleRate * sourceChannels * int(defaultPCMFrameDuration/time.Nanosecond)) / 1e9,
 		logger:                 logger,
 		enableStats:            params.EnableStats,
 		loggingEnabled:         params.EnableStats || params.EnableHWStats,
@@ -182,9 +181,17 @@ func newLocalEncoder(w media.WriteCloser[opus.Sample], sourceRate, channels int,
 	}
 	resampled = enc
 	if enc.SampleRate() != sourceRate {
-		resampled = media.ResampleWriter(enc, sourceRate, media.WithResampleChannels(channels))
+		// A resampled frame is not always a whole opus frame, and opus takes only whole frames, so a shorter tail is dropped.
+		framed := media.FullFrames(enc, frameSamples(0, enc.SampleRate(), channels, defaultPCMFrameDuration), media.DropTailOnClose[media.PCM16Sample]())
+		resampled = media.ResampleWriter(framed, sourceRate, media.WithResampleChannels(channels))
 	}
 	return enc, resampled, nil
+}
+
+// Sizes alternate when a frame is not a whole number of samples, so frames add up to exactly the source rate.
+func frameSamples(n int64, rate, channels int, frameDur time.Duration) int {
+	perSec := int64(time.Second / frameDur)
+	return int((n+1)*int64(rate)/perSec-n*int64(rate)/perSec) * channels
 }
 
 func (t *PCMLocalTrack) getFrameFromChunkBuffer() media.PCM16Sample {
@@ -192,10 +199,12 @@ func (t *PCMLocalTrack) getFrameFromChunkBuffer() media.PCM16Sample {
 		return nil
 	}
 
-	frame := make(media.PCM16Sample, 0, t.samplesPerFrame)
-	for len(frame) < t.samplesPerFrame && t.chunkBuffer.Len() != 0 {
+	samples := frameSamples(t.framesRead, t.sourceSampleRate, t.sourceChannels, t.frameDuration)
+	t.framesRead++
+	frame := make(media.PCM16Sample, 0, samples)
+	for len(frame) < samples && t.chunkBuffer.Len() != 0 {
 		chunk := t.chunkBuffer.PopFront()
-		remaining := min(t.samplesPerFrame-len(frame), len(chunk))
+		remaining := min(samples-len(frame), len(chunk))
 		frame = append(frame, chunk[:remaining]...)
 		if remaining < len(chunk) {
 			t.chunkBuffer.PushFront(chunk[remaining:])
@@ -203,8 +212,8 @@ func (t *PCMLocalTrack) getFrameFromChunkBuffer() media.PCM16Sample {
 		t.numSamples.Sub(int64(remaining))
 	}
 
-	if len(frame) < t.samplesPerFrame {
-		frame = append(frame, make(media.PCM16Sample, t.samplesPerFrame-len(frame))...)
+	if len(frame) < samples {
+		frame = append(frame, make(media.PCM16Sample, samples-len(frame))...)
 	}
 
 	if t.chunkBuffer.Len() == 0 {

@@ -1,6 +1,7 @@
 package media
 
 import (
+	"fmt"
 	"math"
 	"slices"
 	"testing"
@@ -88,4 +89,35 @@ func TestLocalEncoderKeepsStereoAtOtherRates(t *testing.T) {
 		require.NoError(t, dec.WriteSample(p))
 	}
 	requireStereoKept(t, out, DefaultOpusSampleRate)
+}
+
+// 10 ms is not a whole number of samples at 22.05 or 11.025 kHz, but a second of frames must still carry a second of
+// audio, and opus only takes whole 10 ms frames.
+func TestLocalTrackPublishesEveryFrameRate(t *testing.T) {
+	const frames = 100
+	for _, rate := range []int{8000, 11025, 22050, 44100} {
+		t.Run(fmt.Sprint(rate), func(t *testing.T) {
+			var pkts []opus.Sample
+			_, w, err := newLocalEncoder(media.NewFrameWriter[opus.Sample](&pkts, DefaultOpusSampleRate), rate, 1, protoLogger.GetLogger())
+			require.NoError(t, err)
+			written := 0
+			for n := range int64(frames) {
+				sz := frameSamples(n, rate, 1, defaultPCMFrameDuration)
+				require.NoError(t, w.WriteSample(make(media.PCM16Sample, sz)))
+				written += sz
+			}
+			require.Equal(t, rate, written, "a second of frames")
+			require.NoError(t, w.Close())
+			require.Len(t, pkts, frames, "a second of opus frames")
+
+			var out media.PCM16Sample
+			dec, err := opus.Decode(media.NewPCM16BufferWriter(&out, DefaultOpusSampleRate), 1, protoLogger.GetLogger())
+			require.NoError(t, err)
+			for _, p := range pkts {
+				before := len(out)
+				require.NoError(t, dec.WriteSample(p))
+				require.Equal(t, DefaultOpusSampleRate/100, len(out)-before, "one 10 ms opus frame per packet")
+			}
+		})
+	}
 }
