@@ -123,23 +123,11 @@ func NewPCMRemoteTrack(track *webrtc.TrackRemote, writer PCMRemoteTrackWriter, o
 		sampleRate:           targetSampleRate,
 	}
 
-	// resampledPCMWriter resamples the PCM16 samples from DefaultOpusSampleRate to targetSampleRate and
-	// writes them to the writer. If no resampling is needed, we directly point resampledPCMWriter to writer.
-	var isResampled bool
-	var resampledPCMWriter media.WriteCloser[media.PCM16Sample]
-	if targetSampleRate != DefaultOpusSampleRate {
-		resampledPCMWriter = media.ResampleWriter(internalWriter, DefaultOpusSampleRate)
-		isResampled = true
-	} else {
-		resampledPCMWriter = internalWriter
-	}
-
-	// opus writer takes opus samples, decodes them to PCM16 samples
-	// and writes them to the pcmMWriter
-	opusWriter, err := opus.Decode(resampledPCMWriter, targetChannels, logger)
+	opusWriter, resampledPCMWriter, err := newRemoteDecoder(internalWriter, targetChannels, logger)
 	if err != nil {
 		return nil, err
 	}
+	isResampled := targetSampleRate != DefaultOpusSampleRate
 
 	// the final chain of writers:
 	// trackRemote -> rtp handlers (reads RTP packets from the track) -> opusWriter (decodes opus -> PCM16) -> resampledPCMWriter (resamples to target sample rate as necessary)
@@ -158,6 +146,16 @@ func NewPCMRemoteTrack(track *webrtc.TrackRemote, writer PCMRemoteTrackWriter, o
 
 	go t.processSamples(options.HandleJitter)
 	return t, nil
+}
+
+// Decodes opus at the target channel count, resampling to the writer's rate when it is not 48 kHz.
+func newRemoteDecoder(w media.WriteCloser[media.PCM16Sample], channels int, logger protoLogger.Logger) (media.WriteCloser[opus.Sample], media.WriteCloser[media.PCM16Sample], error) {
+	resampled := w
+	if w.SampleRate() != DefaultOpusSampleRate {
+		resampled = media.ResampleWriter(w, DefaultOpusSampleRate, media.WithResampleChannels(channels))
+	}
+	dec, err := opus.Decode(resampled, channels, logger)
+	return dec, resampled, err
 }
 
 func (t *PCMRemoteTrack) processSamples(handleJitter bool) {

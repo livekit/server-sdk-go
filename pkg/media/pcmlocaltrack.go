@@ -124,17 +124,9 @@ func NewPCMLocalTrack(
 	} else {
 		opusWriter = media.FromSampleWriter[opus.Sample](track, DefaultOpusSampleRate, defaultPCMFrameDuration)
 	}
-	// pcmWriter encodes opus samples from PCM16 samples and writes them to opusWriter
-	pcmWriter, err := opus.Encode(opusWriter, sourceChannels, logger)
+	pcmWriter, resampledPCMWriter, err := newLocalEncoder(opusWriter, sourceSampleRate, sourceChannels, logger)
 	if err != nil {
 		return nil, err
-	}
-
-	// resampled writer resamples the PCM16 samples from sourceSampleRate to DefaultOpusSampleRate
-	// and writes them to pcmWriter. If no resampling is needed, we directly point resampledPCMWriter to pcmWriter.
-	resampledPCMWriter := pcmWriter
-	if sourceSampleRate != DefaultOpusSampleRate {
-		resampledPCMWriter = media.ResampleWriter(pcmWriter, sourceSampleRate)
 	}
 
 	var cpuStats *hwstats.CPUStats
@@ -180,6 +172,19 @@ func (t *PCMLocalTrack) Bind(trackLocal webrtc.TrackLocalContext) (webrtc.RTPCod
 		t.started.Once(func() { go t.processSamples() })
 	}
 	return parameters, err
+}
+
+// Encodes PCM to opus at the opus writer's rate, resampling from the source rate first when they differ.
+func newLocalEncoder(w media.WriteCloser[opus.Sample], sourceRate, channels int, logger protoLogger.Logger) (enc, resampled media.WriteCloser[media.PCM16Sample], err error) {
+	enc, err = opus.Encode(w, channels, logger)
+	if err != nil {
+		return nil, nil, err
+	}
+	resampled = enc
+	if enc.SampleRate() != sourceRate {
+		resampled = media.ResampleWriter(enc, sourceRate, media.WithResampleChannels(channels))
+	}
+	return enc, resampled, nil
 }
 
 func (t *PCMLocalTrack) getFrameFromChunkBuffer() media.PCM16Sample {
