@@ -46,3 +46,8 @@ type TrackSync interface {
 	LastPTSAdjusted() time.Duration
 	Close()
 }
+
+// DriftBaselineReanchorer is implemented by SyncEngine tracks; assert a TrackSync from AddTrack to it.
+type DriftBaselineReanchorer interface {
+	ReanchorDriftBaseline()
+}

@@ -75,6 +75,7 @@ func TestSyncEngine_ImplementsSyncInterface(t *testing.T) {
 	// confusing assignment error rather than a missing-method error.
 	var _ Sync = (*SyncEngine)(nil)
 	var _ TrackSync = (*syncEngineTrack)(nil)
+	var _ DriftBaselineReanchorer = (*syncEngineTrack)(nil)
 }
 
 func TestSyncEngine_FallbackToWallClockBeforeSRs(t *testing.T) {
