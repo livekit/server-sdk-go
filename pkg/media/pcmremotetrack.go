@@ -76,7 +76,6 @@ type PCMRemoteTrack struct {
 	trackRemote *webrtc.TrackRemote
 	channels    int
 	sampleRate  int
-	isResampled bool
 
 	opusWriter         media.WriteCloser[opus.Sample]
 	pcmMWriter         media.WriteCloser[media.PCM16Sample]
@@ -127,7 +126,6 @@ func NewPCMRemoteTrack(track *webrtc.TrackRemote, writer PCMRemoteTrackWriter, o
 	if err != nil {
 		return nil, err
 	}
-	isResampled := targetSampleRate != DefaultOpusSampleRate
 
 	// the final chain of writers:
 	// trackRemote -> rtp handlers (reads RTP packets from the track) -> opusWriter (decodes opus -> PCM16) -> resampledPCMWriter (resamples to target sample rate as necessary)
@@ -140,7 +138,6 @@ func NewPCMRemoteTrack(track *webrtc.TrackRemote, writer PCMRemoteTrackWriter, o
 		sampleRate:         targetSampleRate,
 		channels:           targetChannels,
 		logger:             logger,
-		isResampled:        isResampled,
 		decryptor:          options.Decryptor,
 	}
 
@@ -184,10 +181,7 @@ func (t *PCMRemoteTrack) processSamples(handleJitter bool) {
 }
 
 func (t *PCMRemoteTrack) Close() {
-	if t.isResampled {
-		t.pcmMWriter.Close()
-	}
-	// opus writer closes resampledPCMWriter internally
+	// The decoder closes the resampler, which drains into the writer before closing it.
 	t.opusWriter.Close()
 }
 

@@ -121,3 +121,35 @@ func TestLocalTrackPublishesEveryFrameRate(t *testing.T) {
 		})
 	}
 }
+
+type closeTracker struct{ closes, writesAfterClose int }
+
+func (c *closeTracker) WriteSample(media.PCM16Sample) error {
+	if c.closes > 0 {
+		c.writesAfterClose++
+	}
+	return nil
+}
+func (c *closeTracker) Close() error { c.closes++; return nil }
+
+// The resampler drains its tail into the writer when it closes, so the writer must close once, after that.
+func TestRemoteTrackClosesWriterAfterResamplerDrains(t *testing.T) {
+	var pkts []opus.Sample
+	enc, err := opus.Encode(media.NewFrameWriter[opus.Sample](&pkts, DefaultOpusSampleRate), 1, protoLogger.GetLogger())
+	require.NoError(t, err)
+	for range 5 {
+		require.NoError(t, enc.WriteSample(make(media.PCM16Sample, DefaultOpusSampleRate/50)))
+	}
+
+	user := &closeTracker{}
+	w := &internalPCMRemoteTrackWriter{PCMRemoteTrackWriter: user, sampleRate: 16000}
+	dec, resampled, err := newRemoteDecoder(w, 1, protoLogger.GetLogger())
+	require.NoError(t, err)
+	track := &PCMRemoteTrack{opusWriter: dec, pcmMWriter: w, resampledPCMWriter: resampled}
+	for _, p := range pkts {
+		require.NoError(t, dec.WriteSample(p))
+	}
+	track.Close()
+	require.Equal(t, 1, user.closes)
+	require.Zero(t, user.writesAfterClose)
+}
