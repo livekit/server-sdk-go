@@ -663,6 +663,13 @@ func (st *syncEngineTrack) LastPTSAdjusted() time.Duration {
 	return st.lastPTSAdjusted
 }
 
+// ReanchorDriftBaseline makes subsequent sender-report drift measure from the last slewed wall-clock PTS; call between GetPTS calls
+func (st *syncEngineTrack) ReanchorDriftBaseline() {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.lastWallPTSUnslewed = st.lastWallPTSSlewed
+}
+
 // Close implements TrackSync.
 func (st *syncEngineTrack) Close() {
 	st.mu.Lock()

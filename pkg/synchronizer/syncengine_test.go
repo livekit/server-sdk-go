@@ -75,6 +75,7 @@ func TestSyncEngine_ImplementsSyncInterface(t *testing.T) {
 	// confusing assignment error rather than a missing-method error.
 	var _ Sync = (*SyncEngine)(nil)
 	var _ TrackSync = (*syncEngineTrack)(nil)
+	var _ DriftBaselineReanchorer = (*syncEngineTrack)(nil)
 }
 
 func TestSyncEngine_FallbackToWallClockBeforeSRs(t *testing.T) {
@@ -538,6 +539,59 @@ func TestSyncEngine_PublisherSkewVisibleToDriftSensor(t *testing.T) {
 	require.Equal(t, tr.lastWallPTSUnslewed, sensor,
 		"sensor value must equal lastWallPTSUnslewed when SR RTPTime matches lastTS")
 	tr.mu.Unlock()
+}
+
+func TestSyncEngine_ReanchorDriftBaseline(t *testing.T) {
+	engine := NewSyncEngine(WithSyncEngineAudioDriftCompensated())
+	tr := engine.AddTrack(newMockAudioTrack("audio-1", 1000), "alice").(*syncEngineTrack)
+
+	var drifts []time.Duration
+	tr.OnSenderReport(func(d time.Duration) { drifts = append(drifts, d) })
+
+	now := time.Now()
+	tr.PrimeForStart(makeExtPacket(0, 0, now))
+	tr.GetPTS(makeExtPacket(0, 0, now))
+
+	const rtpSamplesPerPacket = 970 // ~1% publisher-fast
+	var lastSR *rtcp.SenderReport
+	var lastRecv time.Time
+	feed := func(from, to int) {
+		for i := from; i <= to; i++ {
+			recv := now.Add(time.Duration(i*20) * time.Millisecond)
+			rtpTS := uint32(i) * rtpSamplesPerPacket
+			tr.GetPTS(makeExtPacket(rtpTS, uint16(i), recv))
+			if i%50 == 0 {
+				lastSR, lastRecv = makeSenderReport(1000, ntpToUint64(recv), rtpTS), recv
+				engine.OnRTCPAt(lastSR, recv)
+			}
+		}
+	}
+
+	feed(1, 500)
+	require.NotEmpty(t, drifts)
+	pre := drifts[len(drifts)-1]
+	require.InDelta(t, float64(104*time.Millisecond), float64(pre), float64(10*time.Millisecond),
+		"pre-reanchor drift should carry the full unslewed skew; got %v", pre)
+
+	tr.mu.Lock()
+	slewed := tr.lastWallPTSSlewed
+	tr.mu.Unlock()
+
+	tr.ReanchorDriftBaseline()
+
+	tr.mu.Lock()
+	require.Equal(t, slewed, tr.lastWallPTSSlewed, "re-anchor must not move the emission baseline")
+	tr.mu.Unlock()
+
+	engine.OnRTCPAt(lastSR, lastRecv)
+	post := drifts[len(drifts)-1]
+	require.InDelta(t, float64(20*time.Millisecond), float64(post), float64(8*time.Millisecond),
+		"post-reanchor drift should be only the slewed baseline's steady-state lead; got %v", post)
+
+	feed(501, 750)
+	grown := drifts[len(drifts)-1] - post
+	require.InDelta(t, float64(52*time.Millisecond), float64(grown), float64(8*time.Millisecond),
+		"skew must accumulate from the new anchor; grew %v", grown)
 }
 
 func TestSyncEngine_DiscontinuityReAnchorsUnslewedBaseline(t *testing.T) {
