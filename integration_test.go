@@ -1016,6 +1016,8 @@ func TestPublishTrackMimeType(t *testing.T) {
 	for _, codec := range []webrtc.RTPCodecCapability{
 		{MimeType: webrtc.MimeTypeVP8, ClockRate: 90000},
 		{MimeType: webrtc.MimeTypeH264, ClockRate: 90000},
+		{MimeType: webrtc.MimeTypeVP9, ClockRate: 90000},
+		{MimeType: webrtc.MimeTypeAV1, ClockRate: 90000},
 	} {
 		t.Run(codec.MimeType, func(t *testing.T) {
 			pub, err := createAgent(t.Name(), nil, "publisher")
@@ -1047,6 +1049,7 @@ func TestPublishTrackMimeType(t *testing.T) {
 				strings.EqualFold(codec.MimeType, ti.Codecs[0].MimeType),
 				"expected codec mime type %s, got %q", codec.MimeType, ti.Codecs[0].MimeType,
 			)
+			require.Equal(t, livekit.VideoLayer_ONE_SPATIAL_LAYER_PER_STREAM, ti.Codecs[0].VideoLayerMode)
 		})
 	}
 }
