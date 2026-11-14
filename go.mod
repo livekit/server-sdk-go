@@ -141,6 +141,6 @@ require (
 
 tool github.com/maxbrunsfeld/counterfeiter/v6
 
-replace github.com/pion/webrtc/v4 => github.com/livekit/webrtc-pion/v4 v4.2.25-warp.1
+replace github.com/pion/webrtc/v4 => github.com/livekit/webrtc-pion/v4 v4.2.25-warp.3
 
-replace github.com/pion/ice/v4 => github.com/livekit/ice/v4 v4.4.8-warp.2
+replace github.com/pion/ice/v4 => github.com/livekit/ice/v4 v4.4.8-warp.4
