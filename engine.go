@@ -87,6 +87,11 @@ var (
 
 // -------------------------------------------
 
+// reliableBufferedAmountLowThreshold lets the reliable data channel keep up to
+// 64 KiB queued before senders wait. Without it pion uses 0, so each send waits
+// for an empty buffer (polled every 10 ms), capping throughput at ~90 messages/s.
+const reliableBufferedAmountLowThreshold = 64 * 1024
+
 const (
 	reliableDataChannelName = "_reliable"
 	lossyDataChannelName    = "_lossy"
@@ -546,6 +551,7 @@ func (e *RTCEngine) createPublisherPCLocked(configuration webrtc.Configuration) 
 		return err
 	}
 	e.reliableDC.OnMessage(e.handleDataPacket)
+	e.reliableDC.SetBufferedAmountLowThreshold(reliableBufferedAmountLowThreshold)
 	e.dclock.Unlock()
 
 	return nil
