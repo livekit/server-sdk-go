@@ -4,12 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/livekit/media-sdk"
 	"github.com/livekit/media-sdk/opus"
 	"github.com/livekit/media-sdk/rtp"
 	protoLogger "github.com/livekit/protocol/logger"
 	"github.com/pion/webrtc/v4"
+	"go.uber.org/atomic"
 )
 
 type PCMRemoteTrackWriter interface {
@@ -76,7 +78,6 @@ type PCMRemoteTrack struct {
 	trackRemote *webrtc.TrackRemote
 	channels    int
 	sampleRate  int
-	isResampled bool
 
 	opusWriter         media.WriteCloser[opus.Sample]
 	pcmMWriter         media.WriteCloser[media.PCM16Sample]
@@ -84,6 +85,12 @@ type PCMRemoteTrack struct {
 	logger             protoLogger.Logger
 
 	decryptor Decryptor
+
+	// Close runs while the loop may be handling a packet, so handling holds the lock and stops once closed.
+	// done closes when the loop exits.
+	mu     sync.Mutex
+	closed atomic.Bool
+	done   chan struct{}
 }
 
 // PCMRemoteTrack takes a remote track (currently only opus is supported)
@@ -123,20 +130,7 @@ func NewPCMRemoteTrack(track *webrtc.TrackRemote, writer PCMRemoteTrackWriter, o
 		sampleRate:           targetSampleRate,
 	}
 
-	// resampledPCMWriter resamples the PCM16 samples from DefaultOpusSampleRate to targetSampleRate and
-	// writes them to the writer. If no resampling is needed, we directly point resampledPCMWriter to writer.
-	var isResampled bool
-	var resampledPCMWriter media.WriteCloser[media.PCM16Sample]
-	if targetSampleRate != DefaultOpusSampleRate {
-		resampledPCMWriter = media.ResampleWriter(internalWriter, DefaultOpusSampleRate)
-		isResampled = true
-	} else {
-		resampledPCMWriter = internalWriter
-	}
-
-	// opus writer takes opus samples, decodes them to PCM16 samples
-	// and writes them to the pcmMWriter
-	opusWriter, err := opus.Decode(resampledPCMWriter, targetChannels, logger)
+	opusWriter, resampledPCMWriter, err := newRemoteDecoder(internalWriter, targetChannels, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -152,17 +146,35 @@ func NewPCMRemoteTrack(track *webrtc.TrackRemote, writer PCMRemoteTrackWriter, o
 		sampleRate:         targetSampleRate,
 		channels:           targetChannels,
 		logger:             logger,
-		isResampled:        isResampled,
 		decryptor:          options.Decryptor,
+		done:               make(chan struct{}),
 	}
 
 	go t.processSamples(options.HandleJitter)
 	return t, nil
 }
 
+// Decodes opus at the target channel count, resampling to the writer's rate when it is not 48 kHz.
+func newRemoteDecoder(w media.WriteCloser[media.PCM16Sample], channels int, logger protoLogger.Logger) (media.WriteCloser[opus.Sample], media.WriteCloser[media.PCM16Sample], error) {
+	resampled := w
+	if w.SampleRate() != DefaultOpusSampleRate {
+		resampled = media.ResampleWriter(w, DefaultOpusSampleRate, media.WithResampleChannels(channels))
+	}
+	dec, err := opus.Decode(resampled, channels, logger)
+	return dec, resampled, err
+}
+
 func (t *PCMRemoteTrack) processSamples(handleJitter bool) {
-	// Handler takes RTP packets and writes the payload to opusWriter
-	var h rtp.Handler = rtp.NewMediaStreamIn[opus.Sample](t.opusWriter)
+	defer close(t.done)
+	in := rtp.NewMediaStreamIn[opus.Sample](t.opusWriter)
+	var h rtp.Handler = rtp.HandlerFunc(func(hdr *rtp.Header, payload []byte) error {
+		t.mu.Lock()
+		defer t.mu.Unlock()
+		if t.closed.Load() {
+			return io.EOF
+		}
+		return in.HandleRTP(hdr, payload)
+	})
 
 	if t.decryptor != nil {
 		// Ideally, we should check if the track is encrypted with the
@@ -186,10 +198,24 @@ func (t *PCMRemoteTrack) processSamples(handleJitter bool) {
 }
 
 func (t *PCMRemoteTrack) Close() {
-	if t.isResampled {
-		t.pcmMWriter.Close()
+	if t.closed.Swap(true) {
+		return
 	}
-	// opus writer closes resampledPCMWriter internally
+	if t.mu.TryLock() {
+		defer t.mu.Unlock()
+		t.closeWriters()
+		return
+	}
+	// A packet's write may be blocked in the caller's writer, so the writers close once it returns.
+	go func() {
+		t.mu.Lock()
+		defer t.mu.Unlock()
+		t.closeWriters()
+	}()
+}
+
+// The decoder closes the resampler, which drains into the writer before closing it.
+func (t *PCMRemoteTrack) closeWriters() {
 	t.opusWriter.Close()
 }
 
