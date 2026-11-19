@@ -60,9 +60,6 @@ jobs:
             go-${{ runner.os }}-${{ hashFiles('go.sum') }}-
             go-${{ runner.os }}-
 
-      - name: Set up gotestfmt
-        run: go install github.com/gotesttools/gotestfmt/v2/cmd/gotestfmt@latest
-
       - name: Replace mutexes
         run: |
           go get github.com/sasha-s/go-deadlock
