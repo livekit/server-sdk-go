@@ -18,6 +18,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -72,6 +74,9 @@ type connectionRequestParams struct {
 	token                  string
 	connectParams          signalling.ConnectParams
 	disableRegionDiscovery bool
+	// preferredRegion is tried before the discovered regions. It is nil when
+	// the caller did not set WithPreferredRegion.
+	preferredRegion *livekit.RegionInfo
 }
 
 // -------------------------------------------
@@ -144,6 +149,7 @@ func (c *connectionManager) setIncomingRequestParams(
 	token string,
 	connectParams *signalling.ConnectParams,
 	disableRegionDiscovery bool,
+	preferredRegion *livekit.RegionInfo,
 ) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -154,6 +160,7 @@ func (c *connectionManager) setIncomingRequestParams(
 		token:                  token,
 		connectParams:          *connectParams,
 		disableRegionDiscovery: disableRegionDiscovery,
+		preferredRegion:        preferredRegion,
 	}
 	c.token = token
 }
@@ -445,6 +452,11 @@ type connectionPlanParams struct {
 
 func getConnectionPlanInitial(params connectionPlanParams) ([]connectionAttemptParams, error) {
 	var regionsToTry []*livekit.RegionInfo
+	// The caller's own region goes first. buildConnectionPlan removes the same
+	// region from the discovered list.
+	if p := params.incomingRequestParams.preferredRegion; p != nil {
+		regionsToTry = append(regionsToTry, p)
+	}
 	if !params.incomingRequestParams.disableRegionDiscovery {
 		cloudHostname, _ := parseCloudURL(params.incomingRequestParams.url)
 		if cloudHostname != "" {
@@ -468,7 +480,7 @@ func getConnectionPlanInitial(params connectionPlanParams) ([]connectionAttemptP
 		Distance: -1,
 	})
 
-	return buildConnectionPlan(params.incomingRequestParams.ctx, regionsToTry, params.token)
+	return buildConnectionPlan(params.incomingRequestParams.ctx, regionsToTry, params.token, params.incomingRequestParams.preferredRegion)
 }
 
 func getConnectionPlanResuming(params connectionPlanParams) ([]connectionAttemptParams, error) {
@@ -502,7 +514,7 @@ func getConnectionPlanResuming(params connectionPlanParams) ([]connectionAttempt
 		Distance: -1,
 	})
 
-	return buildConnectionPlan(context.Background(), regionsToTry, params.token)
+	return buildConnectionPlan(context.Background(), regionsToTry, params.token, nil)
 }
 
 func getConnectionPlanReconnecting(params connectionPlanParams) ([]connectionAttemptParams, error) {
@@ -515,6 +527,12 @@ func getConnectionPlanReconnecting(params connectionPlanParams) ([]connectionAtt
 		if params.connectedRegion != nil {
 			regionsToTry = append(regionsToTry, params.connectedRegion)
 		}
+	}
+
+	// The server-sent list and the connected region stay first. The caller's
+	// own region comes before the discovered regions.
+	if p := params.incomingRequestParams.preferredRegion; p != nil {
+		regionsToTry = append(regionsToTry, p)
 	}
 
 	// layer on region provider regions if enabled
@@ -541,15 +559,24 @@ func getConnectionPlanReconnecting(params connectionPlanParams) ([]connectionAtt
 		Distance: -1,
 	})
 
-	return buildConnectionPlan(context.Background(), regionsToTry, params.token)
+	return buildConnectionPlan(context.Background(), regionsToTry, params.token, params.incomingRequestParams.preferredRegion)
 }
 
-func buildConnectionPlan(ctx context.Context, regionsToTry []*livekit.RegionInfo, token string) ([]connectionAttemptParams, error) {
+// buildConnectionPlan removes duplicate regions by name. An entry with the
+// name of preferred but a different host is kept, so a wrong preferred URL
+// does not hide the discovered URL for that region.
+func buildConnectionPlan(ctx context.Context, regionsToTry []*livekit.RegionInfo, token string, preferred *livekit.RegionInfo) ([]connectionAttemptParams, error) {
 	seen := make(map[string]bool, len(regionsToTry))
 	dedupedRegions := make([]*livekit.RegionInfo, 0, len(regionsToTry))
 	for _, region := range regionsToTry {
-		if !seen[region.Region] {
-			seen[region.Region] = true
+		key := region.Region
+		if preferred != nil && region.Region == preferred.Region {
+			if host := urlHost(region.Url); host != urlHost(preferred.Url) {
+				key += "\x00" + host
+			}
+		}
+		if !seen[key] {
+			seen[key] = true
 			dedupedRegions = append(dedupedRegions, region)
 		}
 	}
@@ -570,4 +597,14 @@ func buildConnectionPlan(ctx context.Context, regionsToTry []*livekit.RegionInfo
 		})
 	}
 	return plan, nil
+}
+
+// urlHost returns the lower-case host of rawURL, or rawURL if it does not
+// parse.
+func urlHost(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return rawURL
+	}
+	return strings.ToLower(u.Hostname())
 }

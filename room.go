@@ -122,6 +122,8 @@ type connParams struct {
 	*signalling.ConnectParams
 
 	pubTracks []*connPubTrack
+
+	preferredRegion *livekit.RegionInfo
 }
 
 type ConnectOption func(*connParams)
@@ -213,6 +215,19 @@ func WithICEProxyDialer(dialer proxy.Dialer) ConnectOption {
 func WithDisableRegionDiscovery() ConnectOption {
 	return func(p *connParams) {
 		p.DisableRegionDiscovery = true
+	}
+}
+
+// WithPreferredRegion tries region first, before the regions from region
+// discovery. Use it when the caller knows its own region. If that attempt
+// fails, the SDK tries the discovered regions, then the original URL.
+func WithPreferredRegion(region *livekit.RegionInfo) ConnectOption {
+	return func(p *connParams) {
+		if region == nil || region.Region == "" || region.Url == "" {
+			p.preferredRegion = nil
+			return
+		}
+		p.preferredRegion = proto.Clone(region).(*livekit.RegionInfo)
 	}
 }
 
@@ -498,7 +513,7 @@ func (r *Room) JoinWithContextAndToken(ctx context.Context, url, token string, o
 		opt(params)
 	}
 
-	r.engine.setIncomingRequestParams(ctx, url, token, params.ConnectParams, params.DisableRegionDiscovery)
+	r.engine.setIncomingRequestParams(ctx, url, token, params.ConnectParams, params.DisableRegionDiscovery, params.preferredRegion)
 
 	if params.Logger != nil {
 		r.SetLogger(params.Logger)
