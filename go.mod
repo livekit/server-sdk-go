@@ -12,7 +12,7 @@ require (
 	github.com/livekit/mediatransportutil v0.0.0-20261105133908-2cf1b1487796
 	github.com/livekit/protocol v1.54.1
 	github.com/magefile/mage v1.17.2
-	github.com/moby/buildkit v0.34.1
+	github.com/moby/buildkit v0.34.2
 	github.com/moby/patternmatcher v0.6.1
 	github.com/pion/dtls/v4 v4.0.0-rc.8
 	github.com/pion/interceptor v0.1.51
@@ -85,7 +85,7 @@ require (
 	github.com/jfreymuth/vorbis v1.0.2 // indirect
 	github.com/joho/godotenv v1.5.1
 	github.com/jxskiss/base62 v1.1.0 // indirect
-	github.com/klauspost/compress v1.20.1 // indirect
+	github.com/klauspost/compress v1.20.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/lithammer/shortuuid/v4 v4.3.0 // indirect
 	github.com/livekit/psrpc v0.8.2 // indirect
@@ -108,7 +108,7 @@ require (
 	github.com/secure-systems-lab/go-securesystemslib v0.11.0 // indirect
 	github.com/shibumi/go-pathspec v1.3.0 // indirect
 	github.com/sirupsen/logrus v1.10.2 // indirect
-	github.com/tonistiigi/fsutil v0.0.0-20260819142231-83cac42c1c52 // indirect
+	github.com/tonistiigi/fsutil v0.0.0-20261103091533-a72de9dcf763 // indirect
 	github.com/tonistiigi/go-csvvalue v0.0.0-20240814133006-030d3b2625d0 // indirect
 	github.com/tonistiigi/units v0.0.0-20180711220420-6950e57a87ea // indirect
 	github.com/tonistiigi/vt100 v0.0.0-20240514184818-90bafcd6abab // indirect
