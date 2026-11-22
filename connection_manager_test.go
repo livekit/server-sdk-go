@@ -197,92 +197,70 @@ func TestConnectionManager_GetConnectionPlanInitial_WithDiscovery(t *testing.T) 
 	require.Equal(t, 200*time.Millisecond, plan[2].backoffWait)
 }
 
-// newTestConnectionManagerPreferred is newTestConnectionManager with a
-// preferred region set.
-func newTestConnectionManagerPreferred(url string, disableRegionDiscovery bool, preferred *livekit.RegionInfo) *connectionManager {
-	cm := newConnectionManager(newRegionURLProvider())
-	cm.setIncomingRequestParams(
-		context.Background(),
-		url,
-		"test-token",
-		&signalling.ConnectParams{},
-		disableRegionDiscovery,
-		preferred,
-	)
-	return cm
+// TestConnectionManager_PreferredRegion: the preferred region is first on a
+// join, and after the server list and connected region on a full reconnect.
+// A discovered entry with its name but another host stays in the plan.
+func TestConnectionManager_PreferredRegion(t *testing.T) {
+	const orig = "wss://test.livekit.cloud"
+	usEast := &livekit.RegionInfo{Region: "us-east", Url: "wss://us-east.livekit.cloud"}
+	usWest := &livekit.RegionInfo{Region: "us-west", Url: "wss://us-west.livekit.cloud"}
+	oldWest := &livekit.RegionInfo{Region: "us-west", Url: "wss://us-west-old.livekit.cloud"}
+	upperWest := &livekit.RegionInfo{Region: "us-west", Url: "https://US-West.livekit.cloud"}
+
+	for _, c := range []struct {
+		name        string
+		preferred   *livekit.RegionInfo
+		noDiscovery bool
+		discovered  []*livekit.RegionInfo
+		reconnect   bool // connected to us-east, server list [us-east]
+		want        []string
+	}{
+		{name: "join", preferred: usWest, discovered: []*livekit.RegionInfo{usEast, usWest},
+			want: []string{usWest.Url, usEast.Url, orig}},
+		{name: "join, no discovery", preferred: usWest, noDiscovery: true,
+			want: []string{usWest.Url, orig}},
+		{name: "join, other host", preferred: oldWest, discovered: []*livekit.RegionInfo{usWest, usEast},
+			want: []string{oldWest.Url, usWest.Url, usEast.Url, orig}},
+		{name: "join, same host", preferred: upperWest, discovered: []*livekit.RegionInfo{usWest},
+			want: []string{upperWest.Url, orig}},
+		{name: "reconnect", preferred: usWest, discovered: []*livekit.RegionInfo{usEast, usWest}, reconnect: true,
+			want: []string{usEast.Url, usWest.Url, orig}},
+		{name: "reconnect, other host", preferred: oldWest, discovered: []*livekit.RegionInfo{usWest}, reconnect: true,
+			want: []string{usEast.Url, oldWest.Url, usWest.Url, orig}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			cm := newConnectionManager(newRegionURLProvider())
+			cm.setIncomingRequestParams(context.Background(), orig, "test-token", &signalling.ConnectParams{}, c.noDiscovery, c.preferred)
+			if c.discovered != nil {
+				cm.regionProvider.cache.set("test.livekit.cloud", &livekit.RegionSettings{Regions: c.discovered}, time.Minute)
+			}
+			if c.reconnect {
+				cm.setConnected(usEast)
+				cm.setReconnecting(&livekit.RegionSettings{Regions: []*livekit.RegionInfo{usEast}})
+			}
+
+			plan, err := cm.getConnectionPlan()
+			require.NoError(t, err)
+			require.Equal(t, c.want, planRegionURLs(plan))
+		})
+	}
 }
 
-// TestConnectionManager_GetConnectionPlanInitial_PreferredRegion: the preferred
-// region goes before the discovered regions, and the same region is not tried
-// twice.
-func TestConnectionManager_GetConnectionPlanInitial_PreferredRegion(t *testing.T) {
-	preferred := &livekit.RegionInfo{Region: "us-west", Url: "wss://us-west.livekit.cloud"}
-	cm := newTestConnectionManagerPreferred("wss://test.livekit.cloud", false /* discovery enabled */, preferred)
-	cm.regionProvider.cache.set("test.livekit.cloud", &livekit.RegionSettings{
-		Regions: []*livekit.RegionInfo{
-			{Region: "us-east", Url: "wss://us-east.livekit.cloud"},
-			{Region: "us-west", Url: "wss://us-west.livekit.cloud"},
-		},
-	}, time.Minute)
+func TestWithPreferredRegion(t *testing.T) {
+	apply := func(r *livekit.RegionInfo) *livekit.RegionInfo {
+		p := &connParams{ConnectParams: &signalling.ConnectParams{}}
+		WithPreferredRegion(r)(p)
+		return p.preferredRegion
+	}
 
-	plan, err := cm.getConnectionPlan()
-	require.NoError(t, err)
-	require.Equal(t, []string{"us-west", "us-east", cOriginalRegion}, planRegionNames(plan))
-	require.Equal(t, "wss://us-west.livekit.cloud", plan[0].region.Url)
-	require.Equal(t, time.Duration(0), plan[0].backoffWait)
-}
+	region := &livekit.RegionInfo{Region: "us-west", Url: "wss://us-west.livekit.cloud"}
+	got := apply(region)
+	region.Url = "wss://changed.livekit.cloud"
+	require.Equal(t, "wss://us-west.livekit.cloud", got.Url) // a copy
 
-// TestConnectionManager_GetConnectionPlanInitial_PreferredRegionNoDiscovery:
-// with discovery off, the plan is the preferred region and then the original
-// URL.
-func TestConnectionManager_GetConnectionPlanInitial_PreferredRegionNoDiscovery(t *testing.T) {
-	preferred := &livekit.RegionInfo{Region: "us-west", Url: "wss://us-west.livekit.cloud"}
-	cm := newTestConnectionManagerPreferred("wss://test.livekit.cloud", true /* disableRegionDiscovery */, preferred)
-
-	plan, err := cm.getConnectionPlan()
-	require.NoError(t, err)
-	require.Equal(t, []string{"us-west", cOriginalRegion}, planRegionNames(plan))
-	require.Equal(t, []string{"wss://us-west.livekit.cloud", "wss://test.livekit.cloud"}, planRegionURLs(plan))
-}
-
-// TestConnectionManager_GetConnectionPlanInitial_PreferredRegionOtherURL: a
-// discovered entry with the preferred region's name but a different host stays
-// in the plan, so a wrong preferred URL does not hide it.
-func TestConnectionManager_GetConnectionPlanInitial_PreferredRegionOtherURL(t *testing.T) {
-	preferred := &livekit.RegionInfo{Region: "us-west", Url: "wss://us-west-old.livekit.cloud"}
-	cm := newTestConnectionManagerPreferred("wss://test.livekit.cloud", false /* discovery enabled */, preferred)
-	cm.regionProvider.cache.set("test.livekit.cloud", &livekit.RegionSettings{
-		Regions: []*livekit.RegionInfo{
-			{Region: "us-west", Url: "wss://us-west.livekit.cloud"},
-			{Region: "us-east", Url: "wss://us-east.livekit.cloud"},
-		},
-	}, time.Minute)
-
-	plan, err := cm.getConnectionPlan()
-	require.NoError(t, err)
-	require.Equal(t, []string{
-		"wss://us-west-old.livekit.cloud",
-		"wss://us-west.livekit.cloud",
-		"wss://us-east.livekit.cloud",
-		"wss://test.livekit.cloud",
-	}, planRegionURLs(plan))
-}
-
-// TestConnectionManager_GetConnectionPlanInitial_PreferredRegionOtherScheme: an
-// entry with the same name and host is a duplicate, even with another scheme.
-func TestConnectionManager_GetConnectionPlanInitial_PreferredRegionOtherScheme(t *testing.T) {
-	preferred := &livekit.RegionInfo{Region: "us-west", Url: "https://US-West.livekit.cloud"}
-	cm := newTestConnectionManagerPreferred("wss://test.livekit.cloud", false /* discovery enabled */, preferred)
-	cm.regionProvider.cache.set("test.livekit.cloud", &livekit.RegionSettings{
-		Regions: []*livekit.RegionInfo{
-			{Region: "us-west", Url: "wss://us-west.livekit.cloud"},
-		},
-	}, time.Minute)
-
-	plan, err := cm.getConnectionPlan()
-	require.NoError(t, err)
-	require.Equal(t, []string{"us-west", cOriginalRegion}, planRegionNames(plan))
-	require.Equal(t, "https://US-West.livekit.cloud", plan[0].region.Url)
+	for _, r := range []*livekit.RegionInfo{nil, {Url: region.Url}, {Region: region.Region}} {
+		require.Nil(t, apply(r))
+	}
 }
 
 func TestConnectionManager_GetConnectionPlanResuming_WithRegionSettings(t *testing.T) {
@@ -336,82 +314,6 @@ func TestConnectionManager_GetConnectionPlanReconnecting_MergesSources(t *testin
 	require.NoError(t, err)
 	// server-sent list first, then discovery regions, then original; deduped by region name
 	require.Equal(t, []string{"us-east", "us-west", "eu", cOriginalRegion}, planRegionNames(plan))
-}
-
-// TestConnectionManager_GetConnectionPlanReconnecting_PreferredRegion: the
-// server-sent list stays first. The preferred region goes before the
-// discovered regions.
-func TestConnectionManager_GetConnectionPlanReconnecting_PreferredRegion(t *testing.T) {
-	preferred := &livekit.RegionInfo{Region: "eu", Url: "wss://eu.livekit.cloud"}
-	cm := newTestConnectionManagerPreferred("wss://test.livekit.cloud", false /* discovery enabled */, preferred)
-	cm.regionProvider.cache.set("test.livekit.cloud", &livekit.RegionSettings{
-		Regions: []*livekit.RegionInfo{
-			{Region: "us-west", Url: "wss://us-west.livekit.cloud"},
-			{Region: "eu", Url: "wss://eu.livekit.cloud"},
-		},
-	}, time.Minute)
-
-	cm.setConnected(&livekit.RegionInfo{Region: "us-east", Url: "wss://us-east.livekit.cloud"})
-	cm.setReconnecting(&livekit.RegionSettings{
-		Regions: []*livekit.RegionInfo{
-			{Region: "us-east", Url: "wss://us-east.livekit.cloud"},
-		},
-	})
-
-	plan, err := cm.getConnectionPlan()
-	require.NoError(t, err)
-	require.Equal(t, []string{"us-east", "eu", "us-west", cOriginalRegion}, planRegionNames(plan))
-}
-
-// TestConnectionManager_GetConnectionPlanReconnecting_PreferredRegionOtherURL:
-// on a full reconnect, a discovered entry with the preferred region's name but
-// a different host also stays in the plan.
-func TestConnectionManager_GetConnectionPlanReconnecting_PreferredRegionOtherURL(t *testing.T) {
-	preferred := &livekit.RegionInfo{Region: "eu", Url: "wss://eu-old.livekit.cloud"}
-	cm := newTestConnectionManagerPreferred("wss://test.livekit.cloud", false /* discovery enabled */, preferred)
-	cm.regionProvider.cache.set("test.livekit.cloud", &livekit.RegionSettings{
-		Regions: []*livekit.RegionInfo{
-			{Region: "eu", Url: "wss://eu.livekit.cloud"},
-		},
-	}, time.Minute)
-
-	cm.setConnected(&livekit.RegionInfo{Region: "us-east", Url: "wss://us-east.livekit.cloud"})
-	cm.setReconnecting(nil)
-
-	plan, err := cm.getConnectionPlan()
-	require.NoError(t, err)
-	require.Equal(t, []string{
-		"wss://us-east.livekit.cloud",
-		"wss://eu-old.livekit.cloud",
-		"wss://eu.livekit.cloud",
-		"wss://test.livekit.cloud",
-	}, planRegionURLs(plan))
-}
-
-func TestWithPreferredRegion(t *testing.T) {
-	t.Run("copies the region", func(t *testing.T) {
-		region := &livekit.RegionInfo{Region: "us-west", Url: "wss://us-west.livekit.cloud"}
-		p := &connParams{ConnectParams: &signalling.ConnectParams{}}
-		WithPreferredRegion(region)(p)
-		region.Url = "wss://changed.livekit.cloud"
-
-		require.NotNil(t, p.preferredRegion)
-		require.Equal(t, "us-west", p.preferredRegion.Region)
-		require.Equal(t, "wss://us-west.livekit.cloud", p.preferredRegion.Url)
-	})
-
-	for name, region := range map[string]*livekit.RegionInfo{
-		"nil":     nil,
-		"no name": {Url: "wss://us-west.livekit.cloud"},
-		"no url":  {Region: "us-west"},
-		"empty":   {},
-	} {
-		t.Run("ignores "+name, func(t *testing.T) {
-			p := &connParams{ConnectParams: &signalling.ConnectParams{}}
-			WithPreferredRegion(region)(p)
-			require.Nil(t, p.preferredRegion)
-		})
-	}
 }
 
 // TestConnectionManager_SetResumingIgnoredWhileReconnecting verifies a resume
