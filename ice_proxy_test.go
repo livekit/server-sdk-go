@@ -72,7 +72,7 @@ func TestICEProxyDialerRelaysThroughTURN(t *testing.T) {
 			e.setIncomingRequestParams(context.Background(), "", "", &signalling.ConnectParams{
 				ICEProxyDialer:     dialer,
 				ICETransportPolicy: webrtc.ICETransportPolicyRelay,
-			}, true)
+			}, true, nil)
 			require.NoError(t, e.configure([]*livekit.ICEServer{{
 				Urls:       []string{fmt.Sprintf("%s:%s?transport=tcp", scheme, ln.Addr())},
 				Username:   "user",

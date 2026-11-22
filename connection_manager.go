@@ -72,6 +72,9 @@ type connectionRequestParams struct {
 	token                  string
 	connectParams          signalling.ConnectParams
 	disableRegionDiscovery bool
+	// preferredRegion is tried before the discovered regions. It is nil when
+	// the caller did not set WithPreferredRegion.
+	preferredRegion *livekit.RegionInfo
 }
 
 // -------------------------------------------
@@ -144,6 +147,7 @@ func (c *connectionManager) setIncomingRequestParams(
 	token string,
 	connectParams *signalling.ConnectParams,
 	disableRegionDiscovery bool,
+	preferredRegion *livekit.RegionInfo,
 ) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -154,6 +158,7 @@ func (c *connectionManager) setIncomingRequestParams(
 		token:                  token,
 		connectParams:          *connectParams,
 		disableRegionDiscovery: disableRegionDiscovery,
+		preferredRegion:        preferredRegion,
 	}
 	c.token = token
 }
@@ -445,6 +450,11 @@ type connectionPlanParams struct {
 
 func getConnectionPlanInitial(params connectionPlanParams) ([]connectionAttemptParams, error) {
 	var regionsToTry []*livekit.RegionInfo
+	// The caller's own region goes first. buildConnectionPlan removes the same
+	// region from the discovered list.
+	if p := params.incomingRequestParams.preferredRegion; p != nil {
+		regionsToTry = append(regionsToTry, p)
+	}
 	if !params.incomingRequestParams.disableRegionDiscovery {
 		cloudHostname, _ := parseCloudURL(params.incomingRequestParams.url)
 		if cloudHostname != "" {
@@ -515,6 +525,12 @@ func getConnectionPlanReconnecting(params connectionPlanParams) ([]connectionAtt
 		if params.connectedRegion != nil {
 			regionsToTry = append(regionsToTry, params.connectedRegion)
 		}
+	}
+
+	// The server-sent list and the connected region stay first. The caller's
+	// own region comes before the discovered regions.
+	if p := params.incomingRequestParams.preferredRegion; p != nil {
+		regionsToTry = append(regionsToTry, p)
 	}
 
 	// layer on region provider regions if enabled
