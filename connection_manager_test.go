@@ -245,6 +245,46 @@ func TestConnectionManager_GetConnectionPlanInitial_PreferredRegionNoDiscovery(t
 	require.Equal(t, []string{"wss://us-west.livekit.cloud", "wss://test.livekit.cloud"}, planRegionURLs(plan))
 }
 
+// TestConnectionManager_GetConnectionPlanInitial_PreferredRegionOtherURL: a
+// discovered entry with the preferred region's name but a different host stays
+// in the plan, so a wrong preferred URL does not hide it.
+func TestConnectionManager_GetConnectionPlanInitial_PreferredRegionOtherURL(t *testing.T) {
+	preferred := &livekit.RegionInfo{Region: "us-west", Url: "wss://us-west-old.livekit.cloud"}
+	cm := newTestConnectionManagerPreferred("wss://test.livekit.cloud", false /* discovery enabled */, preferred)
+	cm.regionProvider.cache.set("test.livekit.cloud", &livekit.RegionSettings{
+		Regions: []*livekit.RegionInfo{
+			{Region: "us-west", Url: "wss://us-west.livekit.cloud"},
+			{Region: "us-east", Url: "wss://us-east.livekit.cloud"},
+		},
+	}, time.Minute)
+
+	plan, err := cm.getConnectionPlan()
+	require.NoError(t, err)
+	require.Equal(t, []string{
+		"wss://us-west-old.livekit.cloud",
+		"wss://us-west.livekit.cloud",
+		"wss://us-east.livekit.cloud",
+		"wss://test.livekit.cloud",
+	}, planRegionURLs(plan))
+}
+
+// TestConnectionManager_GetConnectionPlanInitial_PreferredRegionOtherScheme: an
+// entry with the same name and host is a duplicate, even with another scheme.
+func TestConnectionManager_GetConnectionPlanInitial_PreferredRegionOtherScheme(t *testing.T) {
+	preferred := &livekit.RegionInfo{Region: "us-west", Url: "https://US-West.livekit.cloud"}
+	cm := newTestConnectionManagerPreferred("wss://test.livekit.cloud", false /* discovery enabled */, preferred)
+	cm.regionProvider.cache.set("test.livekit.cloud", &livekit.RegionSettings{
+		Regions: []*livekit.RegionInfo{
+			{Region: "us-west", Url: "wss://us-west.livekit.cloud"},
+		},
+	}, time.Minute)
+
+	plan, err := cm.getConnectionPlan()
+	require.NoError(t, err)
+	require.Equal(t, []string{"us-west", cOriginalRegion}, planRegionNames(plan))
+	require.Equal(t, "https://US-West.livekit.cloud", plan[0].region.Url)
+}
+
 func TestConnectionManager_GetConnectionPlanResuming_WithRegionSettings(t *testing.T) {
 	cm := newTestConnectionManager("wss://test.livekit.cloud", true)
 	cm.setConnected(&livekit.RegionInfo{Region: "us-east", Url: "wss://us-east.livekit.cloud"})
@@ -321,6 +361,31 @@ func TestConnectionManager_GetConnectionPlanReconnecting_PreferredRegion(t *test
 	plan, err := cm.getConnectionPlan()
 	require.NoError(t, err)
 	require.Equal(t, []string{"us-east", "eu", "us-west", cOriginalRegion}, planRegionNames(plan))
+}
+
+// TestConnectionManager_GetConnectionPlanReconnecting_PreferredRegionOtherURL:
+// on a full reconnect, a discovered entry with the preferred region's name but
+// a different host also stays in the plan.
+func TestConnectionManager_GetConnectionPlanReconnecting_PreferredRegionOtherURL(t *testing.T) {
+	preferred := &livekit.RegionInfo{Region: "eu", Url: "wss://eu-old.livekit.cloud"}
+	cm := newTestConnectionManagerPreferred("wss://test.livekit.cloud", false /* discovery enabled */, preferred)
+	cm.regionProvider.cache.set("test.livekit.cloud", &livekit.RegionSettings{
+		Regions: []*livekit.RegionInfo{
+			{Region: "eu", Url: "wss://eu.livekit.cloud"},
+		},
+	}, time.Minute)
+
+	cm.setConnected(&livekit.RegionInfo{Region: "us-east", Url: "wss://us-east.livekit.cloud"})
+	cm.setReconnecting(nil)
+
+	plan, err := cm.getConnectionPlan()
+	require.NoError(t, err)
+	require.Equal(t, []string{
+		"wss://us-east.livekit.cloud",
+		"wss://eu-old.livekit.cloud",
+		"wss://eu.livekit.cloud",
+		"wss://test.livekit.cloud",
+	}, planRegionURLs(plan))
 }
 
 func TestWithPreferredRegion(t *testing.T) {
@@ -577,7 +642,7 @@ func TestConnectionManager_BuildConnectionPlan_Dedup(t *testing.T) {
 		{Region: "b", Url: "wss://b.example.com"},
 		{Region: "a", Url: "wss://a2.example.com"}, // duplicate name, dropped
 		{Region: "c", Url: "wss://c.example.com"},
-	}, "tok")
+	}, "tok", nil)
 	require.NoError(t, err)
 	require.Equal(t, []string{"a", "b", "c"}, planRegionNames(plan))
 	require.Equal(t, []string{"wss://a1.example.com", "wss://b.example.com", "wss://c.example.com"}, planRegionURLs(plan))
@@ -597,7 +662,7 @@ func TestConnectionManager_BuildConnectionPlan_Backoff(t *testing.T) {
 		})
 	}
 
-	plan, err := buildConnectionPlan(context.Background(), regions, "tok")
+	plan, err := buildConnectionPlan(context.Background(), regions, "tok", nil)
 	require.NoError(t, err)
 	require.Len(t, plan, 10)
 
