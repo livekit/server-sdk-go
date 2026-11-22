@@ -14,7 +14,7 @@ require (
 	github.com/magefile/mage v1.17.2
 	github.com/moby/buildkit v0.34.1
 	github.com/moby/patternmatcher v0.6.1
-	github.com/pion/dtls/v4 v4.0.0-rc.8
+	github.com/pion/dtls/v4 v4.0.1
 	github.com/pion/interceptor v0.1.51
 	github.com/pion/rtcp v1.2.20
 	github.com/pion/rtp v1.10.6
