@@ -20,7 +20,6 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
-	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -28,6 +27,7 @@ import (
 	lkproto "github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
 	lksdk "github.com/livekit/server-sdk-go/v2"
+	"github.com/livekit/server-sdk-go/v2/internal/agentsurl"
 	"github.com/twitchtv/twirp"
 )
 
@@ -268,7 +268,7 @@ func (c *Client) getAgentsURL(serverRegion string) string {
 	}
 
 	// skip rewrite for local development
-	if isLocalURL(agentsURL) {
+	if agentsurl.IsLocal(agentsURL) {
 		return agentsURL
 	}
 
@@ -278,13 +278,4 @@ func (c *Client) getAgentsURL(serverRegion string) string {
 		serverRegion = fmt.Sprintf("%s.", serverRegion)
 	}
 	return re.ReplaceAllString(agentsURL, fmt.Sprintf("https://%sagents.", serverRegion))
-}
-
-func isLocalURL(rawURL string) bool {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return false
-	}
-	host := u.Hostname()
-	return host == "localhost" || host == "127.0.0.1"
 }
