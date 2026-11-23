@@ -38,6 +38,7 @@ type Client struct {
 	apiKey        string
 	apiSecret     string
 	agentsURL     string
+	overrideURL   string // from WithAgentsURL; replaces LK_AGENTS_URL
 	httpClient    *http.Client
 	headers       map[string]string
 	logger        logger.Logger
@@ -60,6 +61,7 @@ func New(opts ...ClientOption) (*Client, error) {
 	}
 	agentClient, err := lksdk.NewAgentClient(client.projectURL, client.apiKey, client.apiSecret,
 		lksdk.WithHTTPClient(client.httpClient),
+		lksdk.WithAgentsURL(client.overrideURL),
 		lksdk.WithTwirpClientOptions(
 			twirp.WithClientHooks(&twirp.ClientHooks{
 				RequestPrepared: func(ctx context.Context, req *http.Request) (context.Context, error) {
@@ -260,7 +262,9 @@ func (c *Client) uploadAndBuild(
 // cluster rather than relying on GeoDNS resolution.
 func (c *Client) getAgentsURL(serverRegion string) string {
 	agentsURL := c.projectURL
-	if os.Getenv("LK_AGENTS_URL") != "" {
+	if c.overrideURL != "" {
+		agentsURL = c.overrideURL
+	} else if os.Getenv("LK_AGENTS_URL") != "" {
 		agentsURL = os.Getenv("LK_AGENTS_URL")
 	}
 	if strings.HasPrefix(agentsURL, "ws") {

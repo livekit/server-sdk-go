@@ -16,6 +16,7 @@ func TestGetAgentsURL(t *testing.T) {
 	tests := []struct {
 		name         string
 		projectURL   string
+		overrideURL  string
 		serverRegion string
 		expected     string
 	}{
@@ -66,11 +67,30 @@ func TestGetAgentsURL(t *testing.T) {
 			projectURL: "https://my-project.staging.livekit.cloud",
 			expected:   "https://agents.staging.livekit.cloud",
 		},
+		{
+			name:        "WithAgentsURL",
+			projectURL:  "https://my-project.livekit.cloud",
+			overrideURL: "https://agents.staging.livekit.cloud",
+			expected:    "https://agents.staging.livekit.cloud",
+		},
+		{
+			name:         "WithAgentsURL with server region",
+			projectURL:   "https://my-project.livekit.cloud",
+			overrideURL:  "https://agents.staging.livekit.cloud",
+			serverRegion: "osbxash1a",
+			expected:     "https://osbxash1a.agents.staging.livekit.cloud",
+		},
+		{
+			name:        "local WithAgentsURL",
+			projectURL:  "https://my-project.livekit.cloud",
+			overrideURL: "http://127.0.0.1:7880",
+			expected:    "http://127.0.0.1:7880",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c := &Client{projectURL: tt.projectURL}
+			c := &Client{projectURL: tt.projectURL, overrideURL: tt.overrideURL}
 			result := c.getAgentsURL(tt.serverRegion)
 			require.Equal(t, tt.expected, result)
 		})
@@ -89,7 +109,8 @@ func TestLocalAgentsURL(t *testing.T) {
 	defer srv.Close()
 
 	for name, opts := range map[string][]ClientOption{
-		"project URL": {WithProject(srv.URL, "key", "secret")},
+		"project URL":   {WithProject(srv.URL, "key", "secret")},
+		"WithAgentsURL": {WithProject("https://my-project.livekit.cloud", "key", "secret"), WithAgentsURL(srv.URL)},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Setenv("LK_AGENTS_URL", "")

@@ -52,6 +52,12 @@ func TestAgentClientURL(t *testing.T) {
 		{name: "localhost project URL", projectURL: localhost},
 		{name: "local ws project URL", projectURL: strings.Replace(srv.URL, "http", "ws", 1)},
 		{name: "LK_AGENTS_URL", projectURL: "https://project.livekit.cloud", env: srv.URL},
+		{
+			name:       "WithAgentsURL overrides LK_AGENTS_URL",
+			projectURL: "https://project.livekit.cloud",
+			env:        "http://127.0.0.1:1",
+			opts:       []AgentClientOption{WithAgentsURL(srv.URL)},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

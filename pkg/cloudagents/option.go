@@ -46,6 +46,16 @@ func WithHTTPClient(httpClient *http.Client) ClientOption {
 	}
 }
 
+// WithAgentsURL sends the Client's requests to url instead of to the agents
+// host derived from the project URL. url is the cloud-agents URL, such as
+// https://agents.livekit.cloud, or a local server's URL. It overrides
+// LK_AGENTS_URL.
+func WithAgentsURL(url string) ClientOption {
+	return func(c *Client) {
+		c.overrideURL = url
+	}
+}
+
 func WithHeaders(headers map[string]string) ClientOption {
 	return func(c *Client) {
 		c.headers = headers
