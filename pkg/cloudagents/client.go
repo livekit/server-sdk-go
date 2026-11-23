@@ -233,7 +233,8 @@ func (c *Client) uploadAndBuild(
 	excludeFiles []string,
 	buildLogStreamWriter io.Writer,
 ) error {
-	if err := uploadSource(
+	if err := c.UploadSource(
+		ctx,
 		source,
 		presignedUrl,
 		presignedPostRequest,

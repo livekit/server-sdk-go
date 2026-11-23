@@ -18,6 +18,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -27,6 +28,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/livekit/protocol/livekit"
 	"github.com/stretchr/testify/require"
@@ -69,7 +71,7 @@ func TestUploadSource(t *testing.T) {
 	}))
 	defer mockServer.Close()
 
-	err = uploadSource(os.DirFS(tmpDir), mockServer.URL, nil, []string{})
+	err = uploadSource(context.Background(), http.DefaultClient, os.DirFS(tmpDir), mockServer.URL, nil, []string{})
 	require.NoError(t, err)
 }
 
@@ -111,7 +113,7 @@ func TestUploadSourcePost(t *testing.T) {
 	}))
 	defer mockServer.Close()
 
-	err = uploadSource(os.DirFS(tmpDir), "", &livekit.PresignedPostRequest{
+	err = uploadSource(context.Background(), http.DefaultClient, os.DirFS(tmpDir), "", &livekit.PresignedPostRequest{
 		Url:    mockServer.URL,
 		Values: map[string]string{},
 	}, []string{})
@@ -151,7 +153,7 @@ func TestUploadSourceFilePermissions(t *testing.T) {
 	//   https://learn.microsoft.com/en-us/windows/win32/secauthz/access-control-lists
 	//
 	if runtime.GOOS != "windows" {
-		err = uploadSource(os.DirFS(tmpDir), mockServer.URL, nil, []string{})
+		err = uploadSource(context.Background(), http.DefaultClient, os.DirFS(tmpDir), mockServer.URL, nil, []string{})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "permission denied")
 	}
@@ -159,7 +161,7 @@ func TestUploadSourceFilePermissions(t *testing.T) {
 	err = os.Remove(restrictedFile)
 	require.NoError(t, err)
 
-	err = uploadSource(os.DirFS(tmpDir), mockServer.URL, nil, []string{})
+	err = uploadSource(context.Background(), http.DefaultClient, os.DirFS(tmpDir), mockServer.URL, nil, []string{})
 	require.NoError(t, err)
 }
 
@@ -254,7 +256,7 @@ func TestUploadSourceDotfiles(t *testing.T) {
 	}))
 	defer mockServer.Close()
 
-	err = uploadSource(os.DirFS(tmpDir), mockServer.URL, nil, []string{})
+	err = uploadSource(context.Background(), http.DefaultClient, os.DirFS(tmpDir), mockServer.URL, nil, []string{})
 	require.NoError(t, err)
 
 	contents := readTarContents(t, tarBuffer.Bytes())
@@ -339,7 +341,7 @@ func TestUploadSourceDeepDirectories(t *testing.T) {
 	}))
 	defer mockServer.Close()
 
-	err = uploadSource(os.DirFS(tmpDir), mockServer.URL, nil, []string{})
+	err = uploadSource(context.Background(), http.DefaultClient, os.DirFS(tmpDir), mockServer.URL, nil, []string{})
 	require.NoError(t, err)
 
 	contents := readTarContents(t, tarBuffer.Bytes())
@@ -436,7 +438,7 @@ venv/
 	}))
 	defer mockServer.Close()
 
-	err = uploadSource(os.DirFS(tmpDir), mockServer.URL, nil, []string{})
+	err = uploadSource(context.Background(), http.DefaultClient, os.DirFS(tmpDir), mockServer.URL, nil, []string{})
 	require.NoError(t, err)
 
 	contents := readTarContents(t, tarBuffer.Bytes())
@@ -542,7 +544,7 @@ func TestUploadSourceWithPipPythonProject(t *testing.T) {
 	}))
 	defer mockServer.Close()
 
-	err = uploadSource(os.DirFS(tmpDir), mockServer.URL, nil, []string{"**/livekit.toml"})
+	err = uploadSource(context.Background(), http.DefaultClient, os.DirFS(tmpDir), mockServer.URL, nil, []string{"**/livekit.toml"})
 	require.NoError(t, err)
 
 	contents := readTarContents(t, tarBuffer.Bytes())
@@ -637,7 +639,7 @@ func TestUploadSourceWithUvPythonProject(t *testing.T) {
 	}))
 	defer mockServer.Close()
 
-	err = uploadSource(os.DirFS(tmpDir), mockServer.URL, nil, []string{"**/livekit.toml"})
+	err = uploadSource(context.Background(), http.DefaultClient, os.DirFS(tmpDir), mockServer.URL, nil, []string{"**/livekit.toml"})
 	require.NoError(t, err)
 
 	contents := readTarContents(t, tarBuffer.Bytes())
@@ -739,7 +741,7 @@ func TestUploadSourceWithNodeProject(t *testing.T) {
 	}))
 	defer mockServer.Close()
 
-	err = uploadSource(os.DirFS(tmpDir), mockServer.URL, nil, []string{"**/livekit.toml"})
+	err = uploadSource(context.Background(), http.DefaultClient, os.DirFS(tmpDir), mockServer.URL, nil, []string{"**/livekit.toml"})
 	require.NoError(t, err)
 
 	contents := readTarContents(t, tarBuffer.Bytes())
@@ -940,3 +942,65 @@ Dockerfile*
 .idea
 .vscode
 `
+
+// UploadSource sends through the Client's HTTP client, to either upload
+// target, and stops when ctx ends.
+func TestClientUploadSource(t *testing.T) {
+	source := os.DirFS(t.TempDir())
+	tests := []struct {
+		name   string
+		method string
+		post   func(url string) *livekit.PresignedPostRequest
+	}{
+		{name: "presigned PUT", method: http.MethodPut},
+		{name: "presigned POST", method: http.MethodPost, post: func(url string) *livekit.PresignedPostRequest {
+			return &livekit.PresignedPostRequest{Url: url, Values: map[string]string{"key": "source.tar.gz"}}
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer srv.Close()
+			var post *livekit.PresignedPostRequest
+			if tt.post != nil {
+				post = tt.post(srv.URL)
+			}
+
+			var sent []string
+			c := &Client{httpClient: &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+				sent = append(sent, r.Method)
+				return http.DefaultTransport.RoundTrip(r)
+			})}}
+
+			require.NoError(t, c.UploadSource(context.Background(), source, srv.URL, post, nil))
+			require.Equal(t, []string{tt.method}, sent)
+
+			// A server that never answers: the upload ends with ctx.
+			stop := make(chan struct{})
+			hold := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				<-stop
+			}))
+			defer hold.Close()
+			defer close(stop) // before hold.Close, which waits for the handler
+			if post != nil {
+				post.Url = hold.URL
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer cancel()
+			err := c.UploadSource(ctx, source, hold.URL, post, nil)
+			require.ErrorIs(t, err, context.DeadlineExceeded)
+		})
+	}
+}
+
+func TestMultipartUploadContextNilClient(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, r.ParseMultipartForm(1<<20))
+		require.Equal(t, "v", r.FormValue("k"))
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+	require.NoError(t, MultipartUploadContext(context.Background(), nil, srv.URL, map[string]string{"k": "v"}, bytes.NewBufferString("tarball")))
+}
