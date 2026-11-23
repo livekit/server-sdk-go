@@ -13,7 +13,7 @@
 # limitations under the License.
 
 # Build image for Anthropic's OSS Scanner. Keep the Go version at or above go.mod's: GOTOOLCHAIN=local won't fetch one.
-FROM golang:1.26-bookworm
+FROM golang:1.27-bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive \
     GOTOOLCHAIN=local
