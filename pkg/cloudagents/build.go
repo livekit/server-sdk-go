@@ -19,7 +19,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -67,7 +66,9 @@ func (c *Client) build(ctx context.Context, id string, attributes map[string]str
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to build agent: %s", resp.Status)
+		httpErr, _ := newHTTPError(resp) // a body that isn't JSON still makes an HTTPError
+		httpErr.text = fmt.Sprintf("failed to build agent: %s", resp.Status)
+		return httpErr
 	}
 
 	displayMode := progressui.AutoMode
@@ -124,7 +125,7 @@ func (c *Client) build(ctx context.Context, id string, attributes map[string]str
 		for scanner.Scan() {
 			line := scanner.Bytes()
 			if bytes.HasPrefix(line, []byte("BUILD ERROR:")) {
-				return errors.New(strings.TrimPrefix(scanner.Text(), "BUILD ERROR: "))
+				return &BuildError{Message: strings.TrimPrefix(scanner.Text(), "BUILD ERROR: ")}
 			}
 
 			// A queue event carries an lkQueue field; a build update does not. It bypasses the

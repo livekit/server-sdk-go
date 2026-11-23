@@ -18,7 +18,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 )
@@ -56,8 +55,9 @@ func (c *Client) GetPushTarget(ctx context.Context, agentID string) (*PushTarget
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("push-target returned %d: %s", resp.StatusCode, body)
+		httpErr, _ := newHTTPError(resp) // a body that isn't JSON still makes an HTTPError
+		httpErr.text = fmt.Sprintf("push-target returned %d: %s", resp.StatusCode, httpErr.Body)
+		return nil, httpErr
 	}
 	var target PushTarget
 	if err := json.NewDecoder(resp.Body).Decode(&target); err != nil {
