@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -41,20 +42,61 @@ type queueEnvelope struct {
 	LkQueue *queueEvent `json:"lkQueue"`
 }
 
+// BuildOptions are the options of StartBuild.
+type BuildOptions struct {
+	// Deployment is the deployment that the build is for. Empty is production.
+	Deployment string
+	// Tag is the tag of the version that the build makes. Empty lets
+	// cloud-agents choose one.
+	Tag string
+	// Attributes are the attributes of the version that the build makes.
+	Attributes map[string]string
+}
+
+// Build is a build that cloud-agents has queued. Read its progress with Wait,
+// or stop reading with Close. The build continues in cloud-agents either way.
+type Build struct {
+	c    *Client
+	body io.ReadCloser
+	// stream is the build stream from its start, including the first line
+	// that StartBuild read.
+	stream io.Reader
+}
+
 func (c *Client) build(ctx context.Context, id string, attributes map[string]string, agentDeployment string, writer io.Writer) error {
+	b, err := c.StartBuild(ctx, id, BuildOptions{Deployment: agentDeployment, Attributes: attributes})
+	if err != nil {
+		return err
+	}
+	return b.Wait(ctx, writer)
+}
+
+// StartBuild asks cloud-agents to build the source last uploaded for the
+// agent, and returns once cloud-agents has queued the build: at the first line
+// of the build stream. cloud-agents runs the build to its end even if the
+// caller stops reading. ctx bounds the request and the whole build stream,
+// including Wait.
+//
+// A refusal before the build is queued is an *HTTPError, such as a 429 for the
+// build rate limit. A failure that cloud-agents reports on the stream is a
+// *BuildError.
+func (c *Client) StartBuild(ctx context.Context, agentID string, opts BuildOptions) (*Build, error) {
 	params := url.Values{}
-	params.Add("agent_id", id)
-	if agentDeployment != "" {
-		params.Add("deployment", agentDeployment)
+	params.Add("agent_id", agentID)
+	if opts.Deployment != "" {
+		params.Add("deployment", opts.Deployment)
+	}
+	if opts.Tag != "" {
+		params.Add("tag", opts.Tag)
 	}
 
 	// Attributes travel in the X-LIVEKIT-AGENT-VERSION-ATTRIBUTES header (set by
 	// newRequestWithContext), the same channel BYOC pushes use. cloud-agents still
 	// accepts the legacy `attributes` query param from older CLI versions.
 	fullUrl := fmt.Sprintf("%s/build?%s", c.agentsURL, params.Encode())
-	req, err := c.newRequestWithContext(ctx, "POST", fullUrl, nil, attributes)
+	req, err := c.newRequestWithContext(ctx, "POST", fullUrl, nil, opts.Attributes)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// Tell the server we can render queue events ourselves (lkQueue lines), so the queue
 	// wait is shown separately and does not count toward the build clock. Old servers
@@ -62,17 +104,49 @@ func (c *Client) build(ctx context.Context, id string, attributes map[string]str
 	req.Header.Set("X-LIVEKIT-BUILD-PROTOCOL", "v2")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		defer resp.Body.Close()
 		httpErr, _ := newHTTPError(resp) // a body that isn't JSON still makes an HTTPError
 		httpErr.text = fmt.Sprintf("failed to build agent: %s", resp.Status)
-		return httpErr
+		return nil, httpErr
 	}
 
+	// cloud-agents writes the first line once it has queued the build: a notice
+	// that the build continues if the client disconnects.
+	r := bufio.NewReader(resp.Body)
+	first, err := r.ReadBytes('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		_ = resp.Body.Close()
+		return nil, err
+	}
+	b := &Build{c: c, body: resp.Body, stream: io.MultiReader(bytes.NewReader(first), r)}
+	if bytes.HasPrefix(first, []byte("BUILD ERROR:")) {
+		// Wait returns the line as a *BuildError, as it does later in the stream.
+		return nil, b.Wait(ctx, io.Discard)
+	}
+	return b, nil
+}
+
+// Close stops reading the build stream. The build continues in cloud-agents.
+func (b *Build) Close() error {
+	return b.body.Close()
+}
+
+// Wait reads the build stream to its end and renders the build's progress to
+// writer. It returns a *BuildError when cloud-agents reports that the build
+// failed. Cancelling ctx stops reading; the build continues in cloud-agents.
+// Wait closes the Build. Call it at most once.
+func (b *Build) Wait(ctx context.Context, writer io.Writer) error {
+	defer b.Close()
+	// Closing the body ends a read that waits for the next line.
+	stop := context.AfterFunc(ctx, func() { _ = b.body.Close() })
+	defer stop()
+	parent := ctx
+
 	displayMode := progressui.AutoMode
-	if c.jsonLogStream {
+	if b.c.jsonLogStream {
 		displayMode = progressui.RawJSONMode
 	}
 
@@ -121,7 +195,7 @@ func (c *Client) build(ctx context.Context, id string, attributes map[string]str
 	eg.Go(func() error {
 		defer close(ch)
 		var lastQueue string
-		scanner := bufio.NewScanner(resp.Body)
+		scanner := bufio.NewScanner(b.stream)
 		for scanner.Scan() {
 			line := scanner.Bytes()
 			if bytes.HasPrefix(line, []byte("BUILD ERROR:")) {
@@ -137,7 +211,7 @@ func (c *Client) build(ctx context.Context, id string, attributes map[string]str
 			if json.Unmarshal(line, &env) == nil && env.LkQueue != nil {
 				if msg := env.LkQueue.Message; msg != "" && msg != lastQueue {
 					lastQueue = msg
-					if c.jsonLogStream {
+					if b.c.jsonLogStream {
 						_, _ = writer.Write(line)
 						_, _ = io.WriteString(writer, "\n")
 					} else {
@@ -161,6 +235,9 @@ func (c *Client) build(ctx context.Context, id string, attributes map[string]str
 	})
 
 	if err := eg.Wait(); err != nil {
+		if parent.Err() != nil {
+			return parent.Err() // the read failed because ctx closed the body
+		}
 		return err
 	}
 
