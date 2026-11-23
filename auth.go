@@ -35,6 +35,10 @@ type authBase struct {
 	apiSecret string
 	// token, when set, is sent verbatim and per-call grant signing is skipped.
 	token string
+	// keepDeadline leaves the caller's deadline on the context. A client whose
+	// HTTP client has no failoverTransport sets it: nothing would re-apply a
+	// detached deadline, so the request would run unbounded.
+	keepDeadline bool
 }
 
 type authOption interface {
@@ -100,7 +104,9 @@ func (b authBase) prepareContext(ctx context.Context, opt authOption, options ..
 	// Detach a long-enough deadline so it isn't enforced across failover retries
 	// (twirp re-checks the context after each request); the transport re-applies
 	// the budget per attempt. A no-op for short or deadline-free requests.
-	ctx = withFailoverTimeout(ctx)
+	if !b.keepDeadline {
+		ctx = withFailoverTimeout(ctx)
+	}
 
 	return twirp.WithHTTPRequestHeaders(ctx, ctxH)
 }
