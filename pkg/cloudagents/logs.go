@@ -28,19 +28,49 @@ type APIError struct {
 	Meta    map[string]string `json:"meta,omitempty"`
 }
 
+// LogsOptions are the options of StreamLogsWithOptions.
+type LogsOptions struct {
+	// Type is the kind of logs: "deploy", the agent's runtime logs, or
+	// "build", a version's build logs. Empty is "deploy".
+	Type string
+	// Deployment is the deployment whose logs to stream. Empty is production.
+	Deployment string
+	// Version is the tag of the version whose build logs to stream. Empty is
+	// the version deployed to Deployment. cloud-agents reads it only for
+	// build logs.
+	Version string
+	// ServerRegion pins the request to one cloud-agents region, such as
+	// "osbxash1a". Empty lets DNS choose.
+	ServerRegion string
+}
+
 // StreamLogs streams the logs for the given agent.
 func (c *Client) StreamLogs(ctx context.Context, logType, agentID, agentDeployment string, writer io.Writer, serverRegion string) error {
+	return c.StreamLogsWithOptions(ctx, agentID, LogsOptions{
+		Type:         logType,
+		Deployment:   agentDeployment,
+		ServerRegion: serverRegion,
+	}, writer)
+}
+
+// StreamLogsWithOptions streams the agent's logs to writer until the stream
+// ends or ctx is done. A non-200 response from cloud-agents is an *HTTPError.
+func (c *Client) StreamLogsWithOptions(ctx context.Context, agentID string, opts LogsOptions, writer io.Writer) error {
 	logger := c.logger.WithName("StreamLogs")
+	logType := opts.Type
 	if logType == "" {
 		logType = "deploy"
 	}
 	params := url.Values{}
 	params.Add("agent_id", agentID)
 	params.Add("log_type", logType)
-	if agentDeployment != "" {
-		params.Add("deployment", agentDeployment)
+	if opts.Deployment != "" {
+		params.Add("deployment", opts.Deployment)
 	}
-	fullUrl := fmt.Sprintf("%s/logs?%s", c.getAgentsURL(serverRegion), params.Encode())
+	if opts.Version != "" {
+		params.Add("version", opts.Version)
+	}
+	fullUrl := fmt.Sprintf("%s/logs?%s", c.getAgentsURL(opts.ServerRegion), params.Encode())
 	req, err := c.newRequestWithContext(ctx, "GET", fullUrl, nil, nil)
 	if err != nil {
 		return err

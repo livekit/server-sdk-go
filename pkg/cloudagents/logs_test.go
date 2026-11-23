@@ -9,6 +9,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -187,5 +189,80 @@ func TestStreamLogs_ServerClosesConnection(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "scanner error") && !strings.Contains(err.Error(), "unexpected EOF") {
 		t.Fatalf("unexpected error when server disconnects: %v", err)
+	}
+}
+
+func TestStreamLogsWithOptions(t *testing.T) {
+	tests := []struct {
+		name  string
+		opts  LogsOptions
+		query url.Values
+	}{
+		{
+			name:  "defaults",
+			query: url.Values{"agent_id": {"CA_1"}, "log_type": {"deploy"}},
+		},
+		{
+			name: "build logs of a version",
+			opts: LogsOptions{Type: "build", Deployment: "staging", Version: "v20261123"},
+			query: url.Values{
+				"agent_id":   {"CA_1"},
+				"log_type":   {"build"},
+				"deployment": {"staging"},
+				"version":    {"v20261123"},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var query url.Values
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				query = r.URL.Query()
+				fmt.Fprintln(w, "log line 1")
+			}))
+			defer server.Close()
+			client := &Client{
+				httpClient: server.Client(),
+				logger:     logger.GetLogger(),
+				apiKey:     "test-api-key",
+				apiSecret:  "test-api-secret",
+				projectURL: server.URL,
+			}
+
+			var buf bytes.Buffer
+			if err := client.StreamLogsWithOptions(context.Background(), "CA_1", tt.opts, &buf); err != nil {
+				t.Fatalf("StreamLogsWithOptions: %v", err)
+			}
+			if !reflect.DeepEqual(query, tt.query) {
+				t.Errorf("query = %v, want %v", query, tt.query)
+			}
+			if buf.String() != "log line 1\n" {
+				t.Errorf("logs = %q, want %q", buf.String(), "log line 1\n")
+			}
+		})
+	}
+}
+
+func TestStreamLogsWithOptionsHTTPError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprintln(w, `{"msg":"build logs not found","meta":{"version":"v1"}}`)
+	}))
+	defer server.Close()
+	client := &Client{
+		httpClient: server.Client(),
+		logger:     logger.GetLogger(),
+		apiKey:     "test-api-key",
+		apiSecret:  "test-api-secret",
+		projectURL: server.URL,
+	}
+
+	err := client.StreamLogsWithOptions(context.Background(), "CA_1", LogsOptions{Type: "build", Version: "v1"}, &bytes.Buffer{})
+	var httpErr *HTTPError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("error %v is not an HTTPError", err)
+	}
+	if httpErr.StatusCode != http.StatusNotFound || httpErr.Message != "build logs not found" {
+		t.Errorf("HTTPError = %d %q, want 404 %q", httpErr.StatusCode, httpErr.Message, "build logs not found")
 	}
 }
