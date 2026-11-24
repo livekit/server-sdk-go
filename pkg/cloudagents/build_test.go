@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -117,6 +118,16 @@ func TestStartBuildErrors(t *testing.T) {
 		require.True(t, errors.As(err, &buildErr), "error %v is not a BuildError", err)
 		require.Equal(t, "the build was superseded by a newer deploy", buildErr.Message)
 	})
+	t.Run("stream closed before the first line", func(t *testing.T) {
+		srv := answer(t, http.StatusOK, "")
+		c := newTestClient(t, srv)
+		_, err := c.StartBuild(context.Background(), "CA_1", BuildOptions{})
+		require.ErrorIs(t, err, ErrBuildNotQueued)
+		require.Equal(t, "the build stream closed before the build was queued", err.Error())
+
+		// A deploy keeps its old behaviour: no error.
+		require.NoError(t, c.build(context.Background(), "CA_1", nil, "", &bytes.Buffer{}))
+	})
 	t.Run("build error later", func(t *testing.T) {
 		srv := answer(t, http.StatusOK, queuedLine+"BUILD ERROR: timed out waiting for an available builder, please try again.\n")
 		b, err := newTestClient(t, srv).StartBuild(context.Background(), "CA_1", BuildOptions{})
@@ -149,4 +160,16 @@ func TestBuildWaitCancel(t *testing.T) {
 	err = b.Wait(ctx, &bytes.Buffer{})
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.Less(t, time.Since(start), 5*time.Second)
+}
+
+// Wait reads a line longer than bufio.Scanner's 64 KiB default.
+func TestBuildWaitLongLine(t *testing.T) {
+	long := strings.Repeat("x", 200<<10)
+	srv := answer(t, http.StatusOK, queuedLine+`{"lkQueue":{"message":"`+long+`"}}`+"\n")
+
+	b, err := newTestClient(t, srv).StartBuild(context.Background(), "CA_1", BuildOptions{})
+	require.NoError(t, err)
+	var out bytes.Buffer
+	require.NoError(t, b.Wait(context.Background(), &out))
+	require.True(t, strings.HasSuffix(out.String(), long+"\n"))
 }

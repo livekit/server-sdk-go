@@ -42,6 +42,14 @@ type queueEnvelope struct {
 	LkQueue *queueEvent `json:"lkQueue"`
 }
 
+// maxBuildLineSize bounds one line of the build stream. A buildkit status line
+// can be longer than bufio.Scanner's 64 KiB default.
+const maxBuildLineSize = 1 << 20
+
+// ErrBuildNotQueued is StartBuild's error when cloud-agents closes the build
+// stream before its first line, so no build was queued.
+var ErrBuildNotQueued = errors.New("the build stream closed before the build was queued")
+
 // BuildOptions are the options of StartBuild.
 type BuildOptions struct {
 	// Deployment is the deployment that the build is for. Empty is production.
@@ -65,6 +73,9 @@ type Build struct {
 
 func (c *Client) build(ctx context.Context, id string, attributes map[string]string, agentDeployment string, writer io.Writer) error {
 	b, err := c.StartBuild(ctx, id, BuildOptions{Deployment: agentDeployment, Attributes: attributes})
+	if errors.Is(err, ErrBuildNotQueued) {
+		return nil // as before StartBuild existed: an empty stream ends the deploy without an error
+	}
 	if err != nil {
 		return err
 	}
@@ -79,7 +90,8 @@ func (c *Client) build(ctx context.Context, id string, attributes map[string]str
 //
 // A refusal before the build is queued is an *HTTPError, such as a 429 for the
 // build rate limit. A failure that cloud-agents reports on the stream is a
-// *BuildError.
+// *BuildError. A stream that closes before its first line is
+// ErrBuildNotQueued.
 func (c *Client) StartBuild(ctx context.Context, agentID string, opts BuildOptions) (*Build, error) {
 	params := url.Values{}
 	params.Add("agent_id", agentID)
@@ -120,6 +132,10 @@ func (c *Client) StartBuild(ctx context.Context, agentID string, opts BuildOptio
 	if err != nil && !errors.Is(err, io.EOF) {
 		_ = resp.Body.Close()
 		return nil, err
+	}
+	if len(first) == 0 {
+		_ = resp.Body.Close()
+		return nil, ErrBuildNotQueued
 	}
 	b := &Build{c: c, body: resp.Body, stream: io.MultiReader(bytes.NewReader(first), r)}
 	if bytes.HasPrefix(first, []byte("BUILD ERROR:")) {
@@ -196,6 +212,7 @@ func (b *Build) Wait(ctx context.Context, writer io.Writer) error {
 		defer close(ch)
 		var lastQueue string
 		scanner := bufio.NewScanner(b.stream)
+		scanner.Buffer(make([]byte, 0, bufio.MaxScanTokenSize), maxBuildLineSize)
 		for scanner.Scan() {
 			line := scanner.Bytes()
 			if bytes.HasPrefix(line, []byte("BUILD ERROR:")) {
