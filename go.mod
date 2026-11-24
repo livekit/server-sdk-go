@@ -14,7 +14,7 @@ require (
 	github.com/magefile/mage v1.17.2
 	github.com/moby/buildkit v0.34.2
 	github.com/moby/patternmatcher v0.6.1
-	github.com/pion/dtls/v4 v4.0.0-rc.8
+	github.com/pion/dtls/v3 v3.1.15
 	github.com/pion/interceptor v0.1.51
 	github.com/pion/rtcp v1.2.20
 	github.com/pion/rtp v1.10.6
@@ -38,7 +38,6 @@ require (
 	github.com/mackerelio/go-osstat v0.2.8 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/petermattis/goid v0.0.0-20260918085751-abfca077860b // indirect
-	github.com/pion/dtls/v3 v3.1.15 // indirect
 	github.com/pion/transport/v5 v5.1.4 // indirect
 	github.com/prometheus/client_golang v1.25.0 // indirect
 	github.com/prometheus/client_model v0.6.3 // indirect
