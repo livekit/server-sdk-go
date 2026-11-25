@@ -17,7 +17,6 @@ package cloudagents
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -54,11 +53,13 @@ func (c *Client) StreamLogs(ctx context.Context, logType, agentID, agentDeployme
 
 	if resp.StatusCode != http.StatusOK {
 		logger.Debugw("failed to get logs", "status", resp.Status)
-		var errorResponse APIError
-		if err := json.NewDecoder(resp.Body).Decode(&errorResponse); err != nil {
-			return fmt.Errorf("failed to parse error response: %w", err)
+		httpErr, decodeErr := newHTTPError(resp)
+		if decodeErr != nil {
+			httpErr.text = fmt.Sprintf("failed to parse error response: %v", decodeErr)
+		} else {
+			httpErr.text = fmt.Sprintf("failed to get logs: %s - %v", httpErr.Message, httpErr.Meta)
 		}
-		return fmt.Errorf("failed to get logs: %s - %v", errorResponse.Message, errorResponse.Meta)
+		return httpErr
 	}
 	scanner := bufio.NewScanner(resp.Body)
 	for {

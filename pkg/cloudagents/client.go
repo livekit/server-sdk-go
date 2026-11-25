@@ -143,7 +143,7 @@ func (c *Client) DeployAgent(
 		return err
 	}
 	if !resp.Success {
-		return fmt.Errorf("failed to deploy agent: %s", resp.Message)
+		return &RefusedError{Op: "deploy agent", Message: resp.Message}
 	}
 	return c.uploadAndBuild(ctx, agentID, resp.PresignedUrl, resp.PresignedPostRequest, source, attributes, "", excludeFiles, buildLogStreamWriter)
 }
@@ -168,7 +168,7 @@ func (c *Client) DeployAgentV2(
 		return err
 	}
 	if !resp.Success {
-		return fmt.Errorf("failed to deploy agent: %s", resp.Message)
+		return &RefusedError{Op: "deploy agent", Message: resp.Message}
 	}
 	return c.uploadAndBuild(ctx, agentID, "", resp.PresignedReq, source, attributes, agentDeployment, excludeFiles, buildLogStreamWriter)
 }
@@ -188,7 +188,7 @@ func (c *Client) PromoteAgent(
 		return err
 	}
 	if !resp.Success {
-		return fmt.Errorf("failed to promote agent: %s", resp.Message)
+		return &RefusedError{Op: "promote agent", Message: resp.Message}
 	}
 	return nil
 }
