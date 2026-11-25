@@ -34,6 +34,12 @@ func NewAgentClient(url string, apiKey string, apiSecret string, opts ...AgentCl
 	for _, opt := range opts {
 		opt(c)
 	}
+	// Only failoverTransport re-applies a deadline that prepareContext detaches,
+	// so a client from WithHTTPClient keeps the caller's deadline.
+	if c.httpClient != nil {
+		_, failover := c.httpClient.Transport.(*failoverTransport)
+		c.keepDeadline = !failover
+	}
 	c.agentClient = livekit.NewCloudAgentProtobufClient(serverUrl, c.httpClient, c.twirpOpts...)
 	return c, nil
 }
