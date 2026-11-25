@@ -39,8 +39,8 @@ func newRegionURLProvider() *regionURLProvider {
 	return &regionURLProvider{cache: newRegionCache()}
 }
 
-func (r *regionURLProvider) RefreshRegionSettings(cloudHostname, token string) error {
-	_, err := r.RegionSettings(cloudHostname, token, "")
+func (r *regionURLProvider) RefreshRegionSettings(cloudHostname, token, near string) error {
+	_, err := r.RegionSettings(cloudHostname, token, near)
 	return err
 }
 

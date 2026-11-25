@@ -121,8 +121,8 @@ func TestRegionURLProvider_CacheAvoidsRefetch(t *testing.T) {
 	})
 	p := newTestProvider(rs)
 
-	require.NoError(t, p.RefreshRegionSettings(rs.hostname, "test-token"))
-	require.NoError(t, p.RefreshRegionSettings(rs.hostname, "test-token"))
+	require.NoError(t, p.RefreshRegionSettings(rs.hostname, "test-token", ""))
+	require.NoError(t, p.RefreshRegionSettings(rs.hostname, "test-token", ""))
 	require.EqualValues(t, 1, rs.hits.Load(), "second refresh within cache TTL must not refetch")
 }
 

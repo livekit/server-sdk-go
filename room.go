@@ -460,14 +460,20 @@ func (r *Room) SID() string {
 	return r.sid
 }
 
-// PrepareConnection - with LiveKit Cloud, determine the best edge data center for the current client to connect to
-func (r *Room) PrepareConnection(url, token string) error {
+// PrepareConnection - with LiveKit Cloud, determine the best edge data center for the current client to connect to.
+// Pass the same WithPreferredRegion option as to the join: the join reads a
+// separate region list for each preferred region.
+func (r *Room) PrepareConnection(url, token string, opts ...ConnectOption) error {
 	cloudHostname, _ := parseCloudURL(url)
 	if cloudHostname == "" {
 		return nil
 	}
+	params := &connParams{ConnectParams: &signalling.ConnectParams{}}
+	for _, opt := range opts {
+		opt(params)
+	}
 
-	return r.regionURLProvider.RefreshRegionSettings(cloudHostname, token)
+	return r.regionURLProvider.RefreshRegionSettings(cloudHostname, token, params.preferredRegion.GetRegion())
 }
 
 // Join - joins the room with default permissions
