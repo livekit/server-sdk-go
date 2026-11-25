@@ -199,7 +199,8 @@ func TestConnectionManager_GetConnectionPlanInitial_WithDiscovery(t *testing.T) 
 
 // TestConnectionManager_PreferredRegion: the preferred region is first on a
 // join, and after the server list and connected region on a full reconnect.
-// A discovered entry with its name but another host stays in the plan.
+// A discovered entry with its name but another host stays in the plan. If
+// discovery returns regions without the preferred region, the plan skips it.
 func TestConnectionManager_PreferredRegion(t *testing.T) {
 	const orig = "wss://test.livekit.cloud"
 	usEast := &livekit.RegionInfo{Region: "us-east", Url: "wss://us-east.livekit.cloud"}
@@ -219,6 +220,11 @@ func TestConnectionManager_PreferredRegion(t *testing.T) {
 			want: []string{usWest.Url, usEast.Url, orig}},
 		{name: "join, no discovery", preferred: usWest, noDiscovery: true,
 			want: []string{usWest.Url, orig}},
+		// Discovery lists only the regions that the project can use.
+		{name: "join, not discovered", preferred: usWest, discovered: []*livekit.RegionInfo{usEast},
+			want: []string{usEast.Url, orig}},
+		{name: "join, empty discovery", preferred: usWest, discovered: []*livekit.RegionInfo{},
+			want: []string{usWest.Url, orig}},
 		{name: "join, other host", preferred: oldWest, discovered: []*livekit.RegionInfo{usWest, usEast},
 			want: []string{oldWest.Url, usWest.Url, usEast.Url, orig}},
 		{name: "join, same host", preferred: upperWest, discovered: []*livekit.RegionInfo{usWest},
@@ -227,12 +233,14 @@ func TestConnectionManager_PreferredRegion(t *testing.T) {
 			want: []string{usEast.Url, usWest.Url, orig}},
 		{name: "reconnect, other host", preferred: oldWest, discovered: []*livekit.RegionInfo{usWest}, reconnect: true,
 			want: []string{usEast.Url, oldWest.Url, usWest.Url, orig}},
+		{name: "reconnect, not discovered", preferred: usWest, discovered: []*livekit.RegionInfo{usEast}, reconnect: true,
+			want: []string{usEast.Url, orig}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			cm := newConnectionManager(newRegionURLProvider())
 			cm.setIncomingRequestParams(context.Background(), orig, "test-token", &signalling.ConnectParams{}, c.noDiscovery, c.preferred)
 			if c.discovered != nil {
-				cm.regionProvider.cache.set("test.livekit.cloud", &livekit.RegionSettings{Regions: c.discovered}, time.Minute)
+				cm.regionProvider.cache.set(regionCacheKey("test.livekit.cloud", c.preferred.GetRegion()), &livekit.RegionSettings{Regions: c.discovered}, time.Minute)
 			}
 			if c.reconnect {
 				cm.setConnected(usEast)

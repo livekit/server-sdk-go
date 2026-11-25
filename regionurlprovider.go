@@ -40,16 +40,24 @@ func newRegionURLProvider() *regionURLProvider {
 }
 
 func (r *regionURLProvider) RefreshRegionSettings(cloudHostname, token string) error {
-	_, err := r.RegionSettings(cloudHostname, token)
+	_, err := r.RegionSettings(cloudHostname, token, "")
 	return err
 }
 
 // RegionSettings returns the cached region list for a hostname, refreshing it if
 // stale. The returned list is owned by the cache and must not be mutated; the
 // caller is responsible for tracking its own per-failover attempt state.
-func (r *regionURLProvider) RegionSettings(cloudHostname, token string) (*livekit.RegionSettings, error) {
+//
+// If near is set, the server ranks the regions by distance from that region,
+// not from the GeoIP location of the client. The list still holds only the
+// regions that the project can use.
+func (r *regionURLProvider) RegionSettings(cloudHostname, token, near string) (*livekit.RegionSettings, error) {
 	headers := http.Header{"Authorization": []string{"Bearer " + token}}
-	settings, err := r.cache.get(cloudHostname, regionSettingsURL(cloudHostname), headers, regionHostnameProviderSettingsCacheTime)
+	discoveryURL := regionSettingsURL(cloudHostname)
+	if near != "" {
+		discoveryURL += "?near=" + url.QueryEscape(near)
+	}
+	settings, err := r.cache.get(regionCacheKey(cloudHostname, near), discoveryURL, headers, regionHostnameProviderSettingsCacheTime)
 	if err != nil {
 		return nil, err
 	}
@@ -60,6 +68,15 @@ func (r *regionURLProvider) RegionSettings(cloudHostname, token string) (*liveki
 		logger.Warnw("no regions returned", nil, "cloudHostname", cloudHostname)
 	}
 	return settings, nil
+}
+
+// regionCacheKey keeps a separate list for each near region, because the
+// server ranks the regions by distance from it.
+func regionCacheKey(cloudHostname, near string) string {
+	if near == "" {
+		return cloudHostname
+	}
+	return cloudHostname + "?near=" + near
 }
 
 // regionCache fetches and caches the LiveKit Cloud region list per host. It is

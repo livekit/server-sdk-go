@@ -218,9 +218,13 @@ func WithDisableRegionDiscovery() ConnectOption {
 	}
 }
 
-// WithPreferredRegion tries region first, before the regions from region
-// discovery. Use it when the caller knows its own region. If that attempt
-// fails, the SDK tries the discovered regions, then the original URL.
+// WithPreferredRegion tries region first, then the regions from region
+// discovery, then the original URL. Use it when the caller knows its own region.
+//
+// Discovery ranks the regions by distance from region. If the list does not
+// include region, the project cannot use it, and the SDK skips it. A server
+// that does not support this ranking can leave out region even when the
+// project can use it.
 func WithPreferredRegion(region *livekit.RegionInfo) ConnectOption {
 	return func(p *connParams) {
 		if region == nil || region.Region == "" || region.Url == "" {
