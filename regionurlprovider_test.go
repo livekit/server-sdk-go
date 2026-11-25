@@ -39,6 +39,7 @@ type regionSettingsServer struct {
 	mu      sync.Mutex
 	regions *livekit.RegionSettings
 	status  int
+	nears   []string // the near parameter of each request
 }
 
 func newRegionSettingsServer(t *testing.T, regions *livekit.RegionSettings) *regionSettingsServer {
@@ -54,6 +55,7 @@ func newRegionSettingsServer(t *testing.T, regions *livekit.RegionSettings) *reg
 
 		rs.mu.Lock()
 		status, regions := rs.status, rs.regions
+		rs.nears = append(rs.nears, r.URL.Query().Get("near"))
 		rs.mu.Unlock()
 
 		if status != http.StatusOK {
@@ -102,7 +104,7 @@ func TestRegionURLProvider_RegionSettingsOrder(t *testing.T) {
 	// RegionSettings returns the list in server order and does not mutate it, so
 	// repeated calls return the same list and only fetch once.
 	for n := 0; n < 2; n++ {
-		settings, err := p.RegionSettings(rs.hostname, "test-token")
+		settings, err := p.RegionSettings(rs.hostname, "test-token", "")
 		require.NoError(t, err)
 		var got []string
 		for _, region := range settings.GetRegions() {
@@ -119,8 +121,8 @@ func TestRegionURLProvider_CacheAvoidsRefetch(t *testing.T) {
 	})
 	p := newTestProvider(rs)
 
-	require.NoError(t, p.RefreshRegionSettings(rs.hostname, "test-token"))
-	require.NoError(t, p.RefreshRegionSettings(rs.hostname, "test-token"))
+	require.NoError(t, p.RefreshRegionSettings(rs.hostname, "test-token", ""))
+	require.NoError(t, p.RefreshRegionSettings(rs.hostname, "test-token", ""))
 	require.EqualValues(t, 1, rs.hits.Load(), "second refresh within cache TTL must not refetch")
 }
 
@@ -134,7 +136,7 @@ func TestRegionURLProvider_RefreshRepopulates(t *testing.T) {
 	})
 	p := newTestProvider(rs)
 
-	settings, err := p.RegionSettings(rs.hostname, "test-token")
+	settings, err := p.RegionSettings(rs.hostname, "test-token", "")
 	require.NoError(t, err)
 	require.Equal(t, "wss://a.example.com", settings.GetRegions()[0].Url)
 
@@ -146,7 +148,7 @@ func TestRegionURLProvider_RefreshRepopulates(t *testing.T) {
 		Regions: []*livekit.RegionInfo{{Region: "b", Url: "wss://b.example.com"}},
 	})
 
-	settings, err = p.RegionSettings(rs.hostname, "test-token")
+	settings, err = p.RegionSettings(rs.hostname, "test-token", "")
 	require.NoError(t, err)
 	require.EqualValues(t, 2, rs.hits.Load(), "refresh past TTL must refetch")
 	require.Equal(t, "wss://b.example.com", settings.GetRegions()[0].Url)
@@ -159,7 +161,7 @@ func TestRegionURLProvider_FetchError(t *testing.T) {
 	rs.mu.Unlock()
 	p := newTestProvider(rs)
 
-	_, err := p.RegionSettings(rs.hostname, "test-token")
+	_, err := p.RegionSettings(rs.hostname, "test-token", "")
 	require.Error(t, err, "no regions cached after a failed fetch")
 }
 
@@ -177,4 +179,19 @@ func TestParseRegionSettingsMaxAge(t *testing.T) {
 	for in, want := range cases {
 		require.Equal(t, want, parseRegionSettingsMaxAge(in), "input %q", in)
 	}
+}
+
+// TestRegionURLProvider_Near: the near region goes to the server, and each near
+// region has its own cached list.
+func TestRegionURLProvider_Near(t *testing.T) {
+	rs := newRegionSettingsServer(t, &livekit.RegionSettings{
+		Regions: []*livekit.RegionInfo{{Region: "us-east", Url: "wss://us-east.example.com"}},
+	})
+	p := newTestProvider(rs)
+
+	for _, near := range []string{"us-west", "", "us-west"} {
+		_, err := p.RegionSettings(rs.hostname, "test-token", near)
+		require.NoError(t, err)
+	}
+	require.Equal(t, []string{"us-west", ""}, rs.nears) // the second "us-west" is cached
 }

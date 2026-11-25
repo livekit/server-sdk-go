@@ -451,27 +451,30 @@ type connectionPlanParams struct {
 }
 
 func getConnectionPlanInitial(params connectionPlanParams) ([]connectionAttemptParams, error) {
-	var regionsToTry []*livekit.RegionInfo
-	// The caller's own region goes first. buildConnectionPlan removes the same
-	// region from the discovered list.
-	if p := params.incomingRequestParams.preferredRegion; p != nil {
-		regionsToTry = append(regionsToTry, p)
-	}
+	var discovered []*livekit.RegionInfo
 	if !params.incomingRequestParams.disableRegionDiscovery {
 		cloudHostname, _ := parseCloudURL(params.incomingRequestParams.url)
 		if cloudHostname != "" {
 			start := time.Now()
-			settings, err := params.regionURLProvider.RegionSettings(cloudHostname, params.token)
+			settings, err := params.regionURLProvider.RegionSettings(cloudHostname, params.token, params.incomingRequestParams.preferredRegion.GetRegion())
 			if err != nil {
 				// Discovery is best effort. Fall back to the original URL, but make
 				// the cost visible: a timeout here adds 2s to the join.
 				params.log.Warnw("region discovery failed, using original url", err,
 					"cloudHostname", cloudHostname, "duration", time.Since(start))
 			} else {
-				regionsToTry = append(regionsToTry, settings.GetRegions()...)
+				discovered = settings.GetRegions()
 			}
 		}
 	}
+
+	var regionsToTry []*livekit.RegionInfo
+	// The caller's own region goes first. buildConnectionPlan removes the same
+	// region from the discovered list.
+	if p := usablePreferredRegion(params.log, params.incomingRequestParams.preferredRegion, discovered); p != nil {
+		regionsToTry = append(regionsToTry, p)
+	}
+	regionsToTry = append(regionsToTry, discovered...)
 
 	// add the incoming request URL (i. e. original URL) just in case the region specific options did not work
 	regionsToTry = append(regionsToTry, &livekit.RegionInfo{
@@ -529,28 +532,30 @@ func getConnectionPlanReconnecting(params connectionPlanParams) ([]connectionAtt
 		}
 	}
 
-	// The server-sent list and the connected region stay first. The caller's
-	// own region comes before the discovered regions.
-	if p := params.incomingRequestParams.preferredRegion; p != nil {
-		regionsToTry = append(regionsToTry, p)
-	}
-
 	// layer on region provider regions if enabled
+	var discovered []*livekit.RegionInfo
 	if !params.incomingRequestParams.disableRegionDiscovery {
 		cloudHostname, _ := parseCloudURL(params.incomingRequestParams.url)
 		if cloudHostname != "" {
 			start := time.Now()
-			settings, err := params.regionURLProvider.RegionSettings(cloudHostname, params.token)
+			settings, err := params.regionURLProvider.RegionSettings(cloudHostname, params.token, params.incomingRequestParams.preferredRegion.GetRegion())
 			if err != nil {
 				// Discovery is best effort. Fall back to the regions already
 				// collected, but make a slow or failed fetch visible.
 				params.log.Warnw("region discovery failed, using known regions", err,
 					"cloudHostname", cloudHostname, "duration", time.Since(start))
 			} else {
-				regionsToTry = append(regionsToTry, settings.GetRegions()...)
+				discovered = settings.GetRegions()
 			}
 		}
 	}
+
+	// The server-sent list and the connected region stay first. The caller's
+	// own region comes before the discovered regions.
+	if p := usablePreferredRegion(params.log, params.incomingRequestParams.preferredRegion, discovered); p != nil {
+		regionsToTry = append(regionsToTry, p)
+	}
+	regionsToTry = append(regionsToTry, discovered...)
 
 	// add the incoming request URL (i. e. original URL) just in case the region specific options did not work
 	regionsToTry = append(regionsToTry, &livekit.RegionInfo{
@@ -560,6 +565,27 @@ func getConnectionPlanReconnecting(params connectionPlanParams) ([]connectionAtt
 	})
 
 	return buildConnectionPlan(context.Background(), regionsToTry, params.token, params.incomingRequestParams.preferredRegion)
+}
+
+// usablePreferredRegion returns preferred, or nil if discovery returned regions
+// and preferred is not one of them. Discovery lists only the regions that the
+// project can use, so this skips a region that the server would refuse, for
+// example for a project pinned to other regions. Discovery ranks the regions
+// near preferred, so the list has preferred if the project can use it.
+func usablePreferredRegion(log protoLogger.Logger, preferred *livekit.RegionInfo, discovered []*livekit.RegionInfo) *livekit.RegionInfo {
+	if preferred == nil || len(discovered) == 0 {
+		return preferred
+	}
+	names := make([]string, 0, len(discovered))
+	for _, r := range discovered {
+		if r.GetRegion() == preferred.GetRegion() {
+			return preferred
+		}
+		names = append(names, r.GetRegion())
+	}
+	log.Debugw("skipping preferred region, not in discovered regions",
+		"preferredRegion", preferred.GetRegion(), "discoveredRegions", names)
+	return nil
 }
 
 // buildConnectionPlan removes duplicate regions by name. An entry with the

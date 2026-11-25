@@ -218,9 +218,13 @@ func WithDisableRegionDiscovery() ConnectOption {
 	}
 }
 
-// WithPreferredRegion tries region first, before the regions from region
-// discovery. Use it when the caller knows its own region. If that attempt
-// fails, the SDK tries the discovered regions, then the original URL.
+// WithPreferredRegion tries region first, then the regions from region
+// discovery, then the original URL. Use it when the caller knows its own region.
+//
+// Discovery ranks the regions by distance from region. If the list does not
+// include region, the project cannot use it, and the SDK skips it. A server
+// that does not support this ranking can leave out region even when the
+// project can use it.
 func WithPreferredRegion(region *livekit.RegionInfo) ConnectOption {
 	return func(p *connParams) {
 		if region == nil || region.Region == "" || region.Url == "" {
@@ -456,14 +460,20 @@ func (r *Room) SID() string {
 	return r.sid
 }
 
-// PrepareConnection - with LiveKit Cloud, determine the best edge data center for the current client to connect to
-func (r *Room) PrepareConnection(url, token string) error {
+// PrepareConnection - with LiveKit Cloud, determine the best edge data center for the current client to connect to.
+// Pass the same WithPreferredRegion option as to the join: the join reads a
+// separate region list for each preferred region.
+func (r *Room) PrepareConnection(url, token string, opts ...ConnectOption) error {
 	cloudHostname, _ := parseCloudURL(url)
 	if cloudHostname == "" {
 		return nil
 	}
+	params := &connParams{ConnectParams: &signalling.ConnectParams{}}
+	for _, opt := range opts {
+		opt(params)
+	}
 
-	return r.regionURLProvider.RefreshRegionSettings(cloudHostname, token)
+	return r.regionURLProvider.RefreshRegionSettings(cloudHostname, token, params.preferredRegion.GetRegion())
 }
 
 // Join - joins the room with default permissions

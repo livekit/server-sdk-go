@@ -16,6 +16,7 @@ package lksdk
 
 import (
 	"context"
+	"net/http"
 	"testing"
 	"time"
 
@@ -199,7 +200,8 @@ func TestConnectionManager_GetConnectionPlanInitial_WithDiscovery(t *testing.T) 
 
 // TestConnectionManager_PreferredRegion: the preferred region is first on a
 // join, and after the server list and connected region on a full reconnect.
-// A discovered entry with its name but another host stays in the plan.
+// A discovered entry with its name but another host stays in the plan. If
+// discovery returns regions without the preferred region, the plan skips it.
 func TestConnectionManager_PreferredRegion(t *testing.T) {
 	const orig = "wss://test.livekit.cloud"
 	usEast := &livekit.RegionInfo{Region: "us-east", Url: "wss://us-east.livekit.cloud"}
@@ -219,6 +221,11 @@ func TestConnectionManager_PreferredRegion(t *testing.T) {
 			want: []string{usWest.Url, usEast.Url, orig}},
 		{name: "join, no discovery", preferred: usWest, noDiscovery: true,
 			want: []string{usWest.Url, orig}},
+		// Discovery lists only the regions that the project can use.
+		{name: "join, not discovered", preferred: usWest, discovered: []*livekit.RegionInfo{usEast},
+			want: []string{usEast.Url, orig}},
+		{name: "join, empty discovery", preferred: usWest, discovered: []*livekit.RegionInfo{},
+			want: []string{usWest.Url, orig}},
 		{name: "join, other host", preferred: oldWest, discovered: []*livekit.RegionInfo{usWest, usEast},
 			want: []string{oldWest.Url, usWest.Url, usEast.Url, orig}},
 		{name: "join, same host", preferred: upperWest, discovered: []*livekit.RegionInfo{usWest},
@@ -227,12 +234,14 @@ func TestConnectionManager_PreferredRegion(t *testing.T) {
 			want: []string{usEast.Url, usWest.Url, orig}},
 		{name: "reconnect, other host", preferred: oldWest, discovered: []*livekit.RegionInfo{usWest}, reconnect: true,
 			want: []string{usEast.Url, oldWest.Url, usWest.Url, orig}},
+		{name: "reconnect, not discovered", preferred: usWest, discovered: []*livekit.RegionInfo{usEast}, reconnect: true,
+			want: []string{usEast.Url, orig}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			cm := newConnectionManager(newRegionURLProvider())
 			cm.setIncomingRequestParams(context.Background(), orig, "test-token", &signalling.ConnectParams{}, c.noDiscovery, c.preferred)
 			if c.discovered != nil {
-				cm.regionProvider.cache.set("test.livekit.cloud", &livekit.RegionSettings{Regions: c.discovered}, time.Minute)
+				cm.regionProvider.cache.set(regionCacheKey("test.livekit.cloud", c.preferred.GetRegion()), &livekit.RegionSettings{Regions: c.discovered}, time.Minute)
 			}
 			if c.reconnect {
 				cm.setConnected(usEast)
@@ -583,4 +592,42 @@ func TestConnectionManager_BuildConnectionPlan_Backoff(t *testing.T) {
 	for i, w := range want {
 		require.Equal(t, w, plan[i].backoffWait, "idx %d", i)
 	}
+}
+
+// TestPrepareConnection_PreferredRegion: PrepareConnection with the same
+// WithPreferredRegion as the join fills the region list that the join reads,
+// so the join does not wait for another discovery request.
+func TestPrepareConnection_PreferredRegion(t *testing.T) {
+	usWest := &livekit.RegionInfo{Region: "us-west", Url: "wss://us-west.example.com"}
+	rs := newRegionSettingsServer(t, &livekit.RegionSettings{Regions: []*livekit.RegionInfo{usWest}})
+	p := newTestProvider(rs)
+	// The cloud URL must end in .livekit.cloud, so send its requests to the test server.
+	p.cache.client.Transport = toHostTransport{host: rs.hostname, next: p.cache.client.Transport}
+	const cloudURL = "wss://test.livekit.cloud"
+
+	room := NewRoom(nil)
+	room.regionURLProvider = p
+	require.NoError(t, room.PrepareConnection(cloudURL, "test-token", WithPreferredRegion(usWest)))
+
+	cm := newConnectionManager(p)
+	cm.setIncomingRequestParams(context.Background(), cloudURL, "test-token", &signalling.ConnectParams{}, false, usWest)
+	_, err := cm.getConnectionPlan()
+	require.NoError(t, err)
+
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	require.Equal(t, []string{"us-west"}, rs.nears) // one request, from PrepareConnection
+}
+
+// toHostTransport sends every request to host.
+type toHostTransport struct {
+	host string
+	next http.RoundTripper
+}
+
+func (t toHostTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req = req.Clone(req.Context())
+	req.URL.Host = t.host
+	req.Host = t.host
+	return t.next.RoundTrip(req)
 }
