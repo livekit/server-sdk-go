@@ -9,6 +9,7 @@ import (
 	"github.com/twitchtv/twirp"
 
 	"github.com/livekit/protocol/livekit"
+	"github.com/livekit/server-sdk-go/v2/internal/agentsurl"
 	"github.com/livekit/server-sdk-go/v2/signalling"
 )
 
@@ -17,22 +18,29 @@ type AgentClient struct {
 	authBase
 	httpClient *http.Client
 	twirpOpts  []twirp.ClientOption
+	agentsURL  string
 }
 
 func NewAgentClient(url string, apiKey string, apiSecret string, opts ...AgentClientOption) (*AgentClient, error) {
-	serverUrl := os.Getenv("LK_AGENTS_URL")
-	if serverUrl == "" {
-		url = signalling.ToHttpURL(url)
-		pattern := `^https?://[^.]+\.`
-		re := regexp.MustCompile(pattern)
-		serverUrl = re.ReplaceAllString(url, "https://agents.")
-	}
 	c := &AgentClient{
 		authBase:   authBase{apiKey: apiKey, apiSecret: apiSecret},
 		httpClient: newAPIHTTPClient(),
 	}
 	for _, opt := range opts {
 		opt(c)
+	}
+	serverUrl := c.agentsURL
+	if serverUrl == "" {
+		serverUrl = os.Getenv("LK_AGENTS_URL")
+	}
+	if serverUrl == "" {
+		serverUrl = signalling.ToHttpURL(url)
+		// A local development server serves the agents API itself.
+		if !agentsurl.IsLocal(serverUrl) {
+			pattern := `^https?://[^.]+\.`
+			re := regexp.MustCompile(pattern)
+			serverUrl = re.ReplaceAllString(serverUrl, "https://agents.")
+		}
 	}
 	c.agentClient = livekit.NewCloudAgentProtobufClient(serverUrl, c.httpClient, c.twirpOpts...)
 	return c, nil
@@ -43,6 +51,16 @@ type AgentClientOption func(*AgentClient)
 func WithHTTPClient(httpClient *http.Client) AgentClientOption {
 	return func(c *AgentClient) {
 		c.httpClient = httpClient
+	}
+}
+
+// WithAgentsURL sends the client's requests to url instead of to the agents
+// host derived from the project URL. url is the cloud-agents URL, such as
+// https://agents.livekit.cloud, or a local server's URL. It overrides
+// LK_AGENTS_URL.
+func WithAgentsURL(url string) AgentClientOption {
+	return func(c *AgentClient) {
+		c.agentsURL = url
 	}
 }
 

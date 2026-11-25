@@ -20,7 +20,6 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
-	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -28,6 +27,7 @@ import (
 	lkproto "github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
 	lksdk "github.com/livekit/server-sdk-go/v2"
+	"github.com/livekit/server-sdk-go/v2/internal/agentsurl"
 	"github.com/twitchtv/twirp"
 )
 
@@ -38,6 +38,7 @@ type Client struct {
 	apiKey        string
 	apiSecret     string
 	agentsURL     string
+	overrideURL   string // from WithAgentsURL; replaces LK_AGENTS_URL
 	httpClient    *http.Client
 	headers       map[string]string
 	logger        logger.Logger
@@ -60,6 +61,7 @@ func New(opts ...ClientOption) (*Client, error) {
 	}
 	agentClient, err := lksdk.NewAgentClient(client.projectURL, client.apiKey, client.apiSecret,
 		lksdk.WithHTTPClient(client.httpClient),
+		lksdk.WithAgentsURL(client.overrideURL),
 		lksdk.WithTwirpClientOptions(
 			twirp.WithClientHooks(&twirp.ClientHooks{
 				RequestPrepared: func(ctx context.Context, req *http.Request) (context.Context, error) {
@@ -260,7 +262,9 @@ func (c *Client) uploadAndBuild(
 // cluster rather than relying on GeoDNS resolution.
 func (c *Client) getAgentsURL(serverRegion string) string {
 	agentsURL := c.projectURL
-	if os.Getenv("LK_AGENTS_URL") != "" {
+	if c.overrideURL != "" {
+		agentsURL = c.overrideURL
+	} else if os.Getenv("LK_AGENTS_URL") != "" {
 		agentsURL = os.Getenv("LK_AGENTS_URL")
 	}
 	if strings.HasPrefix(agentsURL, "ws") {
@@ -268,7 +272,7 @@ func (c *Client) getAgentsURL(serverRegion string) string {
 	}
 
 	// skip rewrite for local development
-	if isLocalURL(agentsURL) {
+	if agentsurl.IsLocal(agentsURL) {
 		return agentsURL
 	}
 
@@ -278,13 +282,4 @@ func (c *Client) getAgentsURL(serverRegion string) string {
 		serverRegion = fmt.Sprintf("%s.", serverRegion)
 	}
 	return re.ReplaceAllString(agentsURL, fmt.Sprintf("https://%sagents.", serverRegion))
-}
-
-func isLocalURL(rawURL string) bool {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return false
-	}
-	host := u.Hostname()
-	return host == "localhost" || host == "127.0.0.1"
 }
