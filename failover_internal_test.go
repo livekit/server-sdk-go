@@ -172,7 +172,7 @@ func stubResponse(status int) *http.Response {
 // newStubTransport wires a failoverTransport to a stub base and a region cache
 // pre-populated with two fallback regions, so failover has somewhere to go.
 func newStubTransport(stub http.RoundTripper, host string) *failoverTransport {
-	rc := newRegionCache()
+	rc := newRegionCache(apiRegionDiscoveryTimeout)
 	rc.cache[strings.ToLower(host)] = &regionCacheEntry{
 		settings: &livekit.RegionSettings{Regions: []*livekit.RegionInfo{
 			{Url: "http://" + host},
@@ -418,7 +418,7 @@ func TestFailoverRetriesOn5xxWithinBudget(t *testing.T) {
 // newSingleHostTransport wires a failoverTransport with no fallback region: the
 // cache lists only the request's own host.
 func newSingleHostTransport(stub http.RoundTripper, host string) *failoverTransport {
-	rc := newRegionCache()
+	rc := newRegionCache(apiRegionDiscoveryTimeout)
 	rc.cache[strings.ToLower(host)] = &regionCacheEntry{
 		settings:  &livekit.RegionSettings{Regions: []*livekit.RegionInfo{{Url: "http://" + host}}},
 		fetchedAt: time.Now(),
@@ -489,7 +489,7 @@ func TestFailoverCloudAPISkipsRegionDiscovery(t *testing.T) {
 	discovery := &stubRoundTripper{behave: func(int, context.Context) (*http.Response, error) {
 		return nil, errors.New("discovery must not be called")
 	}}
-	rc := newRegionCache()
+	rc := newRegionCache(apiRegionDiscoveryTimeout)
 	rc.client = &http.Client{Transport: discovery}
 	tr := &failoverTransport{base: stub, regions: rc}
 

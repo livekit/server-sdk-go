@@ -18,9 +18,13 @@ import (
 
 const (
 	regionHostnameProviderSettingsCacheTime = 3 * time.Second
-	// regionDiscoveryTimeout bounds a single /settings/regions fetch so a slow
-	// or unreachable endpoint doesn't stall the failover path.
-	regionDiscoveryTimeout = 2 * time.Second
+	// rtcRegionDiscoveryTimeout bounds a /settings/regions fetch before an RTC join.
+	// It exceeds the common 2s DNS forwarder retry so one slow lookup does not
+	// fail discovery.
+	rtcRegionDiscoveryTimeout = 3 * time.Second
+	// apiRegionDiscoveryTimeout bounds a /settings/regions fetch during API
+	// failover, which runs inside the caller's request deadline.
+	apiRegionDiscoveryTimeout = 2 * time.Second
 )
 
 // regionSettingsURL builds the LiveKit Cloud region-discovery URL for a hostname.
@@ -36,7 +40,7 @@ type regionURLProvider struct {
 }
 
 func newRegionURLProvider() *regionURLProvider {
-	return &regionURLProvider{cache: newRegionCache()}
+	return &regionURLProvider{cache: newRegionCache(rtcRegionDiscoveryTimeout)}
 }
 
 func (r *regionURLProvider) RefreshRegionSettings(cloudHostname, token string) error {
@@ -79,9 +83,10 @@ type regionCacheEntry struct {
 	ttl       time.Duration
 }
 
-func newRegionCache() *regionCache {
+// newRegionCache returns a cache whose fetches are bounded by timeout.
+func newRegionCache(timeout time.Duration) *regionCache {
 	return &regionCache{
-		client: &http.Client{Timeout: regionDiscoveryTimeout},
+		client: &http.Client{Timeout: timeout},
 		cache:  make(map[string]*regionCacheEntry),
 	}
 }

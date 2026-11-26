@@ -386,7 +386,7 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 // sharedAPIRegions is the process-wide region cache used by the API failover
 // path. The RTC signaling path has its own regionURLProvider over a separate
 // cache, but both share the same regionCache discovery/fetch/TTL logic.
-var sharedAPIRegions = newRegionCache()
+var sharedAPIRegions = newRegionCache(apiRegionDiscoveryTimeout)
 
 // RegionError indicates the /settings/regions endpoint returned a non-200
 // status while attempting region failover.

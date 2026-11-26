@@ -464,7 +464,7 @@ func getConnectionPlanInitial(params connectionPlanParams) ([]connectionAttemptP
 			settings, err := params.regionURLProvider.RegionSettings(cloudHostname, params.token)
 			if err != nil {
 				// Discovery is best effort. Fall back to the original URL, but make
-				// the cost visible: a timeout here adds 2s to the join.
+				// the cost visible: a timeout here adds rtcRegionDiscoveryTimeout to the join.
 				params.log.Warnw("region discovery failed, using original url", err,
 					"cloudHostname", cloudHostname, "duration", time.Since(start))
 			} else {

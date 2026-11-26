@@ -39,6 +39,7 @@ type regionSettingsServer struct {
 	mu      sync.Mutex
 	regions *livekit.RegionSettings
 	status  int
+	delay   time.Duration
 }
 
 func newRegionSettingsServer(t *testing.T, regions *livekit.RegionSettings) *regionSettingsServer {
@@ -53,9 +54,16 @@ func newRegionSettingsServer(t *testing.T, regions *livekit.RegionSettings) *reg
 		rs.hits.Inc()
 
 		rs.mu.Lock()
-		status, regions := rs.status, rs.regions
+		status, regions, delay := rs.status, rs.regions, rs.delay
 		rs.mu.Unlock()
 
+		if delay > 0 {
+			select {
+			case <-time.After(delay):
+			case <-r.Context().Done():
+				return
+			}
+		}
 		if status != http.StatusOK {
 			w.WriteHeader(status)
 			return
@@ -150,6 +158,52 @@ func TestRegionURLProvider_RefreshRepopulates(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualValues(t, 2, rs.hits.Load(), "refresh past TTL must refetch")
 	require.Equal(t, "wss://b.example.com", settings.GetRegions()[0].Url)
+}
+
+// TestRegionDiscoveryTimeouts covers a discovery response that arrives after
+// one 2s DNS forwarder retry: the RTC join path still gets the region list,
+// while the API failover path gives up within its shorter budget.
+func TestRegionDiscoveryTimeouts(t *testing.T) {
+	const slowResponse = 2200 * time.Millisecond
+	regions := &livekit.RegionSettings{
+		Regions: []*livekit.RegionInfo{{Region: "a", Url: "wss://a.example.com"}},
+	}
+
+	t.Run("rtc join tolerates a slow lookup", func(t *testing.T) {
+		t.Parallel()
+		rs := newRegionSettingsServer(t, regions)
+		rs.mu.Lock()
+		rs.delay = slowResponse
+		rs.mu.Unlock()
+
+		p := newRegionURLProvider()
+		client := rs.server.Client()
+		client.Timeout = p.cache.client.Timeout
+		p.cache.client = client
+
+		settings, err := p.RegionSettings(rs.hostname, "test-token")
+		require.NoError(t, err)
+		require.Equal(t, "wss://a.example.com", settings.GetRegions()[0].Url)
+	})
+
+	t.Run("api failover keeps its shorter budget", func(t *testing.T) {
+		t.Parallel()
+		rs := newRegionSettingsServer(t, regions)
+		rs.mu.Lock()
+		rs.delay = slowResponse
+		rs.mu.Unlock()
+
+		rc := newRegionCache(apiRegionDiscoveryTimeout)
+		client := rs.server.Client()
+		client.Timeout = rc.client.Timeout
+		rc.client = client
+
+		headers := http.Header{"Authorization": []string{"Bearer test-token"}}
+		start := time.Now()
+		_, err := rc.get(rs.hostname, regionSettingsURL(rs.hostname), headers, regionHostnameProviderSettingsCacheTime)
+		require.Error(t, err)
+		require.Less(t, time.Since(start), slowResponse)
+	})
 }
 
 func TestRegionURLProvider_FetchError(t *testing.T) {
