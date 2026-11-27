@@ -270,7 +270,9 @@ func (t *failoverTransport) failover(req *http.Request, maxAttempts int, timeout
 
 		if regions == nil && discover {
 			u := url.URL{Scheme: req.URL.Scheme, Host: req.URL.Host, Path: "/settings/regions"}
-			regions, _ = t.regions.get(req.URL.Host, u.String(), req.Header, 0)
+			// base carries the caller's cancellation but not its deadline, which
+			// is reset per attempt, so discovery is not cut short by it.
+			regions, _ = t.regions.get(base, req.URL.Host, u.String(), req.Header, 0)
 		}
 		nextScheme, nextHost, ok := nextRegion(regions, tried)
 		if !ok {

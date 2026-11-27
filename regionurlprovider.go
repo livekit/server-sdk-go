@@ -1,6 +1,7 @@
 package lksdk
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -23,7 +24,8 @@ const (
 	// fail discovery.
 	rtcRegionDiscoveryTimeout = 3 * time.Second
 	// apiRegionDiscoveryTimeout bounds a /settings/regions fetch during API
-	// failover, which runs inside the caller's request deadline.
+	// failover. It stays short because failover runs while the caller's request
+	// waits; the fetch also stops when the caller cancels the request.
 	apiRegionDiscoveryTimeout = 2 * time.Second
 )
 
@@ -43,17 +45,18 @@ func newRegionURLProvider() *regionURLProvider {
 	return &regionURLProvider{cache: newRegionCache(rtcRegionDiscoveryTimeout)}
 }
 
-func (r *regionURLProvider) RefreshRegionSettings(cloudHostname, token string) error {
-	_, err := r.RegionSettings(cloudHostname, token)
+func (r *regionURLProvider) RefreshRegionSettings(ctx context.Context, cloudHostname, token string) error {
+	_, err := r.RegionSettings(ctx, cloudHostname, token)
 	return err
 }
 
 // RegionSettings returns the cached region list for a hostname, refreshing it if
-// stale. The returned list is owned by the cache and must not be mutated; the
-// caller is responsible for tracking its own per-failover attempt state.
-func (r *regionURLProvider) RegionSettings(cloudHostname, token string) (*livekit.RegionSettings, error) {
+// stale. A refresh stops when ctx is done. The returned list is owned by the
+// cache and must not be mutated; the caller is responsible for tracking its own
+// per-failover attempt state.
+func (r *regionURLProvider) RegionSettings(ctx context.Context, cloudHostname, token string) (*livekit.RegionSettings, error) {
 	headers := http.Header{"Authorization": []string{"Bearer " + token}}
-	settings, err := r.cache.get(cloudHostname, regionSettingsURL(cloudHostname), headers, regionHostnameProviderSettingsCacheTime)
+	settings, err := r.cache.get(ctx, cloudHostname, regionSettingsURL(cloudHostname), headers, regionHostnameProviderSettingsCacheTime)
 	if err != nil {
 		return nil, err
 	}
@@ -93,9 +96,10 @@ func newRegionCache(timeout time.Duration) *regionCache {
 
 // get returns the cached region list for key, fetching discoveryURL if the
 // cache is stale. The server's Cache-Control max-age sets the TTL; when absent,
-// defaultTTL is used (0 means "do not cache"). Best-effort: on a fetch failure
-// it serves a stale cached list when available, otherwise returns the error.
-func (c *regionCache) get(key, discoveryURL string, headers http.Header, defaultTTL time.Duration) (*livekit.RegionSettings, error) {
+// defaultTTL is used (0 means "do not cache"). A fetch stops when ctx is done or
+// the cache's timeout elapses, whichever comes first. Best-effort: on a fetch
+// failure it serves a stale cached list when available, otherwise returns the error.
+func (c *regionCache) get(ctx context.Context, key, discoveryURL string, headers http.Header, defaultTTL time.Duration) (*livekit.RegionSettings, error) {
 	key = strings.ToLower(key)
 
 	c.mu.Lock()
@@ -105,7 +109,7 @@ func (c *regionCache) get(key, discoveryURL string, headers http.Header, default
 	}
 	c.mu.Unlock()
 
-	settings, ttl, err := c.fetch(discoveryURL, headers)
+	settings, ttl, err := c.fetch(ctx, discoveryURL, headers)
 	if err != nil {
 		c.mu.Lock()
 		defer c.mu.Unlock()
@@ -142,8 +146,11 @@ func (c *regionCache) set(key string, settings *livekit.RegionSettings, defaultT
 	c.cache[key] = &regionCacheEntry{settings: settings, fetchedAt: time.Now(), ttl: ttl}
 }
 
-func (c *regionCache) fetch(discoveryURL string, headers http.Header) (*livekit.RegionSettings, time.Duration, error) {
-	req, err := http.NewRequest(http.MethodGet, discoveryURL, nil)
+func (c *regionCache) fetch(ctx context.Context, discoveryURL string, headers http.Header) (*livekit.RegionSettings, time.Duration, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, discoveryURL, nil)
 	if err != nil {
 		return nil, 0, err
 	}
