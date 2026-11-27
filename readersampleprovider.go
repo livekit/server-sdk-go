@@ -35,6 +35,9 @@ import (
 )
 
 const (
+	ivfFrameHeaderSize = 12
+	ivfMaxFrameSize    = 64 << 20
+
 	// defaults to 30 fps
 	defaultH264FrameDuration = 33 * time.Millisecond
 	defaultH265FrameDuration = 33 * time.Millisecond
@@ -92,7 +95,7 @@ type ReaderSampleProvider struct {
 	// for vp8/vp9
 	ivfReader     *ivfreader.IVFReader
 	ivfTimebase   float64
-	lastTimestamp uint64
+	lastTimestamp uint64 // raw IVF pts of the previous frame, in time base ticks
 
 	// for h264
 	h264reader *h264reader.H264Reader
@@ -516,15 +519,25 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 		sample.Duration = defaultH265FrameDuration
 
 	case webrtc.MimeTypeVP8, webrtc.MimeTypeVP9, webrtc.MimeTypeAV1:
-		frame, header, err := p.ivfReader.ParseNextFrame()
-		if err != nil {
+		// Read the frame header ourselves to get the raw pts: pion's
+		// IVFFrameHeader.Timestamp is pts*den/num truncated to an integer, which
+		// makes the deltas uneven for time bases such as 1001/30000.
+		var hdr [ivfFrameHeaderSize]byte
+		if _, err := io.ReadFull(p.reader, hdr[:]); err != nil {
 			return sample, err
 		}
-		delta := header.Timestamp - p.lastTimestamp
+		frameSize := binary.LittleEndian.Uint32(hdr[0:4])
+		pts := binary.LittleEndian.Uint64(hdr[4:12])
+		if frameSize > ivfMaxFrameSize {
+			return sample, fmt.Errorf("ivf frame too large: %d bytes", frameSize)
+		}
+		frame := make([]byte, frameSize)
+		if _, err := io.ReadFull(p.reader, frame); err != nil {
+			return sample, err
+		}
 		sample.Data = frame
-		// header.Timestamp is already pts * den / num (pion's ivfreader), hence the time base twice to get back to seconds
-		sample.Duration = time.Duration(float64(delta) * p.ivfTimebase * p.ivfTimebase * float64(time.Second))
-		p.lastTimestamp = header.Timestamp
+		sample.Duration = time.Duration(float64(pts-p.lastTimestamp) * p.ivfTimebase * float64(time.Second))
+		p.lastTimestamp = pts
 	case webrtc.MimeTypeOpus:
 		payload, err := p.oggReader.ReadPacket()
 		if err != nil {

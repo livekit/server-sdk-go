@@ -689,6 +689,12 @@ func TestIVFNextSample_FrameDurationFollowsTimebase(t *testing.T) {
 			pts:  []uint64{0, 1, 2},
 			want: []time.Duration{0, time.Second / 30, time.Second / 30},
 		},
+		{
+			name:      "1001/30000 (29.97 fps), consecutive raw pts",
+			numerator: 1001, denominator: 30000,
+			pts:  []uint64{0, 1, 2},
+			want: []time.Duration{0, 33366666 * time.Nanosecond, 33366666 * time.Nanosecond},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
