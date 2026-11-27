@@ -644,3 +644,64 @@ func buildH265PacketTrailerSEI(meta FrameMetadata) []byte {
 	nal = append(nal, userData...)
 	return nal
 }
+
+// ---------------------------------------------------------------------------
+// IVF frame durations
+// ---------------------------------------------------------------------------
+
+// makeIVF builds an IVF stream (32-byte file header, then 12-byte frame headers) with one-byte frames at the given pts.
+func makeIVF(fourcc string, numerator, denominator uint32, pts []uint64) []byte {
+	header := make([]byte, 32)
+	copy(header[0:4], "DKIF")
+	binary.LittleEndian.PutUint16(header[6:8], 32)
+	copy(header[8:12], fourcc)
+	binary.LittleEndian.PutUint16(header[12:14], 640)
+	binary.LittleEndian.PutUint16(header[14:16], 480)
+	binary.LittleEndian.PutUint32(header[16:20], denominator)
+	binary.LittleEndian.PutUint32(header[20:24], numerator)
+	binary.LittleEndian.PutUint32(header[24:28], uint32(len(pts)))
+	stream := header
+	for _, p := range pts {
+		frame := make([]byte, 13)
+		binary.LittleEndian.PutUint32(frame[0:4], 1)
+		binary.LittleEndian.PutUint64(frame[4:12], p)
+		stream = append(stream, frame...)
+	}
+	return stream
+}
+
+func TestIVFNextSample_FrameDurationFollowsTimebase(t *testing.T) {
+	tests := []struct {
+		name                   string
+		numerator, denominator uint32
+		pts                    []uint64
+		want                   []time.Duration
+	}{
+		{
+			name:      "1/1000, variable frame timing",
+			numerator: 1, denominator: 1000,
+			pts:  []uint64{0, 67, 133, 200},
+			want: []time.Duration{0, 67 * time.Millisecond, 66 * time.Millisecond, 67 * time.Millisecond},
+		},
+		{
+			name:      "1/30, one tick per frame",
+			numerator: 1, denominator: 30,
+			pts:  []uint64{0, 1, 2},
+			want: []time.Duration{0, time.Second / 30, time.Second / 30},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &ReaderSampleProvider{
+				Mime:   webrtc.MimeTypeAV1,
+				reader: io.NopCloser(bytes.NewReader(makeIVF("AV01", tt.numerator, tt.denominator, tt.pts))),
+			}
+			require.NoError(t, p.OnBind())
+			for i, want := range tt.want {
+				sample, err := p.NextSample(context.Background())
+				require.NoError(t, err)
+				require.InDelta(t, want, sample.Duration, float64(time.Microsecond), "frame %d", i)
+			}
+		})
+	}
+}

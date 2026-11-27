@@ -522,7 +522,8 @@ func (p *ReaderSampleProvider) NextSample(ctx context.Context) (media.Sample, er
 		}
 		delta := header.Timestamp - p.lastTimestamp
 		sample.Data = frame
-		sample.Duration = time.Duration(p.ivfTimebase*float64(delta)*1000) * time.Millisecond
+		// header.Timestamp is already pts * den / num (pion's ivfreader), hence the time base twice to get back to seconds
+		sample.Duration = time.Duration(float64(delta) * p.ivfTimebase * p.ivfTimebase * float64(time.Second))
 		p.lastTimestamp = header.Timestamp
 	case webrtc.MimeTypeOpus:
 		payload, err := p.oggReader.ReadPacket()
