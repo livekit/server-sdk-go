@@ -172,7 +172,7 @@ func stubResponse(status int) *http.Response {
 // newStubTransport wires a failoverTransport to a stub base and a region cache
 // pre-populated with two fallback regions, so failover has somewhere to go.
 func newStubTransport(stub http.RoundTripper, host string) *failoverTransport {
-	rc := newRegionCache()
+	rc := newRegionCache(apiRegionDiscoveryTimeout)
 	rc.cache[strings.ToLower(host)] = &regionCacheEntry{
 		settings: &livekit.RegionSettings{Regions: []*livekit.RegionInfo{
 			{Url: "http://" + host},
@@ -418,7 +418,7 @@ func TestFailoverRetriesOn5xxWithinBudget(t *testing.T) {
 // newSingleHostTransport wires a failoverTransport with no fallback region: the
 // cache lists only the request's own host.
 func newSingleHostTransport(stub http.RoundTripper, host string) *failoverTransport {
-	rc := newRegionCache()
+	rc := newRegionCache(apiRegionDiscoveryTimeout)
 	rc.cache[strings.ToLower(host)] = &regionCacheEntry{
 		settings:  &livekit.RegionSettings{Regions: []*livekit.RegionInfo{{Url: "http://" + host}}},
 		fetchedAt: time.Now(),
@@ -489,7 +489,7 @@ func TestFailoverCloudAPISkipsRegionDiscovery(t *testing.T) {
 	discovery := &stubRoundTripper{behave: func(int, context.Context) (*http.Response, error) {
 		return nil, errors.New("discovery must not be called")
 	}}
-	rc := newRegionCache()
+	rc := newRegionCache(apiRegionDiscoveryTimeout)
 	rc.client = &http.Client{Transport: discovery}
 	tr := &failoverTransport{base: stub, regions: rc}
 
@@ -503,5 +503,41 @@ func TestFailoverCloudAPISkipsRegionDiscovery(t *testing.T) {
 	}
 	if n := discovery.count(); n != 0 {
 		t.Fatalf("expected no region discovery for a Cloud API host, got %d fetches", n)
+	}
+}
+
+// Region discovery during failover stops when the caller cancels the request,
+// instead of running to its own timeout.
+func TestFailoverDiscoveryStopsOnCallerCancel(t *testing.T) {
+	const host = "project.example.com"
+
+	stub := &stubRoundTripper{behave: func(int, context.Context) (*http.Response, error) {
+		return stubResponse(http.StatusBadGateway), nil
+	}}
+	discovery := &stubRoundTripper{behave: func(_ int, ctx context.Context) (*http.Response, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}}
+	rc := newRegionCache(apiRegionDiscoveryTimeout)
+	rc.client = &http.Client{Timeout: apiRegionDiscoveryTimeout, Transport: discovery}
+	tr := &failoverTransport{base: stub, regions: rc}
+
+	ctx, cancel := context.WithCancel(withFailoverForce(context.Background(), time.Millisecond))
+	defer cancel()
+	time.AfterFunc(100*time.Millisecond, cancel)
+
+	start := time.Now()
+	resp, err := tr.RoundTrip(stubRequest(ctx, host))
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got resp=%v err=%v", resp, err)
+	}
+	if elapsed := time.Since(start); elapsed >= time.Second {
+		t.Fatalf("discovery should stop on caller cancel, took %v", elapsed)
+	}
+	if n := discovery.count(); n != 1 {
+		t.Fatalf("expected 1 discovery fetch, got %d", n)
 	}
 }

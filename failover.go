@@ -270,7 +270,9 @@ func (t *failoverTransport) failover(req *http.Request, maxAttempts int, timeout
 
 		if regions == nil && discover {
 			u := url.URL{Scheme: req.URL.Scheme, Host: req.URL.Host, Path: "/settings/regions"}
-			regions, _ = t.regions.get(req.URL.Host, u.String(), req.Header, 0)
+			// base carries the caller's cancellation but not its deadline, which
+			// is reset per attempt, so discovery is not cut short by it.
+			regions, _ = t.regions.get(base, req.URL.Host, u.String(), req.Header, 0)
 		}
 		nextScheme, nextHost, ok := nextRegion(regions, tried)
 		if !ok {
@@ -386,7 +388,7 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 // sharedAPIRegions is the process-wide region cache used by the API failover
 // path. The RTC signaling path has its own regionURLProvider over a separate
 // cache, but both share the same regionCache discovery/fetch/TTL logic.
-var sharedAPIRegions = newRegionCache()
+var sharedAPIRegions = newRegionCache(apiRegionDiscoveryTimeout)
 
 // RegionError indicates the /settings/regions endpoint returned a non-200
 // status while attempting region failover.

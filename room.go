@@ -463,7 +463,7 @@ func (r *Room) PrepareConnection(url, token string) error {
 		return nil
 	}
 
-	return r.regionURLProvider.RefreshRegionSettings(cloudHostname, token)
+	return r.regionURLProvider.RefreshRegionSettings(context.Background(), cloudHostname, token)
 }
 
 // Join - joins the room with default permissions
