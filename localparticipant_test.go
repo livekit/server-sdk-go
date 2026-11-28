@@ -146,3 +146,11 @@ func TestPrepareSimulcastTrackPublication(t *testing.T) {
 		require.Len(t, backupTracksOnPub, 3)
 	})
 }
+
+func TestPublishDataPacketMetadataAppends(t *testing.T) {
+	dp, _ := buildDataPacket(&livekit.SipDTMF{Code: 1, Digit: "1"}, []DataPublishOption{
+		WithDataPublishMetadata([]byte{1}),
+		WithDataPublishMetadata([]byte{2, 3}),
+	})
+	require.Equal(t, [][]byte{{1}, {2, 3}}, dp.Metadata)
+}

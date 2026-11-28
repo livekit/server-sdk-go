@@ -659,6 +659,11 @@ func (p *LocalParticipant) PublishData(payload []byte, opts ...DataPublishOption
 //
 // Messages are sent via UDP and offer no delivery guarantees, see WithDataPublishReliable for sending data reliably (with retries).
 func (p *LocalParticipant) PublishDataPacket(pck DataPacket, opts ...DataPublishOption) error {
+	dataPacket, kind := buildDataPacket(pck, opts)
+	return p.engine.publishDataPacket(dataPacket, kind)
+}
+
+func buildDataPacket(pck DataPacket, opts []DataPublishOption) (*livekit.DataPacket, livekit.DataPacket_Kind) {
 	options := &dataPublishOptions{}
 	for _, opt := range opts {
 		opt(options)
@@ -678,12 +683,12 @@ func (p *LocalParticipant) PublishDataPacket(pck DataPacket, opts ...DataPublish
 	}
 
 	dataPacket.DestinationIdentities = options.DestinationIdentities
+	dataPacket.Metadata = options.Metadata
 	if u, ok := dataPacket.Value.(*livekit.DataPacket_User); ok && u.User != nil {
 		//lint:ignore SA1019 backward compatibility
 		u.User.DestinationIdentities = options.DestinationIdentities
 	}
-
-	return p.engine.publishDataPacket(dataPacket, kind)
+	return dataPacket, kind
 }
 
 // PublishDTMF sends a SIP DTMF digit to the room as a livekit.SipDTMF data packet.

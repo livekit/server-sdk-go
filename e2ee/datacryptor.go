@@ -75,6 +75,7 @@ func (dc *DataCryptor) Encrypt(pck *livekit.DataPacket) (*livekit.DataPacket, er
 		Kind:                  pck.Kind, //nolint:staticcheck
 		ParticipantIdentity:   pck.ParticipantIdentity,
 		DestinationIdentities: pck.DestinationIdentities,
+		Metadata:              pck.Metadata,
 		Value: &livekit.DataPacket_EncryptedPacket{
 			EncryptedPacket: &livekit.EncryptedPacket{
 				EncryptionType: livekit.Encryption_GCM,
