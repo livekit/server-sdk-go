@@ -74,6 +74,7 @@ type dataPublishOptions struct {
 	Reliable              *bool
 	DestinationIdentities []string
 	Topic                 string
+	Metadata              [][]byte
 }
 
 type DataPublishOption func(*dataPublishOptions)
@@ -95,5 +96,12 @@ func WithDataPublishReliable(reliable bool) DataPublishOption {
 func WithDataPublishDestination(identities []string) DataPublishOption {
 	return func(o *dataPublishOptions) {
 		o.DestinationIdentities = identities
+	}
+}
+
+// LiveKit Cloud drops packets carrying metadata unless the sender is a SIP or connector participant.
+func WithDataPublishMetadata(entries ...[]byte) DataPublishOption {
+	return func(o *dataPublishOptions) {
+		o.Metadata = append(o.Metadata, entries...)
 	}
 }

@@ -353,6 +353,30 @@ func (s *SIPClient) TransferSIPParticipant(ctx context.Context, in *livekit.Tran
 	return s.sipClient.TransferSIPParticipant(ctx, in)
 }
 
+func (s *SIPClient) StartSIPSecureInput(ctx context.Context, in *livekit.StartSIPSecureInputRequest) (*livekit.SecureInputInfo, error) {
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Call: true})
+	if err != nil {
+		return nil, err
+	}
+	return s.sipClient.StartSIPSecureInput(ctx, in)
+}
+
+func (s *SIPClient) StopSIPSecureInput(ctx context.Context, in *livekit.StopSIPSecureInputRequest) (*livekit.StopSecureInputResponse, error) {
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Call: true})
+	if err != nil {
+		return nil, err
+	}
+	return s.sipClient.StopSIPSecureInput(ctx, in)
+}
+
+func (s *SIPClient) ListSIPSecureInputs(ctx context.Context, in *livekit.ListSIPSecureInputsRequest) (*livekit.ListSecureInputsResponse, error) {
+	ctx, err := s.prepareContext(ctx, withSIPGrant{Call: true})
+	if err != nil {
+		return nil, err
+	}
+	return s.sipClient.ListSIPSecureInputs(ctx, in)
+}
+
 // SIPStatusFrom unwraps an error and returns associated SIP call status, if any.
 func SIPStatusFrom(err error) *livekit.SIPStatus {
 	return livekit.SIPStatusFrom(err)
@@ -363,4 +387,9 @@ func SIPStatusFrom(err error) *livekit.SIPStatus {
 // also carries a SIP status, see SIPStatusFrom.
 func SIPTransferErrorFrom(err error) *livekit.SIPTransferError {
 	return livekit.SIPTransferErrorFrom(err)
+}
+
+// Returns why a secure input method refused the request, if the error reports it.
+func SecureInputErrorFrom(err error) *livekit.SecureInputError {
+	return livekit.SecureInputErrorFrom(err)
 }

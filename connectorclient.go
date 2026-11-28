@@ -90,3 +90,27 @@ func (c *ConnectorClient) DisconnectWhatsAppCall(ctx context.Context, req *livek
 	}
 	return c.connector.DisconnectWhatsAppCall(ctx, req)
 }
+
+func (c *ConnectorClient) StartConnectorSecureInput(ctx context.Context, req *livekit.StartConnectorSecureInputRequest) (*livekit.SecureInputInfo, error) {
+	ctx, err := c.prepareContext(ctx, withVideoGrant{RoomCreate: true})
+	if err != nil {
+		return nil, err
+	}
+	return c.connector.StartConnectorSecureInput(ctx, req)
+}
+
+func (c *ConnectorClient) StopConnectorSecureInput(ctx context.Context, req *livekit.StopConnectorSecureInputRequest) (*livekit.StopSecureInputResponse, error) {
+	ctx, err := c.prepareContext(ctx, withVideoGrant{RoomCreate: true})
+	if err != nil {
+		return nil, err
+	}
+	return c.connector.StopConnectorSecureInput(ctx, req)
+}
+
+func (c *ConnectorClient) ListConnectorSecureInputs(ctx context.Context, req *livekit.ListConnectorSecureInputsRequest) (*livekit.ListSecureInputsResponse, error) {
+	ctx, err := c.prepareContext(ctx, withVideoGrant{RoomCreate: true})
+	if err != nil {
+		return nil, err
+	}
+	return c.connector.ListConnectorSecureInputs(ctx, req)
+}

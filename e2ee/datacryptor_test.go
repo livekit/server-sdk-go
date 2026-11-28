@@ -36,6 +36,16 @@ func TestDataCryptorRoundTripUser(t *testing.T) {
 	require.Equal(t, []byte("hello encrypted world"), user.User.Payload)
 }
 
+func TestDataCryptorKeepsMetadata(t *testing.T) {
+	encrypted, err := newTestDataCryptor(t).Encrypt(&livekit.DataPacket{
+		Metadata: [][]byte{{1, 2}},
+		Value:    &livekit.DataPacket_User{User: &livekit.UserPacket{Payload: []byte("4")}},
+	})
+	require.NoError(t, err)
+	require.IsType(t, &livekit.DataPacket_EncryptedPacket{}, encrypted.Value)
+	require.Equal(t, [][]byte{{1, 2}}, encrypted.Metadata)
+}
+
 func TestDataCryptorRoundTripChatMessage(t *testing.T) {
 	dc := newTestDataCryptor(t)
 
